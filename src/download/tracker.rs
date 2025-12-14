@@ -12,7 +12,6 @@ use std::{
 use crate::config::constants::VALIDATION_CACHE_LIMIT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum BeatmapState {
     Pending,
     InProgress,
@@ -35,7 +34,6 @@ impl BeatmapEntry {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct BeatmapMetadata {
     pub path: Option<PathBuf>,
@@ -123,7 +121,6 @@ impl Default for BeatmapTracker {
     }
 }
 
-#[allow(dead_code)]
 impl BeatmapTracker {
     pub fn new(initial: HashSet<u32>) -> Self {
         let counters = Arc::new(TrackerCounters::default());

@@ -6,10 +6,11 @@ mod integrity;
 mod passes;
 mod pipeline;
 mod precheck;
-mod size_fetcher;
+pub mod size_fetcher;
 mod tracker;
 
 pub use cleanup::CleanupTracker;
+pub use client::DownloadFailure;
 use client::download_beatmap;
 pub use client::{DownloadResult, StatusReporter, create_download_client};
 pub use error::DownloadError;

@@ -1,9 +1,6 @@
-mod download;
-mod io;
-mod lazer;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(test)]
-fn minimal_zip_bytes() -> Vec<u8> {
+pub fn minimal_zip_bytes() -> Vec<u8> {
     vec![
         0x50, 0x4B, 0x03, 0x04, // Local file header signature
         0x14, 0x00, // Version needed to extract
@@ -28,10 +25,8 @@ fn minimal_zip_bytes() -> Vec<u8> {
     ]
 }
 
-#[cfg(test)]
-fn create_temp_file(content: &[u8]) -> std::path::PathBuf {
+pub fn create_temp_file(content: &[u8]) -> std::path::PathBuf {
     use std::io::Write;
-    use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir();
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);

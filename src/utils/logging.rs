@@ -53,11 +53,9 @@ fn init_pretty_logging(config: &LoggingConfig) -> Result<LoggingGuard> {
     let (file_writer, file_guard) = build_file_writer(config)?;
 
     let file_layer = fmt::layer()
-        .json()
         .with_writer(file_writer)
         .with_ansi(false)
         .with_target(true)
-        .with_current_span(false)
         .with_span_events(fmt::format::FmtSpan::NONE);
 
     tracing_subscriber::registry()

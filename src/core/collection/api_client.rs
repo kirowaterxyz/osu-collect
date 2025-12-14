@@ -37,6 +37,12 @@ impl CollectionService for HttpCollectionService {
 
 pub struct HttpCollectionServiceBuilder;
 
+impl Default for HttpCollectionServiceBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpCollectionServiceBuilder {
     pub fn new() -> Self {
         Self

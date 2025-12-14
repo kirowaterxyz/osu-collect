@@ -8,8 +8,17 @@
 #include <unordered_set>
 #include <iostream>
 #include <fstream>
+#include <atomic>
 
 namespace osu_realm {
+
+namespace {
+std::atomic<bool> g_debug_logging_enabled{false};
+
+bool debug_logging_enabled() {
+    return g_debug_logging_enabled.load(std::memory_order_relaxed);
+}
+} // namespace
 
 class RealmDB::Impl {
 public:
@@ -35,8 +44,10 @@ RealmDB::~RealmDB() = default;
 
 rust::Vec<LocalBeatmapset> RealmDB::list_beatmapsets() const {
     rust::Vec<LocalBeatmapset> results;
-
-    std::ofstream dbg("/tmp/realm_beatmapsets_debug.txt");
+    std::ofstream dbg;
+    if (debug_logging_enabled()) {
+        dbg.open("/tmp/realm_beatmapsets_debug.txt");
+    }
 
     try {
         auto tr = impl_->db->start_read();
@@ -44,28 +55,34 @@ rust::Vec<LocalBeatmapset> RealmDB::list_beatmapsets() const {
         auto beatmap_table = tr->get_table("class_Beatmap");
         if (!beatmap_table) {
             std::cerr << "Table 'class_Beatmap' not found" << std::endl;
-            dbg << "Table 'class_Beatmap' not found" << std::endl;
+            if (dbg.is_open()) {
+                dbg << "Table 'class_Beatmap' not found" << std::endl;
+            }
             return results;
         }
 
         auto beatmapset_table = tr->get_table("class_BeatmapSet");
         if (!beatmapset_table) {
             std::cerr << "Table 'class_BeatmapSet' not found" << std::endl;
-            dbg << "Table 'class_BeatmapSet' not found" << std::endl;
+            if (dbg.is_open()) {
+                dbg << "Table 'class_BeatmapSet' not found" << std::endl;
+            }
             return results;
         }
 
-        dbg << "Beatmap table rows: " << beatmap_table->size() << std::endl;
-        dbg << "BeatmapSet table rows: " << beatmapset_table->size() << std::endl;
+        if (dbg.is_open()) {
+            dbg << "Beatmap table rows: " << beatmap_table->size() << std::endl;
+            dbg << "BeatmapSet table rows: " << beatmapset_table->size() << std::endl;
 
-        // List columns
-        dbg << "\nBeatmap table columns:" << std::endl;
-        for (auto ck : beatmap_table->get_column_keys()) {
-            dbg << "  - " << beatmap_table->get_column_name(ck) << std::endl;
-        }
-        dbg << "\nBeatmapSet table columns:" << std::endl;
-        for (auto ck : beatmapset_table->get_column_keys()) {
-            dbg << "  - " << beatmapset_table->get_column_name(ck) << std::endl;
+            // List columns
+            dbg << "\nBeatmap table columns:" << std::endl;
+            for (auto ck : beatmap_table->get_column_keys()) {
+                dbg << "  - " << beatmap_table->get_column_name(ck) << std::endl;
+            }
+            dbg << "\nBeatmapSet table columns:" << std::endl;
+            for (auto ck : beatmapset_table->get_column_keys()) {
+                dbg << "  - " << beatmapset_table->get_column_name(ck) << std::endl;
+            }
         }
 
         auto bm_online_id_col = beatmap_table->get_column_key("OnlineID");
@@ -130,65 +147,71 @@ rust::Vec<LocalBeatmapset> RealmDB::list_beatmapsets() const {
             }
         }
 
-        dbg << "\nProcessing stats:" << std::endl;
-        dbg << "  Total beatmaps processed: " << total_processed << std::endl;
-        dbg << "  All unique checksums (including skipped): " << all_local_checksums.size() << std::endl;
-        dbg << "  Skipped (no beatmap OnlineID): " << skipped_no_beatmap_id << std::endl;
-        dbg << "  Skipped (no set link): " << skipped_no_set_link << std::endl;
-        dbg << "  Skipped (no beatmapset OnlineID): " << skipped_no_beatmapset_id << std::endl;
-        dbg << "  Total beatmapsets with valid IDs: " << sets_map.size() << std::endl;
+        if (dbg.is_open()) {
+            dbg << "\nProcessing stats:" << std::endl;
+            dbg << "  Total beatmaps processed: " << total_processed << std::endl;
+            dbg << "  All unique checksums (including skipped): " << all_local_checksums.size() << std::endl;
+            dbg << "  Skipped (no beatmap OnlineID): " << skipped_no_beatmap_id << std::endl;
+            dbg << "  Skipped (no set link): " << skipped_no_set_link << std::endl;
+            dbg << "  Skipped (no beatmapset OnlineID): " << skipped_no_beatmapset_id << std::endl;
+            dbg << "  Total beatmapsets with valid IDs: " << sets_map.size() << std::endl;
 
-        // Count total beatmaps
-        size_t total_beatmaps = 0;
-        for (const auto& [_, set] : sets_map) {
-            total_beatmaps += set.beatmaps.size();
-        }
-        dbg << "  Total beatmaps in result: " << total_beatmaps << std::endl;
-
-        // Write JSON data for external analysis
-        std::ofstream json_out("/tmp/realm_beatmapsets.json");
-        json_out << "{\n  \"beatmapsets\": {\n";
-        bool first_set = true;
-        for (const auto& [set_id, set] : sets_map) {
-            if (!first_set) json_out << ",\n";
-            first_set = false;
-            json_out << "    \"" << set_id << "\": {\n";
-            json_out << "      \"id\": " << set_id << ",\n";
-            json_out << "      \"beatmaps\": [\n";
-            bool first_bm = true;
-            for (const auto& bm : set.beatmaps) {
-                if (!first_bm) json_out << ",\n";
-                first_bm = false;
-                json_out << "        {\"id\": " << bm.id
-                         << ", \"checksum\": \"" << std::string(bm.checksum.data(), bm.checksum.size()) << "\"}";
+            // Count total beatmaps
+            size_t total_beatmaps = 0;
+            for (const auto& [_, set] : sets_map) {
+                total_beatmaps += set.beatmaps.size();
             }
-            json_out << "\n      ]\n    }";
+            dbg << "  Total beatmaps in result: " << total_beatmaps << std::endl;
         }
-        json_out << "\n  },\n";
 
-        // Write all checksums (only from valid beatmapsets, for comparison)
-        json_out << "  \"all_checksums\": [\n";
-        bool first_cs = true;
-        for (const auto& [_, set] : sets_map) {
-            for (const auto& bm : set.beatmaps) {
-                if (!first_cs) json_out << ",\n";
-                first_cs = false;
-                json_out << "    \"" << std::string(bm.checksum.data(), bm.checksum.size()) << "\"";
+        if (dbg.is_open()) {
+            // Write JSON data for external analysis
+            std::ofstream json_out("/tmp/realm_beatmapsets.json");
+            if (json_out.is_open()) {
+                json_out << "{\n  \"beatmapsets\": {\n";
+                bool first_set = true;
+                for (const auto& [set_id, set] : sets_map) {
+                    if (!first_set) json_out << ",\n";
+                    first_set = false;
+                    json_out << "    \"" << set_id << "\": {\n";
+                    json_out << "      \"id\": " << set_id << ",\n";
+                    json_out << "      \"beatmaps\": [\n";
+                    bool first_bm = true;
+                    for (const auto& bm : set.beatmaps) {
+                        if (!first_bm) json_out << ",\n";
+                        first_bm = false;
+                        json_out << "        {\"id\": " << bm.id
+                                 << ", \"checksum\": \"" << std::string(bm.checksum.data(), bm.checksum.size()) << "\"}";
+                    }
+                    json_out << "\n      ]\n    }";
+                }
+                json_out << "\n  },\n";
+
+                // Write all checksums (only from valid beatmapsets, for comparison)
+                json_out << "  \"all_checksums\": [\n";
+                bool first_cs = true;
+                for (const auto& [_, set] : sets_map) {
+                    for (const auto& bm : set.beatmaps) {
+                        if (!first_cs) json_out << ",\n";
+                        first_cs = false;
+                        json_out << "    \"" << std::string(bm.checksum.data(), bm.checksum.size()) << "\"";
+                    }
+                }
+                json_out << "\n  ],\n";
+
+                // Write ALL checksums including from skipped beatmaps
+                json_out << "  \"all_checksums_including_skipped\": [\n";
+                first_cs = true;
+                for (const auto& cs : all_local_checksums) {
+                    if (!first_cs) json_out << ",\n";
+                    first_cs = false;
+                    json_out << "    \"" << cs << "\"";
+                }
+                json_out << "\n  ]\n}\n";
+                json_out.close();
+                dbg << "  Wrote JSON data to /tmp/realm_beatmapsets.json" << std::endl;
             }
         }
-        json_out << "\n  ],\n";
-
-        // Write ALL checksums including from skipped beatmaps
-        json_out << "  \"all_checksums_including_skipped\": [\n";
-        first_cs = true;
-        for (const auto& cs : all_local_checksums) {
-            if (!first_cs) json_out << ",\n";
-            first_cs = false;
-            json_out << "    \"" << cs << "\"";
-        }
-        json_out << "\n  ]\n}\n";
-        json_out.close();
-        dbg << "  Wrote JSON data to /tmp/realm_beatmapsets.json" << std::endl;
 
         for (auto& [_, set] : sets_map) {
             results.push_back(std::move(set));
@@ -210,24 +233,30 @@ rust::Vec<LocalCollection> RealmDB::list_collections() const {
     try {
         auto tr = impl_->db->start_read();
 
-        dbg << "Available tables in database:" << std::endl;
-        for (auto tk : tr->get_table_keys()) {
-            auto t = tr->get_table(tk);
-            dbg << "  - " << t->get_name() << " (rows: " << t->size() << ")" << std::endl;
+        if (dbg.is_open()) {
+            dbg << "Available tables in database:" << std::endl;
+            for (auto tk : tr->get_table_keys()) {
+                auto t = tr->get_table(tk);
+                dbg << "  - " << t->get_name() << " (rows: " << t->size() << ")" << std::endl;
+            }
         }
 
         auto collection_table = tr->get_table("class_BeatmapCollection");
         if (!collection_table) {
-            dbg << "Table 'class_BeatmapCollection' NOT FOUND" << std::endl;
+            if (dbg.is_open()) {
+                dbg << "Table 'class_BeatmapCollection' NOT FOUND" << std::endl;
+            }
             return results;
         }
 
-        dbg << "Collection table found with " << collection_table->size() << " rows" << std::endl;
+        if (dbg.is_open()) {
+            dbg << "Collection table found with " << collection_table->size() << " rows" << std::endl;
 
-        // List all columns in the collection table
-        dbg << "Columns in collection table:" << std::endl;
-        for (auto ck : collection_table->get_column_keys()) {
-            dbg << "  - " << collection_table->get_column_name(ck) << std::endl;
+            // List all columns in the collection table
+            dbg << "Columns in collection table:" << std::endl;
+            for (auto ck : collection_table->get_column_keys()) {
+                dbg << "  - " << collection_table->get_column_name(ck) << std::endl;
+            }
         }
 
         if (collection_table->size() == 0) {
@@ -239,18 +268,24 @@ rust::Vec<LocalCollection> RealmDB::list_collections() const {
         auto hashes_col = collection_table->get_column_key("BeatmapMD5Hashes");
 
         if (!name_col || !hashes_col) {
-            dbg << "Missing columns: Name=" << (name_col ? "ok" : "missing")
-                << ", BeatmapMD5Hashes=" << (hashes_col ? "ok" : "missing") << std::endl;
+            if (dbg.is_open()) {
+                dbg << "Missing columns: Name=" << (name_col ? "ok" : "missing")
+                    << ", BeatmapMD5Hashes=" << (hashes_col ? "ok" : "missing") << std::endl;
+            }
             return results;
         }
 
         // Check the column type
         auto hashes_col_type = collection_table->get_column_type(hashes_col);
-        dbg << "BeatmapMD5Hashes column type: " << static_cast<int>(hashes_col_type) << std::endl;
+        if (dbg.is_open()) {
+            dbg << "BeatmapMD5Hashes column type: " << static_cast<int>(hashes_col_type) << std::endl;
+        }
 
         for (auto& obj : *collection_table) {
             auto name_val = obj.get<realm::StringData>(name_col);
-            dbg << "Reading collection: " << std::string(name_val.data(), name_val.size()) << std::endl;
+            if (dbg.is_open()) {
+                dbg << "Reading collection: " << std::string(name_val.data(), name_val.size()) << std::endl;
+            }
 
             LocalCollection collection;
             collection.name = rust::String(name_val.data(), name_val.size());
@@ -258,7 +293,9 @@ rust::Vec<LocalCollection> RealmDB::list_collections() const {
             // Try to read hashes based on column type
             try {
                 auto hashes_list = obj.get_list<realm::StringData>(hashes_col);
-                dbg << "  Hashes count (list<string>): " << hashes_list.size() << std::endl;
+                if (dbg.is_open()) {
+                    dbg << "  Hashes count (list<string>): " << hashes_list.size() << std::endl;
+                }
                 for (size_t j = 0; j < hashes_list.size(); ++j) {
                     auto hash_val = hashes_list.get(j);
                     collection.beatmap_checksums.push_back(
@@ -266,11 +303,15 @@ rust::Vec<LocalCollection> RealmDB::list_collections() const {
                     );
                 }
             } catch (const std::exception& e) {
-                dbg << "  Failed to read as list<string>: " << e.what() << std::endl;
+                if (dbg.is_open()) {
+                    dbg << "  Failed to read as list<string>: " << e.what() << std::endl;
+                }
                 // Try linklist approach
                 try {
                     auto hashes_list = obj.get_linklist(hashes_col);
-                    dbg << "  Hashes count (linklist): " << hashes_list.size() << std::endl;
+                    if (dbg.is_open()) {
+                        dbg << "  Hashes count (linklist): " << hashes_list.size() << std::endl;
+                    }
                     for (size_t j = 0; j < hashes_list.size(); ++j) {
                         auto hash_key = hashes_list.get(j);
                         auto hash_table = hashes_list.get_target_table();
@@ -282,14 +323,18 @@ rust::Vec<LocalCollection> RealmDB::list_collections() const {
                         );
                     }
                 } catch (const std::exception& e2) {
-                    dbg << "  Failed to read as linklist: " << e2.what() << std::endl;
+                    if (dbg.is_open()) {
+                        dbg << "  Failed to read as linklist: " << e2.what() << std::endl;
+                    }
                 }
             }
 
             results.push_back(std::move(collection));
         }
 
-        dbg << "Total collections read: " << results.size() << std::endl;
+        if (dbg.is_open()) {
+            dbg << "Total collections read: " << results.size() << std::endl;
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "[realm-cpp] Error reading collections: " << e.what() << std::endl;
@@ -328,6 +373,10 @@ rust::Vec<rust::String> RealmDB::list_all_checksums() const {
 std::unique_ptr<RealmDB> open_realm(rust::Str path) {
     std::string path_str(path.data(), path.size());
     return std::make_unique<RealmDB>(path_str);
+}
+
+void set_realm_debug_logging(bool enabled) {
+    g_debug_logging_enabled.store(enabled, std::memory_order_relaxed);
 }
 
 } // namespace osu_realm

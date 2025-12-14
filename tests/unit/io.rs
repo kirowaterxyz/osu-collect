@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::tests::{create_temp_file, minimal_zip_bytes};
-    use crate::worker::io::ensure_valid_archive;
+    use crate::common::{create_temp_file, minimal_zip_bytes};
+    use osu_collect::worker::io::ensure_valid_archive;
 
     fn cleanup_temp_file(path: &std::path::Path) {
         let _ = std::fs::remove_file(path);

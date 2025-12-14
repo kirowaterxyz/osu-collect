@@ -348,7 +348,6 @@ struct DownloadSession {
 }
 
 impl DownloadSession {
-    #[allow(clippy::too_many_arguments)]
     async fn prepare_collection(
         id: DownloadId,
         status: StatusSink,
@@ -381,7 +380,6 @@ impl DownloadSession {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn prepare_selective(
         id: DownloadId,
         status: StatusSink,
@@ -417,7 +415,6 @@ impl DownloadSession {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn finalize(
         id: DownloadId,
         status: StatusSink,
@@ -570,7 +567,6 @@ async fn prepare_output_dir_common(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_download_context(
     id: DownloadId,
     thread_count: usize,
@@ -693,7 +689,6 @@ async fn run_download_loop(
     final_failures
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run_download_core(
     session: DownloadSession,
     shutdown: ShutdownToken,

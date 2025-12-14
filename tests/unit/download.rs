@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tracker_tests {
-    use crate::download::BeatmapTracker;
+    use osu_collect::download::BeatmapTracker;
     use std::collections::HashSet;
 
     #[test]
@@ -116,7 +116,7 @@ mod tracker_tests {
 
 #[cfg(test)]
 mod cleanup_tracker_tests {
-    use crate::download::CleanupTracker;
+    use osu_collect::download::CleanupTracker;
     use std::path::PathBuf;
 
     #[test]
@@ -142,7 +142,7 @@ mod cleanup_tracker_tests {
 
 #[cfg(test)]
 mod shutdown_token_tests {
-    use crate::download::ShutdownToken;
+    use osu_collect::download::ShutdownToken;
 
     #[test]
     fn test_initial_state() {
@@ -176,8 +176,10 @@ mod shutdown_token_tests {
 
 #[cfg(test)]
 pub(crate) mod archive_validation_tests {
-    use crate::tests::{create_temp_file, minimal_zip_bytes};
-    use crate::worker::io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive};
+    use crate::common::{create_temp_file, minimal_zip_bytes};
+    use osu_collect::worker::io::{
+        ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
+    };
 
     fn cleanup_temp_file(path: &std::path::Path) {
         let _ = std::fs::remove_file(path);
@@ -281,7 +283,7 @@ pub(crate) mod archive_validation_tests {
 
 #[cfg(test)]
 mod download_error_tests {
-    use crate::download::DownloadError;
+    use osu_collect::download::DownloadError;
 
     #[test]
     fn test_concurrent_download_error() {
@@ -310,7 +312,7 @@ mod download_error_tests {
 
 #[cfg(test)]
 mod download_result_tests {
-    use crate::download::{DownloadResult, client::DownloadFailure};
+    use osu_collect::download::{DownloadFailure, DownloadResult};
 
     #[test]
     fn test_download_result_skipped() {

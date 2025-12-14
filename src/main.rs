@@ -1,22 +1,10 @@
-mod app;
-mod auto_update;
-mod config;
-mod core;
-mod download;
-mod mirrors;
-mod osu_db;
-mod realm_bridge;
-mod tui;
-mod utils;
-mod worker;
-
-mod tests;
+use osu_collect::app::run_app;
+use osu_collect::auto_update::spawn_background_update;
+use osu_collect::config::{ConfigService, LogLevel};
+use osu_collect::realm_bridge::ffi::set_realm_debug_logging;
+use osu_collect::utils;
 #[cfg(windows)]
-mod windows_init;
-
-use app::run_app;
-use config::ConfigService;
-use tracing::warn;
+use osu_collect::windows_init;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,10 +13,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_service = ConfigService::new();
     let config = config_service.load_or_default();
+
+    let realm_debug =
+        config.logging.enabled && matches!(config.logging.level, LogLevel::Debug | LogLevel::Trace);
+    set_realm_debug_logging(realm_debug);
     let _logging_guard = utils::init_logging(&config.logging)?;
-    let startup_notice = auto_update::check_and_apply().await.unwrap_or_else(|err| {
-        warn!(error = %err, "Auto-update failed; new version available!");
-        None
-    });
-    run_app(config, startup_notice).await
+    spawn_background_update();
+    run_app(config, None).await
 }

@@ -31,5 +31,6 @@ private:
 };
 
 std::unique_ptr<RealmDB> open_realm(rust::Str path);
+void set_realm_debug_logging(bool enabled);
 
 } // namespace osu_realm

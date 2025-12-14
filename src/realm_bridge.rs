@@ -26,6 +26,7 @@ pub mod ffi {
         type RealmDB;
 
         fn open_realm(path: &str) -> Result<UniquePtr<RealmDB>>;
+        fn set_realm_debug_logging(enabled: bool);
 
         fn list_beatmapsets(self: &RealmDB) -> Vec<LocalBeatmapset>;
         fn list_collections(self: &RealmDB) -> Vec<LocalCollection>;

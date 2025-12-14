@@ -64,7 +64,6 @@ pub struct DownloadContext {
 }
 
 impl DownloadContext {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: DownloadId,
         thread_count: usize,
@@ -99,7 +98,6 @@ impl DownloadContext {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn with_status_sink(
         id: DownloadId,
         thread_count: usize,

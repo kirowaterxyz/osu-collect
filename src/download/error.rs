@@ -4,7 +4,6 @@ use thiserror::Error;
 use crate::utils::AppError;
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum DownloadError {
     #[error("Network error: {0}")]
     Network(#[from] reqwest::Error),
@@ -49,7 +48,6 @@ pub enum DownloadError {
     Other(Box<str>),
 }
 
-#[allow(dead_code)]
 impl DownloadError {
     #[inline]
     pub fn not_found(msg: impl Into<Box<str>>) -> Self {

@@ -122,7 +122,7 @@ pub(crate) async fn verify_existing_beatmapsets(
         .map(|(path, beatmapset_id)| {
             let opts = ArchiveValidationOptions {
                 verify_zip_eocd: options.verify_zip_eocd,
-                remove_on_invalid: false,
+                remove_on_invalid: true,
             };
             let shutdown_inner = shutdown_clone.clone();
             async move {

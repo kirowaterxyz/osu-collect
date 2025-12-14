@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::osu_db::{BeatmapReader, LazerReader};
+    use osu_collect::osu_db::{BeatmapReader, LazerReader};
     use std::path::PathBuf;
 
     #[test]
@@ -137,7 +137,7 @@ mod tests {
         // (assuming the realm has beatmaps with invalid OnlineIDs)
         if additional_checksums > 0 {
             println!(
-                "SUCCESS: {} additional checksums recovered that would have caused false 'not installed' reports",
+                "SUCCESS: {} additional checksums recovered that would cause false 'Not Installed' reports",
                 additional_checksums
             );
         } else {
