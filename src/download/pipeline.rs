@@ -16,7 +16,7 @@ use crate::{
     utils::{
         self, AppError, check_available_space, is_low_disk_space, validate_and_prepare_directory,
     },
-    worker::{DownloadContext, MirrorPool, StatusSink},
+    worker::{DownloadContext, DownloadContextConfig, MirrorPool, StatusSink},
 };
 use dashmap::DashSet;
 use fs2::FileExt;
@@ -267,6 +267,59 @@ struct OutputPreparation {
     output_dir: PathBuf,
     display: String,
 }
+
+/// Parameters for preparing a collection download session
+struct PrepareCollectionParams<'a> {
+    id: DownloadId,
+    status: StatusSink,
+    shutdown: &'a ShutdownToken,
+    directory: &'a str,
+    collection_input: &'a str,
+    thread_count: usize,
+    verify_zip_eocd: bool,
+    flavor: &'a PipelineFlavor,
+}
+
+/// Parameters for preparing a selective download session
+struct PrepareSelectiveParams<'a> {
+    id: DownloadId,
+    status: StatusSink,
+    shutdown: &'a ShutdownToken,
+    directory: &'a str,
+    collection_ids: &'a [u32],
+    beatmapset_ids: &'a [u32],
+    thread_count: usize,
+    verify_zip_eocd: bool,
+    flavor: &'a PipelineFlavor,
+}
+
+/// Parameters for finalizing a download session
+struct FinalizeSessionParams<'a> {
+    id: DownloadId,
+    status: StatusSink,
+    shutdown: &'a ShutdownToken,
+    target: SessionTarget,
+    beatmapset_ids: Vec<u32>,
+    output: OutputPreparation,
+    lock_guard: DownloadLockGuard,
+    thread_count: usize,
+    verify_zip_eocd: bool,
+    flavor: &'a PipelineFlavor,
+}
+
+/// Parameters for running the download core
+struct RunDownloadCoreParams {
+    session: DownloadSession,
+    shutdown: ShutdownToken,
+    mirrors: Vec<MirrorEndpoint>,
+    concurrent: u8,
+    max_retries: u8,
+    skip_existing: bool,
+    auto_overwrite: bool,
+    verify_zip_eocd: bool,
+    flavor: PipelineFlavor,
+}
+
 enum SessionTarget {
     Collection(Collection),
     Selective { collection_names: Vec<String> },
@@ -349,106 +402,81 @@ struct DownloadSession {
 
 impl DownloadSession {
     async fn prepare_collection(
-        id: DownloadId,
-        status: StatusSink,
-        shutdown: &ShutdownToken,
-        directory: &str,
-        collection_input: &str,
-        thread_count: usize,
-        verify_zip_eocd: bool,
-        flavor: &PipelineFlavor,
+        params: PrepareCollectionParams<'_>,
     ) -> Result<Option<Self>, DownloadError> {
-        let collection = resolve_collection(collection_input).await?;
+        let collection = resolve_collection(params.collection_input).await?;
         let beatmapset_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
-        let output = prepare_output_directory(directory, &collection).await?;
+        let output = prepare_output_directory(params.directory, &collection).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir)?;
         let target = SessionTarget::Collection(collection);
-        target.announce_ready(&status, id, &output, &beatmapset_ids);
+        target.announce_ready(&params.status, params.id, &output, &beatmapset_ids);
 
-        Self::finalize(
-            id,
-            status,
-            shutdown,
+        Self::finalize(FinalizeSessionParams {
+            id: params.id,
+            status: params.status,
+            shutdown: params.shutdown,
             target,
             beatmapset_ids,
             output,
             lock_guard,
-            thread_count,
-            verify_zip_eocd,
-            flavor,
-        )
+            thread_count: params.thread_count,
+            verify_zip_eocd: params.verify_zip_eocd,
+            flavor: params.flavor,
+        })
         .await
     }
 
     async fn prepare_selective(
-        id: DownloadId,
-        status: StatusSink,
-        shutdown: &ShutdownToken,
-        directory: &str,
-        collection_ids: &[u32],
-        beatmapset_ids: &[u32],
-        thread_count: usize,
-        verify_zip_eocd: bool,
-        flavor: &PipelineFlavor,
+        params: PrepareSelectiveParams<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let collection_names =
-            resolve_selective_collections(collection_ids, beatmapset_ids).await?;
-        let output = prepare_selective_output_directory(directory, collection_ids).await?;
+            resolve_selective_collections(params.collection_ids, params.beatmapset_ids).await?;
+        let output =
+            prepare_selective_output_directory(params.directory, params.collection_ids).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir)?;
-        let mut target_ids = beatmapset_ids.to_vec();
+        let mut target_ids = params.beatmapset_ids.to_vec();
         target_ids.sort_unstable();
         let target = SessionTarget::Selective { collection_names };
-        target.announce_ready(&status, id, &output, &target_ids);
+        target.announce_ready(&params.status, params.id, &output, &target_ids);
 
-        Self::finalize(
-            id,
-            status,
-            shutdown,
+        Self::finalize(FinalizeSessionParams {
+            id: params.id,
+            status: params.status,
+            shutdown: params.shutdown,
             target,
-            target_ids,
+            beatmapset_ids: target_ids,
             output,
             lock_guard,
-            thread_count,
-            verify_zip_eocd,
-            flavor,
-        )
+            thread_count: params.thread_count,
+            verify_zip_eocd: params.verify_zip_eocd,
+            flavor: params.flavor,
+        })
         .await
     }
 
-    async fn finalize(
-        id: DownloadId,
-        status: StatusSink,
-        shutdown: &ShutdownToken,
-        target: SessionTarget,
-        beatmapset_ids: Vec<u32>,
-        output: OutputPreparation,
-        lock_guard: DownloadLockGuard,
-        thread_count: usize,
-        verify_zip_eocd: bool,
-        flavor: &PipelineFlavor,
-    ) -> Result<Option<Self>, DownloadError> {
-        let expectations = target.expectation_index(&beatmapset_ids);
+    async fn finalize(params: FinalizeSessionParams<'_>) -> Result<Option<Self>, DownloadError> {
+        let expectations = params.target.expectation_index(&params.beatmapset_ids);
         let precheck = perform_initial_precheck(
-            &status,
-            id,
-            &output.output_dir,
+            &params.status,
+            params.id,
+            &params.output.output_dir,
             expectations,
-            thread_count,
-            verify_zip_eocd,
-            shutdown,
+            params.thread_count,
+            params.verify_zip_eocd,
+            params.shutdown,
         )
         .await?;
 
         if precheck.aborted {
-            log_status(&status, id, flavor.precheck_abort_log);
-            fail_status(&status, id, "Download aborted by user");
+            log_status(&params.status, params.id, params.flavor.precheck_abort_log);
+            fail_status(&params.status, params.id, "Download aborted by user");
             return Ok(None);
         }
 
         if precheck.files_changed {
             log_status(
-                &status,
-                id,
+                &params.status,
+                params.id,
                 "Files changed during precheck; rescheduling affected beatmapsets",
             );
         }
@@ -468,17 +496,18 @@ impl DownloadSession {
         }
 
         if verified_bytes > 0 {
-            verified_sizes_status(&status, id, verified_bytes);
+            verified_sizes_status(&params.status, params.id, verified_bytes);
         }
 
-        let pending_ids: HashSet<u32> = beatmapset_ids
+        let pending_ids: HashSet<u32> = params
+            .beatmapset_ids
             .iter()
             .copied()
             .filter(|beatmap_id| !satisfied.contains(beatmap_id))
             .collect();
         let tracker = BeatmapTracker::with_verified(pending_ids.clone(), satisfied);
 
-        target_status(&status, id, pending_ids.len());
+        target_status(&params.status, params.id, pending_ids.len());
 
         let totals = DownloadSummary {
             downloaded: 0,
@@ -489,23 +518,23 @@ impl DownloadSession {
 
         if totals.skipped > 0 {
             log_status(
-                &status,
-                id,
+                &params.status,
+                params.id,
                 format!("{} beatmapsets already verified locally", totals.skipped),
             );
-            progress_status(&status, id, &totals);
+            progress_status(&params.status, params.id, &totals);
         }
 
         Ok(Some(DownloadSession {
-            id,
-            status,
-            target,
-            beatmapset_ids,
-            output,
+            id: params.id,
+            status: params.status,
+            target: params.target,
+            beatmapset_ids: params.beatmapset_ids,
+            output: params.output,
             tracker,
             totals,
             initial_unverified,
-            _lock_guard: lock_guard,
+            _lock_guard: params.lock_guard,
         }))
     }
 }
@@ -567,7 +596,8 @@ async fn prepare_output_dir_common(
     })
 }
 
-fn build_download_context(
+/// Parameters for building a download context
+struct BuildContextParams {
     id: DownloadId,
     thread_count: usize,
     max_retries: u8,
@@ -581,25 +611,28 @@ fn build_download_context(
     output_dir: PathBuf,
     initial_unverified: Arc<DashSet<u32>>,
     status: StatusSink,
-) -> Result<DownloadContext, DownloadError> {
-    validate_mirrors(&mirrors)?;
+}
+
+fn build_download_context(params: BuildContextParams) -> Result<DownloadContext, DownloadError> {
+    validate_mirrors(&params.mirrors)?;
     let progress_watchdog = Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS);
-    Ok(DownloadContext::new(
-        id,
-        thread_count,
-        skip_existing,
-        auto_overwrite,
-        verify_zip_eocd,
-        max_retries,
-        shutdown,
-        client,
-        MirrorPool::new(mirrors),
-        output_dir,
-        tracker,
-        initial_unverified,
-        status,
+
+    Ok(DownloadContext::new(DownloadContextConfig {
+        id: params.id,
+        thread_count: params.thread_count,
+        skip_existing: params.skip_existing,
+        auto_overwrite: params.auto_overwrite,
+        verify_zip_eocd: params.verify_zip_eocd,
+        max_retries: params.max_retries,
+        shutdown: params.shutdown,
+        client: params.client,
+        mirror_pool: MirrorPool::new(params.mirrors),
+        output_dir: params.output_dir,
+        tracker: params.tracker,
+        initial_unverified: params.initial_unverified,
+        status: params.status,
         progress_watchdog,
-    ))
+    }))
 }
 
 async fn run_download_loop(
@@ -689,17 +722,19 @@ async fn run_download_loop(
     final_failures
 }
 
-async fn run_download_core(
-    session: DownloadSession,
-    shutdown: ShutdownToken,
-    mirrors: Vec<MirrorEndpoint>,
-    concurrent: u8,
-    max_retries: u8,
-    skip_existing: bool,
-    auto_overwrite: bool,
-    verify_zip_eocd: bool,
-    flavor: PipelineFlavor,
-) -> Result<(), DownloadError> {
+async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), DownloadError> {
+    let RunDownloadCoreParams {
+        session,
+        shutdown,
+        mirrors,
+        concurrent,
+        max_retries,
+        skip_existing,
+        auto_overwrite,
+        verify_zip_eocd,
+        flavor,
+    } = params;
+
     let DownloadSession {
         id,
         status,
@@ -736,21 +771,21 @@ async fn run_download_core(
 
     let download_client = http_client::download_client()?;
     let thread_count = concurrent.max(1) as usize;
-    let ctx = build_download_context(
+    let ctx = build_download_context(BuildContextParams {
         id,
         thread_count,
         max_retries,
         skip_existing,
         auto_overwrite,
         verify_zip_eocd,
-        download_client,
-        shutdown.clone(),
+        client: download_client,
+        shutdown: shutdown.clone(),
         mirrors,
         tracker,
-        output.output_dir.clone(),
+        output_dir: output.output_dir.clone(),
         initial_unverified,
-        status.clone(),
-    )?;
+        status: status.clone(),
+    })?;
 
     let failure_report = run_download_loop(&ctx, &mut totals, flavor.log_prefix).await;
     ctx.tracker.clear_validation_cache();
@@ -951,23 +986,23 @@ async fn run_download(
     let flavor = PipelineFlavor::collection();
     let thread_count = concurrent.max(1) as usize;
 
-    let session = DownloadSession::prepare_collection(
+    let session = DownloadSession::prepare_collection(PrepareCollectionParams {
         id,
-        status.clone(),
-        &shutdown,
-        &directory,
-        &collection_input,
+        status: status.clone(),
+        shutdown: &shutdown,
+        directory: &directory,
+        collection_input: &collection_input,
         thread_count,
         verify_zip_eocd,
-        &flavor,
-    )
+        flavor: &flavor,
+    })
     .await?;
 
     let Some(session) = session else {
         return Ok(());
     };
 
-    run_download_core(
+    run_download_core(RunDownloadCoreParams {
         session,
         shutdown,
         mirrors,
@@ -977,7 +1012,7 @@ async fn run_download(
         auto_overwrite,
         verify_zip_eocd,
         flavor,
-    )
+    })
     .await
 }
 
@@ -1017,34 +1052,34 @@ async fn run_selective_download(
     let flavor = PipelineFlavor::selective();
     let thread_count = concurrent.max(1) as usize;
 
-    let session = DownloadSession::prepare_selective(
+    let session = DownloadSession::prepare_selective(PrepareSelectiveParams {
         id,
-        status.clone(),
-        &shutdown,
-        &directory,
-        &collection_ids,
-        &beatmapset_ids,
+        status: status.clone(),
+        shutdown: &shutdown,
+        directory: &directory,
+        collection_ids: &collection_ids,
+        beatmapset_ids: &beatmapset_ids,
         thread_count,
         verify_zip_eocd,
-        &flavor,
-    )
+        flavor: &flavor,
+    })
     .await?;
 
     let Some(session) = session else {
         return Ok(());
     };
 
-    run_download_core(
+    run_download_core(RunDownloadCoreParams {
         session,
         shutdown,
         mirrors,
         concurrent,
         max_retries,
-        true,
-        false,
+        skip_existing: true,
+        auto_overwrite: false,
         verify_zip_eocd,
         flavor,
-    )
+    })
     .await
 }
 

@@ -8,6 +8,24 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::MirrorPool;
 
+/// Configuration parameters for creating a DownloadContext
+pub struct DownloadContextConfig {
+    pub id: DownloadId,
+    pub thread_count: usize,
+    pub skip_existing: bool,
+    pub auto_overwrite: bool,
+    pub verify_zip_eocd: bool,
+    pub max_retries: u8,
+    pub shutdown: ShutdownToken,
+    pub client: reqwest::Client,
+    pub mirror_pool: MirrorPool,
+    pub output_dir: PathBuf,
+    pub tracker: BeatmapTracker,
+    pub initial_unverified: Arc<DashSet<u32>>,
+    pub status: StatusSink,
+    pub progress_watchdog: Duration,
+}
+
 #[derive(Clone)]
 pub struct StatusSink {
     inner: Arc<dyn Fn(DownloadEvent) + Send + Sync>,
@@ -64,23 +82,8 @@ pub struct DownloadContext {
 }
 
 impl DownloadContext {
-    pub fn new(
-        id: DownloadId,
-        thread_count: usize,
-        skip_existing: bool,
-        auto_overwrite: bool,
-        verify_zip_eocd: bool,
-        max_retries: u8,
-        shutdown: ShutdownToken,
-        client: reqwest::Client,
-        mirror_pool: MirrorPool,
-        output_dir: PathBuf,
-        tracker: BeatmapTracker,
-        initial_unverified: Arc<DashSet<u32>>,
-        status: StatusSink,
-        progress_watchdog: Duration,
-    ) -> Self {
-        Self::with_status_sink(
+    pub fn new(config: DownloadContextConfig) -> Self {
+        let DownloadContextConfig {
             id,
             thread_count,
             skip_existing,
@@ -95,25 +98,8 @@ impl DownloadContext {
             initial_unverified,
             status,
             progress_watchdog,
-        )
-    }
+        } = config;
 
-    pub fn with_status_sink(
-        id: DownloadId,
-        thread_count: usize,
-        skip_existing: bool,
-        auto_overwrite: bool,
-        verify_zip_eocd: bool,
-        max_retries: u8,
-        shutdown: ShutdownToken,
-        client: reqwest::Client,
-        mirror_pool: MirrorPool,
-        output_dir: PathBuf,
-        tracker: BeatmapTracker,
-        initial_unverified: Arc<DashSet<u32>>,
-        status: StatusSink,
-        progress_watchdog: Duration,
-    ) -> Self {
         Self {
             id,
             thread_count,
