@@ -1,11 +1,9 @@
 use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, status};
-use std::{
-    collections::HashMap,
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{cell::Cell, collections::HashMap, collections::VecDeque, time::Instant};
 
-use crate::config::constants::{COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER};
+use crate::config::constants::{
+    COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
@@ -92,6 +90,8 @@ pub struct CollectionPage {
     pub progress_label_style_locked: bool,
     pub progress_label_bold_when_locked: bool,
     pub low_disk_space: Option<u64>,
+    cached_cumulative_speed: Cell<f64>,
+    last_speed_update: Cell<Option<Instant>>,
 }
 
 impl CollectionPage {
@@ -116,6 +116,8 @@ impl CollectionPage {
             progress_label_style_locked: false,
             progress_label_bold_when_locked: true,
             low_disk_space: None,
+            cached_cumulative_speed: Cell::new(0.0),
+            last_speed_update: Cell::new(None),
         }
     }
 
@@ -223,7 +225,7 @@ impl CollectionPage {
             let now = Instant::now();
             if let Some(last_update) = status.last_update {
                 let elapsed = now.duration_since(last_update);
-                if elapsed > Duration::from_millis(50) {
+                if elapsed > SPEED_UPDATE_INTERVAL {
                     let bytes_delta = downloaded.saturating_sub(status.bytes_downloaded);
                     let speed = bytes_delta as f64 / elapsed.as_secs_f64();
                     status.speed_bytes_per_sec = status.speed_bytes_per_sec * 0.7 + speed * 0.3;
@@ -246,10 +248,23 @@ impl CollectionPage {
     }
 
     pub fn cumulative_speed(&self) -> f64 {
-        self.thread_statuses
-            .iter()
-            .map(|s| s.speed_bytes_per_sec())
-            .sum()
+        let now = Instant::now();
+        let should_update = match self.last_speed_update.get() {
+            Some(last) => now.duration_since(last) >= SPEED_UPDATE_INTERVAL,
+            None => true,
+        };
+
+        if should_update {
+            let new_speed: f64 = self
+                .thread_statuses
+                .iter()
+                .map(|s| s.speed_bytes_per_sec())
+                .sum();
+            self.cached_cumulative_speed.set(new_speed);
+            self.last_speed_update.set(Some(now));
+        }
+
+        self.cached_cumulative_speed.get()
     }
 
     pub fn set_failed_maps(&mut self, failures: Vec<(u32, String)>) {

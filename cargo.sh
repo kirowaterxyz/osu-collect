@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 TIME=$(date +%s)
 START_TIME=$TIME
 
