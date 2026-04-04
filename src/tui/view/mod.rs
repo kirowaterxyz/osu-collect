@@ -6,6 +6,7 @@ mod home;
 mod updates;
 
 use crate::app::{App, CollectionPage, ConfigTab, HomeTab, UpdatesTab};
+use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout},
@@ -45,9 +46,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(version_paragraph, version_area);
 
     match view.active_tab {
-        0 => home::render(frame, content_area, view.home),
-        1 => updates::render(frame, content_area, view.updates),
-        2 => config::render(frame, content_area, view.config),
+        HOME_TAB_INDEX => home::render(frame, content_area, view.home),
+        UPDATES_TAB_INDEX => updates::render(frame, content_area, view.updates),
+        CONFIG_TAB_INDEX => config::render(frame, content_area, view.config),
         _ => {
             if let Some(download_view) = view.download {
                 download::render(frame, content_area, download_view);

@@ -117,14 +117,13 @@ pub(crate) async fn verify_existing_beatmapsets(
         candidates.push((path, beatmapset_id));
     }
 
-    let shutdown_clone = shutdown.clone();
     let mut tasks = stream::iter(candidates)
         .map(|(path, beatmapset_id)| {
             let opts = ArchiveValidationOptions {
                 verify_zip_eocd: options.verify_zip_eocd,
                 remove_on_invalid: true,
             };
-            let shutdown_inner = shutdown_clone.clone();
+            let shutdown_inner = shutdown.clone();
             async move {
                 if shutdown_inner.is_cancelled() {
                     return Ok(None);
@@ -184,7 +183,6 @@ pub(crate) async fn verify_existing_beatmapsets(
         match result {
             Ok(Some(record)) => {
                 if let Some(error) = record.validation_error {
-                    let error_msg = error;
                     if unverified_maps.insert(record.beatmapset_id) {
                         unverified_list.push(record.beatmapset_id);
                     }
@@ -192,7 +190,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                         download_id = id,
                         beatmapset_id = record.beatmapset_id,
                         file = %record.path.display(),
-                        error = %error_msg,
+                        error = %error,
                         "Existing archive failed validation"
                     );
                     if options.notify_verified {
@@ -200,7 +198,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                             id,
                             beatmapset_id: record.beatmapset_id,
                             stage: BeatmapStage::Failed,
-                            message: format!("Existing file failed validation: {}", error_msg),
+                            message: format!("Existing file failed validation: {}", error),
                         });
                     }
                     continue;

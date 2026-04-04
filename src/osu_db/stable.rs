@@ -27,10 +27,8 @@ impl BeatmapReader for StableReader {
             return Err(format!("osu!.db not found at {}", db_path.display()));
         }
 
-        // Check file size - minimum valid osu!.db needs header data
         let metadata = std::fs::metadata(&db_path).map_err(|e| e.to_string())?;
         if metadata.len() < 20 {
-            // Empty or too small to contain valid data
             return Ok(Vec::new());
         }
 
@@ -74,21 +72,17 @@ impl BeatmapReader for StableReader {
     fn list_collections(&self) -> Result<Vec<LocalCollection>, String> {
         let db_path = self.collection_db_path();
         if !db_path.exists() {
-            return Err("collection.db not found at".to_string());
+            return Err(format!("collection.db not found at {}", db_path.display()));
         }
 
-        // Check file size - minimum valid collection.db is 8 bytes (version u32 + count u32)
         let metadata = std::fs::metadata(&db_path).map_err(|e| e.to_string())?;
         if metadata.len() < 8 {
-            // Empty or too small to contain any collections
             return Ok(Vec::new());
         }
 
         let collection_list = match CollectionList::from_file(&db_path) {
             Ok(list) => list,
             Err(e) => {
-                // If parsing fails, the file may be corrupted or in an unsupported format
-                // Return empty list rather than failing entirely
                 tracing::warn!(
                     path = %db_path.display(),
                     error = %e,

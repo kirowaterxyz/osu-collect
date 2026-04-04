@@ -33,19 +33,12 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-pub fn determine_file_exists_action(
-    skip_existing: bool,
-    auto_overwrite: bool,
-) -> Result<FileExistsAction> {
-    if skip_existing {
-        return Ok(FileExistsAction::Skip);
-    }
-
+pub fn determine_file_exists_action(auto_overwrite: bool) -> FileExistsAction {
     if auto_overwrite {
-        return Ok(FileExistsAction::Overwrite);
+        FileExistsAction::Overwrite
+    } else {
+        FileExistsAction::Skip
     }
-
-    Ok(FileExistsAction::Skip)
 }
 
 pub async fn validate_and_prepare_directory(directory: &str) -> Result<PathBuf> {

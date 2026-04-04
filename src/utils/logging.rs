@@ -9,7 +9,6 @@ pub struct LoggingGuard {
     _file_guard: non_blocking::WorkerGuard,
 }
 
-/// Initialize the global tracing subscriber based on configuration.
 pub fn init_logging(config: &LoggingConfig) -> Result<Option<LoggingGuard>> {
     if !config.enabled {
         return Ok(None);

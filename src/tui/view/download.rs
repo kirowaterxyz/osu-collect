@@ -139,19 +139,13 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         Span::styled("Status: ", Style::default().fg(Color::Gray)),
         Span::styled(status, components::status_style(page.stage)),
     ];
-    if let Some(ref speed) = speed_display {
+    if let Some(speed) = speed_display {
         status_spans.push(Span::styled(" @ ", Style::default().fg(Color::Gray)));
-        status_spans.push(Span::styled(
-            speed.clone(),
-            Style::default().fg(Color::Green),
-        ));
+        status_spans.push(Span::styled(speed, Style::default().fg(Color::Green)));
     }
-    if let Some(ref bytes) = bytes_display {
+    if let Some(bytes) = bytes_display {
         status_spans.push(Span::styled(" (", Style::default().fg(Color::Gray)));
-        status_spans.push(Span::styled(
-            bytes.clone(),
-            Style::default().fg(Color::Yellow),
-        ));
+        status_spans.push(Span::styled(bytes, Style::default().fg(Color::Yellow)));
         status_spans.push(Span::styled(")", Style::default().fg(Color::Gray)));
     }
 
@@ -162,18 +156,15 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         ]),
         Line::from(vec![
             Span::styled("Uploader: ", Style::default().fg(Color::Gray)),
-            Span::raw(
-                page.uploader
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string()),
-            ),
+            Span::raw(page.uploader.as_deref().unwrap_or("Unknown").to_owned()),
         ]),
         Line::from(vec![
             Span::styled("Output: ", Style::default().fg(Color::Gray)),
             Span::raw(
                 page.output_dir
-                    .clone()
-                    .unwrap_or_else(|| "Preparing...".to_string()),
+                    .as_deref()
+                    .unwrap_or("Preparing...")
+                    .to_owned(),
             ),
         ]),
         Line::from(status_spans),
@@ -329,9 +320,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     ];
 
     for (label, value, style) in stats {
-        let line = if label == "Unverified" && value == 0 {
-            Line::from(format!("{label}: {value}"))
-        } else if label == "Unverified" {
+        let line = if label == "Unverified" && value > 0 {
             Line::from(vec![Span::styled(format!("{label}: {value}"), style)])
         } else {
             Line::from(format!("{label}: {value}"))

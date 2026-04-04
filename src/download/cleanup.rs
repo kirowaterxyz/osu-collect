@@ -26,8 +26,8 @@ impl CleanupTracker {
 
     pub fn track(&self, path: &Path) {
         let path_buf = path.to_path_buf();
-        if !self.pending.insert(path_buf.clone()) {
-            info!(path = %path_buf.display(), "CleanupTracker: path already tracked");
+        if !self.pending.insert(path_buf) {
+            info!(path = %path.display(), "CleanupTracker: path already tracked");
         }
     }
 
@@ -42,7 +42,7 @@ impl CleanupTracker {
     }
 
     pub async fn cleanup_incomplete(&self) -> CleanupOutcome {
-        let paths: Vec<PathBuf> = self.pending.iter().map(|r| r.clone()).collect();
+        let paths: Vec<PathBuf> = self.pending.iter().map(|r| r.key().clone()).collect();
         let mut removed = 0;
         let mut failures = Vec::new();
 
@@ -55,7 +55,7 @@ impl CleanupTracker {
                 Err(err) if err.kind() == ErrorKind::NotFound => {
                     self.pending.remove(&path);
                 }
-                Err(err) => failures.push((path.clone(), err.to_string())),
+                Err(err) => failures.push((path, err.to_string())),
             }
         }
 

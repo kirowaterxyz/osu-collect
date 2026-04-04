@@ -281,8 +281,7 @@ async fn process_mirror_response(
                 }
             }
         } else {
-            let action =
-                determine_file_exists_action(context.skip_existing, context.auto_overwrite)?;
+            let action = determine_file_exists_action(context.auto_overwrite);
             if matches!(action, FileExistsAction::Skip) {
                 return Ok(DownloadResult::Skipped(
                     sanitized_filename.clone().into_boxed_str(),
