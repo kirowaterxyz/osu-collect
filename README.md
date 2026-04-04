@@ -71,8 +71,6 @@ You can create a configuration file to set default options:
 
 ## Building from Source & Contributing
 
-Check TODO section to see what I have planned for the future of this project.
-
 ### Prerequisites
 - Rust 1.70 or later
 - For Windows: MSVC or MinGW-w64 toolchain

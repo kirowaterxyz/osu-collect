@@ -1,17 +1,17 @@
 # osu-downloader
 
-A lightweight, reusable and vibecoded Rust library for downloading osu! beatmaps from multiple mirrors.
+A vibecoded Rust library for downloading osu! beatmaps from multiple mirrors.
 
 ## Features
 
-- 🚀 **High Performance** - Concurrent downloads with configurable thread pool
-- 🔄 **Mirror Fallback** - Automatic failover across multiple beatmap mirrors
-- ⏸️ **Rate Limiting** - Smart rate limit handling with automatic backoff
-- 📊 **Progress Tracking** - Real-time progress via channel-based events
-- ✅ **Validation** - MD5 hash computation and ZIP archive validation
-- 🎵 **Collection Support** - Download entire collections from osucollector.com (feature: `collection`)
-- 📦 **Minimal Dependencies** - Only 9 core dependencies
-- 🔌 **Feature Flags** - Optional functionality via cargo features
+- Concurrent downloads with configurable thread pool
+- Automatic failover across multiple beatmap mirrors
+- Rate limit handling with automatic backoff
+- Real-time progress via channel-based events
+- MD5 hash computation and ZIP archive validation
+- Download entire collections from osucollector.com (feature: `collection`)
+- 9 core dependencies
+- Optional functionality via cargo features
 
 ## Quick Start
 
@@ -104,13 +104,11 @@ osu-downloader = { version = "0.1", features = ["full"] }
 
 ## Architecture
 
-This library is designed to be:
-
-- **Pure** - No file I/O except downloads, no config file reading
-- **Explicit** - All configuration via builder pattern
-- **Async-first** - Built on tokio for maximum performance
-- **Channel-based** - Events via `tokio::sync::mpsc` for natural async integration
-- **Reusable** - No TUI/app-specific dependencies
+- No file I/O except downloads, no config file reading
+- All configuration via builder pattern
+- Built on tokio, async throughout
+- Events via `tokio::sync::mpsc`
+- No TUI or app-specific dependencies
 
 ## Comparison with osu-collect
 
@@ -136,6 +134,4 @@ MIT License - see [LICENSE](LICENSE) for details
 - Inspired by [BBD (beatmap batch downloader)](https://github.com/nzbasic/batch-beatmap-downloader)
 - Written by Claude
 
----
-
-**Note**: This library is in active development. API may change before 1.0 release.
+API may change before 1.0.
