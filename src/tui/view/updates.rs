@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: UpdatesView) {
 
 fn render_tooltip(frame: &mut Frame, area: Rect) {
     let text = " Configure download directory and mirrors in the Home tab before downloading!";
-    let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Yellow));
+    let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Rgb(249, 226, 175)));
     frame.render_widget(paragraph, area);
 }
 
@@ -47,7 +47,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
             Block::default()
                 .title(" Updates ")
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Plain),
         )
         .highlight_symbol("");
     frame.render_widget(list, area);
@@ -94,7 +94,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
             Span::raw("    "),
             Span::styled(
                 format!("{selected}/{total} collections selected"),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Rgb(108, 112, 134)),
             ),
         ])));
     }
@@ -133,7 +133,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
             Span::raw("    "),
             Span::styled(
                 format!("{selected}/{total} beatmaps selected"),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Rgb(108, 112, 134)),
             ),
         ])));
     } else {
@@ -144,7 +144,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
         if is_loading {
             items.push(ListItem::new(Line::from(vec![
                 Span::raw("    "),
-                Span::styled("Loading...", Style::default().fg(Color::DarkGray)),
+                Span::styled("Loading...", Style::default().fg(Color::Rgb(108, 112, 134))),
             ])));
         }
     }
@@ -216,12 +216,12 @@ fn display_item_to_list_item(
             let marker = if all_selected { "[x]" } else { "[ ]" };
 
             let style = Style::default()
-                .fg(Color::Magenta)
+                .fg(Color::Rgb(203, 166, 247))
                 .add_modifier(Modifier::BOLD);
             let spans = vec![
                 Span::styled(
                     if is_scroll_pos { "  > " } else { "    " },
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(Color::Rgb(249, 226, 175)),
                 ),
                 Span::styled(marker, style),
                 Span::raw(" "),
@@ -246,26 +246,26 @@ fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
 
     let lazer_style = if form.path.client_type == crate::osu_db::OsuClient::Lazer {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(Color::Rgb(137, 180, 250))
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Rgb(108, 112, 134))
     };
 
     let stable_style = if form.path.client_type == crate::osu_db::OsuClient::Stable {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(Color::Rgb(137, 180, 250))
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Rgb(108, 112, 134))
     };
 
     let spans = vec![
         Span::styled(
             if focused { "> " } else { "  " },
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(Color::Rgb(137, 180, 250)),
         ),
-        Span::styled("Client: ", Style::default()),
+        Span::styled("Client: ", Style::default().fg(Color::Rgb(205, 214, 244))),
         Span::raw("["),
         Span::styled(
             if form.path.client_type == crate::osu_db::OsuClient::Lazer {
@@ -290,7 +290,7 @@ fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
     ];
 
     let style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(137, 180, 250))
     } else {
         Style::default()
     };
@@ -307,24 +307,28 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
     let value = if field.value.is_empty() {
         Span::styled(field.placeholder.clone(), Style::default())
     } else if form.is_path_auto_detected() {
-        // Auto-detected path: show in dark gray like placeholder
-        Span::styled(field.value.clone(), Style::default().fg(Color::DarkGray))
+        Span::styled(
+            field.value.clone(),
+            Style::default().fg(Color::Rgb(108, 112, 134)),
+        )
     } else {
-        // Manually entered: show in normal color
         Span::raw(field.value.clone())
     };
 
     let spans = vec![
         Span::styled(
             if focused { "> " } else { "  " },
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(Color::Rgb(137, 180, 250)),
         ),
-        Span::styled(format!("{}: ", field.label), Style::default()),
+        Span::styled(
+            format!("{}: ", field.label),
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ),
         value,
     ];
 
     let style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(137, 180, 250))
     } else {
         Style::default()
     };
@@ -338,7 +342,7 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     let in_list = form.selection.in_collection_list;
 
     let style = if focused || in_list {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(137, 180, 250))
     } else {
         Style::default()
     };
@@ -351,12 +355,15 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     };
 
     let spans = vec![
-        Span::styled(prefix, Style::default().fg(Color::Cyan)),
-        Span::styled("Collections: ", style),
+        Span::styled(prefix, Style::default().fg(Color::Rgb(137, 180, 250))),
+        Span::styled(
+            "Collections: ",
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ),
         Span::styled(
             suffix.to_string(),
             Style::default()
-                .fg(Color::DarkGray)
+                .fg(Color::Rgb(108, 112, 134))
                 .add_modifier(Modifier::BOLD),
         ),
     ];
@@ -371,7 +378,7 @@ fn collection_item(
     let marker = if collection.selected { "[x]" } else { "[ ]" };
 
     let style = if is_scroll_pos {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(Color::Rgb(249, 226, 175))
     } else {
         Style::default()
     };
@@ -384,15 +391,15 @@ fn collection_item(
     let spans = vec![
         Span::styled(
             if is_scroll_pos { "  > " } else { "    " },
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(Color::Rgb(249, 226, 175)),
         ),
         Span::styled(marker, style),
         Span::raw(" "),
-        Span::styled(id_str, Style::default().fg(Color::Magenta)),
+        Span::styled(id_str, Style::default().fg(Color::Rgb(203, 166, 247))),
         Span::raw(collection.name.clone()),
         Span::styled(
             format!(" ({} maps)", collection.beatmap_count),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Rgb(108, 112, 134)),
         ),
     ];
 
@@ -409,7 +416,7 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
     );
 
     let style = if focused || in_list {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(Color::Rgb(137, 180, 250))
     } else {
         Style::default()
     };
@@ -424,15 +431,18 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
     };
 
     let mut spans = vec![
-        Span::styled(prefix, Style::default().fg(Color::Cyan)),
-        Span::styled("Missing Beatmaps: ".to_string(), style),
+        Span::styled(prefix, Style::default().fg(Color::Rgb(137, 180, 250))),
+        Span::styled(
+            "Missing Beatmaps: ".to_string(),
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ),
     ];
 
     if let Some(text) = suffix {
         spans.push(Span::styled(
             text,
             Style::default()
-                .fg(Color::DarkGray)
+                .fg(Color::Rgb(108, 112, 134))
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -447,7 +457,7 @@ fn beatmap_item(
     let marker = if beatmap.selected { "[x]" } else { "[ ]" };
 
     let style = if is_scroll_pos {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(Color::Rgb(249, 226, 175))
     } else {
         Style::default()
     };
@@ -459,17 +469,17 @@ fn beatmap_item(
     let spans = vec![
         Span::styled(
             if is_scroll_pos { "  > " } else { "    " },
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(Color::Rgb(249, 226, 175)),
         ),
         Span::styled(marker, style),
         Span::styled(
             format!(" #{}", beatmap.id),
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(Color::Rgb(203, 166, 247)),
         ),
         Span::raw(" "),
         Span::styled(
             status_text.to_string(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Rgb(108, 112, 134)),
         ),
     ];
 

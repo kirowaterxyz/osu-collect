@@ -9,6 +9,9 @@ use ratatui::{
 
 use super::{HomeView, components};
 
+const ACCENT: Color = Color::Rgb(224, 123, 83);
+const MUTED: Color = Color::Rgb(108, 112, 134);
+
 pub fn render(frame: &mut Frame, area: Rect, view: HomeView) {
     let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).split(area);
     render_form(frame, chunks[0], view.form);
@@ -93,7 +96,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
             Block::default()
                 .title(" Configuration ")
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Plain),
         )
         .highlight_symbol("");
     frame.render_widget(list, area);
@@ -106,7 +109,7 @@ fn toggle(label: &str, value: bool, focused: bool) -> ratatui::widgets::ListItem
 fn mirror_toggle(label: &str, url: &str, value: bool, focused: bool) -> ListItem<'static> {
     let marker = if value { "[x]" } else { "[ ]" };
     let style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(ACCENT)
     } else {
         Style::default()
     };
@@ -114,11 +117,11 @@ fn mirror_toggle(label: &str, url: &str, value: bool, focused: bool) -> ListItem
     let spans = vec![
         Span::styled(
             if focused { "> " } else { "  " },
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(ACCENT),
         ),
         Span::styled(marker, style),
         Span::raw(format!(" {} ", label)),
-        Span::styled(url.to_string(), Style::default().fg(Color::DarkGray)),
+        Span::styled(url.to_string(), Style::default().fg(MUTED)),
     ];
 
     ListItem::new(Line::from(spans)).style(style)

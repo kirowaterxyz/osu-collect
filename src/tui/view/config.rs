@@ -27,37 +27,37 @@ pub fn render(frame: &mut Frame, area: Rect, view: ConfigView) {
 fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     let items = vec![
         components::toggle_item(
-            "Default: use Nerinyan",
+            "Use Nerinyan",
             form.nerinyan,
             form.focus == ConfigField::MirrorNerinyan,
         ),
         components::toggle_item(
-            "Default: use Catboy Central",
+            "Use Catboy Central",
             form.catboy_central,
             form.focus == ConfigField::MirrorCatboyCentral,
         ),
         components::toggle_item(
-            "Default: use Catboy US",
+            "Use Catboy US",
             form.catboy_us,
             form.focus == ConfigField::MirrorCatboyUs,
         ),
         components::toggle_item(
-            "Default: use Catboy Asia",
+            "Use Catboy Asia",
             form.catboy_asia,
             form.focus == ConfigField::MirrorCatboyAsia,
         ),
         components::toggle_item(
-            "Default: use osu.direct",
+            "Use osu.direct",
             form.osu_direct,
             form.focus == ConfigField::MirrorOsuDirect,
         ),
         components::toggle_item(
-            "Default: use Sayobot",
+            "Use Sayobot",
             form.sayobot,
             form.focus == ConfigField::MirrorSayobot,
         ),
         components::toggle_item(
-            "Default: use Nekoha",
+            "Use Nekoha",
             form.nekoha,
             form.focus == ConfigField::MirrorNekoha,
         ),
@@ -66,14 +66,14 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.focus == ConfigField::MirrorCustomUrl,
         ),
         components::toggle_item(
-            "Default: skip existing files",
+            "Skip existing files",
             form.skip_existing,
             form.focus == ConfigField::DownloadSkipExisting,
         ),
         components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
         components::input_item(&form.retries, form.focus == ConfigField::DownloadRetries),
         components::toggle_item(
-            "Default: download without video",
+            "Download without video",
             form.no_video,
             form.focus == ConfigField::DownloadNoVideo,
         ),
@@ -108,7 +108,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             Block::default()
                 .title(" Config Defaults ")
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Plain),
         )
         .highlight_symbol("");
     frame.render_widget(list, area);

@@ -24,9 +24,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let title_left = " osu-collect • osu!collector downloader ";
     let title_right = format!(" v{} ", version);
     let title_style = Style::default()
-        .fg(Color::Cyan)
+        .fg(Color::Rgb(224, 123, 83))
         .add_modifier(Modifier::BOLD);
-    let version_style = Style::default().fg(Color::DarkGray);
+    let version_style = Style::default().fg(Color::Rgb(108, 112, 134));
 
     let shell = app_shell(title_left, title_style);
     let content_area = shell.inner(main_area);
@@ -64,7 +64,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 fn app_shell(title_left: &str, style: Style) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .title(title_left.to_string())
         .title_alignment(Alignment::Left)
         .title_style(style)

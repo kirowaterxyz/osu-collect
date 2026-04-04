@@ -61,7 +61,7 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             " ⚠ Not enough free space in target directory ({} available). Free up space before downloading.",
             format_bytes(available)
         );
-        let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Yellow));
+        let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Rgb(249, 226, 175)));
         frame.render_widget(paragraph, area);
     }
 }
@@ -136,30 +136,51 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     };
 
     let mut status_spans = vec![
-        Span::styled("Status: ", Style::default().fg(Color::Gray)),
+        Span::styled("Status: ", Style::default().fg(Color::Rgb(205, 214, 244))),
         Span::styled(status, components::status_style(page.stage)),
     ];
     if let Some(speed) = speed_display {
-        status_spans.push(Span::styled(" @ ", Style::default().fg(Color::Gray)));
-        status_spans.push(Span::styled(speed, Style::default().fg(Color::Green)));
+        status_spans.push(Span::styled(
+            " @ ",
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ));
+        status_spans.push(Span::styled(
+            speed,
+            Style::default().fg(Color::Rgb(166, 227, 161)),
+        ));
     }
     if let Some(bytes) = bytes_display {
-        status_spans.push(Span::styled(" (", Style::default().fg(Color::Gray)));
-        status_spans.push(Span::styled(bytes, Style::default().fg(Color::Yellow)));
-        status_spans.push(Span::styled(")", Style::default().fg(Color::Gray)));
+        status_spans.push(Span::styled(
+            " (",
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ));
+        status_spans.push(Span::styled(
+            bytes,
+            Style::default().fg(Color::Rgb(249, 226, 175)),
+        ));
+        status_spans.push(Span::styled(
+            ")",
+            Style::default().fg(Color::Rgb(205, 214, 244)),
+        ));
     }
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("Collection: ", Style::default().fg(Color::Gray)),
-            Span::styled(page.title.clone(), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "Collection: ",
+                Style::default().fg(Color::Rgb(205, 214, 244)),
+            ),
+            Span::styled(
+                page.title.clone(),
+                Style::default().fg(Color::Rgb(137, 180, 250)),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("Uploader: ", Style::default().fg(Color::Gray)),
+            Span::styled("Uploader: ", Style::default().fg(Color::Rgb(205, 214, 244))),
             Span::raw(page.uploader.as_deref().unwrap_or("Unknown").to_owned()),
         ]),
         Line::from(vec![
-            Span::styled("Output: ", Style::default().fg(Color::Gray)),
+            Span::styled("Output: ", Style::default().fg(Color::Rgb(205, 214, 244))),
             Span::raw(
                 page.output_dir
                     .as_deref()
@@ -177,7 +198,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             Block::default()
                 .title(" Overview ")
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Plain),
         )
         .wrap(Wrap { trim: true });
 
@@ -209,7 +230,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let verified_display = verified.min(total_collection);
     let ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    let mut title_style = Style::default().fg(Color::LightGreen);
+    let mut title_style = Style::default().fg(Color::Rgb(166, 227, 161));
     if page.progress_label_style_locked {
         if page.progress_label_bold_when_locked {
             title_style = title_style.add_modifier(Modifier::BOLD);
@@ -226,18 +247,18 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         .title_bottom(
             Line::from(vec![Span::styled(
                 verified_title,
-                Style::default().fg(Color::Green),
+                Style::default().fg(Color::Rgb(166, 227, 161)),
             )])
             .centered(),
         )
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded);
+        .border_type(BorderType::Plain);
 
     let gauge = Gauge::default()
         .block(block)
         .ratio(ratio)
         .label(Span::raw(""))
-        .gauge_style(Style::default().fg(Color::Cyan));
+        .gauge_style(Style::default().fg(Color::Rgb(224, 123, 83)));
 
     frame.render_widget(gauge, area);
 }
@@ -261,7 +282,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if items.is_empty() && page.failed_maps.is_empty() {
         items.push(ListItem::new(Line::from(vec![Span::styled(
             "No active threads",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Rgb(108, 112, 134)),
         )])));
     }
 
@@ -271,7 +292,9 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         let header = format!("Failed maps ({}):", page.failed_maps.len());
         let header_line = Line::from(vec![Span::styled(
             header,
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Rgb(243, 139, 168))
+                .add_modifier(Modifier::BOLD),
         )]);
         items.push(ListItem::new(header_line));
 
@@ -279,7 +302,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             let reason = summarize_failure(&failure.reason);
             let chunk_line = Line::from(vec![Span::styled(
                 format!("  #{} - {}", failure.id, reason),
-                Style::default().fg(Color::Red),
+                Style::default().fg(Color::Rgb(243, 139, 168)),
             )]);
             items.push(ListItem::new(chunk_line));
         }
@@ -290,7 +313,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             Block::default()
                 .title(" Threads ")
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Plain),
         )
         .highlight_symbol("");
     frame.render_widget(list, area);
@@ -301,7 +324,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     items.push(ListItem::new(Line::from(vec![Span::styled(
         "Collection Results",
         Style::default()
-            .fg(Color::Cyan)
+            .fg(Color::Rgb(137, 180, 250))
             .add_modifier(Modifier::BOLD),
     )])));
 
@@ -314,7 +337,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             "Unverified",
             summary.unverified,
             Style::default()
-                .fg(Color::Yellow)
+                .fg(Color::Rgb(249, 226, 175))
                 .add_modifier(Modifier::BOLD),
         ),
     ];
@@ -332,7 +355,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Block::default()
             .title(" Results ")
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded),
+            .border_type(BorderType::Plain),
     );
     frame.render_widget(list, area);
 }
