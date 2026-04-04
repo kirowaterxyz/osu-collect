@@ -279,6 +279,41 @@ impl HomeTab {
         });
     }
 
+    pub fn build_mirror_list(&self) -> Vec<MirrorEndpoint> {
+        let builtin_checks: &[(bool, MirrorKind)] = &[
+            (self.nerinyan, MirrorKind::Nerinyan),
+            (self.osu_direct, MirrorKind::OsuDirect),
+            (self.sayobot, MirrorKind::Sayobot),
+            (self.nekoha, MirrorKind::Nekoha),
+            (
+                self.catboy_central,
+                MirrorKind::Catboy(CatboyRegion::Central),
+            ),
+            (self.catboy_us, MirrorKind::Catboy(CatboyRegion::Us)),
+            (self.catboy_asia, MirrorKind::Catboy(CatboyRegion::Asia)),
+        ];
+
+        let mut mirrors: Vec<MirrorEndpoint> = builtin_checks
+            .iter()
+            .filter_map(|&(enabled, kind)| {
+                if enabled {
+                    MirrorEndpoint::builtin(kind, self.no_video)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let trimmed_custom = self.custom_mirror.value.trim();
+        if !trimmed_custom.is_empty()
+            && let Ok(custom_endpoint) = MirrorEndpoint::custom(trimmed_custom)
+        {
+            mirrors.push(custom_endpoint);
+        }
+
+        mirrors
+    }
+
     pub fn build_request(&self) -> Result<DownloadRequest, String> {
         let collection_input = self.collection.value.trim();
         if collection_input.is_empty() {
@@ -301,60 +336,7 @@ impl HomeTab {
             return Err("Thread count must be between 1 and 50".to_string());
         }
 
-        let mut mirrors = Vec::new();
-
-        if self.nerinyan
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Nerinyan, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.osu_direct
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::OsuDirect, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.sayobot
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Sayobot, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.nekoha
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Nekoha, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_central
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Central), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_us
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Us), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_asia
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Asia), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        let trimmed_custom = self.custom_mirror.value.trim();
-        if !trimmed_custom.is_empty() {
-            let custom_endpoint =
-                MirrorEndpoint::custom(trimmed_custom).map_err(|err| err.to_string())?;
-            mirrors.push(custom_endpoint);
-        }
-
+        let mirrors = self.build_mirror_list();
         if mirrors.is_empty() {
             return Err("Select at least one mirror".to_string());
         }
@@ -376,61 +358,7 @@ impl HomeTab {
     }
 
     pub fn build_mirrors(&self) -> Vec<MirrorEndpoint> {
-        let mut mirrors = Vec::new();
-
-        if self.nerinyan
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Nerinyan, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.osu_direct
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::OsuDirect, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.sayobot
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Sayobot, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.nekoha
-            && let Some(endpoint) = MirrorEndpoint::builtin(MirrorKind::Nekoha, self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_central
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Central), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_us
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Us), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        if self.catboy_asia
-            && let Some(endpoint) =
-                MirrorEndpoint::builtin(MirrorKind::Catboy(CatboyRegion::Asia), self.no_video)
-        {
-            mirrors.push(endpoint);
-        }
-
-        let trimmed_custom = self.custom_mirror.value.trim();
-        if !trimmed_custom.is_empty()
-            && let Ok(custom_endpoint) = MirrorEndpoint::custom(trimmed_custom)
-        {
-            mirrors.push(custom_endpoint);
-        }
-
-        mirrors
+        self.build_mirror_list()
     }
 
     pub fn resolved_threads(&self) -> u8 {

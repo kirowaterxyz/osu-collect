@@ -1,169 +1,36 @@
 use super::{
-    BeatmapStage, BeatmapTracker, CleanupTracker, DownloadConfig, DownloadError, DownloadEvent,
-    DownloadHandle, DownloadId, DownloadRequest, DownloadStage, DownloadSummary,
-    SelectiveDownloadRequest, ShutdownToken, http_client,
-    integrity::ExpectationIndex,
+    BeatmapStage, CleanupTracker, DownloadConfig, DownloadError, DownloadEvent, DownloadHandle,
+    DownloadId, DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadRequest,
+    ShutdownToken, http_client,
+    lock::ActiveDownloadRegistry,
     passes::{FailureReport, PassCoordinator},
-    precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
+    session::{DownloadSession, PipelineFlavor, PrepareCollectionParams, PrepareSelectiveParams},
+    status_helpers::{
+        fail_status, finished_status, log_status, low_disk_space_status, stage_status,
+    },
 };
 use crate::{
-    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, DIRECTORY_LOCK_FILE},
-    core::collection::{
-        CollectionService, HttpCollectionService, create_collection_db,
-        generate_collection_folder_name, model::Collection,
-    },
+    config::constants::DEFAULT_PROGRESS_WATCHDOG_SECS,
+    core::collection::{create_collection_db, model::Collection},
     mirrors::{MirrorEndpoint, MirrorPool},
-    utils::{
-        self, AppError, check_available_space, is_low_disk_space, validate_and_prepare_directory,
-    },
+    utils::{AppError, check_available_space, is_low_disk_space},
     worker::{DownloadContext, DownloadContextConfig, StatusSink},
 };
 use dashmap::DashSet;
-use fs2::FileExt;
 use std::{
-    collections::{HashMap, HashSet},
-    fs::{File as StdFile, OpenOptions},
+    collections::HashMap,
     future::Future,
-    io,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
     time::Duration,
 };
-use tokio::{fs, sync::mpsc::UnboundedSender};
+use tokio::fs;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::Instrument;
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{error, info, info_span, warn};
 
-/// Global tracker for active downloads to prevent concurrent downloads to the same directory
-static ACTIVE_DOWNLOADS: LazyLock<DashSet<PathBuf>> = LazyLock::new(DashSet::new);
-
-fn log_status(status: &StatusSink, id: DownloadId, message: impl Into<String>) {
-    status.emit(DownloadEvent::Log {
-        id,
-        message: message.into(),
-    });
-}
-
-fn stage_status(status: &StatusSink, id: DownloadId, stage: DownloadStage) {
-    status.emit(DownloadEvent::StageChanged { id, stage });
-}
-
-fn fail_status(status: &StatusSink, id: DownloadId, message: impl Into<String>) {
-    status.emit(DownloadEvent::Failed {
-        id,
-        message: message.into(),
-    });
-}
-
-fn finished_status(status: &StatusSink, id: DownloadId, summary: &DownloadSummary) {
-    status.emit(DownloadEvent::Finished {
-        id,
-        summary: summary.clone(),
-    });
-}
-
-fn target_status(status: &StatusSink, id: DownloadId, remaining: usize) {
-    status.emit(DownloadEvent::DownloadTarget { id, remaining });
-}
-
-fn progress_status(status: &StatusSink, id: DownloadId, summary: &DownloadSummary) {
-    status.emit(DownloadEvent::OverallProgress {
-        id,
-        downloaded: summary.downloaded,
-        skipped: summary.skipped,
-        failed: summary.failed,
-        unverified: summary.unverified,
-    });
-}
-
-fn verified_sizes_status(status: &StatusSink, id: DownloadId, total_bytes: u64) {
-    status.emit(DownloadEvent::VerifiedMapSizes { id, total_bytes });
-}
-
-fn low_disk_space_status(status: &StatusSink, id: DownloadId, available_bytes: u64) {
-    status.emit(DownloadEvent::LowDiskSpace {
-        id,
-        available_bytes,
-    });
-}
-
-struct DownloadLockGuard {
-    path: PathBuf,
-    lock_file_path: PathBuf,
-    file: Option<StdFile>,
-}
-
-impl DownloadLockGuard {
-    fn acquire(path: &Path) -> Result<Self, DownloadError> {
-        let key = path.to_path_buf();
-        if !ACTIVE_DOWNLOADS.insert(key.clone()) {
-            return Err(DownloadError::ConcurrentDownload(
-                key.to_string_lossy().into_owned(),
-            ));
-        }
-
-        match Self::lock_directory(&key) {
-            Ok((file, lock_file_path)) => Ok(Self {
-                path: key,
-                lock_file_path,
-                file: Some(file),
-            }),
-            Err(err) => {
-                ACTIVE_DOWNLOADS.remove(&key);
-                Err(err)
-            }
-        }
-    }
-
-    fn lock_directory(path: &Path) -> Result<(StdFile, PathBuf), DownloadError> {
-        let lock_file_path = path.join(DIRECTORY_LOCK_FILE);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&lock_file_path)
-            .map_err(DownloadError::from)?;
-
-        if let Err(err) = file.try_lock_exclusive() {
-            let kind = err.kind();
-            drop(file);
-            if kind == io::ErrorKind::WouldBlock {
-                return Err(DownloadError::ConcurrentDownload(
-                    path.to_string_lossy().into_owned(),
-                ));
-            }
-            return Err(DownloadError::Io(err));
-        }
-
-        Ok((file, lock_file_path))
-    }
-}
-
-impl Drop for DownloadLockGuard {
-    fn drop(&mut self) {
-        if let Some(file) = self.file.take()
-            && let Err(err) = file.unlock()
-        {
-            warn!(
-                directory = %self.path.display(),
-                error = %err,
-                "Failed to release directory lock"
-            );
-        }
-
-        if let Err(err) = std::fs::remove_file(&self.lock_file_path)
-            && err.kind() != io::ErrorKind::NotFound
-        {
-            warn!(
-                file = %self.lock_file_path.display(),
-                error = %err,
-                "Failed to remove directory lock file"
-            );
-        }
-
-        ACTIVE_DOWNLOADS.remove(&self.path);
-    }
-}
+static DOWNLOAD_REGISTRY: LazyLock<ActiveDownloadRegistry> =
+    LazyLock::new(ActiveDownloadRegistry::new);
 
 fn spawn_download_task<F, Fut>(
     id: DownloadId,
@@ -263,51 +130,6 @@ pub fn spawn_selective_download(
     })
 }
 
-struct OutputPreparation {
-    output_dir: PathBuf,
-    display: String,
-}
-
-/// Parameters for preparing a collection download session
-struct PrepareCollectionParams<'a> {
-    id: DownloadId,
-    status: StatusSink,
-    shutdown: &'a ShutdownToken,
-    directory: &'a str,
-    collection_input: &'a str,
-    thread_count: usize,
-    verify_zip_eocd: bool,
-    flavor: &'a PipelineFlavor,
-}
-
-/// Parameters for preparing a selective download session
-struct PrepareSelectiveParams<'a> {
-    id: DownloadId,
-    status: StatusSink,
-    shutdown: &'a ShutdownToken,
-    directory: &'a str,
-    collection_ids: &'a [u32],
-    beatmapset_ids: &'a [u32],
-    thread_count: usize,
-    verify_zip_eocd: bool,
-    flavor: &'a PipelineFlavor,
-}
-
-/// Parameters for finalizing a download session
-struct FinalizeSessionParams<'a> {
-    id: DownloadId,
-    status: StatusSink,
-    shutdown: &'a ShutdownToken,
-    target: SessionTarget,
-    beatmapset_ids: Vec<u32>,
-    output: OutputPreparation,
-    lock_guard: DownloadLockGuard,
-    thread_count: usize,
-    verify_zip_eocd: bool,
-    flavor: &'a PipelineFlavor,
-}
-
-/// Parameters for running the download core
 struct RunDownloadCoreParams {
     session: DownloadSession,
     shutdown: ShutdownToken,
@@ -320,283 +142,6 @@ struct RunDownloadCoreParams {
     flavor: PipelineFlavor,
 }
 
-enum SessionTarget {
-    Collection(Collection),
-    Selective { collection_names: Vec<String> },
-}
-
-impl SessionTarget {
-    fn expectation_index(&self, beatmapset_ids: &[u32]) -> Arc<ExpectationIndex> {
-        match self {
-            SessionTarget::Collection(collection) => {
-                Arc::new(ExpectationIndex::new(&collection.beatmapsets))
-            }
-            SessionTarget::Selective { .. } => Arc::new(ExpectationIndex::from_ids(beatmapset_ids)),
-        }
-    }
-
-    fn announce_ready(
-        &self,
-        status: &StatusSink,
-        id: DownloadId,
-        output: &OutputPreparation,
-        beatmapset_ids: &[u32],
-    ) {
-        match self {
-            SessionTarget::Collection(collection) => {
-                status.emit(DownloadEvent::CollectionReady {
-                    id,
-                    collection_name: collection.name.to_string(),
-                    uploader: collection.uploader.username.to_string(),
-                    total_maps: collection.beatmapsets.len(),
-                    output_dir: output.display.clone(),
-                });
-                log_status(status, id, format!("Downloading to {}", output.display));
-            }
-            SessionTarget::Selective { collection_names } => {
-                let collection_name = if collection_names.len() == 1 {
-                    format!("Update: {}", collection_names[0])
-                } else {
-                    format!("Update: {} collections", collection_names.len())
-                };
-                status.emit(DownloadEvent::CollectionReady {
-                    id,
-                    collection_name,
-                    uploader: "Updates".to_string(),
-                    total_maps: 0,
-                    output_dir: output.display.clone(),
-                });
-                log_status(
-                    status,
-                    id,
-                    format!("Downloading updates to {}", output.display),
-                );
-            }
-        }
-
-        status.emit(DownloadEvent::BeatmapsRegistered {
-            id,
-            beatmap_ids: beatmapset_ids.to_vec(),
-        });
-    }
-
-    fn collection(&self) -> Option<&Collection> {
-        match self {
-            SessionTarget::Collection(collection) => Some(collection),
-            SessionTarget::Selective { .. } => None,
-        }
-    }
-}
-
-struct DownloadSession {
-    id: DownloadId,
-    status: StatusSink,
-    target: SessionTarget,
-    beatmapset_ids: Vec<u32>,
-    output: OutputPreparation,
-    tracker: BeatmapTracker,
-    totals: DownloadSummary,
-    initial_unverified: Arc<DashSet<u32>>,
-    _lock_guard: DownloadLockGuard,
-}
-
-impl DownloadSession {
-    async fn prepare_collection(
-        params: PrepareCollectionParams<'_>,
-    ) -> Result<Option<Self>, DownloadError> {
-        let collection = resolve_collection(params.collection_input).await?;
-        let beatmapset_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
-        let output = prepare_output_directory(params.directory, &collection).await?;
-        let lock_guard = DownloadLockGuard::acquire(&output.output_dir)?;
-        let target = SessionTarget::Collection(collection);
-        target.announce_ready(&params.status, params.id, &output, &beatmapset_ids);
-
-        Self::finalize(FinalizeSessionParams {
-            id: params.id,
-            status: params.status,
-            shutdown: params.shutdown,
-            target,
-            beatmapset_ids,
-            output,
-            lock_guard,
-            thread_count: params.thread_count,
-            verify_zip_eocd: params.verify_zip_eocd,
-            flavor: params.flavor,
-        })
-        .await
-    }
-
-    async fn prepare_selective(
-        params: PrepareSelectiveParams<'_>,
-    ) -> Result<Option<Self>, DownloadError> {
-        let collection_names =
-            resolve_selective_collections(params.collection_ids, params.beatmapset_ids).await?;
-        let output =
-            prepare_selective_output_directory(params.directory, params.collection_ids).await?;
-        let lock_guard = DownloadLockGuard::acquire(&output.output_dir)?;
-        let mut target_ids = params.beatmapset_ids.to_vec();
-        target_ids.sort_unstable();
-        let target = SessionTarget::Selective { collection_names };
-        target.announce_ready(&params.status, params.id, &output, &target_ids);
-
-        Self::finalize(FinalizeSessionParams {
-            id: params.id,
-            status: params.status,
-            shutdown: params.shutdown,
-            target,
-            beatmapset_ids: target_ids,
-            output,
-            lock_guard,
-            thread_count: params.thread_count,
-            verify_zip_eocd: params.verify_zip_eocd,
-            flavor: params.flavor,
-        })
-        .await
-    }
-
-    async fn finalize(params: FinalizeSessionParams<'_>) -> Result<Option<Self>, DownloadError> {
-        let expectations = params.target.expectation_index(&params.beatmapset_ids);
-        let precheck = perform_initial_precheck(
-            &params.status,
-            params.id,
-            &params.output.output_dir,
-            expectations,
-            params.thread_count,
-            params.verify_zip_eocd,
-            params.shutdown,
-        )
-        .await?;
-
-        if precheck.aborted {
-            log_status(&params.status, params.id, params.flavor.precheck_abort_log);
-            fail_status(&params.status, params.id, "Download aborted by user");
-            return Ok(None);
-        }
-
-        if precheck.files_changed {
-            log_status(
-                &params.status,
-                params.id,
-                "Files changed during precheck; rescheduling affected beatmapsets",
-            );
-        }
-
-        let PrecheckReport {
-            satisfied,
-            skipped,
-            unverified,
-            verified_bytes,
-            ..
-        } = precheck;
-
-        let initial_unverified: Arc<DashSet<u32>> =
-            Arc::new(DashSet::with_capacity(unverified.len()));
-        for id in &unverified {
-            initial_unverified.insert(*id);
-        }
-
-        if verified_bytes > 0 {
-            verified_sizes_status(&params.status, params.id, verified_bytes);
-        }
-
-        let pending_ids: HashSet<u32> = params
-            .beatmapset_ids
-            .iter()
-            .copied()
-            .filter(|beatmap_id| !satisfied.contains(beatmap_id))
-            .collect();
-        let tracker = BeatmapTracker::with_verified(pending_ids.clone(), satisfied);
-
-        target_status(&params.status, params.id, pending_ids.len());
-
-        let totals = DownloadSummary {
-            downloaded: 0,
-            skipped,
-            failed: 0,
-            unverified: initial_unverified.len() as u32,
-        };
-
-        if totals.skipped > 0 {
-            log_status(
-                &params.status,
-                params.id,
-                format!("{} beatmapsets already verified locally", totals.skipped),
-            );
-            progress_status(&params.status, params.id, &totals);
-        }
-
-        Ok(Some(DownloadSession {
-            id: params.id,
-            status: params.status,
-            target: params.target,
-            beatmapset_ids: params.beatmapset_ids,
-            output: params.output,
-            tracker,
-            totals,
-            initial_unverified,
-            _lock_guard: params.lock_guard,
-        }))
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct PipelineFlavor {
-    precheck_abort_log: &'static str,
-    abort_log_message: Option<&'static str>,
-    abort_warning: Option<&'static str>,
-    log_prefix: &'static str,
-    failure_summary: &'static str,
-    completion_log: &'static str,
-}
-
-impl PipelineFlavor {
-    const fn collection() -> Self {
-        Self {
-            precheck_abort_log: "Download aborted during precheck",
-            abort_log_message: Some("Download aborted before completion"),
-            abort_warning: Some("Download aborted due to shutdown request"),
-            log_prefix: "Starting",
-            failure_summary: "Download completed with failed beatmapsets",
-            completion_log: "Download pipeline finished and summary dispatched",
-        }
-    }
-
-    const fn selective() -> Self {
-        Self {
-            precheck_abort_log: "Selective download aborted during precheck",
-            abort_log_message: None,
-            abort_warning: None,
-            log_prefix: "Starting selective",
-            failure_summary: "Selective download completed with failed beatmapsets",
-            completion_log: "Selective download pipeline finished and summary dispatched",
-        }
-    }
-}
-
-async fn prepare_output_dir_common(
-    base_path: &str,
-    folder_name: &str,
-) -> Result<OutputPreparation, DownloadError> {
-    let normalized = {
-        let trimmed = base_path.trim();
-        if trimmed.is_empty() { "." } else { trimmed }
-    };
-
-    let base_dir = validate_and_prepare_directory(normalized).await?;
-    debug!(base = %base_dir.display(), "Validated base download directory");
-
-    let output_dir = base_dir.join(folder_name);
-    fs::create_dir_all(&output_dir).await?;
-    let output_dir_display = output_dir.to_string_lossy().to_string();
-    info!(output_dir = %output_dir_display, "Prepared output directory");
-
-    Ok(OutputPreparation {
-        output_dir,
-        display: output_dir_display,
-    })
-}
-
-/// Parameters for building a download context
 struct BuildContextParams {
     id: DownloadId,
     thread_count: usize,
@@ -607,7 +152,7 @@ struct BuildContextParams {
     client: reqwest::Client,
     shutdown: ShutdownToken,
     mirrors: Vec<MirrorEndpoint>,
-    tracker: BeatmapTracker,
+    tracker: super::BeatmapTracker,
     output_dir: PathBuf,
     initial_unverified: Arc<DashSet<u32>>,
     status: StatusSink,
@@ -952,6 +497,22 @@ fn check_and_warn_low_disk_space(status: &StatusSink, id: DownloadId, output_dir
     }
 }
 
+fn emit_failed_maps(status: &StatusSink, id: DownloadId, failures: &FailureReport) {
+    if failures.is_empty() {
+        return;
+    }
+
+    status.emit(DownloadEvent::FailedMaps {
+        id,
+        failures: failures.beatmaps().to_vec(),
+    });
+}
+
+fn create_collection_database(collection: &Collection, output_dir: &Path) -> Result<(), AppError> {
+    let db_collection_name = format!("{}-{}", collection.name, collection.id);
+    create_collection_db(collection, &db_collection_name, output_dir)
+}
+
 async fn run_download(
     id: DownloadId,
     request: DownloadRequest,
@@ -995,6 +556,7 @@ async fn run_download(
         thread_count,
         verify_zip_eocd,
         flavor: &flavor,
+        registry: &DOWNLOAD_REGISTRY,
     })
     .await?;
 
@@ -1062,6 +624,7 @@ async fn run_selective_download(
         thread_count,
         verify_zip_eocd,
         flavor: &flavor,
+        registry: &DOWNLOAD_REGISTRY,
     })
     .await?;
 
@@ -1081,143 +644,4 @@ async fn run_selective_download(
         flavor,
     })
     .await
-}
-
-async fn resolve_selective_collections(
-    collection_ids: &[u32],
-    beatmapset_ids: &[u32],
-) -> Result<Vec<String>, DownloadError> {
-    let collection_service = HttpCollectionService::builder().build()?;
-
-    let mut collection_names = Vec::new();
-    let target_set: HashSet<u32> = beatmapset_ids.iter().copied().collect();
-    let mut matched_count = 0;
-
-    for &collection_id in collection_ids {
-        match collection_service.fetch_collection(collection_id).await {
-            Ok(collection) => {
-                collection_names.push(collection.name.to_string());
-
-                for beatmapset in &collection.beatmapsets {
-                    if target_set.contains(&beatmapset.id) {
-                        matched_count += 1;
-                    }
-                }
-            }
-            Err(err) => {
-                warn!(
-                    collection_id,
-                    error = %err,
-                    "Skipping missing/inaccessible collection in selective download"
-                );
-            }
-        }
-    }
-
-    info!(
-        collection_count = collection_ids.len(),
-        resolved_count = collection_names.len(),
-        matched_beatmapsets = matched_count,
-        "Resolved selective collections"
-    );
-
-    Ok(collection_names)
-}
-
-async fn prepare_selective_output_directory(
-    directory: &str,
-    collection_ids: &[u32],
-) -> Result<OutputPreparation, DownloadError> {
-    let folder_name = if collection_ids.len() == 1 {
-        format!("update-{}", collection_ids[0])
-    } else {
-        format!("update-{}-collections", collection_ids.len())
-    };
-    prepare_output_dir_common(directory, &folder_name).await
-}
-
-async fn perform_initial_precheck(
-    status: &StatusSink,
-    id: DownloadId,
-    output_dir: &Path,
-    expectations: Arc<ExpectationIndex>,
-    thread_count: usize,
-    verify_zip_eocd: bool,
-    shutdown: &ShutdownToken,
-) -> Result<PrecheckReport, DownloadError> {
-    log_status(status, id, "Verifying existing beatmapsets on disk");
-    stage_status(status, id, DownloadStage::Rechecking);
-    info!("Starting disk precheck before downloads");
-    let options = PrecheckOptions {
-        verify_integrity: true,
-        notify_verified: true,
-        verify_zip_eocd,
-    };
-    let report = verify_existing_beatmapsets(
-        id,
-        output_dir,
-        expectations,
-        thread_count,
-        options,
-        shutdown,
-        status,
-    )
-    .await?;
-    if report.aborted {
-        info!("Disk precheck aborted by shutdown");
-    } else {
-        info!(
-            verified = report.satisfied.len(),
-            skipped = report.skipped,
-            "Finished initial disk precheck"
-        );
-    }
-    stage_status(status, id, DownloadStage::Downloading);
-    Ok(report)
-}
-
-fn emit_failed_maps(status: &StatusSink, id: DownloadId, failures: &FailureReport) {
-    if failures.is_empty() {
-        return;
-    }
-
-    status.emit(DownloadEvent::FailedMaps {
-        id,
-        failures: failures.beatmaps().to_vec(),
-    });
-}
-
-fn create_collection_database(collection: &Collection, output_dir: &Path) -> Result<(), AppError> {
-    let db_collection_name = format!("{}-{}", collection.name, collection.id);
-    create_collection_db(collection, &db_collection_name, output_dir)
-}
-
-async fn resolve_collection(collection_input: &str) -> Result<Collection, DownloadError> {
-    let collection_id = utils::parse_collection_id(collection_input)?;
-    debug!(collection_input = %collection_input, collection_id, "Parsed collection identifier");
-
-    let collection_service = HttpCollectionService::builder().build()?;
-    let collection = collection_service.fetch_collection(collection_id).await?;
-
-    info!(
-        collection_id,
-        collection_name = %collection.name,
-        total_maps = collection.beatmapsets.len(),
-        "Fetched collection metadata"
-    );
-
-    if collection.beatmapsets.is_empty() {
-        warn!(collection_id, "Collection contained no beatmaps");
-        return Err(DownloadError::EmptyCollection);
-    }
-
-    Ok(collection)
-}
-
-async fn prepare_output_directory(
-    directory: &str,
-    collection: &Collection,
-) -> Result<OutputPreparation, DownloadError> {
-    let folder_name = generate_collection_folder_name(collection);
-    prepare_output_dir_common(directory, &folder_name).await
 }

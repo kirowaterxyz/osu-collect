@@ -9,14 +9,10 @@ use crate::{
 };
 use std::{
     any::Any,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::{
-    sync::{Mutex, mpsc::UnboundedSender},
-    task::JoinHandle,
-    time::sleep,
-};
+use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
 use tracing::{debug, info, trace, warn};
 
 type ResultMessage = (usize, u32, crate::utils::Result<DownloadResult>);
@@ -207,19 +203,14 @@ impl MirrorFailureSnapshot {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct FailureReport {
+pub struct FailureReport {
     beatmaps: Vec<(u32, String)>,
     seen: HashSet<u32>,
     mirror_failures: MirrorFailureStats,
 }
 
 impl FailureReport {
-    pub(crate) fn record(
-        &mut self,
-        beatmapset_id: u32,
-        reason: String,
-        mirror: Option<MirrorKind>,
-    ) {
+    pub fn record(&mut self, beatmapset_id: u32, reason: String, mirror: Option<MirrorKind>) {
         if self.seen.insert(beatmapset_id) {
             self.beatmaps.push((beatmapset_id, reason.clone()));
         }
@@ -233,15 +224,15 @@ impl FailureReport {
         self.mirror_failures.record(None, &reason);
     }
 
-    pub(crate) fn beatmaps(&self) -> &[(u32, String)] {
+    pub fn beatmaps(&self) -> &[(u32, String)] {
         &self.beatmaps
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.beatmaps.is_empty()
     }
 
-    pub(crate) fn describe_top_failure(&self) -> Option<String> {
+    pub fn describe_top_failure(&self) -> Option<String> {
         self.mirror_failures.describe_top_failure()
     }
 }
@@ -293,24 +284,36 @@ impl<'a> PassCoordinator<'a> {
 
         let mut failures = FailureReport::default();
         let mut aborted = false;
-        let pending_jobs: VecDeque<u32> = beatmapset_ids.into_iter().collect();
-        let job_queue = Arc::new(Mutex::new(pending_jobs));
         let worker_count = self.context.thread_count.max(1);
+        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<u32>(worker_count * 2);
+        let job_rx = Arc::new(tokio::sync::Mutex::new(job_rx));
         let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut worker_handles: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
         for slot in 0..worker_count {
             let worker_context = self.context.clone();
-            let queue_clone = Arc::clone(&job_queue);
+            let rx_clone = Arc::clone(&job_rx);
             let tx_clone = result_tx.clone();
             worker_handles.push(tokio::spawn(pass_worker_loop(
                 slot,
                 worker_context,
-                queue_clone,
+                rx_clone,
                 tx_clone,
             )));
         }
         drop(result_tx);
+
+        let feed_shutdown = self.context.shutdown.clone();
+        let feed_handle = tokio::spawn(async move {
+            for id in beatmapset_ids {
+                if feed_shutdown.is_cancelled() {
+                    break;
+                }
+                if job_tx.send(id).await.is_err() {
+                    break;
+                }
+            }
+        });
 
         while let Some((slot, beatmapset_id, result)) = result_rx.recv().await {
             if self
@@ -337,6 +340,7 @@ impl<'a> PassCoordinator<'a> {
         }
 
         drop(result_rx);
+        let _ = feed_handle.await;
 
         for handle in worker_handles {
             if let Err(err) = handle.await {
@@ -517,7 +521,7 @@ impl<'a> PassCoordinator<'a> {
 async fn pass_worker_loop(
     slot: usize,
     context: DownloadContext,
-    queue: Arc<Mutex<VecDeque<u32>>>,
+    job_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<u32>>>,
     result_tx: UnboundedSender<ResultMessage>,
 ) {
     loop {
@@ -526,8 +530,8 @@ async fn pass_worker_loop(
         }
 
         let next_job = {
-            let mut guard = queue.lock().await;
-            guard.pop_front()
+            let mut rx = job_rx.lock().await;
+            rx.recv().await
         };
 
         let Some(beatmapset_id) = next_job else {

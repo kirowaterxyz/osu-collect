@@ -17,6 +17,12 @@ pub enum DownloadError {
     #[error("Invalid archive: {0}")]
     InvalidArchive(Box<str>),
 
+    #[error("Validation failed for beatmapset {beatmapset_id}: {reason}")]
+    ValidationFailed {
+        beatmapset_id: u32,
+        reason: Box<str>,
+    },
+
     #[error("Disk full: {0}")]
     DiskFull(Box<str>),
 
@@ -44,11 +50,21 @@ pub enum DownloadError {
     #[error("Concurrent download in progress for: {0}")]
     ConcurrentDownload(String),
 
-    #[error("{0}")]
-    Other(Box<str>),
+    #[error("Worker panicked: {0}")]
+    WorkerPanic(Box<str>),
+
+    #[error("Internal error: {0}")]
+    Internal(Box<str>),
 }
 
 impl DownloadError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            DownloadError::RateLimited | DownloadError::Timeout(_) | DownloadError::Network(_)
+        )
+    }
+
     #[inline]
     pub fn not_found(msg: impl Into<Box<str>>) -> Self {
         Self::NotFound(msg.into())
@@ -70,19 +86,24 @@ impl DownloadError {
     }
 
     #[inline]
-    pub fn other(msg: impl Into<Box<str>>) -> Self {
-        Self::Other(msg.into())
+    pub fn worker_panic(msg: impl Into<Box<str>>) -> Self {
+        Self::WorkerPanic(msg.into())
+    }
+
+    #[inline]
+    pub fn internal(msg: impl Into<Box<str>>) -> Self {
+        Self::Internal(msg.into())
     }
 }
 
 impl From<AppError> for DownloadError {
     fn from(err: AppError) -> Self {
         match err {
-            AppError::Network(e) => Self::other(e.to_string()),
-            AppError::FileSystem(e) => Self::other(e.to_string()),
-            AppError::Parsing(e) => Self::other(e.to_string()),
-            AppError::Config(e) => Self::other(e.to_string()),
-            AppError::Domain(e) => Self::other(e.to_string()),
+            AppError::Network(e) => Self::internal(e.to_string()),
+            AppError::FileSystem(e) => Self::internal(e.to_string()),
+            AppError::Parsing(e) => Self::internal(e.to_string()),
+            AppError::Config(e) => Self::internal(e.to_string()),
+            AppError::Domain(e) => Self::internal(e.to_string()),
         }
     }
 }
