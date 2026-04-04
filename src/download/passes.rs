@@ -105,10 +105,10 @@ async fn download_single_target(
             continue;
         }
 
-        let mirror_plan = mirror_pool.plan();
+        let mirror_plan: Vec<_> = mirror_pool.plan().into_iter().map(Into::into).collect();
         let first_mirror = mirror_plan
             .first()
-            .map(|mirror| mirror.display_name())
+            .map(|mirror: &crate::mirrors::MirrorEndpoint| mirror.display_name())
             .unwrap_or("selected mirror");
 
         let activity_label = status::DOWNLOADING;

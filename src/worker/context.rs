@@ -3,10 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::download::{BeatmapTracker, CleanupTracker, DownloadEvent, DownloadId, ShutdownToken};
+use crate::mirrors::MirrorPool;
 use dashmap::DashSet;
 use tokio::sync::mpsc::UnboundedSender;
-
-use super::MirrorPool;
 
 /// Configuration parameters for creating a DownloadContext
 pub struct DownloadContextConfig {

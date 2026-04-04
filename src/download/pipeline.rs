@@ -12,11 +12,11 @@ use crate::{
         CollectionService, HttpCollectionService, create_collection_db,
         generate_collection_folder_name, model::Collection,
     },
-    mirrors::MirrorEndpoint,
+    mirrors::{MirrorEndpoint, MirrorPool},
     utils::{
         self, AppError, check_available_space, is_low_disk_space, validate_and_prepare_directory,
     },
-    worker::{DownloadContext, DownloadContextConfig, MirrorPool, StatusSink},
+    worker::{DownloadContext, DownloadContextConfig, StatusSink},
 };
 use dashmap::DashSet;
 use fs2::FileExt;
@@ -626,7 +626,7 @@ fn build_download_context(params: BuildContextParams) -> Result<DownloadContext,
         max_retries: params.max_retries,
         shutdown: params.shutdown,
         client: params.client,
-        mirror_pool: MirrorPool::new(params.mirrors),
+        mirror_pool: MirrorPool::new(params.mirrors.into_iter().map(|m| m.to_mirror()).collect()),
         output_dir: params.output_dir,
         tracker: params.tracker,
         initial_unverified: params.initial_unverified,

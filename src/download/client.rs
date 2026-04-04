@@ -1,10 +1,10 @@
 use crate::{
     check_shutdown,
     download::{http_client, status},
-    mirrors::{MirrorEndpoint, MirrorKind},
+    mirrors::{MirrorEndpoint, MirrorKind, MirrorPool},
     utils::{AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename},
     worker::{
-        DownloadContext, MirrorPool,
+        DownloadContext,
         io::{
             ArchiveValidationOptions, ArchiveValidationResult, download_with_streaming,
             ensure_valid_archive, validate_archive,
