@@ -1,0 +1,58 @@
+//! HTTP client creation and configuration
+
+use crate::Result;
+use std::time::Duration;
+
+/// Default timeout for beatmapset downloads (30 seconds)
+pub const DEFAULT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default timeout for API requests (15 seconds)
+#[cfg(feature = "collection")]
+pub const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Create a configured HTTP client for downloading beatmapsets
+pub fn create_download_client(user_agent: Option<String>) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(DEFAULT_DOWNLOAD_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .pool_max_idle_per_host(10);
+
+    if let Some(ua) = user_agent {
+        builder = builder.user_agent(ua);
+    }
+
+    Ok(builder.build()?)
+}
+
+/// Create a configured HTTP client for API requests
+#[cfg(feature = "collection")]
+pub fn create_api_client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .timeout(DEFAULT_API_TIMEOUT)
+        .pool_max_idle_per_host(5)
+        .build()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_download_client() {
+        let client = create_download_client(None);
+        assert!(client.is_ok());
+    }
+
+    #[test]
+    fn test_create_download_client_with_user_agent() {
+        let client = create_download_client(Some("test-agent".to_string()));
+        assert!(client.is_ok());
+    }
+
+    #[cfg(feature = "collection")]
+    #[test]
+    fn test_create_api_client() {
+        let client = create_api_client();
+        assert!(client.is_ok());
+    }
+}

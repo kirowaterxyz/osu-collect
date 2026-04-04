@@ -1,0 +1,326 @@
+//! Main downloader API
+
+use crate::{
+    config::DownloadConfig,
+    event::{DownloadResult, DownloadSummary},
+    http,
+    mirrors::{Mirror, MirrorPool},
+    Error, Result,
+};
+use std::{path::Path, sync::Arc, time::Duration};
+use tokio::sync::mpsc;
+
+/// Builder for creating a `Downloader`
+pub struct DownloaderBuilder {
+    mirrors: Vec<Mirror>,
+    concurrent_downloads: Option<usize>,
+    max_retries: Option<u32>,
+    verify_archives: Option<bool>,
+    progress_timeout: Option<Duration>,
+    user_agent: Option<String>,
+    no_video: bool,
+}
+
+impl DownloaderBuilder {
+    /// Create a new downloader builder
+    pub fn new() -> Self {
+        Self {
+            mirrors: Vec::new(),
+            concurrent_downloads: None,
+            max_retries: None,
+            verify_archives: None,
+            progress_timeout: None,
+            user_agent: None,
+            no_video: false,
+        }
+    }
+
+    /// Add a mirror to the downloader
+    pub fn mirror(mut self, mirror: Mirror) -> Self {
+        self.mirrors.push(mirror);
+        self
+    }
+
+    /// Add multiple mirrors to the downloader
+    pub fn mirrors(mut self, mirrors: impl IntoIterator<Item = Mirror>) -> Self {
+        self.mirrors.extend(mirrors);
+        self
+    }
+
+    /// Add default mirrors (Nerinyan, Catboy Central, osu.direct)
+    pub fn default_mirrors(mut self) -> Self {
+        self.mirrors.push(Mirror::nerinyan());
+        self.mirrors
+            .push(Mirror::catboy(crate::CatboyRegion::Central));
+        self.mirrors.push(Mirror::osu_direct());
+        self
+    }
+
+    /// Set the number of concurrent downloads (default: 4)
+    pub fn concurrent_downloads(mut self, count: usize) -> Self {
+        self.concurrent_downloads = Some(count);
+        self
+    }
+
+    /// Set the maximum number of retries per beatmapset (default: 3)
+    pub fn max_retries(mut self, retries: u32) -> Self {
+        self.max_retries = Some(retries);
+        self
+    }
+
+    /// Set whether to verify ZIP archives (default: true)
+    pub fn verify_archives(mut self, verify: bool) -> Self {
+        self.verify_archives = Some(verify);
+        self
+    }
+
+    /// Set the progress timeout duration (default: 30 seconds)
+    pub fn progress_timeout(mut self, timeout: Duration) -> Self {
+        self.progress_timeout = Some(timeout);
+        self
+    }
+
+    /// Set a custom user agent string
+    pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
+        self.user_agent = Some(agent.into());
+        self
+    }
+
+    /// Skip video files in beatmapsets (default: false)
+    pub fn no_video(mut self, no_video: bool) -> Self {
+        self.no_video = no_video;
+        self
+    }
+
+    /// Build the downloader
+    pub fn build(self) -> Result<Downloader> {
+        if self.mirrors.is_empty() {
+            return Err(Error::config(
+                "At least one mirror must be configured. Use .default_mirrors() or .mirror()",
+            ));
+        }
+
+        let config = DownloadConfig {
+            concurrent_downloads: self.concurrent_downloads.unwrap_or(4),
+            verify_archives: self.verify_archives.unwrap_or(true),
+            progress_timeout: self.progress_timeout.unwrap_or(Duration::from_secs(30)),
+            user_agent: self
+                .user_agent
+                .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
+        };
+
+        let http_client = http::create_download_client(Some(config.user_agent.clone()))?;
+        let mirror_pool = MirrorPool::new(self.mirrors);
+
+        Ok(Downloader {
+            config: Arc::new(config),
+            http_client,
+            mirror_pool: Arc::new(mirror_pool),
+        })
+    }
+}
+
+impl Default for DownloaderBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Main downloader client for downloading osu! beatmapsets
+pub struct Downloader {
+    config: Arc<DownloadConfig>,
+    http_client: reqwest::Client,
+    mirror_pool: Arc<MirrorPool>,
+}
+
+impl Downloader {
+    /// Create a new downloader builder
+    pub fn builder() -> DownloaderBuilder {
+        DownloaderBuilder::new()
+    }
+
+    /// Download a single beatmapset
+    ///
+    /// # Arguments
+    ///
+    /// * `beatmapset_id` - The beatmapset ID to download
+    /// * `output_dir` - Directory to save the beatmapset
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use osu_downloader::{Downloader, Mirror};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let downloader = Downloader::builder()
+    ///     .mirror(Mirror::nerinyan())
+    ///     .build()?;
+    ///
+    /// let result = downloader.download_one(123456, "./downloads").await?;
+    /// println!("Downloaded: {:?}", result);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_one(
+        &self,
+        beatmapset_id: u32,
+        output_dir: impl AsRef<Path>,
+    ) -> Result<DownloadResult> {
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+        crate::download::download_beatmapset(crate::download::DownloadParams {
+            beatmapset_id,
+            output_dir: output_dir.as_ref(),
+            client: &self.http_client,
+            mirror_pool: &self.mirror_pool,
+            verify_archive: self.config.verify_archives,
+            progress_timeout: self.config.progress_timeout,
+            progress_callback: None, // No progress callback for single download
+            cancel_rx,
+        })
+        .await
+    }
+
+    /// Download multiple beatmapsets
+    ///
+    /// Returns a `DownloadSession` handle for tracking progress and receiving events.
+    ///
+    /// # Arguments
+    ///
+    /// * `beatmapset_ids` - Iterable of beatmapset IDs to download
+    /// * `output_dir` - Directory to save beatmapsets
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use osu_downloader::{Downloader, Mirror, DownloadEvent};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let downloader = Downloader::builder()
+    ///     .mirror(Mirror::nerinyan())
+    ///     .concurrent_downloads(8)
+    ///     .build()?;
+    ///
+    /// let ids = vec![123456, 789012, 345678];
+    /// let mut session = downloader.download_many(ids, "./downloads").await;
+    ///
+    /// while let Some(event) = session.next_event().await {
+    ///     match event {
+    ///         DownloadEvent::Progress { beatmapset_id, downloaded_bytes, .. } => {
+    ///             println!("#{}: {} bytes", beatmapset_id, downloaded_bytes);
+    ///         }
+    ///         _ => {}
+    ///     }
+    /// }
+    ///
+    /// let summary = session.wait().await?;
+    /// println!("Downloaded {}/{}", summary.downloaded.len(), summary.total);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn download_many(
+        &self,
+        beatmapset_ids: impl IntoIterator<Item = u32>,
+        output_dir: impl AsRef<Path>,
+    ) -> DownloadSession {
+        let ids: Vec<u32> = beatmapset_ids.into_iter().collect();
+        let output_dir = output_dir.as_ref().to_path_buf();
+
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+        let client = self.http_client.clone();
+        let mirror_pool = self.mirror_pool.clone();
+        let config = self.config.clone();
+
+        let task = tokio::spawn(async move {
+            let batch_config = crate::batch::BatchConfig {
+                concurrent_downloads: config.concurrent_downloads,
+                verify_archives: config.verify_archives,
+                progress_timeout: config.progress_timeout,
+            };
+
+            let summary = crate::batch::download_batch(
+                ids,
+                &output_dir,
+                client,
+                mirror_pool,
+                batch_config,
+                event_tx,
+                cancel_rx,
+            )
+            .await;
+
+            Ok(summary)
+        });
+
+        DownloadSession {
+            events: event_rx,
+            cancel: cancel_tx,
+            task,
+        }
+    }
+}
+
+/// Handle to a running download session
+pub struct DownloadSession {
+    events: mpsc::UnboundedReceiver<crate::DownloadEvent>,
+    cancel: tokio::sync::watch::Sender<bool>,
+    task: tokio::task::JoinHandle<Result<DownloadSummary>>,
+}
+
+impl DownloadSession {
+    /// Get the next download event
+    ///
+    /// Returns `None` when the session has completed.
+    pub async fn next_event(&mut self) -> Option<crate::DownloadEvent> {
+        self.events.recv().await
+    }
+
+    /// Cancel the download session
+    pub fn cancel(&self) {
+        let _ = self.cancel.send(true);
+    }
+
+    /// Wait for the session to complete and get the summary
+    ///
+    /// This consumes the session handle.
+    pub async fn wait(mut self) -> Result<DownloadSummary> {
+        // Drain remaining events
+        while self.events.recv().await.is_some() {}
+
+        self.task
+            .await
+            .map_err(|e| Error::config(format!("Download task panicked: {}", e)))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builder() {
+        let builder = Downloader::builder()
+            .mirror(Mirror::nerinyan())
+            .concurrent_downloads(8)
+            .max_retries(5)
+            .verify_archives(true)
+            .no_video(true);
+
+        let downloader = builder.build();
+        assert!(downloader.is_ok());
+    }
+
+    #[test]
+    fn test_builder_no_mirrors() {
+        let builder = Downloader::builder();
+        let result = builder.build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_builder_default_mirrors() {
+        let builder = Downloader::builder().default_mirrors();
+        let result = builder.build();
+        assert!(result.is_ok());
+    }
+}
