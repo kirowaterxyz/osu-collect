@@ -52,6 +52,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=stdc++");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=z");
+            println!("cargo:rustc-link-lib=dylib=crypto");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=dylib=c++");

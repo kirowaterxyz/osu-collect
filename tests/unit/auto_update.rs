@@ -168,7 +168,10 @@ async fn check_and_apply_with_client_runs_hooks_on_update() {
     };
 
     let asset_bytes = b"new-binary".to_vec();
-    let checksum = format!("{:x}", Sha256::digest(&asset_bytes));
+    let checksum: String = Sha256::digest(&asset_bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
 
     let release_body = serde_json::json!({
         "name": "v9.9.9",

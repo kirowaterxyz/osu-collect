@@ -35,7 +35,12 @@ impl HashWorker {
             while let Ok(chunk) = receiver.recv() {
                 hasher.update(&chunk);
             }
-            format!("{:032x}", hasher.finalize()).into_boxed_str()
+            hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                .into_boxed_str()
         });
         Self {
             sender: Some(sender),

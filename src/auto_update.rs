@@ -155,7 +155,11 @@ async fn download_asset(
     file.flush().await?;
     set_executable_permissions(&temp_path).await?;
 
-    let checksum = format!("{:x}", hasher.finalize());
+    let checksum: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
 
     Ok(DownloadedAsset {
         path: temp_path,

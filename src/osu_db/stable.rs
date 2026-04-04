@@ -137,7 +137,7 @@ impl StableReader {
         #[cfg(target_os = "linux")]
         {
             if let Some(home) = dirs::home_dir() {
-                let username = whoami::username();
+                let username = whoami::username().unwrap_or_default();
 
                 // osu-winello: read path from osupath config file
                 let osupath_file = home.join(".local/share/osuconfig/osupath");
@@ -232,7 +232,7 @@ impl StableReader {
             ));
 
             if let Some(home) = dirs::home_dir() {
-                let username = whoami::username();
+                let username = whoami::username().unwrap_or_default();
 
                 // User Applications folder
                 paths.push(home.join("Applications/osu!.app/Contents/Resources/drive_c/osu!"));
