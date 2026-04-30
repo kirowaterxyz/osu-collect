@@ -2,62 +2,49 @@ use crate::{
     app::{ConfigField, ConfigTab},
     config::{LogFormat, LogLevel},
 };
-use ratatui::{
-    Frame,
-    layout::{Constraint, Layout, Rect},
-    widgets::{Block, BorderType, Borders, List},
-};
+use ratatui::{Frame, layout::Rect, widgets::List};
 
 use super::{ConfigView, components};
 
 pub fn render(frame: &mut Frame, area: Rect, view: ConfigView) {
-    let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).split(area);
-    render_form(frame, chunks[0], view.form);
-    components::render_console(
-        frame,
-        chunks[1],
-        components::ConsoleMessage {
-            message: view.form.message.as_ref(),
-            quit_prompt: view.quit_prompt,
-            default_text: " Press S to save the configuration file.",
-        },
-    );
+    render_form(frame, area, view.form);
 }
 
 fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     let items = vec![
+        components::section_header("mirrors"),
         components::toggle_item(
-            "Use Nerinyan",
+            "nerinyan (api.nerinyan.moe)",
             form.nerinyan,
             form.focus == ConfigField::MirrorNerinyan,
         ),
         components::toggle_item(
-            "Use Catboy Central",
+            "catboy central (catboy.best)",
             form.catboy_central,
             form.focus == ConfigField::MirrorCatboyCentral,
         ),
         components::toggle_item(
-            "Use Catboy US",
+            "catboy us (us.catboy.best)",
             form.catboy_us,
             form.focus == ConfigField::MirrorCatboyUs,
         ),
         components::toggle_item(
-            "Use Catboy Asia",
+            "catboy asia (sg.catboy.best)",
             form.catboy_asia,
             form.focus == ConfigField::MirrorCatboyAsia,
         ),
         components::toggle_item(
-            "Use osu.direct",
+            "osu.direct (osu.direct)",
             form.osu_direct,
             form.focus == ConfigField::MirrorOsuDirect,
         ),
         components::toggle_item(
-            "Use Sayobot",
+            "sayobot (dl.sayobot.cn)",
             form.sayobot,
             form.focus == ConfigField::MirrorSayobot,
         ),
         components::toggle_item(
-            "Use Nekoha",
+            "nekoha (mirror.nekoha.moe)",
             form.nekoha,
             form.focus == ConfigField::MirrorNekoha,
         ),
@@ -65,35 +52,37 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             &form.custom_mirror,
             form.focus == ConfigField::MirrorCustomUrl,
         ),
+        components::section_header("download"),
         components::toggle_item(
-            "Skip existing files",
+            "skip existing files",
             form.skip_existing,
             form.focus == ConfigField::DownloadSkipExisting,
         ),
         components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
         components::input_item(&form.retries, form.focus == ConfigField::DownloadRetries),
         components::toggle_item(
-            "Download without video",
+            "no video",
             form.no_video,
             form.focus == ConfigField::DownloadNoVideo,
         ),
         components::toggle_item(
-            "Check .osz file integrity",
+            "verify .osz integrity",
             form.verify_zip_eocd,
             form.focus == ConfigField::DownloadVerifyZipEocd,
         ),
+        components::section_header("logging"),
         components::toggle_item(
-            "Enable logging",
+            "enable logging",
             form.logging_enabled,
             form.focus == ConfigField::LoggingEnabled,
         ),
         components::select_item(
-            "Logging level",
+            "level",
             log_level_label(form.logging_level),
             form.focus == ConfigField::LoggingLevel,
         ),
         components::select_item(
-            "Logging format",
+            "format",
             log_format_label(form.logging_format),
             form.focus == ConfigField::LoggingFormat,
         ),
@@ -103,15 +92,36 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ),
     ];
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .title(" Config Defaults ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain),
-        )
-        .highlight_symbol("");
-    frame.render_widget(list, area);
+    let focused_index = match form.focus {
+        ConfigField::MirrorNerinyan => 1,
+        ConfigField::MirrorCatboyCentral => 2,
+        ConfigField::MirrorCatboyUs => 3,
+        ConfigField::MirrorCatboyAsia => 4,
+        ConfigField::MirrorOsuDirect => 5,
+        ConfigField::MirrorSayobot => 6,
+        ConfigField::MirrorNekoha => 7,
+        ConfigField::MirrorCustomUrl => 8,
+        ConfigField::DownloadSkipExisting => 10,
+        ConfigField::DownloadThreads => 11,
+        ConfigField::DownloadRetries => 12,
+        ConfigField::DownloadNoVideo => 13,
+        ConfigField::DownloadVerifyZipEocd => 14,
+        ConfigField::LoggingEnabled => 16,
+        ConfigField::LoggingLevel => 17,
+        ConfigField::LoggingFormat => 18,
+        ConfigField::LoggingDirectory => 19,
+    };
+
+    let inner_block = components::panel_block("config");
+    let inner = inner_block.inner(area);
+    frame.render_widget(inner_block, area);
+
+    let visible_height = inner.height as usize;
+    let (start, end) = components::scroll_window(&items, focused_index, visible_height);
+    let visible_items = items[start..end].to_vec();
+
+    let list = List::new(visible_items).highlight_symbol("");
+    frame.render_widget(list, inner);
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {

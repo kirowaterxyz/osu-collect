@@ -1,39 +1,100 @@
-use super::{TabsView, components};
-use ratatui::prelude::Modifier;
+use super::{AppView, components};
+use crate::app::{MessageKind, messages::AppMessage};
+use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
-    text::Line,
-    widgets::{Block, BorderType, Borders},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
 };
 
 pub struct FooterView<'a> {
-    tabs: &'a TabsView,
+    pub message: Option<&'a AppMessage>,
+    pub quit_prompt: bool,
+    pub hint: &'static str,
 }
 
 impl<'a> FooterView<'a> {
-    pub fn new(tabs: &'a TabsView) -> Self {
-        Self { tabs }
+    pub fn for_tab(view: &'a AppView<'a>) -> Self {
+        match view.active_tab {
+            HOME_TAB_INDEX => Self {
+                message: view.home.form.message.as_ref(),
+                quit_prompt: view.home.form.quit_prompt,
+                hint: " ↑↓ navigate · space toggle · enter download · q quit",
+            },
+            UPDATES_TAB_INDEX => Self {
+                message: view.updates.form.message.as_ref(),
+                quit_prompt: false,
+                hint: " ↑↓ navigate · space expand/toggle · a/d all/none · enter download",
+            },
+            CONFIG_TAB_INDEX => Self {
+                message: view.config.form.message.as_ref(),
+                quit_prompt: view.config.quit_prompt,
+                hint: " ↑↓ navigate · space/←→ change · s save · q quit",
+            },
+            _ => Self {
+                message: None,
+                quit_prompt: false,
+                hint: " ↑↓ scroll · q quit",
+            },
+        }
     }
 }
 
 pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
-    let help_text =
-        " ← →: Navigate | ↑ ↓: Scroll | Space: Toggle | Enter: Start Download | q: Quit ";
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .title_bottom(
-            Line::from(help_text).centered().style(
-                Style::default()
-                    .fg(Color::Rgb(108, 112, 134))
-                    .add_modifier(Modifier::BOLD),
-            ),
-        );
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
 
-    let tabs = components::tab_bar(view.tabs);
-    frame.render_widget(tabs, inner);
+    if view.quit_prompt {
+        let paragraph = Paragraph::new(" press q again to quit; all downloads will be cancelled.")
+            .style(Style::default().fg(components::WARNING));
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
+    if let Some(msg) = view.message {
+        let style = match msg.kind {
+            MessageKind::Info => Style::default().fg(components::SUCCESS),
+            MessageKind::Error => Style::default().fg(components::DANGER),
+            MessageKind::Loading => Style::default().fg(components::WARNING),
+        };
+        let text = format!(" {}", msg.text.trim_start());
+        frame.render_widget(Paragraph::new(text).style(style), area);
+        return;
+    }
+
+    let line = build_hint_line(view.hint);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn build_hint_line(hint: &'static str) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let dim = Style::default().fg(components::TEXT_FAINT);
+    let key_style = Style::default()
+        .fg(components::TEXT_MUTED)
+        .add_modifier(Modifier::BOLD);
+    let sep_style = Style::default().fg(components::LINE);
+
+    for (segment_idx, segment) in hint.split('·').enumerate() {
+        let trimmed = segment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if segment_idx > 0 {
+            spans.push(Span::styled(" · ", sep_style));
+        } else {
+            spans.push(Span::raw(" "));
+        }
+        let mut parts = trimmed.splitn(2, ' ');
+        let key = parts.next().unwrap_or("");
+        let label = parts.next().unwrap_or("");
+        spans.push(Span::styled(key.to_string(), key_style));
+        if !label.is_empty() {
+            spans.push(Span::styled(format!(" {label}"), dim));
+        }
+    }
+
+    Line::from(spans)
 }

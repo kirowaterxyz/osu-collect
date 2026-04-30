@@ -87,6 +87,11 @@ impl App {
         }
     }
 
+    fn updates_list_open(&self) -> bool {
+        self.active_tab() == UPDATES_TAB_INDEX
+            && (self.updates.selection.in_collection_list || self.updates.selection.in_beatmap_list)
+    }
+
     fn focus_next_field(&mut self) {
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.next_field(),
@@ -255,16 +260,14 @@ impl App {
                 return self.handle_quit_key();
             }
             KeyCode::Left => {
-                if !self.updates.selection.in_collection_list
-                    && !self.updates.selection.in_beatmap_list
+                if !self.updates_list_open()
                     && let Some(cmd) = self.prev_tab()
                 {
                     return Some(cmd);
                 }
             }
             KeyCode::Right => {
-                if !self.updates.selection.in_collection_list
-                    && !self.updates.selection.in_beatmap_list
+                if !self.updates_list_open()
                     && let Some(cmd) = self.next_tab()
                 {
                     return Some(cmd);
@@ -332,10 +335,8 @@ impl App {
                         self.home.handle_char(' ');
                     }
                 }
-                UPDATES_TAB_INDEX => {
-                    if self.updates.toggle_current() == UpdatesAction::RefreshAll {
-                        return Some(AppCommand::ScanLocalDatabase);
-                    }
+                UPDATES_TAB_INDEX if self.updates.toggle_current() == UpdatesAction::RefreshAll => {
+                    return Some(AppCommand::ScanLocalDatabase);
                 }
                 CONFIG_TAB_INDEX => {
                     if self.config.focus.is_text_input() {

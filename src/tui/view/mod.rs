@@ -9,41 +9,48 @@ use crate::app::{App, CollectionPage, ConfigTab, HomeTab, UpdatesTab};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout},
-    style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    layout::{Constraint, Layout},
 };
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let view = AppView::from(app);
     let area = frame.area();
-    let layout = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]);
-    let [main_area, footer_area] = layout.areas(area);
 
-    let version = env!("CARGO_PKG_VERSION");
-    let title_left = " osu-collect • osu!collector downloader ";
-    let title_right = format!(" v{} ", version);
-    let title_style = Style::default()
-        .fg(Color::Rgb(224, 123, 83))
-        .add_modifier(Modifier::BOLD);
-    let version_style = Style::default().fg(Color::Rgb(108, 112, 134));
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
 
-    let shell = app_shell(title_left, title_style);
-    let content_area = shell.inner(main_area);
-    frame.render_widget(shell, main_area);
+    let compact = area.height < 12;
 
-    let right_len = title_right.len() as u16;
-    let version_x = main_area.x + main_area.width.saturating_sub(right_len + 1);
-    let version_area = ratatui::layout::Rect {
-        x: version_x,
-        y: main_area.y,
-        width: right_len,
-        height: 1,
+    let chunks: Vec<_> = if compact {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area)
+        .to_vec()
+    } else {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(area)
+        .to_vec()
     };
-    let version_paragraph = Paragraph::new(title_right)
-        .style(version_style)
-        .alignment(Alignment::Right);
-    frame.render_widget(version_paragraph, version_area);
+
+    let (header_area, content_area, status_area) = if compact {
+        (chunks[0], chunks[1], chunks[2])
+    } else {
+        components::render_separator(frame, chunks[1]);
+        components::render_separator(frame, chunks[3]);
+        (chunks[0], chunks[2], chunks[4])
+    };
+
+    components::render_header(frame, header_area, &view.tabs);
 
     match view.active_tab {
         HOME_TAB_INDEX => home::render(frame, content_area, view.home),
@@ -58,16 +65,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
     }
 
-    footer::render(frame, footer_area, footer::FooterView::new(&view.tabs));
-}
-
-fn app_shell(title_left: &str, style: Style) -> Block<'static> {
-    Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .title(title_left.to_string())
-        .title_alignment(Alignment::Left)
-        .title_style(style)
+    let footer_view = footer::FooterView::for_tab(&view);
+    footer::render(frame, status_area, footer_view);
 }
 
 #[derive(Clone, Copy)]
@@ -134,13 +133,13 @@ impl TabsView {
     }
 }
 
-struct AppView<'a> {
-    home: HomeView<'a>,
-    updates: UpdatesView<'a>,
-    config: ConfigView<'a>,
-    download: Option<DownloadView<'a>>,
-    tabs: TabsView,
-    active_tab: usize,
+pub struct AppView<'a> {
+    pub home: HomeView<'a>,
+    pub updates: UpdatesView<'a>,
+    pub config: ConfigView<'a>,
+    pub download: Option<DownloadView<'a>>,
+    pub tabs: TabsView,
+    pub active_tab: usize,
 }
 
 impl<'a> From<&'a App> for AppView<'a> {

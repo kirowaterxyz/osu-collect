@@ -7,23 +7,26 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Gauge, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
 
 use super::{DownloadView, components};
 
+const INFO_HEIGHT: u16 = 7;
+const GAUGE_HEIGHT: u16 = 3;
+
 pub fn render(frame: &mut Frame, area: Rect, view: DownloadView) {
     let page = view.page;
     let show_disk_warning = should_render_disk_warning(page);
-    let info_height = 6;
+
     let mut constraints = Vec::with_capacity(4);
     if show_disk_warning {
         constraints.push(Constraint::Length(1));
     }
-    constraints.push(Constraint::Length(info_height));
-    constraints.push(Constraint::Length(3));
+    constraints.push(Constraint::Length(INFO_HEIGHT));
+    constraints.push(Constraint::Length(GAUGE_HEIGHT));
     constraints.push(Constraint::Min(0));
 
     let sections = Layout::vertical(constraints).split(area);
@@ -58,26 +61,26 @@ fn should_render_disk_warning(page: &CollectionPage) -> bool {
 fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(available) = page.low_disk_space {
         let text = format!(
-            " ⚠ Not enough free space in target directory ({} available). Free up space before downloading.",
+            " not enough free space in target directory ({} available). free up space before downloading.",
             format_bytes(available)
         );
-        let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Rgb(249, 226, 175)));
+        let paragraph = Paragraph::new(text).style(Style::default().fg(components::WARNING));
         frame.render_widget(paragraph, area);
     }
 }
 
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let stage_label = match page.stage {
-        DownloadStage::Pending => "Pending",
-        DownloadStage::Resolving => "Resolving",
-        DownloadStage::Rechecking => "Rechecking existing maps",
-        DownloadStage::Downloading => "Downloading",
-        DownloadStage::Completed => "Completed",
-        DownloadStage::Failed => "Failed",
+        DownloadStage::Pending => "pending",
+        DownloadStage::Resolving => "resolving",
+        DownloadStage::Rechecking => "rechecking existing maps",
+        DownloadStage::Downloading => "downloading",
+        DownloadStage::Completed => "completed",
+        DownloadStage::Failed => "failed",
     };
     let status =
         if matches!(page.stage, DownloadStage::Downloading) && page.all_threads_rate_limited() {
-            "Rate Limited"
+            "rate limited"
         } else {
             stage_label
         };
@@ -103,12 +106,12 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         if unverified > 0 {
             parts.push(format!("{unverified} unverified"));
         }
-        format!(" {label}: {}", parts.join(" • "))
+        format!(" {label}: {}", parts.join(" · "))
     };
 
     let summary_line = if let Some(summary) = &page.summary {
         counts_line(
-            "Done",
+            "done",
             summary.downloaded,
             summary.skipped,
             summary.failed,
@@ -116,7 +119,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         )
     } else {
         counts_line(
-            "Progress",
+            "progress",
             page.stats.downloaded,
             page.stats.skipped,
             page.stats.failed,
@@ -135,71 +138,59 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         None
     };
 
+    let label_style = Style::default().fg(components::TEXT_DIM);
+
     let mut status_spans = vec![
-        Span::styled("Status: ", Style::default().fg(Color::Rgb(205, 214, 244))),
+        Span::styled("status:     ", label_style),
         Span::styled(status, components::status_style(page.stage)),
     ];
     if let Some(speed) = speed_display {
-        status_spans.push(Span::styled(
-            " @ ",
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ));
+        status_spans.push(Span::styled(" @ ", label_style));
         status_spans.push(Span::styled(
             speed,
-            Style::default().fg(Color::Rgb(166, 227, 161)),
+            Style::default().fg(components::SUCCESS),
         ));
     }
     if let Some(bytes) = bytes_display {
-        status_spans.push(Span::styled(
-            " (",
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ));
+        status_spans.push(Span::styled(" (", label_style));
         status_spans.push(Span::styled(
             bytes,
-            Style::default().fg(Color::Rgb(249, 226, 175)),
+            Style::default().fg(components::WARNING),
         ));
-        status_spans.push(Span::styled(
-            ")",
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ));
+        status_spans.push(Span::styled(")", label_style));
     }
 
-    let mut lines = vec![
+    let lines = vec![
         Line::from(vec![
+            Span::styled("collection: ", label_style),
+            Span::styled(page.title.clone(), Style::default().fg(components::ACCENT)),
+        ]),
+        Line::from(vec![
+            Span::styled("uploader:   ", label_style),
             Span::styled(
-                "Collection: ",
-                Style::default().fg(Color::Rgb(205, 214, 244)),
-            ),
-            Span::styled(
-                page.title.clone(),
-                Style::default().fg(Color::Rgb(137, 180, 250)),
+                page.uploader.as_deref().unwrap_or("unknown").to_owned(),
+                Style::default().fg(components::TEXT_MUTED),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Uploader: ", Style::default().fg(Color::Rgb(205, 214, 244))),
-            Span::raw(page.uploader.as_deref().unwrap_or("Unknown").to_owned()),
-        ]),
-        Line::from(vec![
-            Span::styled("Output: ", Style::default().fg(Color::Rgb(205, 214, 244))),
-            Span::raw(
+            Span::styled("output:     ", label_style),
+            Span::styled(
                 page.output_dir
                     .as_deref()
-                    .unwrap_or("Preparing...")
+                    .unwrap_or("preparing...")
                     .to_owned(),
+                Style::default().fg(components::TEXT_MUTED),
             ),
         ]),
         Line::from(status_spans),
+        Line::from(Span::styled(
+            summary_line,
+            Style::default().fg(components::TEXT_MUTED),
+        )),
     ];
 
-    lines.push(Line::from(summary_line));
-
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(" Overview ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain),
-        )
+        .block(components::panel_block("overview"))
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
@@ -230,35 +221,29 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let verified_display = verified.min(total_collection);
     let ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    let mut title_style = Style::default().fg(Color::Rgb(166, 227, 161));
-    if page.progress_label_style_locked {
-        if page.progress_label_bold_when_locked {
-            title_style = title_style.add_modifier(Modifier::BOLD);
-        }
-    } else {
-        title_style = title_style.add_modifier(Modifier::BOLD);
+    let mut top_style = Style::default().fg(components::TEXT_DIM);
+    if !page.progress_label_style_locked || page.progress_label_bold_when_locked {
+        top_style = top_style.add_modifier(Modifier::BOLD);
     }
 
-    let downloaded_title = format!(" Downloaded: {downloaded} In Queue: {queue_remaining} ");
+    let downloaded_title = format!(" {downloaded} downloaded · {queue_remaining} in queue ");
     let verified_title = format!(" {verified_display}/{total_collection} maps verified ");
 
     let block = Block::default()
-        .title(Line::from(vec![Span::styled(downloaded_title, title_style)]).centered())
+        .title(Line::from(Span::styled(downloaded_title, top_style)).left_aligned())
         .title_bottom(
-            Line::from(vec![Span::styled(
+            Line::from(Span::styled(
                 verified_title,
-                Style::default().fg(Color::Rgb(166, 227, 161)),
-            )])
-            .centered(),
-        )
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain);
+                Style::default().fg(components::TEXT_DIM),
+            ))
+            .right_aligned(),
+        );
 
     let gauge = Gauge::default()
         .block(block)
         .ratio(ratio)
         .label(Span::raw(""))
-        .gauge_style(Style::default().fg(Color::Rgb(224, 123, 83)));
+        .gauge_style(Style::default().fg(components::ACCENT).bg(components::LINE));
 
     frame.render_widget(gauge, area);
 }
@@ -280,89 +265,96 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     }
 
     if items.is_empty() && page.failed_maps.is_empty() {
-        items.push(ListItem::new(Line::from(vec![Span::styled(
-            "No active threads",
-            Style::default().fg(Color::Rgb(108, 112, 134)),
-        )])));
+        items.push(ListItem::new(Line::from(Span::styled(
+            "no active threads",
+            Style::default().fg(components::TEXT_FAINT),
+        ))));
     }
 
     if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed)
         && !page.failed_maps.is_empty()
     {
-        let header = format!("Failed maps ({}):", page.failed_maps.len());
-        let header_line = Line::from(vec![Span::styled(
+        let header = format!("failed maps ({})", page.failed_maps.len());
+        items.push(ListItem::new(Line::from(Span::styled(
             header,
             Style::default()
-                .fg(Color::Rgb(243, 139, 168))
+                .fg(components::DANGER)
                 .add_modifier(Modifier::BOLD),
-        )]);
-        items.push(ListItem::new(header_line));
+        ))));
 
         for failure in &page.failed_maps {
             let reason = summarize_failure(&failure.reason);
-            let chunk_line = Line::from(vec![Span::styled(
+            items.push(ListItem::new(Line::from(Span::styled(
                 format!("  #{} - {}", failure.id, reason),
-                Style::default().fg(Color::Rgb(243, 139, 168)),
-            )]);
-            items.push(ListItem::new(chunk_line));
+                Style::default().fg(components::DANGER),
+            ))));
         }
     }
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .title(" Threads ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain),
-        )
-        .highlight_symbol("");
-    frame.render_widget(list, area);
+    let block = components::panel_block("threads");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let visible_height = inner.height as usize;
+    let (start, end) =
+        components::scroll_window(&items, items.len().saturating_sub(1), visible_height);
+    let visible_items = items[start..end].to_vec();
+
+    let list = List::new(visible_items).highlight_symbol("");
+    frame.render_widget(list, inner);
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
-    let mut items: Vec<ListItem> = Vec::new();
-    items.push(ListItem::new(Line::from(vec![Span::styled(
-        "Collection Results",
-        Style::default()
-            .fg(Color::Rgb(137, 180, 250))
-            .add_modifier(Modifier::BOLD),
-    )])));
-
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
-    let stats = [
-        ("Downloaded", summary.downloaded, Style::default()),
-        ("Skipped", displayed_skipped, Style::default()),
-        ("Failed", summary.failed, Style::default()),
-        (
-            "Unverified",
-            summary.unverified,
-            Style::default()
-                .fg(Color::Rgb(249, 226, 175))
-                .add_modifier(Modifier::BOLD),
-        ),
+    let label_style = Style::default().fg(components::TEXT_DIM);
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("downloaded: ", label_style),
+            Span::styled(
+                summary.downloaded.to_string(),
+                Style::default().fg(components::SUCCESS),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("skipped:    ", label_style),
+            Span::styled(
+                displayed_skipped.to_string(),
+                Style::default().fg(components::TEXT_MUTED),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("failed:     ", label_style),
+            Span::styled(
+                summary.failed.to_string(),
+                if summary.failed > 0 {
+                    Style::default().fg(components::DANGER)
+                } else {
+                    Style::default().fg(components::TEXT_MUTED)
+                },
+            ),
+        ]),
     ];
 
-    for (label, value, style) in stats {
-        let line = if label == "Unverified" && value > 0 {
-            Line::from(vec![Span::styled(format!("{label}: {value}"), style)])
-        } else {
-            Line::from(format!("{label}: {value}"))
-        };
-        items.push(ListItem::new(line));
+    if summary.unverified > 0 {
+        lines.push(Line::from(vec![
+            Span::styled("unverified: ", label_style),
+            Span::styled(
+                summary.unverified.to_string(),
+                Style::default()
+                    .fg(components::WARNING)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
     }
 
-    let list = List::new(items).block(
-        Block::default()
-            .title(" Results ")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Plain),
-    );
-    frame.render_widget(list, area);
+    let paragraph = Paragraph::new(lines).block(components::panel_block("results"));
+    frame.render_widget(paragraph, area);
 }
 
 fn summarize_failure(reason: &str) -> String {
     if reason.is_empty() {
-        return "Unknown error".to_string();
+        return "unknown error".to_string();
     }
 
     let mut truncated: String = reason.chars().take(MAX_TRUNCATED_CHARS).collect();

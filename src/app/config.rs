@@ -159,15 +159,11 @@ impl ConfigTab {
         self.clear_message();
         match self.focus {
             ConfigField::MirrorCustomUrl => self.custom_mirror.value.push(ch),
-            ConfigField::DownloadThreads => {
-                if ch.is_ascii_digit() {
-                    self.threads.value.push(ch);
-                }
+            ConfigField::DownloadThreads if ch.is_ascii_digit() => {
+                self.threads.value.push(ch);
             }
-            ConfigField::DownloadRetries => {
-                if ch.is_ascii_digit() {
-                    self.retries.value.push(ch);
-                }
+            ConfigField::DownloadRetries if ch.is_ascii_digit() => {
+                self.retries.value.push(ch);
             }
             ConfigField::LoggingDirectory => self.logging_dir.value.push(ch),
             _ => {}

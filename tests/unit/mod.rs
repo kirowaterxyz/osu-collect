@@ -1,3 +1,4 @@
+pub mod app_state;
 pub mod app_updates;
 pub mod auto_update;
 pub mod download;

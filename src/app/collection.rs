@@ -272,7 +272,7 @@ impl CollectionPage {
             .into_iter()
             .map(|(id, reason)| FailedBeatmap { id, reason })
             .collect();
-        entries.sort_by(|a, b| a.id.cmp(&b.id));
+        entries.sort_by_key(|a| a.id);
         self.failed_maps = entries;
     }
 

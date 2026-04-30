@@ -1,124 +1,200 @@
 use crate::{
-    app::{InputField, MessageKind, ThreadStatusLine, messages::AppMessage},
+    app::{InputField, ThreadStatusLine},
     download::DownloadStage,
 };
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, ListItem, Paragraph, Tabs, Wrap},
+    widgets::{Block, ListItem, Padding, Paragraph},
 };
 
 use super::TabsView;
 
-pub fn tab_bar(tabs: &TabsView) -> Tabs<'static> {
-    let titles: Vec<Line> = tabs
-        .titles()
-        .iter()
-        .map(|title| Line::from(Span::raw(title.clone())))
-        .collect();
+pub const ACCENT: Color = Color::Rgb(67, 171, 229);
+pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87);
+pub const INFO: Color = Color::Rgb(116, 199, 236);
+pub const SUCCESS: Color = Color::Rgb(166, 227, 161);
+pub const WARNING: Color = Color::Rgb(249, 226, 175);
+pub const DANGER: Color = Color::Rgb(243, 139, 168);
+pub const TEXT: Color = Color::Rgb(205, 214, 244);
+pub const TEXT_MUTED: Color = Color::Rgb(186, 194, 222);
+pub const TEXT_DIM: Color = Color::Rgb(166, 173, 200);
+pub const TEXT_FAINT: Color = Color::Rgb(127, 132, 156);
+pub const LINE: Color = Color::Rgb(69, 71, 90);
 
-    Tabs::new(titles)
-        .select(tabs.active())
-        .divider(" | ")
-        .highlight_style(
-            Style::default()
-                .fg(Color::Rgb(137, 180, 250))
-                .add_modifier(Modifier::BOLD),
-        )
+pub const FOCUS_MARK: &str = "❯ ";
+pub const FOCUS_PAD: &str = "  ";
+pub const CHECK_ON: &str = "[x]";
+pub const CHECK_OFF: &str = "[ ]";
+
+fn eyebrow_style() -> Style {
+    Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD)
+}
+
+pub fn scroll_window<T>(
+    items: &[T],
+    focused_index: usize,
+    visible_height: usize,
+) -> (usize, usize) {
+    if items.is_empty() || visible_height == 0 || items.len() <= visible_height {
+        return (0, items.len());
+    }
+
+    let focused_index = focused_index.min(items.len().saturating_sub(1));
+    let half_visible = visible_height / 2;
+    let mut start = focused_index.saturating_sub(half_visible);
+
+    if start + visible_height > items.len() {
+        start = items.len().saturating_sub(visible_height);
+    }
+
+    (start, (start + visible_height).min(items.len()))
+}
+
+pub fn panel_block(title: &'static str) -> Block<'static> {
+    Block::default()
+        .title(Span::styled(
+            format!(" {} ", title.to_uppercase()),
+            eyebrow_style(),
+        ))
+        .padding(Padding::new(1, 1, 1, 0))
+}
+
+pub fn render_separator(frame: &mut Frame, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let line: String = "─".repeat(area.width as usize);
+    let paragraph = Paragraph::new(line).style(Style::default().fg(LINE));
+    frame.render_widget(paragraph, area);
+}
+
+pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
+    let version_w = version.chars().count() as u16;
+    let brand_text = " osu-collect";
+    let brand_w = brand_text.chars().count() as u16;
+
+    let layout = Layout::horizontal([
+        Constraint::Length(brand_w + 1),
+        Constraint::Min(0),
+        Constraint::Length(version_w),
+    ])
+    .split(area);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            brand_text,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))),
+        layout[0],
+    );
+
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.titles().len() * 2);
+    for (i, title) in tabs.titles().iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ", Style::default().fg(LINE)));
+        }
+        let style = if i == tabs.active() {
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_FAINT)
+        };
+        spans.push(Span::styled(title.clone(), style));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Left),
+        layout[1],
+    );
+
+    frame.render_widget(
+        Paragraph::new(version)
+            .style(Style::default().fg(TEXT_FAINT))
+            .alignment(Alignment::Right),
+        layout[2],
+    );
 }
 
 pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     let value = if field.value.is_empty() {
-        Span::styled(
-            field.placeholder.clone(),
-            Style::default().fg(Color::Rgb(108, 112, 134)),
-        )
+        Span::styled(field.placeholder.clone(), Style::default().fg(TEXT_FAINT))
     } else {
-        Span::raw(field.value.clone())
+        Span::styled(field.value.clone(), Style::default().fg(ACCENT))
     };
 
     let spans = vec![
-        Span::styled(
-            if focused { "> " } else { "  " },
-            Style::default().fg(Color::Rgb(137, 180, 250)),
-        ),
-        Span::styled(
-            format!("{}: ", field.label),
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ),
+        focus_span(focused),
+        Span::styled(format!("{}: ", field.label), Style::default().fg(TEXT)),
         value,
     ];
 
-    let style = if focused {
-        Style::default().fg(Color::Rgb(137, 180, 250))
-    } else {
-        Style::default()
-    };
-
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 pub fn toggle_item(label: &str, state: bool, focused: bool) -> ListItem<'static> {
-    let marker = if state { "[x]" } else { "[ ]" };
-    let style = if focused {
-        Style::default().fg(Color::Rgb(137, 180, 250))
-    } else {
-        Style::default()
-    };
+    let (marker, marker_style) = check_marker(state);
     let spans = vec![
-        Span::styled(
-            if focused { "> " } else { "  " },
-            Style::default().fg(Color::Rgb(137, 180, 250)),
-        ),
-        Span::styled(marker, style),
-        Span::styled(
-            format!(" {label}"),
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ),
+        focus_span(focused),
+        Span::styled(marker, marker_style),
+        Span::styled(format!(" {label}"), Style::default().fg(TEXT)),
     ];
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 pub fn select_item(label: &str, value: &str, focused: bool) -> ListItem<'static> {
-    let style = if focused {
-        Style::default().fg(Color::Rgb(137, 180, 250))
-    } else {
-        Style::default()
-    };
-
     let spans = vec![
-        Span::styled(
-            if focused { "> " } else { "  " },
-            Style::default().fg(Color::Rgb(137, 180, 250)),
-        ),
-        Span::styled(
-            format!("{}: ", label),
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ),
-        Span::raw(value.to_string()),
+        focus_span(focused),
+        Span::styled(format!("{}: ", label), Style::default().fg(TEXT)),
+        Span::styled(value.to_string(), Style::default().fg(ACCENT)),
     ];
+    ListItem::new(Line::from(spans))
+}
 
-    ListItem::new(Line::from(spans)).style(style)
+pub fn section_header(label: &str) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(label.to_uppercase(), eyebrow_style()),
+    ]))
+}
+
+pub fn focus_span(focused: bool) -> Span<'static> {
+    if focused {
+        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT))
+    } else {
+        Span::raw(FOCUS_PAD)
+    }
+}
+
+pub fn check_marker(state: bool) -> (&'static str, Style) {
+    if state {
+        (
+            CHECK_ON,
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (CHECK_OFF, Style::default().fg(TEXT_FAINT))
+    }
 }
 
 pub fn status_style(stage: DownloadStage) -> Style {
     match stage {
         DownloadStage::Pending | DownloadStage::Resolving | DownloadStage::Rechecking => {
-            Style::default().fg(Color::Rgb(249, 226, 175))
+            Style::default().fg(WARNING)
         }
-        DownloadStage::Downloading => Style::default().fg(Color::Rgb(137, 180, 250)),
-        DownloadStage::Completed => Style::default().fg(Color::Rgb(166, 227, 161)),
-        DownloadStage::Failed => Style::default().fg(Color::Rgb(243, 139, 168)),
+        DownloadStage::Downloading => Style::default().fg(INFO),
+        DownloadStage::Completed => Style::default().fg(SUCCESS),
+        DownloadStage::Failed => Style::default().fg(DANGER),
     }
 }
 
 pub fn thread_item(index: usize, status: &ThreadStatusLine) -> ListItem<'static> {
-    let prefix = Span::styled(
-        format!("Thread {}: ", index + 1),
-        Style::default().fg(Color::Rgb(205, 214, 244)),
-    );
+    let prefix = Span::styled(format!("t{}: ", index + 1), Style::default().fg(TEXT_DIM));
     let line = Line::from(vec![
         prefix,
         Span::styled(status.message.clone(), thread_style(status)),
@@ -128,61 +204,20 @@ pub fn thread_item(index: usize, status: &ThreadStatusLine) -> ListItem<'static>
 
 fn thread_style(status: &ThreadStatusLine) -> Style {
     if status.rate_limited {
-        return Style::default().fg(Color::Rgb(249, 226, 175));
+        return Style::default().fg(WARNING);
     }
 
     if status.message.to_lowercase().contains("error") || status.message.starts_with("Failed") {
-        return Style::default().fg(Color::Rgb(243, 139, 168));
+        return Style::default().fg(DANGER);
     }
 
     if status.message.starts_with("Done") {
-        return Style::default().fg(Color::Rgb(166, 227, 161));
+        return Style::default().fg(SUCCESS);
     }
 
     if status.message.starts_with("Skipped") {
-        return Style::default().fg(Color::Rgb(203, 166, 247));
+        return Style::default().fg(TEXT_DIM);
     }
 
-    Style::default()
-}
-
-pub struct ConsoleMessage<'a> {
-    pub message: Option<&'a AppMessage>,
-    pub quit_prompt: bool,
-    pub default_text: &'a str,
-}
-
-pub fn render_console(frame: &mut Frame, area: Rect, console: ConsoleMessage) {
-    let (text, style) = if console.quit_prompt {
-        (
-            " Press q again to quit; all downloads will be cancelled.".to_string(),
-            Style::default().fg(Color::Rgb(249, 226, 175)),
-        )
-    } else {
-        match console.message {
-            Some(msg) => {
-                let style = match msg.kind {
-                    MessageKind::Info => Style::default().fg(Color::Rgb(166, 227, 161)),
-                    MessageKind::Error => Style::default().fg(Color::Rgb(243, 139, 168)),
-                    MessageKind::Loading => Style::default().fg(Color::Rgb(249, 226, 175)),
-                };
-                (msg.text.clone(), style)
-            }
-            None => (
-                console.default_text.to_string(),
-                Style::default().fg(Color::Rgb(166, 173, 200)),
-            ),
-        }
-    };
-
-    let paragraph = Paragraph::new(text)
-        .style(style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain)
-                .title(" Console "),
-        )
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    Style::default().fg(TEXT_MUTED)
 }

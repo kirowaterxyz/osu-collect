@@ -4,53 +4,59 @@ use crate::app::{
 };
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::Rect,
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph},
+    widgets::{List, ListItem},
 };
 
 use super::{UpdatesView, components};
 
 pub fn render(frame: &mut Frame, area: Rect, view: UpdatesView) {
-    let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(3),
-    ])
-    .split(area);
-
-    render_tooltip(frame, chunks[0]);
-    render_form(frame, chunks[1], view.form);
-    components::render_console(
-        frame,
-        chunks[2],
-        components::ConsoleMessage {
-            message: view.form.message.as_ref(),
-            quit_prompt: false,
-            default_text: " Space: toggle client/selections | Enter: download | a/d: select/deselect all",
-        },
-    );
-}
-
-fn render_tooltip(frame: &mut Frame, area: Rect) {
-    let text = " Configure download directory and mirrors in the Home tab before downloading!";
-    let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Rgb(249, 226, 175)));
-    frame.render_widget(paragraph, area);
+    render_form(frame, area, view.form);
 }
 
 fn render_form(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
-    let items = build_items(form, area.height);
+    let block = components::panel_block("updates");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .title(" Updates ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain),
-        )
-        .highlight_symbol("");
-    frame.render_widget(list, area);
+    let items = build_items(form, inner.height);
+    let focused_index = focused_item_index(form);
+    let visible_height = inner.height as usize;
+    let (start, end) = components::scroll_window(&items, focused_index, visible_height);
+    let visible_items = items[start..end].to_vec();
+
+    let list = List::new(visible_items).highlight_symbol("");
+    frame.render_widget(list, inner);
+}
+
+fn focused_item_index(form: &UpdatesTab) -> usize {
+    match form.selection.focus {
+        UpdatesField::ClientType => 0,
+        UpdatesField::OsuPath => 1,
+        UpdatesField::Collections => {
+            if form.selection.in_collection_list {
+                3 + form.selection.collections_state.selected().unwrap_or(0)
+            } else {
+                2
+            }
+        }
+        UpdatesField::BeatmapList => {
+            if form.selection.in_beatmap_list {
+                let base = if form.selection.local_collections.is_empty() {
+                    4
+                } else {
+                    5
+                };
+                base + form.selection.beatmaps_state.selected().unwrap_or(0)
+            } else if form.selection.local_collections.is_empty() {
+                3
+            } else {
+                4
+            }
+        }
+    }
 }
 
 fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
@@ -62,18 +68,15 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
     items.push(collections_header(form));
 
     if form.selection.in_collection_list {
-        // area_height includes borders (2 lines), and we have 3 header lines above
         let collection_list_header_offset = 3u16;
-        let collection_list_footer_offset = 3u16; // beatmaps header + summary + some padding
+        let collection_list_footer_offset = 3u16;
         let available_height = area_height
-            .saturating_sub(2) // borders
             .saturating_sub(collection_list_header_offset)
             .saturating_sub(collection_list_footer_offset) as usize;
 
         let selected_idx = form.selection.collections_state.selected().unwrap_or(0);
         let total_items = form.selection.local_collections.len();
 
-        // Calculate scroll offset to keep selection visible
         let scroll_offset = calculate_scroll_offset(selected_idx, total_items, available_height);
 
         for (i, collection) in form
@@ -94,7 +97,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
             Span::raw("    "),
             Span::styled(
                 format!("{selected}/{total} collections selected"),
-                Style::default().fg(Color::Rgb(108, 112, 134)),
+                Style::default().fg(components::TEXT_FAINT),
             ),
         ])));
     }
@@ -103,16 +106,11 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
 
     if form.selection.in_beatmap_list {
         let lines_above_beatmap_list = 5u16;
-        let available_height = area_height
-            .saturating_sub(2) // borders
-            .saturating_sub(lines_above_beatmap_list) as usize;
+        let available_height = area_height.saturating_sub(lines_above_beatmap_list) as usize;
 
         let selected_idx = form.selection.beatmaps_state.selected().unwrap_or(0);
-
-        // Use display items from form (includes collection headers)
         let total_items = form.selection.display_items.len();
 
-        // Calculate scroll offset to keep selection visible
         let scroll_offset = calculate_scroll_offset(selected_idx, total_items, available_height);
 
         for (i, item) in form
@@ -133,7 +131,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
             Span::raw("    "),
             Span::styled(
                 format!("{selected}/{total} beatmaps selected"),
-                Style::default().fg(Color::Rgb(108, 112, 134)),
+                Style::default().fg(components::TEXT_FAINT),
             ),
         ])));
     } else {
@@ -144,7 +142,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
         if is_loading {
             items.push(ListItem::new(Line::from(vec![
                 Span::raw("    "),
-                Span::styled("Loading...", Style::default().fg(Color::Rgb(108, 112, 134))),
+                Span::styled("loading...", Style::default().fg(components::TEXT_FAINT)),
             ])));
         }
     }
@@ -161,17 +159,13 @@ fn calculate_scroll_offset(
         return 0;
     }
 
-    // Keep selected item in middle-ish area when possible
     let half_visible = visible_height / 2;
 
     if selected_idx < half_visible {
-        // Near start, no scrolling needed
         0
     } else if selected_idx >= total_items.saturating_sub(half_visible) {
-        // Near end, scroll to show last items
         total_items.saturating_sub(visible_height)
     } else {
-        // In middle, center on selection
         selected_idx.saturating_sub(half_visible)
     }
 }
@@ -213,19 +207,17 @@ fn display_item_to_list_item(
                         .map(|beatmap| beatmap.selected)
                         .unwrap_or(false)
                 });
-            let marker = if all_selected { "[x]" } else { "[ ]" };
+            let (marker, marker_style) = components::check_marker(all_selected);
 
-            let style = Style::default()
-                .fg(Color::Rgb(203, 166, 247))
+            let name_style = Style::default()
+                .fg(components::ACCENT_ALT)
                 .add_modifier(Modifier::BOLD);
+
             let spans = vec![
-                Span::styled(
-                    if is_scroll_pos { "  > " } else { "    " },
-                    Style::default().fg(Color::Rgb(249, 226, 175)),
-                ),
-                Span::styled(marker, style),
+                indent_marker(is_scroll_pos),
+                Span::styled(marker, marker_style),
                 Span::raw(" "),
-                Span::styled(format!("#{collection_id} - {name}"), style),
+                Span::styled(format!("#{collection_id} - {name}"), name_style),
             ];
             ListItem::new(Line::from(spans))
         }
@@ -239,63 +231,49 @@ fn display_item_to_list_item(
     }
 }
 
+fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
+    if is_scroll_pos {
+        Span::styled("  ❯ ", Style::default().fg(components::ACCENT))
+    } else {
+        Span::raw("    ")
+    }
+}
+
 fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
     let focused = form.selection.focus == UpdatesField::ClientType
         && !form.selection.in_collection_list
         && !form.selection.in_beatmap_list;
 
-    let lazer_style = if form.path.client_type == crate::osu_db::OsuClient::Lazer {
-        Style::default()
-            .fg(Color::Rgb(137, 180, 250))
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Rgb(108, 112, 134))
-    };
+    let active_style = Style::default()
+        .fg(components::ACCENT)
+        .add_modifier(Modifier::BOLD);
+    let inactive_style = Style::default().fg(components::TEXT_FAINT);
 
-    let stable_style = if form.path.client_type == crate::osu_db::OsuClient::Stable {
-        Style::default()
-            .fg(Color::Rgb(137, 180, 250))
-            .add_modifier(Modifier::BOLD)
+    let lazer_active = form.path.client_type == crate::osu_db::OsuClient::Lazer;
+    let stable_active = form.path.client_type == crate::osu_db::OsuClient::Stable;
+
+    let lazer_style = if lazer_active {
+        active_style
     } else {
-        Style::default().fg(Color::Rgb(108, 112, 134))
+        inactive_style
+    };
+    let stable_style = if stable_active {
+        active_style
+    } else {
+        inactive_style
     };
 
     let spans = vec![
-        Span::styled(
-            if focused { "> " } else { "  " },
-            Style::default().fg(Color::Rgb(137, 180, 250)),
-        ),
-        Span::styled("Client: ", Style::default().fg(Color::Rgb(205, 214, 244))),
-        Span::raw("["),
-        Span::styled(
-            if form.path.client_type == crate::osu_db::OsuClient::Lazer {
-                "●"
-            } else {
-                "○"
-            },
-            lazer_style,
-        ),
-        Span::styled(" Lazer", lazer_style),
-        Span::raw(" "),
-        Span::styled(
-            if form.path.client_type == crate::osu_db::OsuClient::Stable {
-                "●"
-            } else {
-                "○"
-            },
-            stable_style,
-        ),
-        Span::styled(" Stable", stable_style),
-        Span::raw("]"),
+        components::focus_span(focused),
+        Span::styled("client: ", Style::default().fg(components::TEXT)),
+        Span::styled(if lazer_active { "● " } else { "○ " }, lazer_style),
+        Span::styled("Lazer", lazer_style),
+        Span::raw("  "),
+        Span::styled(if stable_active { "● " } else { "○ " }, stable_style),
+        Span::styled("Stable", stable_style),
     ];
 
-    let style = if focused {
-        Style::default().fg(Color::Rgb(137, 180, 250))
-    } else {
-        Style::default()
-    };
-
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
@@ -305,35 +283,29 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
     let field = &form.path.osu_path;
 
     let value = if field.value.is_empty() {
-        Span::styled(field.placeholder.clone(), Style::default())
+        Span::styled(
+            field.placeholder.clone(),
+            Style::default().fg(components::TEXT_FAINT),
+        )
     } else if form.is_path_auto_detected() {
         Span::styled(
             field.value.clone(),
-            Style::default().fg(Color::Rgb(108, 112, 134)),
+            Style::default().fg(components::TEXT_FAINT),
         )
     } else {
-        Span::raw(field.value.clone())
+        Span::styled(field.value.clone(), Style::default().fg(components::ACCENT))
     };
 
     let spans = vec![
-        Span::styled(
-            if focused { "> " } else { "  " },
-            Style::default().fg(Color::Rgb(137, 180, 250)),
-        ),
+        components::focus_span(focused),
         Span::styled(
             format!("{}: ", field.label),
-            Style::default().fg(Color::Rgb(205, 214, 244)),
+            Style::default().fg(components::TEXT),
         ),
         value,
     ];
 
-    let style = if focused {
-        Style::default().fg(Color::Rgb(137, 180, 250))
-    } else {
-        Style::default()
-    };
-
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
@@ -341,69 +313,66 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
         form.selection.focus == UpdatesField::Collections && !form.selection.in_beatmap_list;
     let in_list = form.selection.in_collection_list;
 
-    let style = if focused || in_list {
-        Style::default().fg(Color::Rgb(137, 180, 250))
+    let prefix = components::focus_span(focused && !in_list);
+    let label_style = if focused || in_list {
+        Style::default()
+            .fg(components::ACCENT)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
+            .fg(components::ACCENT_ALT)
+            .add_modifier(Modifier::BOLD)
     };
-
-    let prefix = if focused && !in_list { "> " } else { "  " };
     let suffix = if in_list {
-        "(Space: toggle, Enter/Esc: exit)"
+        "  space toggle · enter/esc exit"
     } else {
-        "(Space: expand)"
+        "  space expand"
     };
 
     let spans = vec![
-        Span::styled(prefix, Style::default().fg(Color::Rgb(137, 180, 250))),
-        Span::styled(
-            "Collections: ",
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ),
+        prefix,
+        Span::styled("COLLECTIONS", label_style),
         Span::styled(
             suffix.to_string(),
-            Style::default()
-                .fg(Color::Rgb(108, 112, 134))
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(components::TEXT_FAINT),
         ),
     ];
 
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 fn collection_item(
     collection: &crate::app::updates::CollectionEntry,
     is_scroll_pos: bool,
 ) -> ListItem<'static> {
-    let marker = if collection.selected { "[x]" } else { "[ ]" };
-
-    let style = if is_scroll_pos {
-        Style::default().fg(Color::Rgb(249, 226, 175))
-    } else {
-        Style::default()
-    };
+    let (marker, marker_style) = components::check_marker(collection.selected);
 
     let id_str = collection
         .collection_id
         .map(|id| format!("#{id} - "))
         .unwrap_or_default();
 
+    let name_style = if is_scroll_pos {
+        Style::default()
+            .fg(components::TEXT)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(components::TEXT_MUTED)
+    };
+
     let spans = vec![
-        Span::styled(
-            if is_scroll_pos { "  > " } else { "    " },
-            Style::default().fg(Color::Rgb(249, 226, 175)),
-        ),
-        Span::styled(marker, style),
+        indent_marker(is_scroll_pos),
+        Span::styled(marker, marker_style),
         Span::raw(" "),
-        Span::styled(id_str, Style::default().fg(Color::Rgb(203, 166, 247))),
-        Span::raw(collection.name.clone()),
+        Span::styled(id_str, Style::default().fg(components::ACCENT_ALT)),
+        Span::styled(collection.name.clone(), name_style),
         Span::styled(
-            format!(" ({} maps)", collection.beatmap_count),
-            Style::default().fg(Color::Rgb(108, 112, 134)),
+            format!("  ({} maps)", collection.beatmap_count),
+            Style::default().fg(components::TEXT_FAINT),
         ),
     ];
 
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
@@ -415,73 +384,60 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         ScanStatus::ReadingDatabase | ScanStatus::FetchingCollection
     );
 
-    let style = if focused || in_list {
-        Style::default().fg(Color::Rgb(137, 180, 250))
+    let prefix = components::focus_span(focused && !in_list);
+    let label_style = if focused || in_list {
+        Style::default()
+            .fg(components::ACCENT)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
+            .fg(components::ACCENT_ALT)
+            .add_modifier(Modifier::BOLD)
     };
 
-    let prefix = if focused && !in_list { "> " } else { "  " };
     let suffix: Option<&str> = if is_fetching {
         None
     } else if in_list {
-        Some("(Space: toggle, a: all, d: none, Enter/Esc: exit)")
+        Some("  space toggle · a all · d none · enter/esc exit")
     } else {
-        Some("(Space: expand)")
+        Some("  space expand")
     };
 
-    let mut spans = vec![
-        Span::styled(prefix, Style::default().fg(Color::Rgb(137, 180, 250))),
-        Span::styled(
-            "Missing Beatmaps: ".to_string(),
-            Style::default().fg(Color::Rgb(205, 214, 244)),
-        ),
-    ];
+    let mut spans = vec![prefix, Span::styled("MISSING BEATMAPS", label_style)];
 
     if let Some(text) = suffix {
         spans.push(Span::styled(
-            text,
-            Style::default()
-                .fg(Color::Rgb(108, 112, 134))
-                .add_modifier(Modifier::BOLD),
+            text.to_string(),
+            Style::default().fg(components::TEXT_FAINT),
         ));
     }
 
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
 
 fn beatmap_item(
     beatmap: &crate::app::updates::MissingBeatmapset,
     is_scroll_pos: bool,
 ) -> ListItem<'static> {
-    let marker = if beatmap.selected { "[x]" } else { "[ ]" };
-
-    let style = if is_scroll_pos {
-        Style::default().fg(Color::Rgb(249, 226, 175))
-    } else {
-        Style::default()
-    };
+    let (marker, marker_style) = components::check_marker(beatmap.selected);
 
     let status_text = match beatmap.status {
-        crate::app::updates::MissingStatus::NotInstalled => "(Not installed)",
+        crate::app::updates::MissingStatus::NotInstalled => "not installed",
     };
 
     let spans = vec![
-        Span::styled(
-            if is_scroll_pos { "  > " } else { "    " },
-            Style::default().fg(Color::Rgb(249, 226, 175)),
-        ),
-        Span::styled(marker, style),
+        indent_marker(is_scroll_pos),
+        Span::styled(marker, marker_style),
         Span::styled(
             format!(" #{}", beatmap.id),
-            Style::default().fg(Color::Rgb(203, 166, 247)),
+            Style::default().fg(components::ACCENT_ALT),
         ),
-        Span::raw(" "),
+        Span::raw("  "),
         Span::styled(
             status_text.to_string(),
-            Style::default().fg(Color::Rgb(108, 112, 134)),
+            Style::default().fg(components::TEXT_FAINT),
         ),
     ];
 
-    ListItem::new(Line::from(spans)).style(style)
+    ListItem::new(Line::from(spans))
 }
