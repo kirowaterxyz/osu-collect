@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 fn main() {
@@ -10,6 +11,7 @@ fn main() {
     let realm_core_dir = manifest_dir.join("vendor/realm-cpp/realm-core");
 
     let target = env::var("TARGET").unwrap_or_default();
+    let is_windows_gnu = target == "x86_64-pc-windows-gnu";
     let is_msvc = target.contains("msvc");
 
     // Build realm-core only (skip cpprealm SDK which has compiler issues)
@@ -38,6 +40,15 @@ fn main() {
     // On Windows, realm-core downloads zlib to its build directory
     let zlib_dir = realm_build.join("build/zlib/lib");
     if zlib_dir.exists() {
+        if is_windows_gnu {
+            let zlib_lib = zlib_dir.join("zlib.lib");
+            for alias in ["libz.a", "libzlib.a"] {
+                let alias_path = zlib_dir.join(alias);
+                if zlib_lib.exists() && !alias_path.exists() {
+                    fs::copy(&zlib_lib, alias_path).unwrap();
+                }
+            }
+        }
         println!("cargo:rustc-link-search=native={}", zlib_dir.display());
     }
 
