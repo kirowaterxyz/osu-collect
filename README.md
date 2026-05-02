@@ -1,14 +1,18 @@
+![osu!collect banner](media/osu-collect.png)
+
 # osu!collect
 [![Release](https://github.com/uwuclxdy/osu-collect/actions/workflows/release.yml/badge.svg)](https://github.com/uwuclxdy/osu-collect/actions/workflows/release.yml)
 
-A TUI program to download osu! beatmap collections from [osu!collector](https://osucollector.com) for free :3 
+A TUI program to download osu! beatmap collections from [osu!collector](https://osucollector.com) for free :3
 
-> ‼️ This is a TUI (Terminal User Interface) program, so make sure to run it in terminal / command prompt.
+> [!NOTE]
+> This is a TUI (Terminal User Interface) program, so make sure to run it in terminal / command prompt.
 
+> [!TIP]
 > Catboy mirrors (Central / US / Asia) tend to rate limit quickly, so keep at least one other mirror enabled.
 
-![usage example](image.png)
-![usage example](image1.png)
+![usage example](media/image.png)
+![usage example](media/image1.png)
 
 ## Installation
 
