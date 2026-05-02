@@ -102,7 +102,7 @@ impl ConfigTab {
             logging_level: config.logging.level,
             logging_format: config.logging.format,
             logging_dir: InputField {
-                label: "Log file directory",
+                label: "Logs directory",
                 value: config.logging.file_dir.as_deref().unwrap_or("").to_string(),
                 placeholder: "~/.local/share/osu-collect/logs".to_string(),
             },

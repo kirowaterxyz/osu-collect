@@ -76,13 +76,15 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.logging_enabled,
             form.focus == ConfigField::LoggingEnabled,
         ),
-        components::select_item(
+        components::cycle_item(
             "level",
+            &["error", "warn", "info", "debug", "trace"],
             log_level_label(form.logging_level),
             form.focus == ConfigField::LoggingLevel,
         ),
-        components::select_item(
+        components::cycle_item(
             "format",
+            &["compact", "pretty"],
             log_format_label(form.logging_format),
             form.focus == ConfigField::LoggingFormat,
         ),

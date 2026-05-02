@@ -147,12 +147,27 @@ pub fn toggle_item(label: &str, state: bool, focused: bool) -> ListItem<'static>
     ListItem::new(Line::from(spans))
 }
 
-pub fn select_item(label: &str, value: &str, focused: bool) -> ListItem<'static> {
-    let spans = vec![
+pub fn cycle_item(
+    label: &str,
+    options: &[&str],
+    selected: &str,
+    focused: bool,
+) -> ListItem<'static> {
+    let mut spans = vec![
         focus_span(focused),
-        Span::styled(format!("{}: ", label), Style::default().fg(TEXT)),
-        Span::styled(value.to_string(), Style::default().fg(ACCENT)),
+        Span::styled(format!("{label}: "), Style::default().fg(TEXT)),
     ];
+    for (i, &opt) in options.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("  "));
+        }
+        let style = if opt == selected {
+            Style::default().fg(ACCENT)
+        } else {
+            Style::default().fg(TEXT_FAINT)
+        };
+        spans.push(Span::styled(opt.to_string(), style));
+    }
     ListItem::new(Line::from(spans))
 }
 
