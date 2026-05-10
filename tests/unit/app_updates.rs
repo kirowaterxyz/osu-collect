@@ -1,4 +1,8 @@
-use osu_collect::app::updates::{MissingBeatmapset, MissingStatus, UpdatesTab};
+use osu_collect::app::{
+    collection_state::CollectionStateFile,
+    runtime::{collection_ids_for_scan, deleted_maps_for_scan},
+    updates::{MissingBeatmapset, MissingStatus, UpdatesTab},
+};
 use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
 use std::collections::HashSet;
 
@@ -49,6 +53,34 @@ fn extract_id_formats() {
             .and_then(|e| e.collection_id);
         assert_eq!(got, *expected_id, "name: {name}");
     }
+}
+
+#[test]
+fn collection_ids_for_scan_uses_selected_ids_only() {
+    assert_eq!(collection_ids_for_scan(vec![1, 3]), vec![1, 3]);
+}
+
+#[test]
+fn collection_ids_for_scan_skips_ids_outside_u32() {
+    assert_eq!(
+        collection_ids_for_scan(vec![42, u64::from(u32::MAX) + 1]),
+        vec![42]
+    );
+}
+
+#[test]
+fn deleted_maps_for_scan_only_uses_selected_collections() {
+    let mut state = CollectionStateFile::default();
+    state.update(10, vec![1, 2, 3], vec![1, 3, 999]);
+    state.update(20, vec![4, 5], vec![4, 5]);
+
+    let deleted = deleted_maps_for_scan(&state, &[10]);
+
+    assert_eq!(deleted.len(), 1);
+    assert!(deleted[&10].contains(&1));
+    assert!(deleted[&10].contains(&3));
+    assert!(!deleted[&10].contains(&999));
+    assert!(!deleted.contains_key(&20));
 }
 
 #[test]

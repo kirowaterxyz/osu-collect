@@ -262,7 +262,7 @@ fn handle_updates_event(
                 return;
             }
 
-            spawn_fetch_and_compare_task(app, updates_tx.clone());
+            spawn_fetch_and_compare_task(app, selected_ids, updates_tx.clone());
         }
         UpdatesEvent::ScanComplete {
             generation,
@@ -371,33 +371,26 @@ fn read_local_database(
     }
 }
 
-fn spawn_fetch_and_compare_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
-    // Fetch ALL collections with IDs, not just selected ones
-    // Selection filtering happens locally from cache
-    let all_collection_ids: Vec<u32> = app
-        .updates
-        .selection
-        .local_collections
-        .iter()
-        .filter_map(|c| c.collection_id.and_then(|id| u32::try_from(id).ok()))
-        .collect();
+pub fn collection_ids_for_scan(selected_ids: Vec<u64>) -> Vec<u32> {
+    selected_ids
+        .into_iter()
+        .filter_map(|id| u32::try_from(id).ok())
+        .collect()
+}
 
-    let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
-        app.updates.scan.local_beatmapsets.clone();
-    let all_local_checksums = app.updates.scan.all_local_checksums.clone();
-    let generation = app.updates.scan.scan_generation;
-
-    let last_installed: HashMap<u32, HashSet<u32>> = all_collection_ids
+pub fn deleted_maps_for_scan(
+    collection_state: &collection_state::CollectionStateFile,
+    selected_collection_ids: &[u32],
+) -> HashMap<u32, HashSet<u32>> {
+    selected_collection_ids
         .iter()
         .map(|&id| {
-            let installed: HashSet<u32> = app
-                .collection_state
+            let installed: HashSet<u32> = collection_state
                 .last_installed_at_scan(id)
                 .iter()
                 .copied()
                 .collect();
-            let last_seen_remote: HashSet<u32> = app
-                .collection_state
+            let last_seen_remote: HashSet<u32> = collection_state
                 .last_seen_remote(id)
                 .iter()
                 .copied()
@@ -407,13 +400,26 @@ fn spawn_fetch_and_compare_task(app: &mut App, tx: mpsc::UnboundedSender<Updates
                 installed.intersection(&last_seen_remote).copied().collect(),
             )
         })
-        .collect();
+        .collect()
+}
+
+fn spawn_fetch_and_compare_task(
+    app: &mut App,
+    selected_ids: Vec<u64>,
+    tx: mpsc::UnboundedSender<UpdatesEvent>,
+) {
+    let selected_collection_ids = collection_ids_for_scan(selected_ids);
+    let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
+        app.updates.scan.local_beatmapsets.clone();
+    let all_local_checksums = app.updates.scan.all_local_checksums.clone();
+    let generation = app.updates.scan.scan_generation;
+    let last_installed = deleted_maps_for_scan(&app.collection_state, &selected_collection_ids);
 
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
     tokio::spawn(async move {
         let result = fetch_and_compare(
-            all_collection_ids,
+            selected_collection_ids,
             local_beatmapsets,
             all_local_checksums,
             last_installed,
