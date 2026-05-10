@@ -3,6 +3,21 @@ mod tests {
     use osu_collect::osu_db::{BeatmapReader, LazerReader};
     use std::path::PathBuf;
 
+    fn testing_db_path() -> Option<PathBuf> {
+        if let Ok(p) = std::env::var("OSU_TESTING_DB") {
+            let path = PathBuf::from(p);
+            if path.join("client.realm").exists() {
+                return Some(path);
+            }
+        }
+        let relative = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testing-db");
+        if relative.join("client.realm").exists() {
+            Some(relative)
+        } else {
+            None
+        }
+    }
+
     #[test]
     fn test_realm_reading() {
         let path = PathBuf::from("realm");
@@ -319,5 +334,65 @@ mod tests {
                 "Note: No orphan checksums found (realm may not have beatmaps with invalid beatmapset OnlineIDs)"
             );
         }
+    }
+
+    /// Verifies that `read_all` opens realm once and returns identical data to calling
+    /// list_collections, list_beatmapsets, and list_all_checksums separately.
+    #[test]
+    fn test_read_all_matches_individual_calls() {
+        let Some(path) = testing_db_path() else {
+            println!("skipping: no client.realm found");
+            return;
+        };
+
+        let reader = LazerReader::new(path);
+
+        let collections_individual = reader
+            .list_collections()
+            .expect("failed to read collections");
+        let beatmapsets_individual = reader
+            .list_beatmapsets()
+            .expect("failed to read beatmapsets");
+        let checksums_individual: std::collections::HashSet<String> = reader
+            .list_all_checksums()
+            .expect("failed to read checksums")
+            .into_iter()
+            .collect();
+
+        let (collections_all, beatmapsets_all, checksums_all_vec) =
+            reader.read_all().expect("read_all failed");
+        let checksums_all: std::collections::HashSet<String> =
+            checksums_all_vec.into_iter().collect();
+
+        assert_eq!(
+            collections_all.len(),
+            collections_individual.len(),
+            "collection count mismatch"
+        );
+        assert_eq!(
+            beatmapsets_all.len(),
+            beatmapsets_individual.len(),
+            "beatmapset count mismatch"
+        );
+        assert_eq!(
+            checksums_all.len(),
+            checksums_individual.len(),
+            "checksum count mismatch"
+        );
+
+        // Verify all individual checksums are present in read_all result
+        for cs in &checksums_individual {
+            assert!(
+                checksums_all.contains(cs),
+                "checksum {cs} missing from read_all result"
+            );
+        }
+
+        println!(
+            "read_all: {} collections, {} beatmapsets, {} checksums",
+            collections_all.len(),
+            beatmapsets_all.len(),
+            checksums_all.len()
+        );
     }
 }

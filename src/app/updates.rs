@@ -5,6 +5,7 @@ use super::{
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -615,20 +616,20 @@ impl UpdatesTab {
     }
 }
 
-fn extract_collection_id(name: &str) -> Option<u64> {
-    // Look for patterns like:
-    // - "Collection Name-12345" (name-id format)
-    // - "Collection Name - 12345" (name - id format)
-    // - "#12345 - Collection Name" (legacy format)
-    // - Any number with 2+ digits at the end after a separator
-    let patterns = [
-        regex_lite::Regex::new(r"[-–—]\s*(\d{2,})\s*$").ok()?, // trailing: name-id or name - id
-        regex_lite::Regex::new(r"^\s*#?(\d{2,})\s*[-–—]").ok()?, // leading: #id - name
-        regex_lite::Regex::new(r"\((\d{2,})\)\s*$").ok()?,     // trailing: name (id)
-        regex_lite::Regex::new(r"\[(\d{2,})\]\s*$").ok()?,     // trailing: name [id]
-    ];
+fn collection_id_patterns() -> &'static [regex_lite::Regex; 4] {
+    static PATTERNS: OnceLock<[regex_lite::Regex; 4]> = OnceLock::new();
+    PATTERNS.get_or_init(|| {
+        [
+            regex_lite::Regex::new(r"[-–—]\s*(\d{2,})\s*$").expect("valid regex"),
+            regex_lite::Regex::new(r"^\s*#?(\d{2,})\s*[-–—]").expect("valid regex"),
+            regex_lite::Regex::new(r"\((\d{2,})\)\s*$").expect("valid regex"),
+            regex_lite::Regex::new(r"\[(\d{2,})\]\s*$").expect("valid regex"),
+        ]
+    })
+}
 
-    for pattern in &patterns {
+fn extract_collection_id(name: &str) -> Option<u64> {
+    for pattern in collection_id_patterns() {
         if let Some(caps) = pattern.captures(name)
             && let Some(m) = caps.get(1)
             && let Ok(id) = m.as_str().parse()

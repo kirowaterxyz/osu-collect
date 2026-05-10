@@ -327,7 +327,6 @@ fn read_local_database(
             let reader = StableReader::new(path);
             let collections = reader.list_collections()?;
             let beatmapsets = reader.list_beatmapsets()?;
-            // Stable: derive checksums from beatmapsets (no skipped beatmaps issue)
             let all_checksums = beatmapsets
                 .iter()
                 .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum.clone()))
@@ -335,12 +334,10 @@ fn read_local_database(
             Ok((collections, beatmapsets, all_checksums))
         }
         OsuClient::Lazer => {
+            // Open realm once; calling list_collections/list_beatmapsets/list_all_checksums
+            // individually would open the 167MB client.realm file three separate times.
             let reader = LazerReader::new(path);
-            let collections = reader.list_collections()?;
-            let beatmapsets = reader.list_beatmapsets()?;
-            // Lazer: get ALL checksums including beatmaps with invalid OnlineIDs
-            let all_checksums = reader.list_all_checksums()?;
-            Ok((collections, beatmapsets, all_checksums))
+            reader.read_all()
         }
     }
 }

@@ -150,4 +150,56 @@ impl LazerReader {
 
         Ok(realm.list_all_checksums().into_iter().collect())
     }
+
+    #[allow(clippy::type_complexity)]
+    pub fn read_all(
+        &self,
+    ) -> Result<(Vec<LocalCollection>, Vec<LocalBeatmapset>, Vec<String>), String> {
+        let db_path = self.realm_path();
+        info!(path = %db_path.display(), "Reading all data from Realm database");
+
+        if !db_path.exists() {
+            return Err(format!("client.realm not found at {}", db_path.display()));
+        }
+
+        let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
+
+        let realm =
+            ffi::open_realm(db_path_str).map_err(|e| format!("Failed to open realm: {e}"))?;
+
+        debug!("Realm database opened successfully");
+
+        let ffi_collections = realm.list_collections();
+        info!(
+            count = ffi_collections.len(),
+            "Retrieved collections from Realm"
+        );
+
+        let ffi_sets = realm.list_beatmapsets();
+        let all_checksums: Vec<String> = realm.list_all_checksums().into_iter().collect();
+
+        let collections = ffi_collections
+            .into_iter()
+            .map(|c| LocalCollection {
+                name: c.name,
+                beatmap_checksums: c.beatmap_checksums.into_iter().collect(),
+            })
+            .collect();
+
+        let beatmapsets = ffi_sets
+            .into_iter()
+            .map(|s| LocalBeatmapset {
+                id: s.id,
+                beatmaps: s
+                    .beatmaps
+                    .into_iter()
+                    .map(|b| LocalBeatmap {
+                        checksum: b.checksum,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok((collections, beatmapsets, all_checksums))
+    }
 }
