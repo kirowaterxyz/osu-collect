@@ -10,6 +10,8 @@ use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_IND
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
+    style::Style,
+    widgets::{Block, Padding},
 };
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -19,6 +21,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+
+    // fill background
+    frame.render_widget(
+        Block::default().style(Style::default().bg(components::BG_SUNKEN)),
+        area,
+    );
 
     let compact = area.height < 12;
 
@@ -49,6 +57,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
         components::render_separator(frame, chunks[3]);
         (chunks[0], chunks[2], chunks[4])
     };
+
+    // fill header row with BG_RAISED surface
+    frame.render_widget(
+        Block::default()
+            .style(Style::default().bg(components::BG_RAISED))
+            .padding(Padding::ZERO),
+        header_area,
+    );
 
     components::render_header(frame, header_area, &view.tabs);
 

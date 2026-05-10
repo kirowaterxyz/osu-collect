@@ -7,7 +7,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
@@ -138,55 +138,52 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         None
     };
 
-    let label_style = Style::default().fg(components::TEXT_DIM);
+    let key_style = Style::default().fg(components::TEXT_FAINT);
+    let val_muted = Style::default().fg(components::TEXT_MUTED);
 
     let mut status_spans = vec![
-        Span::styled("status:     ", label_style),
+        Span::styled("status:     ", key_style),
         Span::styled(status, components::status_style(page.stage)),
     ];
     if let Some(speed) = speed_display {
-        status_spans.push(Span::styled(" @ ", label_style));
+        status_spans.push(Span::styled("  ", key_style));
         status_spans.push(Span::styled(
             speed,
             Style::default().fg(components::SUCCESS),
         ));
     }
     if let Some(bytes) = bytes_display {
-        status_spans.push(Span::styled(" (", label_style));
+        status_spans.push(Span::styled("  ", key_style));
         status_spans.push(Span::styled(
             bytes,
             Style::default().fg(components::WARNING),
         ));
-        status_spans.push(Span::styled(")", label_style));
     }
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("collection: ", label_style),
+            Span::styled("collection: ", key_style),
             Span::styled(page.title.clone(), Style::default().fg(components::ACCENT)),
         ]),
         Line::from(vec![
-            Span::styled("uploader:   ", label_style),
+            Span::styled("uploader:   ", key_style),
             Span::styled(
                 page.uploader.as_deref().unwrap_or("unknown").to_owned(),
-                Style::default().fg(components::TEXT_MUTED),
+                val_muted,
             ),
         ]),
         Line::from(vec![
-            Span::styled("output:     ", label_style),
+            Span::styled("output:     ", key_style),
             Span::styled(
                 page.output_dir
                     .as_deref()
                     .unwrap_or("preparing...")
                     .to_owned(),
-                Style::default().fg(components::TEXT_MUTED),
+                val_muted,
             ),
         ]),
         Line::from(status_spans),
-        Line::from(Span::styled(
-            summary_line,
-            Style::default().fg(components::TEXT_MUTED),
-        )),
+        Line::from(Span::styled(summary_line, val_muted)),
     ];
 
     let paragraph = Paragraph::new(lines)
@@ -223,18 +220,18 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let mut top_style = Style::default().fg(components::TEXT_DIM);
     if !page.progress_label_style_locked || page.progress_label_bold_when_locked {
-        top_style = top_style.add_modifier(Modifier::BOLD);
+        top_style = top_style.fg(components::TEXT_MUTED);
     }
 
-    let downloaded_title = format!(" {downloaded} downloaded · {queue_remaining} in queue ");
-    let verified_title = format!(" {verified_display}/{total_collection} maps verified ");
+    let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} in queue ");
+    let verified_title = format!(" {verified_display}/{total_collection} verified ");
 
     let block = Block::default()
         .title(Line::from(Span::styled(downloaded_title, top_style)).left_aligned())
         .title_bottom(
             Line::from(Span::styled(
                 verified_title,
-                Style::default().fg(components::TEXT_DIM),
+                Style::default().fg(components::TEXT_FAINT),
             ))
             .right_aligned(),
         );
@@ -243,7 +240,11 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         .block(block)
         .ratio(ratio)
         .label(Span::raw(""))
-        .gauge_style(Style::default().fg(components::ACCENT).bg(components::LINE));
+        .gauge_style(
+            Style::default()
+                .fg(components::ACCENT)
+                .bg(components::BG_RAISED),
+        );
 
     frame.render_widget(gauge, area);
 }
@@ -274,20 +275,23 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed)
         && !page.failed_maps.is_empty()
     {
-        let header = format!("failed maps ({})", page.failed_maps.len());
+        let header = format!("  FAILED  ({})", page.failed_maps.len());
         items.push(ListItem::new(Line::from(Span::styled(
             header,
-            Style::default()
-                .fg(components::DANGER)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(components::DANGER),
         ))));
 
         for failure in &page.failed_maps {
             let reason = summarize_failure(&failure.reason);
-            items.push(ListItem::new(Line::from(Span::styled(
-                format!("  #{} - {}", failure.id, reason),
-                Style::default().fg(components::DANGER),
-            ))));
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("#{}", failure.id),
+                    Style::default().fg(components::TEXT_FAINT),
+                ),
+                Span::styled("  ", Style::default()),
+                Span::styled(reason, Style::default().fg(components::DANGER)),
+            ])));
         }
     }
 
@@ -306,31 +310,31 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
-    let label_style = Style::default().fg(components::TEXT_DIM);
+    let key_style = Style::default().fg(components::TEXT_FAINT);
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled("downloaded: ", label_style),
+            Span::styled("downloaded: ", key_style),
             Span::styled(
                 summary.downloaded.to_string(),
                 Style::default().fg(components::SUCCESS),
             ),
         ]),
         Line::from(vec![
-            Span::styled("skipped:    ", label_style),
+            Span::styled("skipped:    ", key_style),
             Span::styled(
                 displayed_skipped.to_string(),
-                Style::default().fg(components::TEXT_MUTED),
+                Style::default().fg(components::TEXT_DIM),
             ),
         ]),
         Line::from(vec![
-            Span::styled("failed:     ", label_style),
+            Span::styled("failed:     ", key_style),
             Span::styled(
                 summary.failed.to_string(),
                 if summary.failed > 0 {
                     Style::default().fg(components::DANGER)
                 } else {
-                    Style::default().fg(components::TEXT_MUTED)
+                    Style::default().fg(components::TEXT_DIM)
                 },
             ),
         ]),
@@ -338,12 +342,10 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
 
     if summary.unverified > 0 {
         lines.push(Line::from(vec![
-            Span::styled("unverified: ", label_style),
+            Span::styled("unverified: ", key_style),
             Span::styled(
                 summary.unverified.to_string(),
-                Style::default()
-                    .fg(components::WARNING)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(components::WARNING),
             ),
         ]));
     }

@@ -112,10 +112,15 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
 fn mirror_toggle(label: &str, url: &str, value: bool, focused: bool) -> ListItem<'static> {
     let (marker, marker_style) = components::check_marker(value);
+    let label_style = if focused {
+        Style::default().fg(components::TEXT)
+    } else {
+        Style::default().fg(components::TEXT_MUTED)
+    };
     let spans = vec![
         components::focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}  "), Style::default().fg(components::TEXT)),
+        Span::styled(format!(" {label}  "), label_style),
         Span::styled(url.to_string(), Style::default().fg(components::TEXT_FAINT)),
     ];
 

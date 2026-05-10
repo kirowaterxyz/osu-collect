@@ -4,7 +4,7 @@ use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_IND
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -72,10 +72,8 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
 fn build_hint_line(hint: &'static str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let dim = Style::default().fg(components::TEXT_FAINT);
-    let key_style = Style::default()
-        .fg(components::TEXT_MUTED)
-        .add_modifier(Modifier::BOLD);
-    let sep_style = Style::default().fg(components::LINE);
+    let key_style = Style::default().fg(components::ACCENT);
+    let sep_style = Style::default().fg(components::LINE_SOFT);
 
     for (segment_idx, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();
@@ -83,7 +81,7 @@ fn build_hint_line(hint: &'static str) -> Line<'static> {
             continue;
         }
         if segment_idx > 0 {
-            spans.push(Span::styled(" · ", sep_style));
+            spans.push(Span::styled("  ·  ", sep_style));
         } else {
             spans.push(Span::raw(" "));
         }

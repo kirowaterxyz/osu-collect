@@ -233,9 +233,12 @@ fn display_item_to_list_item(
 
 fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
     if is_scroll_pos {
-        Span::styled("  ❯ ", Style::default().fg(components::ACCENT))
+        Span::styled(
+            components::FOCUS_MARK,
+            Style::default().fg(components::ACCENT),
+        )
     } else {
-        Span::raw("    ")
+        Span::raw(components::FOCUS_PAD)
     }
 }
 
@@ -244,9 +247,7 @@ fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
         && !form.selection.in_collection_list
         && !form.selection.in_beatmap_list;
 
-    let active_style = Style::default()
-        .fg(components::ACCENT)
-        .add_modifier(Modifier::BOLD);
+    let active_style = Style::default().fg(components::ACCENT);
     let inactive_style = Style::default().fg(components::TEXT_FAINT);
 
     let lazer_active = form.path.client_type == crate::osu_db::OsuClient::Lazer;
@@ -265,10 +266,10 @@ fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
 
     let spans = vec![
         components::focus_span(focused),
-        Span::styled("client: ", Style::default().fg(components::TEXT)),
+        Span::styled("client: ", Style::default().fg(components::TEXT_DIM)),
         Span::styled(if lazer_active { "● " } else { "○ " }, lazer_style),
         Span::styled("Lazer", lazer_style),
-        Span::raw("  "),
+        Span::styled("  ", Style::default()),
         Span::styled(if stable_active { "● " } else { "○ " }, stable_style),
         Span::styled("Stable", stable_style),
     ];
@@ -300,7 +301,7 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
         components::focus_span(focused),
         Span::styled(
             format!("{}: ", field.label),
-            Style::default().fg(components::TEXT),
+            Style::default().fg(components::TEXT_DIM),
         ),
         value,
     ];
@@ -315,13 +316,9 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
 
     let prefix = components::focus_span(focused && !in_list);
     let label_style = if focused || in_list {
-        Style::default()
-            .fg(components::ACCENT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(components::ACCENT)
     } else {
-        Style::default()
-            .fg(components::ACCENT_ALT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(components::TEXT_FAINT)
     };
     let suffix = if in_list {
         "  space toggle · enter/esc exit"
@@ -349,13 +346,11 @@ fn collection_item(
 
     let id_str = collection
         .collection_id
-        .map(|id| format!("#{id} - "))
+        .map(|id| format!("#{id}  "))
         .unwrap_or_default();
 
     let name_style = if is_scroll_pos {
-        Style::default()
-            .fg(components::TEXT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(components::TEXT)
     } else {
         Style::default().fg(components::TEXT_MUTED)
     };
@@ -364,10 +359,10 @@ fn collection_item(
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::raw(" "),
-        Span::styled(id_str, Style::default().fg(components::ACCENT_ALT)),
+        Span::styled(id_str, Style::default().fg(components::TEXT_FAINT)),
         Span::styled(collection.name.clone(), name_style),
         Span::styled(
-            format!("  ({} maps)", collection.beatmap_count),
+            format!("  {} maps", collection.beatmap_count),
             Style::default().fg(components::TEXT_FAINT),
         ),
     ];
@@ -386,13 +381,9 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
 
     let prefix = components::focus_span(focused && !in_list);
     let label_style = if focused || in_list {
-        Style::default()
-            .fg(components::ACCENT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(components::ACCENT)
     } else {
-        Style::default()
-            .fg(components::ACCENT_ALT)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(components::TEXT_FAINT)
     };
 
     let suffix: Option<&str> = if is_fetching {
@@ -430,7 +421,7 @@ fn beatmap_item(
         Span::styled(marker, marker_style),
         Span::styled(
             format!(" #{}", beatmap.id),
-            Style::default().fg(components::ACCENT_ALT),
+            Style::default().fg(components::TEXT_DIM),
         ),
         Span::raw("  "),
         Span::styled(
