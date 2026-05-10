@@ -144,6 +144,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
             collection_id: 100,
             collection_name: "coll".to_string(),
             selected: true,
+            previously_deleted: false,
         },
         MissingBeatmapset {
             id: 2,
@@ -151,6 +152,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
             collection_id: 100,
             collection_name: "coll".to_string(),
             selected: true,
+            previously_deleted: false,
         },
     ];
 
@@ -172,6 +174,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
             collection_id: 100,
             collection_name: "coll".to_string(),
             selected: true,
+            previously_deleted: false,
         },
         MissingBeatmapset {
             id: 2,
@@ -179,6 +182,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
             collection_id: 100,
             collection_name: "coll".to_string(),
             selected: true,
+            previously_deleted: false,
         },
         MissingBeatmapset {
             id: 3,
@@ -186,6 +190,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
             collection_id: 100,
             collection_name: "coll".to_string(),
             selected: true,
+            previously_deleted: false,
         },
     ];
 
@@ -208,4 +213,93 @@ fn missing_beatmap_selection_preserved_across_refresh() {
         .find(|b| b.id == 2)
         .unwrap();
     assert!(id2.selected, "id=2 selection should survive refresh");
+}
+
+#[test]
+fn previously_deleted_items_are_deselected_by_default() {
+    let mut tab = UpdatesTab::new();
+
+    tab.set_collections(vec![LocalCollection {
+        name: "coll - 100".to_string(),
+        beatmap_checksums: vec![],
+    }]);
+
+    let batch = vec![
+        MissingBeatmapset {
+            id: 10,
+            status: MissingStatus::NotInstalled,
+            collection_id: 100,
+            collection_name: "coll".to_string(),
+            selected: false,
+            previously_deleted: true,
+        },
+        MissingBeatmapset {
+            id: 20,
+            status: MissingStatus::NotInstalled,
+            collection_id: 100,
+            collection_name: "coll".to_string(),
+            selected: true,
+            previously_deleted: false,
+        },
+    ];
+
+    tab.set_missing_beatmaps(batch);
+
+    let del = tab
+        .selection
+        .cached_missing_sets
+        .iter()
+        .find(|b| b.id == 10)
+        .unwrap();
+    assert!(!del.selected, "previously deleted must stay deselected");
+
+    let new = tab
+        .selection
+        .cached_missing_sets
+        .iter()
+        .find(|b| b.id == 20)
+        .unwrap();
+    assert!(new.selected, "new item must be selected");
+}
+
+#[test]
+fn previously_deleted_can_be_reselected_and_survives_refresh() {
+    let mut tab = UpdatesTab::new();
+
+    tab.set_collections(vec![LocalCollection {
+        name: "coll - 100".to_string(),
+        beatmap_checksums: vec![],
+    }]);
+
+    let first = vec![MissingBeatmapset {
+        id: 10,
+        status: MissingStatus::NotInstalled,
+        collection_id: 100,
+        collection_name: "coll".to_string(),
+        selected: false,
+        previously_deleted: true,
+    }];
+    tab.set_missing_beatmaps(first);
+
+    // User manually re-selects the previously deleted item
+    tab.selection.cached_missing_sets[0].selected = true;
+
+    // Second scan arrives: same item still marked previously_deleted
+    let second = vec![MissingBeatmapset {
+        id: 10,
+        status: MissingStatus::NotInstalled,
+        collection_id: 100,
+        collection_name: "coll".to_string(),
+        selected: false,
+        previously_deleted: true,
+    }];
+    tab.set_missing_beatmaps(second);
+
+    let item = tab
+        .selection
+        .cached_missing_sets
+        .iter()
+        .find(|b| b.id == 10)
+        .unwrap();
+    assert!(item.selected, "user re-selection must survive refresh");
 }

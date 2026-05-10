@@ -1,5 +1,6 @@
 use super::{
     collection::{CollectionPage, ThreadStatusLine},
+    collection_state::{self, CollectionStateFile},
     config::ConfigTab,
     home::{HomeField, HomeTab},
     updates::{UpdatesAction, UpdatesTab},
@@ -16,6 +17,7 @@ use crate::{
     utils,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
 use tracing::debug;
 
 pub struct App {
@@ -24,6 +26,8 @@ pub struct App {
     pub config: ConfigTab,
     pub downloads: Vec<CollectionPage>,
     pub active_tab: usize,
+    pub collection_state: CollectionStateFile,
+    pub collection_state_path: Option<PathBuf>,
     next_download_id: DownloadId,
     config_service: ConfigService,
 }
@@ -47,12 +51,19 @@ pub enum AppCommand {
 
 impl App {
     pub fn new(config: Config) -> Self {
+        let state_path = collection_state::state_path();
+        let coll_state = state_path
+            .as_deref()
+            .map(collection_state::load)
+            .unwrap_or_default();
         Self {
             home: HomeTab::new(&config),
             updates: UpdatesTab::new(),
             config: ConfigTab::new(&config),
             downloads: Vec::new(),
             active_tab: HOME_TAB_INDEX,
+            collection_state: coll_state,
+            collection_state_path: state_path,
             next_download_id: 1,
             config_service: ConfigService::new(),
         }

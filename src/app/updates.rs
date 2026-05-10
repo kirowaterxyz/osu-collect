@@ -45,6 +45,7 @@ pub struct MissingBeatmapset {
     pub collection_id: u32,
     pub collection_name: String,
     pub selected: bool,
+    pub previously_deleted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -536,11 +537,17 @@ impl UpdatesTab {
         self.selection.cached_missing_sets = missing
             .into_iter()
             .map(|mut beatmap| {
-                beatmap.selected = if had_selection {
-                    previously_selected.contains(&beatmap.id)
-                } else {
-                    true
-                };
+                // Previously-deleted items arrive with selected=false; preserve that unless
+                // the user had explicitly re-selected them in a prior in-session refresh.
+                if !beatmap.previously_deleted {
+                    beatmap.selected = if had_selection {
+                        previously_selected.contains(&beatmap.id)
+                    } else {
+                        true
+                    };
+                } else if had_selection && previously_selected.contains(&beatmap.id) {
+                    beatmap.selected = true;
+                }
                 beatmap
             })
             .collect();

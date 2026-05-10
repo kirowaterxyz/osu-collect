@@ -416,7 +416,7 @@ fn beatmap_item(
         crate::app::updates::MissingStatus::NotInstalled => "not installed",
     };
 
-    let spans = vec![
+    let mut spans = vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::styled(
@@ -429,6 +429,14 @@ fn beatmap_item(
             Style::default().fg(components::TEXT_FAINT),
         ),
     ];
+
+    if beatmap.previously_deleted {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            "previously deleted",
+            Style::default().fg(components::ACCENT_ALT),
+        ));
+    }
 
     ListItem::new(Line::from(spans))
 }

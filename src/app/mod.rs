@@ -1,4 +1,5 @@
 pub mod collection;
+pub mod collection_state;
 pub mod config;
 pub mod home;
 pub mod messages;

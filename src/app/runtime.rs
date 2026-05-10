@@ -1,4 +1,4 @@
-use super::{App, AppCommand};
+use super::{App, AppCommand, collection_state};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus},
     config::Config,
@@ -10,7 +10,10 @@ use crate::{
     tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
@@ -27,6 +30,7 @@ pub enum UpdatesEvent {
     ScanComplete {
         generation: u64,
         missing: Vec<MissingBeatmapset>,
+        collection_seen: HashMap<u32, Vec<u32>>,
     },
     Error(String),
 }
@@ -263,6 +267,7 @@ fn handle_updates_event(
         UpdatesEvent::ScanComplete {
             generation,
             missing,
+            collection_seen,
         } => {
             // Ignore stale results from previous scan
             if generation != app.updates.scan.scan_generation {
@@ -274,11 +279,35 @@ fn handle_updates_event(
                 return;
             }
 
+            let previously_deleted_count = missing.iter().filter(|m| m.previously_deleted).count();
+            let local_ids: HashSet<u32> =
+                app.updates.scan.local_beatmapsets.keys().copied().collect();
+
             let count = missing.len();
             app.updates.set_missing_beatmaps(missing);
             app.updates.scan.scan_status = ScanStatus::Ready;
-            app.updates
-                .set_info(format!(" {count} missing beatmapsets"));
+
+            if previously_deleted_count > 0 {
+                app.updates.set_info(format!(
+                    " {count} missing beatmapsets ({previously_deleted_count} previously deleted — re-select to download)"
+                ));
+            } else {
+                app.updates
+                    .set_info(format!(" {count} missing beatmapsets"));
+            }
+
+            for (collection_id, ids) in collection_seen {
+                let installed_ids = ids
+                    .iter()
+                    .copied()
+                    .filter(|id| local_ids.contains(id))
+                    .collect();
+                app.collection_state
+                    .update(collection_id, ids, installed_ids);
+            }
+            if let Some(ref path) = app.collection_state_path.clone() {
+                collection_state::save(&app.collection_state, path);
+            }
         }
         UpdatesEvent::Error(msg) => {
             app.updates.set_error(msg);
@@ -358,17 +387,45 @@ fn spawn_fetch_and_compare_task(app: &mut App, tx: mpsc::UnboundedSender<Updates
     let all_local_checksums = app.updates.scan.all_local_checksums.clone();
     let generation = app.updates.scan.scan_generation;
 
+    let last_installed: HashMap<u32, HashSet<u32>> = all_collection_ids
+        .iter()
+        .map(|&id| {
+            let installed: HashSet<u32> = app
+                .collection_state
+                .last_installed_at_scan(id)
+                .iter()
+                .copied()
+                .collect();
+            let last_seen_remote: HashSet<u32> = app
+                .collection_state
+                .last_seen_remote(id)
+                .iter()
+                .copied()
+                .collect();
+            (
+                id,
+                installed.intersection(&last_seen_remote).copied().collect(),
+            )
+        })
+        .collect();
+
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
     tokio::spawn(async move {
-        let result =
-            fetch_and_compare(all_collection_ids, local_beatmapsets, all_local_checksums).await;
+        let result = fetch_and_compare(
+            all_collection_ids,
+            local_beatmapsets,
+            all_local_checksums,
+            last_installed,
+        )
+        .await;
 
         match result {
-            Ok(missing) => {
+            Ok((missing, collection_seen)) => {
                 let _ = tx.send(UpdatesEvent::ScanComplete {
                     generation,
                     missing,
+                    collection_seen,
                 });
             }
             Err(err) => {
@@ -381,11 +438,13 @@ fn spawn_fetch_and_compare_task(app: &mut App, tx: mpsc::UnboundedSender<Updates
 async fn fetch_and_compare(
     collection_ids: Vec<u32>,
     local_beatmapsets: HashMap<u32, LocalBeatmapset>,
-    local_checksums: std::collections::HashSet<String>,
-) -> Result<Vec<MissingBeatmapset>, String> {
+    local_checksums: HashSet<String>,
+    last_installed: HashMap<u32, HashSet<u32>>,
+) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
     let client = crate::download::http_client::api_client().map_err(|e| e.to_string())?;
-    let mut seen_beatmapsets: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut seen_beatmapsets: HashSet<u32> = HashSet::new();
     let mut candidates_to_check: Vec<(u32, u32, String)> = Vec::new();
+    let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
 
     debug!(
         local_beatmapset_count = local_beatmapsets.len(),
@@ -404,6 +463,9 @@ async fn fetch_and_compare(
             beatmapset_count = collection.beatmapsets.len(),
             "Fetched collection from API"
         );
+
+        let api_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
+        collection_seen.insert(collection_id, api_ids);
 
         for beatmapset in &collection.beatmapsets {
             // Skip if we've already processed this beatmapset (from another collection)
@@ -469,12 +531,22 @@ async fn fetch_and_compare(
                 continue;
             }
 
+            let previously_deleted = last_installed
+                .get(&collection_id)
+                .map(|installed| installed.contains(&id))
+                .unwrap_or(false);
+
+            if previously_deleted {
+                trace!(beatmapset_id = id, "marking as previously deleted");
+            }
+
             all_missing.push(MissingBeatmapset {
                 id,
                 status: MissingStatus::NotInstalled,
                 collection_id,
                 collection_name,
-                selected: true,
+                selected: !previously_deleted,
+                previously_deleted,
             });
         }
 
@@ -492,7 +564,7 @@ async fn fetch_and_compare(
             .cmp(&b.collection_id)
             .then_with(|| a.id.cmp(&b.id))
     });
-    Ok(all_missing)
+    Ok((all_missing, collection_seen))
 }
 
 #[derive(Clone, Debug)]
