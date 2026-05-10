@@ -3,3 +3,5 @@
 .idea
 .gitnexus
 testing-db
+*.osz
+/tmp/
