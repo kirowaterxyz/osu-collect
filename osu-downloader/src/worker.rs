@@ -143,12 +143,18 @@ pub async fn download_with_streaming(
         if let Some(worker) = hash_worker.take() {
             worker.abort();
         }
+        if let Err(rm_err) = fs::remove_file(output_path).await {
+            tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after flush error");
+        }
         return Err(DownloadError::io(err.to_string()).into());
     }
 
     if let Err(err) = file.shutdown().await {
         if let Some(worker) = hash_worker.take() {
             worker.abort();
+        }
+        if let Err(rm_err) = fs::remove_file(output_path).await {
+            tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after shutdown error");
         }
         return Err(DownloadError::io(err.to_string()).into());
     }
