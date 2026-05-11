@@ -349,7 +349,7 @@ impl<'a> PassCoordinator<'a> {
         }
 
         drop(result_rx);
-        let _ = feed_handle.await;
+        feed_handle.abort();
 
         for handle in worker_handles {
             if let Err(err) = handle.await {
