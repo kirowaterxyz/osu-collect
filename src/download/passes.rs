@@ -12,6 +12,7 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     sync::Arc,
+    time::Duration,
 };
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
 use tracing::{debug, info, trace, warn};
@@ -103,6 +104,14 @@ async fn download_single_target(
         }
 
         let mirror_plan: Vec<_> = mirror_pool.plan().into_iter().map(Into::into).collect();
+        if mirror_plan.is_empty() {
+            warn!(
+                download_id = context.id,
+                beatmapset_id, "all mirrors penalized, waiting 5s"
+            );
+            sleep(Duration::from_secs(5)).await;
+            continue;
+        }
         let first_mirror = mirror_plan
             .first()
             .map(|mirror: &crate::mirrors::MirrorEndpoint| mirror.display_name())
