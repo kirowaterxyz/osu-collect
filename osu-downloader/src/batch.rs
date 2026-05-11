@@ -35,10 +35,17 @@ pub async fn download_batch(
 
     let mut summary = DownloadSummary::new(total);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(config.concurrent_downloads));
-    let mut tasks = Vec::new();
+    let mut tasks: Vec<(
+        u32,
+        tokio::task::JoinHandle<Result<DownloadResult, crate::Error>>,
+    )> = Vec::new();
 
     for beatmapset_id in beatmapset_ids {
-        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("download semaphore closed unexpectedly");
         let client = client.clone();
         let mirror_pool = mirror_pool.clone();
         let output_dir = output_dir.to_path_buf();
@@ -59,16 +66,16 @@ pub async fn download_batch(
             .await;
 
             drop(permit);
-            (beatmapset_id, result)
+            result
         });
 
-        tasks.push(task);
+        tasks.push((beatmapset_id, task));
     }
 
     // Wait for all tasks to complete
-    for task in tasks {
-        if let Ok((beatmapset_id, result)) = task.await {
-            match result {
+    for (beatmapset_id, task) in tasks {
+        match task.await {
+            Ok(result) => match result {
                 Ok(DownloadResult::Success { size_bytes, .. }) => {
                     summary.downloaded.push(beatmapset_id);
                     summary.total_bytes += size_bytes;
@@ -79,6 +86,19 @@ pub async fn download_batch(
                 Err(e) => {
                     summary.failed.push((beatmapset_id, e.to_string()));
                 }
+            },
+            Err(join_err) => {
+                let msg = if join_err.is_panic() {
+                    format!("task panicked: {join_err}")
+                } else {
+                    format!("task cancelled: {join_err}")
+                };
+                let _ = event_tx.send(DownloadEvent::BeatmapsetFailed {
+                    beatmapset_id,
+                    error: crate::DownloadError::worker_error(&msg),
+                    retry_count: 0,
+                });
+                summary.failed.push((beatmapset_id, msg));
             }
         }
     }
