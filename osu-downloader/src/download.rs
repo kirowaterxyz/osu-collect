@@ -39,12 +39,10 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
         })
         .collect();
 
-    // Reject empty, dot-only, or traversal names; ensure no path separators survive.
-    // Check starts_with("..") to catch ../foo → .._foo after char-mapping.
     let is_safe = !sanitized.is_empty()
         && sanitized != "."
         && sanitized != ".."
-        && !sanitized.starts_with("..")
+        && !sanitized.starts_with('.')
         && std::path::Path::new(&sanitized).file_name() == Some(std::ffi::OsStr::new(&sanitized));
 
     if is_safe {
@@ -323,7 +321,16 @@ mod tests {
         assert_eq!(sanitize_filename(Some(".."), 789), "789.osz");
         assert_eq!(sanitize_filename(Some("."), 789), "789.osz");
         assert_eq!(sanitize_filename(Some(""), 789), "789.osz");
+        assert_eq!(sanitize_filename(Some("./map.osz"), 789), "789.osz");
         assert_eq!(sanitize_filename(Some("../etc/passwd"), 789), "789.osz");
+        assert_eq!(
+            sanitize_filename(Some("normal map.osz"), 789),
+            "normal map.osz"
+        );
+        assert_eq!(
+            sanitize_filename(Some("ユニコード.osz"), 789),
+            "ユニコード.osz"
+        );
     }
 
     #[test]
