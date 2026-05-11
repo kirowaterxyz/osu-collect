@@ -322,6 +322,19 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
         return Err(DownloadError::Cancelled.into());
     }
 
+    if let Some(expected) = content_length {
+        if stream_result.bytes_written < expected {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(DownloadError::http(format!(
+                "truncated response from {}: got {} of {} bytes",
+                mirror.display_name(),
+                stream_result.bytes_written,
+                expected
+            ))
+            .into());
+        }
+    }
+
     if params.verify_archive {
         if let Err(err) = validation::validate_zip_archive(&temp_path).await {
             let _ = tokio::fs::remove_file(&temp_path).await;
