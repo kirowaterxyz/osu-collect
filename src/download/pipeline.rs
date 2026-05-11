@@ -188,7 +188,7 @@ async fn run_download_loop(
     let mut final_failures = FailureReport::default();
     let mut attempts: HashMap<u32, u8> = HashMap::new();
     let mut pass_index: u32 = 1;
-    let max_attempts = ctx.max_retries.max(1);
+    let max_attempts = ctx.max_retries;
 
     loop {
         if ctx.shutdown.is_cancelled() {
