@@ -22,6 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             filename,
             size_bytes,
             md5_hash,
+            ..
         } => {
             println!("✓ Downloaded: {}", filename);
             println!("  Size: {} bytes", size_bytes);
