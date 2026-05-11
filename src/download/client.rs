@@ -8,7 +8,7 @@ use crate::{
     worker::{
         DownloadContext,
         io::{
-            ArchiveValidationOptions, ArchiveValidationResult, download_with_streaming,
+            ArchiveValidationOptions, download_with_streaming,
             ensure_valid_archive, validate_archive,
         },
     },
@@ -269,23 +269,11 @@ async fn process_mirror_response(
                     sanitized_filename.clone().into_boxed_str(),
                 ));
             }
-
             let validation_opts = ArchiveValidationOptions {
                 verify_zip_eocd: context.verify_zip_eocd,
                 remove_on_invalid: true,
             };
-            match validate_archive(&output_path, validation_opts).await? {
-                ArchiveValidationResult::Valid => {
-                    return Ok(DownloadResult::Skipped(
-                        sanitized_filename.clone().into_boxed_str(),
-                    ));
-                }
-                ArchiveValidationResult::NotFound
-                | ArchiveValidationResult::Invalid(_)
-                | ArchiveValidationResult::Removed(_) => {
-                    // Fall through to download
-                }
-            }
+            let _ = validate_archive(&output_path, validation_opts).await?;
         } else {
             let action = determine_file_exists_action(context.auto_overwrite);
             if matches!(action, FileExistsAction::Skip) {
