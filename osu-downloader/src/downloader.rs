@@ -125,7 +125,13 @@ impl DownloaderBuilder {
             user_agent: self
                 .user_agent
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
+            max_retries: self.max_retries.unwrap_or(3),
         };
+        let mirrors = self
+            .mirrors
+            .into_iter()
+            .map(|mirror| Mirror::builtin(mirror.kind(), self.no_video).unwrap_or(mirror))
+            .collect();
 
         #[cfg(any(test, feature = "test-helpers"))]
         let http_client = if let Some(client) = self.http_client_override {
@@ -135,7 +141,7 @@ impl DownloaderBuilder {
         };
         #[cfg(not(any(test, feature = "test-helpers")))]
         let http_client = http::create_download_client(Some(config.user_agent.clone()))?;
-        let mirror_pool = MirrorPool::new(self.mirrors);
+        let mirror_pool = MirrorPool::new(mirrors);
 
         Ok(Downloader {
             config: Arc::new(config),
@@ -199,6 +205,7 @@ impl Downloader {
             mirror_pool: &self.mirror_pool,
             verify_archive: self.config.verify_archives,
             progress_timeout: self.config.progress_timeout,
+            max_retries: self.config.max_retries,
             progress_callback: None, // No progress callback for single download
             cancel_rx,
         })
@@ -261,6 +268,7 @@ impl Downloader {
                 concurrent_downloads: config.concurrent_downloads,
                 verify_archives: config.verify_archives,
                 progress_timeout: config.progress_timeout,
+                max_retries: config.max_retries,
             };
 
             let summary = crate::batch::download_batch(
@@ -357,5 +365,24 @@ mod tests {
         let builder = Downloader::builder().default_mirrors();
         let result = builder.build();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_builder_applies_no_video_to_builtin_mirrors() {
+        let downloader = Downloader::builder()
+            .mirror(Mirror::nerinyan())
+            .mirror(Mirror::custom("https://example.com/d/{id}").unwrap())
+            .no_video(true)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            downloader.mirror_pool.mirrors()[0].url_for(123),
+            "https://api.nerinyan.moe/d/123?nv=1"
+        );
+        assert_eq!(
+            downloader.mirror_pool.mirrors()[1].url_for(123),
+            "https://example.com/d/123"
+        );
     }
 }

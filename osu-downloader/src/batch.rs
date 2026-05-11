@@ -163,6 +163,7 @@ async fn download_single_with_events(
         mirror_pool,
         verify_archive: config.verify_archives,
         progress_timeout: config.progress_timeout,
+        max_retries: config.max_retries,
         progress_callback: Some(progress_callback),
         cancel_rx,
     })
@@ -211,6 +212,8 @@ pub struct BatchConfig {
     pub verify_archives: bool,
     /// Progress timeout
     pub progress_timeout: Duration,
+    /// maximum retry attempts per mirror for transient failures
+    pub max_retries: u32,
 }
 
 #[cfg(test)]

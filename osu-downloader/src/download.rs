@@ -17,6 +17,7 @@ pub(crate) struct DownloadParams<'a> {
     pub mirror_pool: &'a MirrorPool,
     pub verify_archive: bool,
     pub progress_timeout: Duration,
+    pub max_retries: u32,
     pub progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     pub cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -101,25 +102,39 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
             mirror.display_name()
         );
 
-        match try_mirror(&mirror, &params).await {
-            Ok(MirrorAttempt::Downloaded(result)) => return Ok(result),
-            Ok(MirrorAttempt::NotFound) => {
-                mirror_missed = true;
-            }
-            Err(err) => {
-                warn!(
-                    "Failed to download {} from {}: {}",
-                    params.beatmapset_id,
-                    mirror.display_name(),
-                    err
-                );
-
-                // Check if rate limited
-                if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
-                    params.mirror_pool.mark_rate_limited(mirror.kind());
+        let mut attempt = 0;
+        loop {
+            match try_mirror(&mirror, &params).await {
+                Ok(MirrorAttempt::Downloaded(result)) => return Ok(result),
+                Ok(MirrorAttempt::NotFound) => {
+                    mirror_missed = true;
+                    break;
                 }
+                Err(err) if should_retry(&err) && attempt < params.max_retries => {
+                    attempt += 1;
+                    warn!(
+                        "Failed to download {} from {}: {}",
+                        params.beatmapset_id,
+                        mirror.display_name(),
+                        err
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to download {} from {}: {}",
+                        params.beatmapset_id,
+                        mirror.display_name(),
+                        err
+                    );
 
-                last_error = Some(err);
+                    // Check if rate limited
+                    if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
+                        params.mirror_pool.mark_rate_limited(mirror.kind());
+                    }
+
+                    last_error = Some(err);
+                    break;
+                }
             }
         }
     }
@@ -142,6 +157,14 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
 enum MirrorAttempt {
     Downloaded(DownloadResult),
     NotFound,
+}
+
+fn should_retry(err: &crate::Error) -> bool {
+    match err {
+        crate::Error::Http(err) => err.is_timeout() || err.is_connect() || err.is_request(),
+        crate::Error::Download(DownloadError::Http(_)) => true,
+        _ => false,
+    }
 }
 
 /// Try downloading from a specific mirror

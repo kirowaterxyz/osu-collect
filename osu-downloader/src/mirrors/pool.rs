@@ -97,6 +97,11 @@ impl MirrorPool {
             .get(&kind)
             .and_then(|&until| (until > now).then_some(until - now))
     }
+
+    #[cfg(test)]
+    pub(crate) fn mirrors(&self) -> &[Mirror] {
+        &self.mirrors
+    }
 }
 
 #[cfg(test)]

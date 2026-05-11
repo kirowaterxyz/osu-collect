@@ -13,6 +13,8 @@ pub(crate) struct DownloadConfig {
     pub progress_timeout: Duration,
     /// User agent string
     pub user_agent: String,
+    /// maximum retry attempts per mirror for transient failures
+    pub max_retries: u32,
 }
 
 impl Default for DownloadConfig {
@@ -22,6 +24,7 @@ impl Default for DownloadConfig {
             verify_archives: true,
             progress_timeout: Duration::from_secs(30),
             user_agent: format!("osu-downloader/{}", env!("CARGO_PKG_VERSION")),
+            max_retries: 3,
         }
     }
 }
