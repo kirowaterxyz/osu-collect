@@ -270,7 +270,10 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
 
     // Verify archive if requested
     if params.verify_archive {
-        validation::validate_zip_archive(&output_path).await?;
+        if let Err(err) = validation::validate_zip_archive(&output_path).await {
+            let _ = tokio::fs::remove_file(&output_path).await;
+            return Err(err);
+        }
     }
 
     Ok(MirrorAttempt::Downloaded(DownloadResult::Success {
