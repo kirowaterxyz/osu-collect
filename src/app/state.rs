@@ -28,6 +28,7 @@ pub struct App {
     pub active_tab: usize,
     pub collection_state: CollectionStateFile,
     pub collection_state_path: Option<PathBuf>,
+    pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     next_download_id: DownloadId,
     config_service: ConfigService,
 }
@@ -64,6 +65,7 @@ impl App {
             active_tab: HOME_TAB_INDEX,
             collection_state: coll_state,
             collection_state_path: state_path,
+            scan_handle: None,
             next_download_id: 1,
             config_service: ConfigService::new(),
         }

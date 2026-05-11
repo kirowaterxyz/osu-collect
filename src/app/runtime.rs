@@ -318,6 +318,10 @@ fn handle_updates_event(
 }
 
 fn spawn_scan_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
+    if let Some(h) = app.scan_handle.take() {
+        h.abort();
+    }
+
     let client_type = app.updates.path.client_type;
     let osu_path = PathBuf::from(app.updates.osu_path());
     let generation = app.updates.scan.scan_generation;
@@ -326,7 +330,7 @@ fn spawn_scan_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
     app.updates.clear_message();
     app.updates.set_loading("Reading database...");
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let result =
             tokio::task::spawn_blocking(move || read_local_database(client_type, osu_path))
                 .await
@@ -347,6 +351,7 @@ fn spawn_scan_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
             }
         }
     });
+    app.scan_handle = Some(handle);
 }
 
 fn read_local_database(
@@ -410,6 +415,10 @@ fn spawn_fetch_and_compare_task(
     selected_ids: Vec<u64>,
     tx: mpsc::UnboundedSender<UpdatesEvent>,
 ) {
+    if let Some(h) = app.scan_handle.take() {
+        h.abort();
+    }
+
     let selected_collection_ids = collection_ids_for_scan(selected_ids);
     let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
         app.updates.scan.local_beatmapsets.clone();
@@ -419,7 +428,7 @@ fn spawn_fetch_and_compare_task(
 
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let result = fetch_and_compare(
             selected_collection_ids,
             local_beatmapsets,
@@ -441,6 +450,7 @@ fn spawn_fetch_and_compare_task(
             }
         }
     });
+    app.scan_handle = Some(handle);
 }
 
 async fn fetch_and_compare(
