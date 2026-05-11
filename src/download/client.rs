@@ -8,8 +8,8 @@ use crate::{
     worker::{
         DownloadContext,
         io::{
-            ArchiveValidationOptions, download_with_streaming,
-            ensure_valid_archive, validate_archive,
+            ArchiveValidationOptions, download_with_streaming, ensure_valid_archive,
+            validate_archive,
         },
     },
 };
