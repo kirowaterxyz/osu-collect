@@ -19,6 +19,8 @@ pub struct DownloaderBuilder {
     progress_timeout: Option<Duration>,
     user_agent: Option<String>,
     no_video: bool,
+    #[cfg(any(test, feature = "test-helpers"))]
+    http_client_override: Option<reqwest::Client>,
 }
 
 impl DownloaderBuilder {
@@ -32,6 +34,8 @@ impl DownloaderBuilder {
             progress_timeout: None,
             user_agent: None,
             no_video: false,
+            #[cfg(any(test, feature = "test-helpers"))]
+            http_client_override: None,
         }
     }
 
@@ -92,6 +96,13 @@ impl DownloaderBuilder {
         self
     }
 
+    /// Override the HTTP client.
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client_override = Some(client);
+        self
+    }
+
     /// Build the downloader
     pub fn build(self) -> Result<Downloader> {
         if self.mirrors.is_empty() {
@@ -109,6 +120,13 @@ impl DownloaderBuilder {
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
         };
 
+        #[cfg(any(test, feature = "test-helpers"))]
+        let http_client = if let Some(client) = self.http_client_override {
+            client
+        } else {
+            http::create_download_client(Some(config.user_agent.clone()))?
+        };
+        #[cfg(not(any(test, feature = "test-helpers")))]
         let http_client = http::create_download_client(Some(config.user_agent.clone()))?;
         let mirror_pool = MirrorPool::new(self.mirrors);
 

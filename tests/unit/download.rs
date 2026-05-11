@@ -340,3 +340,306 @@ mod download_result_tests {
         assert!(matches!(result, DownloadResult::Aborted));
     }
 }
+
+#[cfg(test)]
+mod mirror_integration_tests {
+    use osu_downloader::{CatboyRegion, DownloadResult, Downloader, Mirror};
+    use std::path::Path;
+    use std::time::Duration;
+    use tempfile::tempdir;
+
+    const BEATMAPSET_ID: u32 = 705655;
+    const MIN_SIZE_BYTES: u64 = 1024;
+    const ZIP_MAGIC: &[u8] = b"PK\x03\x04";
+    const MAX_RETRIES: u32 = 2;
+    const RETRY_DELAY: Duration = Duration::from_secs(5);
+
+    fn network_tests_enabled() -> bool {
+        std::env::var("OSU_NETWORK_TESTS").as_deref() == Ok("1")
+    }
+
+    async fn assert_valid_osz(dir: &Path) {
+        let mut found = false;
+        for entry in std::fs::read_dir(dir).expect("read tempdir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("osz") {
+                let meta = std::fs::metadata(&path).expect("file metadata");
+                assert!(
+                    meta.len() >= MIN_SIZE_BYTES,
+                    "downloaded file is smaller than 1 KB: {} bytes",
+                    meta.len()
+                );
+                let header = {
+                    use std::io::Read;
+                    let mut f = std::fs::File::open(&path).expect("open file");
+                    let mut buf = [0u8; 4];
+                    f.read_exact(&mut buf).expect("read header");
+                    buf
+                };
+                assert_eq!(
+                    &header, ZIP_MAGIC,
+                    "file does not start with ZIP magic bytes (PK\\x03\\x04)"
+                );
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "no .osz file found in output directory");
+    }
+
+    async fn download_with_retry(downloader: &Downloader, dir: &Path) -> DownloadResult {
+        let mut last_err = String::new();
+        for attempt in 0..=MAX_RETRIES {
+            match downloader.download_one(BEATMAPSET_ID, dir).await {
+                Ok(result) => return result,
+                Err(e) => {
+                    last_err = e.to_string();
+                    // rate-limit or transient: retry
+                    if attempt < MAX_RETRIES {
+                        tokio::time::sleep(RETRY_DELAY).await;
+                    }
+                }
+            }
+        }
+        panic!(
+            "download failed after {} retries: {}",
+            MAX_RETRIES, last_err
+        );
+    }
+
+    macro_rules! mirror_test {
+        ($name:ident, $mirror:expr) => {
+            #[tokio::test]
+            async fn $name() {
+                if !network_tests_enabled() {
+                    println!(
+                        "skipping {}: set OSU_NETWORK_TESTS=1 to enable",
+                        stringify!($name)
+                    );
+                    return;
+                }
+
+                let dir = tempdir().expect("create tempdir");
+                let downloader = Downloader::builder()
+                    .mirror($mirror)
+                    .verify_archives(false)
+                    .progress_timeout(Duration::from_secs(120))
+                    .build()
+                    .expect("build downloader");
+
+                let result = download_with_retry(&downloader, dir.path()).await;
+                match result {
+                    DownloadResult::Success { size_bytes, .. } => {
+                        assert!(
+                            size_bytes >= MIN_SIZE_BYTES,
+                            "success but reported size is < 1 KB: {} bytes",
+                            size_bytes
+                        );
+                        assert_valid_osz(dir.path()).await;
+                    }
+                    DownloadResult::Skipped { reason } => {
+                        panic!(
+                            "beatmapset {} was skipped (reason: {:?}) — mirror may not carry it",
+                            BEATMAPSET_ID, reason
+                        );
+                    }
+                }
+            }
+        };
+    }
+
+    mirror_test!(download_705655_from_nerinyan, Mirror::nerinyan());
+    mirror_test!(download_705655_from_osu_direct, Mirror::osu_direct());
+    mirror_test!(download_705655_from_nekoha, Mirror::nekoha());
+
+    // catboy.best (all regions) resolves DNS to 0.0.0.0/[::]  — server is offline as of 2026-05-11
+    #[tokio::test]
+    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
+    async fn download_705655_from_catboy_central() {
+        if !network_tests_enabled() {
+            println!(
+                "skipping download_705655_from_catboy_central: set OSU_NETWORK_TESTS=1 to enable"
+            );
+            return;
+        }
+        let dir = tempdir().expect("create tempdir");
+        let downloader = Downloader::builder()
+            .mirror(Mirror::catboy(CatboyRegion::Central))
+            .verify_archives(false)
+            .progress_timeout(Duration::from_secs(120))
+            .build()
+            .expect("build downloader");
+        let result = download_with_retry(&downloader, dir.path()).await;
+        match result {
+            DownloadResult::Success { size_bytes, .. } => {
+                assert!(size_bytes >= MIN_SIZE_BYTES);
+                assert_valid_osz(dir.path()).await;
+            }
+            DownloadResult::Skipped { reason } => {
+                panic!(
+                    "beatmapset {} skipped via catboy central: {:?}",
+                    BEATMAPSET_ID, reason
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
+    async fn download_705655_from_catboy_us() {
+        if !network_tests_enabled() {
+            println!("skipping download_705655_from_catboy_us: set OSU_NETWORK_TESTS=1 to enable");
+            return;
+        }
+        let dir = tempdir().expect("create tempdir");
+        let downloader = Downloader::builder()
+            .mirror(Mirror::catboy(CatboyRegion::Us))
+            .verify_archives(false)
+            .progress_timeout(Duration::from_secs(120))
+            .build()
+            .expect("build downloader");
+        let result = download_with_retry(&downloader, dir.path()).await;
+        match result {
+            DownloadResult::Success { size_bytes, .. } => {
+                assert!(size_bytes >= MIN_SIZE_BYTES);
+                assert_valid_osz(dir.path()).await;
+            }
+            DownloadResult::Skipped { reason } => {
+                panic!(
+                    "beatmapset {} skipped via catboy us: {:?}",
+                    BEATMAPSET_ID, reason
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
+    async fn download_705655_from_catboy_asia() {
+        if !network_tests_enabled() {
+            println!(
+                "skipping download_705655_from_catboy_asia: set OSU_NETWORK_TESTS=1 to enable"
+            );
+            return;
+        }
+        let dir = tempdir().expect("create tempdir");
+        let downloader = Downloader::builder()
+            .mirror(Mirror::catboy(CatboyRegion::Asia))
+            .verify_archives(false)
+            .progress_timeout(Duration::from_secs(120))
+            .build()
+            .expect("build downloader");
+        let result = download_with_retry(&downloader, dir.path()).await;
+        match result {
+            DownloadResult::Success { size_bytes, .. } => {
+                assert!(size_bytes >= MIN_SIZE_BYTES);
+                assert_valid_osz(dir.path()).await;
+            }
+            DownloadResult::Skipped { reason } => {
+                panic!(
+                    "beatmapset {} skipped via catboy asia: {:?}",
+                    BEATMAPSET_ID, reason
+                );
+            }
+        }
+    }
+
+    // sayobot returns 504 Gateway Timeout as of 2026-05-11
+    #[tokio::test]
+    #[ignore = "sayobot (dl.sayobot.cn) returns HTTP 504 Gateway Timeout as of 2026-05-11"]
+    async fn download_705655_from_sayobot() {
+        if !network_tests_enabled() {
+            println!("skipping download_705655_from_sayobot: set OSU_NETWORK_TESTS=1 to enable");
+            return;
+        }
+        let dir = tempdir().expect("create tempdir");
+        let downloader = Downloader::builder()
+            .mirror(Mirror::sayobot())
+            .verify_archives(false)
+            .progress_timeout(Duration::from_secs(120))
+            .build()
+            .expect("build downloader");
+        let result = download_with_retry(&downloader, dir.path()).await;
+        match result {
+            DownloadResult::Success { size_bytes, .. } => {
+                assert!(size_bytes >= MIN_SIZE_BYTES);
+                assert_valid_osz(dir.path()).await;
+            }
+            DownloadResult::Skipped { reason } => {
+                panic!(
+                    "beatmapset {} skipped via sayobot: {:?}",
+                    BEATMAPSET_ID, reason
+                );
+            }
+        }
+    }
+
+    /// Official osu! API mirror — requires OSU_TEST_BEARER env var.
+    #[tokio::test]
+    async fn download_705655_from_official() {
+        if !network_tests_enabled() {
+            println!("skipping download_705655_from_official: set OSU_NETWORK_TESTS=1 to enable");
+            return;
+        }
+
+        let bearer = match std::env::var("OSU_TEST_BEARER") {
+            Ok(t) if !t.is_empty() => t,
+            _ => {
+                println!(
+                    "skipping download_705655_from_official: set OSU_TEST_BEARER=<token> to enable"
+                );
+                return;
+            }
+        };
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {bearer}"))
+                .expect("valid bearer header"),
+        );
+        // osu! API v2 download endpoint returns a redirect to the CDN; accept JSON redirects
+        headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .expect("build reqwest client");
+
+        let dir = tempdir().expect("create tempdir");
+        let downloader = Downloader::builder()
+            .mirror(
+                Mirror::builtin(osu_downloader::MirrorKind::Official, false)
+                    .expect("official mirror"),
+            )
+            .verify_archives(false)
+            .progress_timeout(Duration::from_secs(120))
+            .with_client(client)
+            .build()
+            .expect("build downloader");
+
+        let result = download_with_retry(&downloader, dir.path()).await;
+        match result {
+            DownloadResult::Success { size_bytes, .. } => {
+                assert!(
+                    size_bytes >= MIN_SIZE_BYTES,
+                    "success but reported size is < 1 KB: {} bytes",
+                    size_bytes
+                );
+                assert_valid_osz(dir.path()).await;
+            }
+            DownloadResult::Skipped { reason } => {
+                panic!(
+                    "beatmapset {} was skipped via official API (reason: {:?})",
+                    BEATMAPSET_ID, reason
+                );
+            }
+        }
+    }
+}
