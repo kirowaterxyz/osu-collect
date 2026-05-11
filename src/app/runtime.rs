@@ -1,7 +1,7 @@
 use super::{App, AppCommand, collection_state};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus},
-    config::Config,
+    config::{Config, constants::CONCURRENT_REQUESTS},
     core::collection::{Collection, api_client},
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
     osu_db::common::BeatmapReader,
@@ -10,6 +10,7 @@ use crate::{
     tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use futures_util::{StreamExt, stream};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -459,10 +460,23 @@ async fn fetch_and_compare(
         "Starting fetch_and_compare"
     );
 
-    for collection_id in collection_ids {
-        let collection: Collection = api_client::fetch_collection(&client, collection_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    // Fetch all collections concurrently, then process results sequentially
+    let fetched: Vec<Result<(u32, Collection), String>> = stream::iter(collection_ids)
+        .map(|collection_id| {
+            let client = client.clone();
+            async move {
+                api_client::fetch_collection(&client, collection_id)
+                    .await
+                    .map(|c| (collection_id, c))
+                    .map_err(|e| e.to_string())
+            }
+        })
+        .buffer_unordered(CONCURRENT_REQUESTS)
+        .collect()
+        .await;
+
+    for fetch_result in fetched {
+        let (collection_id, collection) = fetch_result?;
 
         debug!(
             collection_id,
