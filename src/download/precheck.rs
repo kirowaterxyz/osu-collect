@@ -264,8 +264,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                 error = %err,
                 "Failed to capture final snapshot after precheck"
             );
-            changed_ids = satisfied.clone();
-            true
+            false
         }
     };
 
