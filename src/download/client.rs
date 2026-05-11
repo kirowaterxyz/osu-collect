@@ -341,29 +341,23 @@ async fn write_and_verify_archive(
         return Ok(DownloadResult::Aborted);
     }
 
-    // Check for incomplete download - but still validate the file in case server sent incorrect Content-Length
-    // If the file is valid despite being "incomplete", we accept it
     if let Some(expected) = content_length
         && stream.bytes_written < expected
     {
-        // Try to validate anyway - server might have sent wrong Content-Length
-        if ensure_valid_archive(&output_path, context.verify_zip_eocd)
-            .await
-            .is_err()
-        {
-            let _ = fs::remove_file(&output_path).await;
-            context.cleanup_tracker.mark_removed(&output_path);
-            return Ok(DownloadResult::failed(
-                Some(mirror.kind),
-                format!(
-                    "Download incomplete from {} (received {} of {} bytes)",
-                    mirror.display_name(),
-                    stream.bytes_written,
-                    expected
-                ),
-            ));
-        }
-    } else if let Err(err) = ensure_valid_archive(&output_path, context.verify_zip_eocd).await {
+        let _ = fs::remove_file(&output_path).await;
+        context.cleanup_tracker.mark_removed(&output_path);
+        return Ok(DownloadResult::failed(
+            Some(mirror.kind),
+            format!(
+                "download incomplete from {} (received {} of {} bytes)",
+                mirror.display_name(),
+                stream.bytes_written,
+                expected
+            ),
+        ));
+    }
+
+    if let Err(err) = ensure_valid_archive(&output_path, context.verify_zip_eocd).await {
         let _ = fs::remove_file(&output_path).await;
         context.cleanup_tracker.mark_removed(&output_path);
         return Ok(DownloadResult::failed(
