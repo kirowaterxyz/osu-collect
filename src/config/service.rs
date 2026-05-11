@@ -4,6 +4,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
 };
+use tempfile::NamedTempFile;
 use tracing::warn;
 
 use super::constants::{CONFIG_ENV_PATH, CONFIG_FILE, CONFIG_SUBDIR};
@@ -55,9 +56,16 @@ impl ConfigService {
         }
 
         let contents = toml::to_string_pretty(config).map_err(|err| {
-            AppError::config_dynamic(format!("Failed to serialize config: {}", err))
+            AppError::config_dynamic(format!("failed to serialize config: {}", err))
         })?;
-        fs::write(&path, contents)?;
+
+        let parent = path.parent().unwrap_or(Path::new("."));
+        let mut tmp = NamedTempFile::new_in(parent).map_err(AppError::from)?;
+        use std::io::Write as _;
+        tmp.write_all(contents.as_bytes()).map_err(AppError::from)?;
+        tmp.persist(&path).map_err(|e| {
+            AppError::other_dynamic(format!("failed to save config: {}", e.error).into_boxed_str())
+        })?;
         Ok(path)
     }
 
