@@ -12,7 +12,7 @@ use super::{
 use crate::{
     core::collection::{
         CollectionService, HttpCollectionService, generate_collection_folder_name,
-        model::Collection,
+        model::{Collection, Uploader},
     },
     utils::{self, validate_and_prepare_directory},
     worker::StatusSink,
@@ -71,7 +71,10 @@ pub(crate) struct FinalizeSessionParams<'a> {
 
 pub(crate) enum SessionTarget {
     Collection(Collection),
-    Selective { collection_names: Vec<String> },
+    Selective {
+        collection: Collection,
+        collection_names: Vec<String>,
+    },
 }
 
 impl SessionTarget {
@@ -100,25 +103,23 @@ impl SessionTarget {
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                log_status(status, id, format!("Downloading to {}", output.display));
+                log_status(status, id, format!("downloading to {}", output.display));
             }
-            SessionTarget::Selective { collection_names } => {
-                let collection_name = if collection_names.len() == 1 {
-                    format!("Update: {}", collection_names[0])
-                } else {
-                    format!("Update: {} collections", collection_names.len())
-                };
+            SessionTarget::Selective {
+                collection,
+                collection_names,
+            } => {
                 status.emit(DownloadEvent::CollectionReady {
                     id,
-                    collection_name,
-                    uploader: "Updates".to_string(),
-                    total_maps: 0,
+                    collection_name: selective_collection_name(collection_names).to_string(),
+                    uploader: collection.uploader.username.to_string(),
+                    total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
                 log_status(
                     status,
                     id,
-                    format!("Downloading updates to {}", output.display),
+                    format!("downloading updates to {}", output.display),
                 );
             }
         }
@@ -129,10 +130,11 @@ impl SessionTarget {
         });
     }
 
-    pub(crate) fn collection(&self) -> Option<&Collection> {
+    pub(crate) fn collection(&self) -> &Collection {
         match self {
-            SessionTarget::Collection(collection) => Some(collection),
-            SessionTarget::Selective { .. } => None,
+            SessionTarget::Collection(collection) | SessionTarget::Selective { collection, .. } => {
+                collection
+            }
         }
     }
 }
@@ -180,7 +182,7 @@ impl DownloadSession {
     pub(crate) async fn prepare_selective(
         params: PrepareSelectiveParams<'_>,
     ) -> Result<Option<Self>, DownloadError> {
-        let collection_names =
+        let (collection, collection_names) =
             resolve_selective_collections(params.collection_ids, params.beatmapset_ids).await?;
         let output =
             prepare_selective_output_directory(params.directory, params.collection_ids).await?;
@@ -188,7 +190,10 @@ impl DownloadSession {
         let mut target_ids = params.beatmapset_ids.to_vec();
         target_ids.sort_unstable();
         target_ids.dedup();
-        let target = SessionTarget::Selective { collection_names };
+        let target = SessionTarget::Selective {
+            collection,
+            collection_names,
+        };
         target.announce_ready(&params.status, params.id, &output, &target_ids);
 
         Self::finalize(FinalizeSessionParams {
@@ -380,11 +385,11 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
         collection_id,
         collection_name = %collection.name,
         total_maps = collection.beatmapsets.len(),
-        "Fetched collection metadata"
+        "fetched collection metadata"
     );
 
     if collection.beatmapsets.is_empty() {
-        warn!(collection_id, "Collection contained no beatmaps");
+        warn!(collection_id, "collection contained no beatmaps");
         return Err(DownloadError::EmptyCollection);
     }
 
@@ -394,21 +399,34 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
 pub(crate) async fn resolve_selective_collections(
     collection_ids: &[u32],
     beatmapset_ids: &[u32],
-) -> Result<Vec<String>, DownloadError> {
+) -> Result<(Collection, Vec<String>), DownloadError> {
     let collection_service = HttpCollectionService::builder().build()?;
 
-    let mut collection_names = Vec::new();
     let target_set: HashSet<u32> = beatmapset_ids.iter().copied().collect();
-    let mut matched_count = 0;
+    let mut collection_names = Vec::new();
+    let mut selected_collection = Collection {
+        id: collection_ids.first().copied().unwrap_or_default(),
+        name: "updates".into(),
+        uploader: Uploader {
+            id: 0,
+            username: "updates".into(),
+        },
+        beatmapsets: Vec::new(),
+    };
 
     for &collection_id in collection_ids {
         match collection_service.fetch_collection(collection_id).await {
             Ok(collection) => {
                 collection_names.push(collection.name.to_string());
 
-                for beatmapset in &collection.beatmapsets {
-                    if target_set.contains(&beatmapset.id) {
-                        matched_count += 1;
+                for beatmapset in collection.beatmapsets {
+                    if target_set.contains(&beatmapset.id)
+                        && !selected_collection
+                            .beatmapsets
+                            .iter()
+                            .any(|selected| selected.id == beatmapset.id)
+                    {
+                        selected_collection.beatmapsets.push(beatmapset);
                     }
                 }
             }
@@ -416,20 +434,30 @@ pub(crate) async fn resolve_selective_collections(
                 warn!(
                     collection_id,
                     error = %err,
-                    "Skipping missing/inaccessible collection in selective download"
+                    "skipping missing/inaccessible collection in selective download"
                 );
             }
         }
     }
 
+    selected_collection.name = selective_collection_name(&collection_names);
+
     info!(
         collection_count = collection_ids.len(),
         resolved_count = collection_names.len(),
-        matched_beatmapsets = matched_count,
-        "Resolved selective collections"
+        matched_beatmapsets = selected_collection.beatmapsets.len(),
+        "resolved selective collections"
     );
 
-    Ok(collection_names)
+    Ok((selected_collection, collection_names))
+}
+
+fn selective_collection_name(collection_names: &[String]) -> Box<str> {
+    if collection_names.len() == 1 {
+        format!("update: {}", collection_names[0]).into_boxed_str()
+    } else {
+        format!("update: {} collections", collection_names.len()).into_boxed_str()
+    }
 }
 
 async fn perform_initial_precheck(
