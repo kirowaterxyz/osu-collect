@@ -1,5 +1,5 @@
 use crate::config::constants::{CONCURRENT_REQUESTS, MIRROR_CHECK_URLS, NEKOHA_API_BASE};
-use futures_util::{StreamExt, stream};
+use futures_util::{StreamExt, TryStreamExt, stream};
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};
@@ -7,6 +7,7 @@ use tracing::{debug, info, trace, warn};
 
 const MIRROR_RETRIES: usize = 2;
 const MAX_REDIRECTS: usize = 3;
+const ZIP_MAGIC_LENGTH: usize = 4;
 
 fn deserialize_string_to_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
 where
@@ -260,9 +261,9 @@ async fn probe_mirror(client: &Client, beatmapset_id: u32, url: &str) -> ProbeRe
         }
     }
 
-    match resp.bytes().await {
+    match read_probe_prefix(resp).await {
         Ok(bytes) => {
-            if bytes.len() >= 4 && bytes[0..4] == [0x50, 0x4B, 0x03, 0x04] {
+            if bytes == [0x50, 0x4B, 0x03, 0x04] {
                 trace!(beatmapset_id, mirror = %url, "Verified available with ZIP magic");
                 ProbeResult::Available
             } else {
@@ -275,4 +276,19 @@ async fn probe_mirror(client: &Client, beatmapset_id: u32, url: &str) -> ProbeRe
             ProbeResult::RetryTransient
         }
     }
+}
+
+async fn read_probe_prefix(resp: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
+    let mut bytes = Vec::with_capacity(ZIP_MAGIC_LENGTH);
+    let mut stream = resp.bytes_stream();
+
+    while bytes.len() < ZIP_MAGIC_LENGTH {
+        let Some(chunk) = stream.try_next().await? else {
+            break;
+        };
+        let remaining = ZIP_MAGIC_LENGTH - bytes.len();
+        bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+    }
+
+    Ok(bytes)
 }

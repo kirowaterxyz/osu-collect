@@ -2,7 +2,7 @@ use osu_collect::download::size_fetcher::check_availability_on_urls;
 use reqwest::Client;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -67,6 +67,33 @@ async fn availability_follows_redirect_then_succeeds() {
     let client = Client::new();
     let available = check_availability_on_urls(&client, 42, &[redirect_template.as_str()]).await;
     assert!(available);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn probe_reads_only_zip_magic_prefix() {
+    let bytes_sent = Arc::new(AtomicUsize::new(0));
+    let bytes_sent_ref = bytes_sent.clone();
+    let (base, handle) = start_server(move |_| {
+        let mut body = vec![b'x'; 1024 * 1024];
+        body[..4].copy_from_slice(&[0x50, 0x4B, 0x03, 0x04]);
+        bytes_sent_ref.store(body.len(), Ordering::SeqCst);
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(&body);
+        String::from_utf8_lossy(&response).into_owned()
+    })
+    .await;
+
+    let template = format!("{}/ok", base);
+    let client = Client::new();
+    let available = check_availability_on_urls(&client, 7, &[template.as_str()]).await;
+    assert!(available);
+    assert!(bytes_sent.load(Ordering::SeqCst) > 4);
 
     handle.abort();
 }
