@@ -2,9 +2,9 @@ use super::model::Config;
 use crate::utils::{AppError, Result};
 use std::{
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
 };
-use tempfile::NamedTempFile;
 use tracing::warn;
 
 use super::constants::{CONFIG_ENV_PATH, CONFIG_FILE, CONFIG_SUBDIR};
@@ -59,13 +59,16 @@ impl ConfigService {
             AppError::config_dynamic(format!("failed to serialize config: {}", err))
         })?;
 
-        let parent = path.parent().unwrap_or(Path::new("."));
-        let mut tmp = NamedTempFile::new_in(parent).map_err(AppError::from)?;
-        use std::io::Write as _;
-        tmp.write_all(contents.as_bytes()).map_err(AppError::from)?;
-        tmp.persist(&path).map_err(|e| {
-            AppError::other_dynamic(format!("failed to save config: {}", e.error).into_boxed_str())
-        })?;
+        let tmp_path = path.with_extension("toml.tmp");
+        {
+            let mut tmp = fs::File::create(&tmp_path)?;
+            tmp.write_all(contents.as_bytes())?;
+            tmp.sync_all()?;
+        }
+        if let Err(err) = fs::rename(&tmp_path, &path) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(AppError::from(err));
+        }
         Ok(path)
     }
 

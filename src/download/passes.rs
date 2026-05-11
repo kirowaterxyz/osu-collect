@@ -550,7 +550,7 @@ async fn pass_worker_loop(
         );
 
         let job_context = context.clone();
-        let result_task =
+        let mut result_task =
             tokio::spawn(
                 async move { download_single_target(&job_context, slot, beatmapset_id).await },
             );
