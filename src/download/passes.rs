@@ -555,19 +555,32 @@ async fn pass_worker_loop(
                 async move { download_single_target(&job_context, slot, beatmapset_id).await },
             );
 
-        let result = match result_task.await {
-            Ok(res) => res,
-            Err(join_err) => {
-                let reason = if join_err.is_panic() {
-                    describe_panic(join_err.into_panic())
-                } else {
-                    "download task cancelled".to_string()
-                };
-
-                Err(AppError::other_dynamic(
-                    format!("Download worker failed for #{}: {}", beatmapset_id, reason)
-                        .into_boxed_str(),
-                ))
+        let result = loop {
+            if context.shutdown.is_cancelled() {
+                result_task.abort();
+                break Ok(DownloadResult::Aborted);
+            }
+            match tokio::time::timeout(Duration::from_millis(50), &mut result_task).await {
+                Ok(join_result) => {
+                    break match join_result {
+                        Ok(res) => res,
+                        Err(join_err) => {
+                            let reason = if join_err.is_panic() {
+                                describe_panic(join_err.into_panic())
+                            } else {
+                                "download task cancelled".to_string()
+                            };
+                            Err(AppError::other_dynamic(
+                                format!(
+                                    "download worker failed for #{}: {}",
+                                    beatmapset_id, reason
+                                )
+                                .into_boxed_str(),
+                            ))
+                        }
+                    };
+                }
+                Err(_timeout) => continue,
             }
         };
         if result_tx.send((slot, beatmapset_id, result)).is_err() {
