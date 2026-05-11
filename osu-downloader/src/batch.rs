@@ -41,6 +41,10 @@ pub async fn download_batch(
     )> = Vec::new();
 
     for beatmapset_id in beatmapset_ids {
+        if *cancel_rx.borrow() {
+            break;
+        }
+
         let permit = semaphore
             .clone()
             .acquire_owned()
