@@ -142,15 +142,6 @@ async fn download_single_with_events(
 ) -> Result<DownloadResult, crate::Error> {
     debug!("Starting download of beatmapset {}", beatmapset_id);
 
-    // Get first mirror for event
-    let mirrors = mirror_pool.plan();
-    if let Some(first_mirror) = mirrors.first() {
-        let _ = event_tx.send(DownloadEvent::BeatmapsetStarted {
-            beatmapset_id,
-            mirror: first_mirror.kind(),
-        });
-    }
-
     // Progress callback with speed calculation
     let event_tx_clone = event_tx.clone();
     let progress_state = Arc::new(Mutex::new((0u64, Instant::now())));
@@ -201,6 +192,10 @@ async fn download_single_with_events(
             md5_hash,
             mirror_used,
         }) => {
+            let _ = event_tx.send(DownloadEvent::BeatmapsetStarted {
+                beatmapset_id,
+                mirror: *mirror_used,
+            });
             let _ = event_tx.send(DownloadEvent::BeatmapsetCompleted {
                 beatmapset_id,
                 filename: filename.clone(),
