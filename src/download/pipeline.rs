@@ -368,12 +368,10 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
                 info!("collection.db created successfully");
             }
             Err(e) => {
-                log_status(
-                    &status,
-                    id,
-                    format!("Warning: Failed to create collection.db: {}", e),
-                );
-                warn!(error = %e, "Failed to create collection.db");
+                let message = format!("failed to create collection.db: {e}");
+                log_status(&status, id, message.clone());
+                error!(error = %e, "Failed to create collection.db");
+                return Err(DownloadError::internal(message));
             }
         }
     }
