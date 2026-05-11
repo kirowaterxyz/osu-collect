@@ -154,6 +154,25 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Down
         return Err(DownloadError::http(format!("HTTP {}", status)).into());
     }
 
+    // Reject HTML/JSON responses (captcha pages, maintenance notices)
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase());
+
+    if let Some(ref ct) = content_type {
+        let mime = ct.split(';').next().map(str::trim).unwrap_or("");
+        if mime == "text/html" || mime == "application/json" {
+            return Err(DownloadError::http(format!(
+                "unexpected content type '{}' from {}",
+                ct,
+                mirror.display_name()
+            ))
+            .into());
+        }
+    }
+
     // Get content length and filename
     let content_length = response.content_length();
 
