@@ -154,7 +154,9 @@ impl DownloadSession {
         params: PrepareCollectionParams<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let collection = resolve_collection(params.collection_input).await?;
-        let beatmapset_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
+        let mut beatmapset_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
+        beatmapset_ids.sort_unstable();
+        beatmapset_ids.dedup();
         let output = prepare_output_directory(params.directory, &collection).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
         let target = SessionTarget::Collection(collection);
@@ -185,6 +187,7 @@ impl DownloadSession {
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
         let mut target_ids = params.beatmapset_ids.to_vec();
         target_ids.sort_unstable();
+        target_ids.dedup();
         let target = SessionTarget::Selective { collection_names };
         target.announce_ready(&params.status, params.id, &output, &target_ids);
 
