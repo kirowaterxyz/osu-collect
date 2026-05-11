@@ -72,7 +72,14 @@ pub fn save(auth: &StoredAuth) -> Result<()> {
 
     let json = serde_json::to_string_pretty(auth)
         .map_err(|e| AppError::other_dynamic(format!("auth serialize: {e}").into_boxed_str()))?;
-    std::fs::write(&path, &json)?;
+
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json)?;
+    {
+        use std::fs::File;
+        File::open(&tmp)?.sync_all()?;
+    }
+    std::fs::rename(&tmp, &path)?;
 
     #[cfg(unix)]
     {
