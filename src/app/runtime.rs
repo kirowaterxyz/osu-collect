@@ -305,8 +305,9 @@ fn handle_updates_event(
                 app.collection_state
                     .update(collection_id, ids, installed_ids);
             }
-            if let Some(ref path) = app.collection_state_path.clone() {
-                collection_state::save(&app.collection_state, path);
+            if let Some(path) = app.collection_state_path.clone() {
+                let state = app.collection_state.clone();
+                tokio::task::spawn_blocking(move || collection_state::save(&state, &path));
             }
         }
         UpdatesEvent::Error(msg) => {
