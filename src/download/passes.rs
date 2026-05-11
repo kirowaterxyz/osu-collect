@@ -7,6 +7,7 @@ use crate::{
     utils::AppError,
     worker::{DownloadContext, StatusSink},
 };
+use async_channel::Receiver as AsyncReceiver;
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
@@ -285,14 +286,13 @@ impl<'a> PassCoordinator<'a> {
         let mut failures = FailureReport::default();
         let mut aborted = false;
         let worker_count = self.context.thread_count.max(1);
-        let (job_tx, job_rx) = tokio::sync::mpsc::channel::<u32>(worker_count * 2);
-        let job_rx = Arc::new(tokio::sync::Mutex::new(job_rx));
+        let (job_tx, job_rx) = async_channel::bounded::<u32>(worker_count * 2);
         let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut worker_handles: Vec<JoinHandle<()>> = Vec::with_capacity(worker_count);
 
         for slot in 0..worker_count {
             let worker_context = self.context.clone();
-            let rx_clone = Arc::clone(&job_rx);
+            let rx_clone = job_rx.clone();
             let tx_clone = result_tx.clone();
             worker_handles.push(tokio::spawn(pass_worker_loop(
                 slot,
@@ -521,7 +521,7 @@ impl<'a> PassCoordinator<'a> {
 async fn pass_worker_loop(
     slot: usize,
     context: DownloadContext,
-    job_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<u32>>>,
+    job_rx: AsyncReceiver<u32>,
     result_tx: UnboundedSender<ResultMessage>,
 ) {
     loop {
@@ -529,10 +529,7 @@ async fn pass_worker_loop(
             break;
         }
 
-        let next_job = {
-            let mut rx = job_rx.lock().await;
-            rx.recv().await
-        };
+        let next_job = job_rx.recv().await.ok();
 
         let Some(beatmapset_id) = next_job else {
             break;
