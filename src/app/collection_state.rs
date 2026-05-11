@@ -4,12 +4,14 @@ use std::{
     env, fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
 };
 use tracing::{debug, warn};
 
 pub const STATE_FILE: &str = "collection_state.toml";
 pub const STATE_ENV_PATH: &str = "OSU_COLLECT_STATE";
 const SCHEMA_VERSION: u32 = 1;
+static SAVE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CollectionStateFile {
@@ -98,6 +100,11 @@ pub fn load(path: &Path) -> CollectionStateFile {
 }
 
 pub fn save(state: &CollectionStateFile, path: &Path) {
+    let Ok(_guard) = SAVE_LOCK.lock() else {
+        warn!(path = %path.display(), "failed to lock collection state save");
+        return;
+    };
+
     let contents = match toml::to_string_pretty(state) {
         Ok(s) => s,
         Err(err) => {
