@@ -346,21 +346,16 @@ impl BeatmapTracker {
 impl BeatmapTracker {
     fn prune_validation_cache(&self) {
         let len = self.validation_cache.len();
+        let target = VALIDATION_CACHE_LIMIT * 4 / 5;
         if len <= VALIDATION_CACHE_LIMIT {
             return;
         }
 
-        let excess = len - VALIDATION_CACHE_LIMIT;
-        let keys: Vec<_> = self
-            .validation_cache
-            .iter()
-            .map(|entry| entry.key().clone())
-            .take(excess)
-            .collect();
-
-        for key in keys {
-            self.validation_cache.remove(&key);
-        }
+        let mut kept = 0usize;
+        self.validation_cache.retain(|_, _| {
+            kept += 1;
+            kept <= target
+        });
     }
 }
 
