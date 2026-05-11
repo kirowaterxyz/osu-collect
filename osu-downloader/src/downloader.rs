@@ -111,8 +111,15 @@ impl DownloaderBuilder {
             ));
         }
 
+        let concurrent_downloads = self.concurrent_downloads.unwrap_or(4);
+        if concurrent_downloads == 0 {
+            return Err(Error::config(
+                "concurrent downloads must be greater than zero",
+            ));
+        }
+
         let config = DownloadConfig {
-            concurrent_downloads: self.concurrent_downloads.unwrap_or(4),
+            concurrent_downloads,
             verify_archives: self.verify_archives.unwrap_or(true),
             progress_timeout: self.progress_timeout.unwrap_or(Duration::from_secs(30)),
             user_agent: self
@@ -333,6 +340,16 @@ mod tests {
         let builder = Downloader::builder();
         let result = builder.build();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_builder_rejects_zero_concurrency() {
+        let result = Downloader::builder()
+            .mirror(Mirror::nerinyan())
+            .concurrent_downloads(0)
+            .build();
+
+        assert!(matches!(result, Err(Error::Config(_))));
     }
 
     #[test]
