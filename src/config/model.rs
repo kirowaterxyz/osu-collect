@@ -11,6 +11,8 @@ pub struct Config {
     pub download: DownloadConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub official: OfficialConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -30,7 +32,15 @@ pub struct MirrorConfig {
     #[serde(default)]
     pub catboy_asia: bool,
     #[serde(default)]
+    pub official: bool,
+    #[serde(default)]
     pub url: Option<Box<str>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default)]
+pub struct OfficialConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -96,6 +106,7 @@ impl Default for MirrorConfig {
             catboy_central: false,
             catboy_us: false,
             catboy_asia: false,
+            official: false,
             url: None,
         }
     }
@@ -120,6 +131,7 @@ impl MirrorConfig {
             || self.catboy_central
             || self.catboy_us
             || self.catboy_asia
+            || self.official
             || self.custom_template().is_some()
     }
 }

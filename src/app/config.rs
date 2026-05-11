@@ -229,6 +229,7 @@ impl ConfigTab {
             osu_direct: self.osu_direct,
             sayobot: self.sayobot,
             nekoha: self.nekoha,
+            official: false,
             url: self
                 .trimmed_custom_mirror()
                 .map(|value| value.into_boxed_str()),
@@ -255,6 +256,7 @@ impl ConfigTab {
             mirror,
             download,
             logging,
+            official: Default::default(),
         })
     }
 

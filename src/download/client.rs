@@ -108,7 +108,11 @@ pub async fn download_beatmap(
             });
 
             let url = mirror.url_for(beatmapset_id);
-            let response = match context.client.get(&url).send().await {
+            let mut req = context.client.get(&url);
+            if let Some(ref extra_headers) = mirror.headers {
+                req = req.headers(extra_headers.clone());
+            }
+            let response = match req.send().await {
                 Ok(resp) => resp,
                 Err(e) => {
                     let err = if e.is_timeout() {

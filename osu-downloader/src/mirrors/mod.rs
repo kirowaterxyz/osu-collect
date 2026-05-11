@@ -47,6 +47,8 @@ pub enum MirrorKind {
     Sayobot,
     /// Nekoha mirror
     Nekoha,
+    /// Official osu! API v2 mirror (requires OAuth)
+    Official,
     /// Custom mirror with user-provided URL template
     Custom,
 }
@@ -61,6 +63,7 @@ impl MirrorKind {
             MirrorKind::OsuDirect => "osu.direct",
             MirrorKind::Sayobot => "Sayobot",
             MirrorKind::Nekoha => "Nekoha",
+            MirrorKind::Official => "osu! API",
             MirrorKind::Custom => "Custom",
         }
     }
@@ -72,6 +75,7 @@ impl MirrorKind {
             MirrorKind::OsuDirect => Duration::from_secs(75),
             MirrorKind::Sayobot => Duration::from_secs(60),
             MirrorKind::Nekoha => Duration::from_secs(45),
+            MirrorKind::Official => Duration::from_secs(60),
             MirrorKind::Custom => Duration::from_secs(60),
         }
     }
@@ -105,6 +109,9 @@ impl MirrorKind {
             MirrorKind::Nekoha => {
                 // Nekoha doesn't support no-video downloads
                 Some("https://mirror.nekoha.moe/api4/download/{id}".to_string())
+            }
+            MirrorKind::Official => {
+                Some("https://osu.ppy.sh/api/v2/beatmapsets/{id}/download".to_string())
             }
             MirrorKind::Custom => None,
         }

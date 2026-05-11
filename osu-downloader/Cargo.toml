@@ -36,3 +36,6 @@ collection = ["dep:osu-db"]
 
 # Beatmapset size fetching
 size-fetch = []
+
+# Expose test helpers (e.g. Downloader::with_client) for integration tests in dependent crates
+test-helpers = []

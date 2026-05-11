@@ -9,6 +9,7 @@ use osu_downloader::Mirror;
 pub struct MirrorEndpoint {
     pub kind: MirrorKind,
     pub template: Box<str>,
+    pub headers: Option<reqwest::header::HeaderMap>,
 }
 
 impl MirrorEndpoint {
@@ -16,7 +17,25 @@ impl MirrorEndpoint {
         Mirror::builtin(kind, no_video).map(|mirror| Self {
             kind: mirror.kind(),
             template: mirror.url_for(0).replace("0", "{id}").into_boxed_str(),
+            headers: None,
         })
+    }
+
+    pub fn official(bearer_token: &str) -> Self {
+        let mut map = reqwest::header::HeaderMap::new();
+        if let Ok(value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {bearer_token}"))
+        {
+            map.insert(reqwest::header::AUTHORIZATION, value);
+        }
+        map.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+        Self {
+            kind: MirrorKind::Official,
+            template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download".into(),
+            headers: Some(map),
+        }
     }
 
     pub fn custom(template: &str) -> Result<Self> {
@@ -24,6 +43,7 @@ impl MirrorEndpoint {
         Ok(Self {
             kind: MirrorKind::Custom,
             template: template.into(),
+            headers: None,
         })
     }
 
@@ -38,14 +58,18 @@ impl MirrorEndpoint {
 
     // Convert to osu-downloader's Mirror type
     pub fn to_mirror(&self) -> Mirror {
-        if self.kind == MirrorKind::Custom {
-            Mirror::custom(self.template.as_ref()).expect("template already validated")
-        } else {
-            Mirror::builtin(
+        match self.kind {
+            MirrorKind::Custom => {
+                Mirror::custom(self.template.as_ref()).expect("template already validated")
+            }
+            MirrorKind::Official => {
+                Mirror::builtin(MirrorKind::Official, false).expect("official has template")
+            }
+            _ => Mirror::builtin(
                 self.kind,
                 self.template.contains("?nv=1") || self.template.ends_with('n'),
             )
-            .expect("builtin mirror should have template")
+            .expect("builtin mirror should have template"),
         }
     }
 }
@@ -55,6 +79,7 @@ impl From<Mirror> for MirrorEndpoint {
         Self {
             kind: mirror.kind(),
             template: mirror.url_for(0).replace("0", "{id}").into_boxed_str(),
+            headers: None,
         }
     }
 }

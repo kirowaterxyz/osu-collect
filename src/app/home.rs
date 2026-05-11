@@ -5,6 +5,7 @@ use crate::{
     mirrors::{CatboyRegion, MirrorEndpoint, MirrorKind},
 };
 use std::{env, str::FromStr};
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct InputField {
@@ -35,6 +36,7 @@ pub enum HomeField {
     MirrorCatboyCentral,
     MirrorCatboyUs,
     MirrorCatboyAsia,
+    MirrorOfficial,
     Threads,
     SkipExisting,
     AutoOverwrite,
@@ -55,6 +57,7 @@ pub struct HomeTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
+    pub official: bool,
     pub no_video: bool,
     pub verify_zip_eocd: bool,
     pub focus: HomeField,
@@ -74,6 +77,12 @@ impl HomeTab {
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
+        let official = config.mirror.official && crate::auth::load().is_some();
+        if config.mirror.official && !official {
+            warn!(
+                "official mirror enabled in config but no auth tokens found; run `osu-collect login`"
+            );
+        }
         let custom_template = config.mirror.custom_template().unwrap_or("");
 
         if !nerinyan
@@ -83,6 +92,7 @@ impl HomeTab {
             && !osu_direct
             && !sayobot
             && !nekoha
+            && !official
             && custom_template.is_empty()
         {
             nerinyan = true;
@@ -132,6 +142,7 @@ impl HomeTab {
             osu_direct,
             sayobot,
             nekoha,
+            official,
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
             focus: HomeField::Collection,
@@ -154,7 +165,8 @@ impl HomeTab {
             HomeField::MirrorNekoha => HomeField::MirrorCatboyCentral,
             HomeField::MirrorCatboyCentral => HomeField::MirrorCatboyUs,
             HomeField::MirrorCatboyUs => HomeField::MirrorCatboyAsia,
-            HomeField::MirrorCatboyAsia => HomeField::Threads,
+            HomeField::MirrorCatboyAsia => HomeField::MirrorOfficial,
+            HomeField::MirrorOfficial => HomeField::Threads,
             HomeField::Threads => HomeField::SkipExisting,
             HomeField::SkipExisting => HomeField::AutoOverwrite,
             HomeField::AutoOverwrite => HomeField::NoVideo,
@@ -174,7 +186,8 @@ impl HomeTab {
             HomeField::MirrorCatboyCentral => HomeField::MirrorNekoha,
             HomeField::MirrorCatboyUs => HomeField::MirrorCatboyCentral,
             HomeField::MirrorCatboyAsia => HomeField::MirrorCatboyUs,
-            HomeField::Threads => HomeField::MirrorCatboyAsia,
+            HomeField::MirrorOfficial => HomeField::MirrorCatboyAsia,
+            HomeField::Threads => HomeField::MirrorOfficial,
             HomeField::SkipExisting => HomeField::Threads,
             HomeField::AutoOverwrite => HomeField::SkipExisting,
             HomeField::NoVideo => HomeField::AutoOverwrite,
@@ -198,6 +211,7 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
+            | HomeField::MirrorOfficial
             | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
@@ -217,6 +231,7 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
+            | HomeField::MirrorOfficial
             | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
@@ -245,6 +260,13 @@ impl HomeTab {
             }
             HomeField::MirrorNekoha => {
                 self.nekoha = !self.nekoha;
+            }
+            HomeField::MirrorOfficial => {
+                if !self.official && crate::auth::load().is_none() {
+                    warn!("no auth tokens; run `osu-collect login` first");
+                } else {
+                    self.official = !self.official;
+                }
             }
             HomeField::SkipExisting => {
                 self.skip_existing = !self.skip_existing;
@@ -303,6 +325,17 @@ impl HomeTab {
                 }
             })
             .collect();
+
+        if self.official {
+            match crate::auth::load() {
+                Some(auth) => {
+                    mirrors.push(MirrorEndpoint::official(auth.bearer_token()));
+                }
+                None => {
+                    warn!("official mirror enabled but no auth tokens found; skipping");
+                }
+            }
+        }
 
         let trimmed_custom = self.custom_mirror.value.trim();
         if !trimmed_custom.is_empty()
