@@ -11,4 +11,4 @@ pub use fs::{
 };
 pub use logging::init_logging;
 pub use parsing::parse_collection_id;
-pub use path::sanitize_filename;
+pub use path::{sanitize_filename, sanitize_filename_safe};

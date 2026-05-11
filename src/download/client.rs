@@ -2,7 +2,9 @@ use crate::{
     check_shutdown,
     download::{http_client, status},
     mirrors::{MirrorEndpoint, MirrorKind, MirrorPool},
-    utils::{AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename},
+    utils::{
+        AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename_safe,
+    },
     worker::{
         DownloadContext,
         io::{
@@ -249,7 +251,7 @@ async fn process_mirror_response(
     }
 
     let filename = extract_filename_from_response(&response, beatmapset_id)?;
-    let sanitized_filename = sanitize_filename(&filename);
+    let sanitized_filename = sanitize_filename_safe(&filename, beatmapset_id);
     let output_path = context.output_dir.join(&sanitized_filename);
 
     let existing_metadata = match fs::metadata(&output_path).await {

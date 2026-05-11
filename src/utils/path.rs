@@ -34,3 +34,14 @@ pub fn sanitize_filename(filename: &str) -> String {
 
     sanitized
 }
+
+pub fn sanitize_filename_safe(filename: &str, beatmapset_id: u32) -> String {
+    use std::path::Path;
+
+    let sanitized = sanitize_filename(filename);
+
+    match Path::new(&sanitized).file_name() {
+        Some(name) if name != "." && name != ".." => name.to_string_lossy().into_owned(),
+        _ => format!("{beatmapset_id}.osz"),
+    }
+}

@@ -1,4 +1,32 @@
 #[cfg(test)]
+mod sanitize_filename_safe_tests {
+    use osu_collect::utils::sanitize_filename_safe;
+
+    #[test]
+    fn test_dotdot_falls_back_to_id() {
+        assert_eq!(sanitize_filename_safe("..", 42), "42.osz");
+    }
+
+    #[test]
+    fn test_dot_falls_back_to_id() {
+        assert_eq!(sanitize_filename_safe(".", 42), "42.osz");
+    }
+
+    #[test]
+    fn test_normal_filename_preserved() {
+        assert_eq!(
+            sanitize_filename_safe("123 artist - title.osz", 123),
+            "123 artist - title.osz"
+        );
+    }
+
+    #[test]
+    fn test_empty_falls_back_to_id() {
+        assert_eq!(sanitize_filename_safe("", 99), "99.osz");
+    }
+}
+
+#[cfg(test)]
 mod tracker_tests {
     use osu_collect::download::BeatmapTracker;
     use std::collections::HashSet;
