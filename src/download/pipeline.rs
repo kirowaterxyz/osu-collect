@@ -235,7 +235,7 @@ async fn run_download_loop(
                 continue;
             }
 
-            let attempt_entry = attempts.entry(*beatmapset_id).or_insert(1);
+            let attempt_entry = attempts.entry(*beatmapset_id).or_insert(0);
             let can_retry = *attempt_entry < max_attempts;
 
             if can_retry && ctx.tracker.mark_pending(*beatmapset_id) {
