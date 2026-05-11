@@ -57,8 +57,15 @@ fn extract_filename_from_header(header_value: &str) -> Option<String> {
     None
 }
 
-/// Download a single beatmapset with mirror fallback
-pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadResult> {
+/// Download a single beatmapset with mirror fallback.
+///
+/// Returns the download result and the number of retry attempts made.
+pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
+    let (result, attempts) = download_beatmapset_inner(params).await;
+    (result, attempts)
+}
+
+async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
     // Check if any file matching `{id}*.osz` already exists in output_dir
     let prefix = format!("{}", params.beatmapset_id);
     match tokio::fs::read_dir(params.output_dir).await {
@@ -72,36 +79,43 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
                             "beatmapset {} already exists ({}), skipping",
                             params.beatmapset_id, name
                         );
-                        return Ok(DownloadResult::Skipped {
-                            reason: SkipReason::AlreadyExists,
-                        });
+                        return (
+                            Ok(DownloadResult::Skipped {
+                                reason: SkipReason::AlreadyExists,
+                            }),
+                            0,
+                        );
                     }
                 }
                 Ok(None) => break,
-                Err(err) => return Err(DownloadError::io(err.to_string()).into()),
+                Err(err) => return (Err(DownloadError::io(err.to_string()).into()), 0),
             }
         },
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => return Err(DownloadError::io(err.to_string()).into()),
+        Err(err) => return (Err(DownloadError::io(err.to_string()).into()), 0),
     }
 
     // Get mirror plan
     let mirrors = params.mirror_pool.plan();
     if mirrors.is_empty() {
-        return Err(DownloadError::AllMirrorsFailed {
-            beatmapset_id: params.beatmapset_id,
-        }
-        .into());
+        return (
+            Err(DownloadError::AllMirrorsFailed {
+                beatmapset_id: params.beatmapset_id,
+            }
+            .into()),
+            0,
+        );
     }
 
     let mut last_error = None;
     let mut mirror_missed = false;
+    let mut total_attempts: u32 = 0;
 
     // Try each mirror
     for mirror in mirrors {
         // Check cancellation
         if *params.cancel_rx.borrow() {
-            return Err(DownloadError::Cancelled.into());
+            return (Err(DownloadError::Cancelled.into()), total_attempts);
         }
 
         debug!(
@@ -110,16 +124,17 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
             mirror.display_name()
         );
 
-        let mut attempt = 0;
+        let mut attempt = 0u32;
         loop {
             match try_mirror(&mirror, &params).await {
-                Ok(MirrorAttempt::Downloaded(result)) => return Ok(result),
+                Ok(MirrorAttempt::Downloaded(result)) => return (Ok(result), total_attempts),
                 Ok(MirrorAttempt::NotFound) => {
                     mirror_missed = true;
                     break;
                 }
                 Err(err) if should_retry(&err) && attempt < params.max_retries => {
                     attempt += 1;
+                    total_attempts += 1;
                     warn!(
                         "Failed to download {} from {}: {}",
                         params.beatmapset_id,
@@ -148,17 +163,21 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
     }
 
     if mirror_missed {
-        return Ok(DownloadResult::Skipped {
-            reason: SkipReason::UnavailableOnMirrors,
-        });
+        return (
+            Ok(DownloadResult::Skipped {
+                reason: SkipReason::UnavailableOnMirrors,
+            }),
+            total_attempts,
+        );
     }
 
-    Err(last_error.unwrap_or_else(|| {
+    let err = last_error.unwrap_or_else(|| {
         DownloadError::AllMirrorsFailed {
             beatmapset_id: params.beatmapset_id,
         }
         .into()
-    }))
+    });
+    (Err(err), total_attempts)
 }
 
 #[derive(Debug)]

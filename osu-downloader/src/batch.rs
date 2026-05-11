@@ -176,7 +176,7 @@ async fn download_single_with_events(
     });
 
     // Attempt download
-    let result = download_beatmapset(download::DownloadParams {
+    let (result, retry_count) = download_beatmapset(download::DownloadParams {
         beatmapset_id,
         output_dir,
         client,
@@ -215,7 +215,7 @@ async fn download_single_with_events(
             let _ = event_tx.send(DownloadEvent::BeatmapsetFailed {
                 beatmapset_id,
                 error: crate::DownloadError::worker_error(e.to_string()),
-                retry_count: 0,
+                retry_count,
             });
         }
     }

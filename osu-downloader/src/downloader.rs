@@ -198,18 +198,20 @@ impl Downloader {
     ) -> Result<DownloadResult> {
         let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-        crate::download::download_beatmapset(crate::download::DownloadParams {
-            beatmapset_id,
-            output_dir: output_dir.as_ref(),
-            client: &self.http_client,
-            mirror_pool: &self.mirror_pool,
-            verify_archive: self.config.verify_archives,
-            progress_timeout: self.config.progress_timeout,
-            max_retries: self.config.max_retries,
-            progress_callback: None, // No progress callback for single download
-            cancel_rx,
-        })
-        .await
+        let (result, _retries) =
+            crate::download::download_beatmapset(crate::download::DownloadParams {
+                beatmapset_id,
+                output_dir: output_dir.as_ref(),
+                client: &self.http_client,
+                mirror_pool: &self.mirror_pool,
+                verify_archive: self.config.verify_archives,
+                progress_timeout: self.config.progress_timeout,
+                max_retries: self.config.max_retries,
+                progress_callback: None,
+                cancel_rx,
+            })
+            .await;
+        result
     }
 
     /// Download multiple beatmapsets
