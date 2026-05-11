@@ -2,10 +2,11 @@ use osu_collect::download::size_fetcher::check_availability_on_urls;
 use reqwest::Client;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::{Duration, timeout};
 
 async fn start_server(
     handler: impl Fn(String) -> String + Send + 'static + Sync,
@@ -73,29 +74,34 @@ async fn availability_follows_redirect_then_succeeds() {
 
 #[tokio::test]
 async fn probe_reads_only_zip_magic_prefix() {
-    let bytes_sent = Arc::new(AtomicUsize::new(0));
-    let bytes_sent_ref = bytes_sent.clone();
-    let (base, handle) = start_server(move |_| {
-        let mut body = vec![b'x'; 1024 * 1024];
-        body[..4].copy_from_slice(&[0x50, 0x4B, 0x03, 0x04]);
-        bytes_sent_ref.store(body.len(), Ordering::SeqCst);
-        let mut response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
-            body.len()
-        )
-        .into_bytes();
-        response.extend_from_slice(&body);
-        String::from_utf8_lossy(&response).into_owned()
-    })
-    .await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let stopped_early = Arc::new(AtomicBool::new(false));
+    let stopped_early_ref = stopped_early.clone();
+
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 1024];
+        let _ = socket.read(&mut buf).await.unwrap();
+        let header = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 1048576\r\n\r\n";
+        socket.write_all(header.as_bytes()).await.unwrap();
+        socket.write_all(&[0x50, 0x4B, 0x03, 0x04]).await.unwrap();
+        for _ in 0..32 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if socket.write_all(&[b'x'; 8192]).await.is_err() {
+                stopped_early_ref.store(true, Ordering::SeqCst);
+                return;
+            }
+        }
+    });
 
     let template = format!("{}/ok", base);
     let client = Client::new();
     let available = check_availability_on_urls(&client, 7, &[template.as_str()]).await;
     assert!(available);
-    assert!(bytes_sent.load(Ordering::SeqCst) > 4);
 
-    handle.abort();
+    let _ = timeout(Duration::from_secs(2), handle).await;
+    assert!(stopped_early.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
