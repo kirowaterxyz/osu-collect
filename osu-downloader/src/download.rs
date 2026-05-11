@@ -7,6 +7,7 @@ use crate::{
     DownloadError, DownloadResult, Result, SkipReason,
 };
 use std::{path::Path, sync::Arc, time::Duration};
+use tokio::time::sleep;
 use tracing::{debug, warn};
 
 /// Parameters for downloading a beatmapset
@@ -149,6 +150,12 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
                     break;
                 }
                 Err(err) if should_retry(&err) && attempt < params.max_retries => {
+                    // 429 on a retryable path: mark mirror and fall through to next mirror
+                    if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
+                        params.mirror_pool.mark_rate_limited(mirror.kind());
+                        last_error = Some(err);
+                        break;
+                    }
                     attempt += 1;
                     total_attempts += 1;
                     warn!(
@@ -157,6 +164,9 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
                         mirror.display_name(),
                         err
                     );
+                    let backoff = Duration::from_millis(500 * 2u64.saturating_pow(attempt))
+                        .min(Duration::from_secs(8));
+                    sleep(backoff).await;
                 }
                 Err(err) => {
                     warn!(
@@ -166,7 +176,6 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
                         err
                     );
 
-                    // Check if rate limited
                     if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
                         params.mirror_pool.mark_rate_limited(mirror.kind());
                     }
