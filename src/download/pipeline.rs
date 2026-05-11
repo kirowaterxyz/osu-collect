@@ -351,8 +351,18 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         return Ok(());
     }
 
-    if let Some(collection) = target.collection() {
-        match create_collection_database(collection, ctx.output_dir.as_ref().as_path()) {
+    let maybe_collection = target.collection().cloned();
+    if let Some(collection) = maybe_collection {
+        let output_dir = ctx.output_dir.as_ref().as_path().to_path_buf();
+        let db_result = tokio::task::spawn_blocking(move || {
+            create_collection_database(&collection, &output_dir)
+        })
+        .await
+        .map_err(|e| {
+            AppError::other_dynamic(format!("spawn_blocking panicked: {e}").into_boxed_str())
+        })
+        .and_then(|r| r);
+        match db_result {
             Ok(()) => {
                 log_status(&status, id, "collection.db created successfully");
                 info!("collection.db created successfully");
