@@ -6,6 +6,7 @@ use crate::{
     DownloadEvent, DownloadResult, DownloadSummary,
 };
 use std::{
+    collections::HashSet,
     path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -24,6 +25,7 @@ pub async fn download_batch(
     cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> DownloadSummary {
     let start_time = Instant::now();
+    let beatmapset_ids = deduplicate_ids(beatmapset_ids);
     let total = beatmapset_ids.len();
 
     // Send session started event
@@ -97,6 +99,11 @@ pub async fn download_batch(
     );
 
     summary
+}
+
+fn deduplicate_ids(ids: Vec<u32>) -> Vec<u32> {
+    let mut seen = HashSet::with_capacity(ids.len());
+    ids.into_iter().filter(|id| seen.insert(*id)).collect()
 }
 
 /// Download a single beatmapset and emit events
@@ -204,4 +211,14 @@ pub struct BatchConfig {
     pub verify_archives: bool,
     /// Progress timeout
     pub progress_timeout: Duration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deduplicate_ids_preserves_first_occurrence_order() {
+        assert_eq!(deduplicate_ids(vec![3, 1, 3, 2, 1]), vec![3, 1, 2]);
+    }
 }
