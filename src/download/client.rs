@@ -214,7 +214,17 @@ pub async fn download_beatmap(
             .unwrap_or(Duration::from_secs(0));
 
         if !wait_duration.is_zero() {
-            sleep(wait_duration).await;
+            let deadline = tokio::time::Instant::now() + wait_duration;
+            loop {
+                if context.shutdown.is_cancelled() {
+                    return Ok(DownloadResult::Aborted);
+                }
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                sleep(remaining.min(Duration::from_millis(100))).await;
+            }
         }
 
         pending = deferred_rate_limited;
