@@ -48,20 +48,31 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
     }
 
     if view.quit_prompt {
-        let paragraph = Paragraph::new(" press q again to quit; all downloads will be cancelled.")
-            .style(Style::default().fg(components::WARNING));
-        frame.render_widget(paragraph, area);
+        let line = Line::from(vec![
+            Span::styled(" ! ", Style::default().fg(components::WARNING)),
+            Span::styled(
+                "press q again to quit; all downloads will be cancelled.",
+                Style::default().fg(components::TEXT_DIM),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
         return;
     }
 
     if let Some(msg) = view.message {
-        let style = match msg.kind {
-            MessageKind::Info => Style::default().fg(components::SUCCESS),
-            MessageKind::Error => Style::default().fg(components::DANGER),
-            MessageKind::Loading => Style::default().fg(components::WARNING),
+        let (glyph, color) = match msg.kind {
+            MessageKind::Info => ("✓ ", components::SUCCESS),
+            MessageKind::Error => ("✗ ", components::DANGER),
+            MessageKind::Loading => ("… ", components::WARNING),
         };
-        let text = format!(" {}", msg.text.trim_start());
-        frame.render_widget(Paragraph::new(text).style(style), area);
+        let line = Line::from(vec![
+            Span::styled(format!(" {glyph}"), Style::default().fg(color)),
+            Span::styled(
+                msg.text.trim_start().to_string(),
+                Style::default().fg(color),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
         return;
     }
 

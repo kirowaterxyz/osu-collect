@@ -18,50 +18,58 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         components::section_header("collection"),
         components::input_item(&form.collection, form.focus == HomeField::Collection),
         components::input_item(&form.directory, form.focus == HomeField::Directory),
+        components::spacer(),
         components::section_header("mirrors"),
         components::input_item(&form.custom_mirror, form.focus == HomeField::CustomMirror),
         mirror_toggle(
-            "use nerinyan",
+            "nerinyan",
             "api.nerinyan.moe",
             form.nerinyan,
             form.focus == HomeField::MirrorNerinyan,
         ),
         mirror_toggle(
-            "use osu.direct",
+            "osu!direct",
             "osu.direct",
             form.osu_direct,
             form.focus == HomeField::MirrorOsuDirect,
         ),
         mirror_toggle(
-            "use sayobot",
+            "sayobot",
             "dl.sayobot.cn",
             form.sayobot,
             form.focus == HomeField::MirrorSayobot,
         ),
         mirror_toggle(
-            "use nekoha",
+            "nekoha",
             "mirror.nekoha.moe",
             form.nekoha,
             form.focus == HomeField::MirrorNekoha,
         ),
         mirror_toggle(
-            "use catboy central",
+            "catboy central",
             "catboy.best",
             form.catboy_central,
             form.focus == HomeField::MirrorCatboyCentral,
         ),
         mirror_toggle(
-            "use catboy us",
+            "catboy us",
             "us.catboy.best",
             form.catboy_us,
             form.focus == HomeField::MirrorCatboyUs,
         ),
         mirror_toggle(
-            "use catboy asia",
+            "catboy asia",
             "sg.catboy.best",
             form.catboy_asia,
             form.focus == HomeField::MirrorCatboyAsia,
         ),
+        mirror_toggle(
+            "use official",
+            "osu.ppy.sh/api/v2",
+            form.official,
+            form.focus == HomeField::MirrorOfficial,
+        ),
+        components::spacer(),
         components::section_header("download"),
         components::input_item(&form.threads, form.focus == HomeField::Threads),
         components::toggle_item(
@@ -81,21 +89,25 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         ),
     ];
 
+    // indices account for section_header rows and spacer rows
     let focused_index = match form.focus {
         HomeField::Collection => 1,
         HomeField::Directory => 2,
-        HomeField::CustomMirror => 4,
-        HomeField::MirrorNerinyan => 5,
-        HomeField::MirrorOsuDirect => 6,
-        HomeField::MirrorSayobot => 7,
-        HomeField::MirrorNekoha => 8,
-        HomeField::MirrorCatboyCentral => 9,
-        HomeField::MirrorCatboyUs => 10,
-        HomeField::MirrorCatboyAsia => 11,
-        HomeField::Threads => 13,
-        HomeField::SkipExisting => 14,
-        HomeField::AutoOverwrite => 15,
-        HomeField::NoVideo => 16,
+        // spacer at 3, mirrors header at 4
+        HomeField::CustomMirror => 5,
+        HomeField::MirrorNerinyan => 6,
+        HomeField::MirrorOsuDirect => 7,
+        HomeField::MirrorSayobot => 8,
+        HomeField::MirrorNekoha => 9,
+        HomeField::MirrorCatboyCentral => 10,
+        HomeField::MirrorCatboyUs => 11,
+        HomeField::MirrorCatboyAsia => 12,
+        HomeField::MirrorOfficial => 13,
+        // spacer at 14, download header at 15
+        HomeField::Threads => 16,
+        HomeField::SkipExisting => 17,
+        HomeField::AutoOverwrite => 18,
+        HomeField::NoVideo => 19,
     };
 
     let inner_block = components::panel_block("home");

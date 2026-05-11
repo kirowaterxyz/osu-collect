@@ -11,7 +11,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout},
     style::Style,
-    widgets::{Block, Padding},
+    widgets::Block,
 };
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -22,13 +22,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         return;
     }
 
-    // fill background
     frame.render_widget(
         Block::default().style(Style::default().bg(components::BG_SUNKEN)),
         area,
     );
 
-    let compact = area.height < 12;
+    // compact: no separator rows; normal: separator rows between header/content/footer
+    let compact = area.height < 14;
 
     let chunks: Vec<_> = if compact {
         Layout::vertical([
@@ -58,11 +58,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
         (chunks[0], chunks[2], chunks[4])
     };
 
-    // fill header row with BG_RAISED surface
     frame.render_widget(
-        Block::default()
-            .style(Style::default().bg(components::BG_RAISED))
-            .padding(Padding::ZERO),
+        Block::default().style(Style::default().bg(components::BG_RAISED)),
         header_area,
     );
 

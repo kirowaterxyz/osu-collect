@@ -5,7 +5,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, ListItem, Padding, Paragraph},
 };
@@ -24,7 +24,7 @@ pub const TEXT_MUTED: Color = Color::Rgb(186, 194, 222);
 pub const TEXT_DIM: Color = Color::Rgb(166, 173, 200);
 pub const TEXT_FAINT: Color = Color::Rgb(127, 132, 156);
 pub const LINE: Color = Color::Rgb(69, 71, 90);
-pub const LINE_SOFT: Color = Color::Rgb(38, 38, 58);
+pub const LINE_SOFT: Color = Color::Rgb(49, 50, 68);
 pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
 pub const BG_SUNKEN: Color = Color::Rgb(17, 17, 27);
 
@@ -59,15 +59,12 @@ pub fn scroll_window<T>(
 
 pub fn panel_block(title: &'static str) -> Block<'static> {
     Block::default()
-        .borders(Borders::TOP)
-        .border_type(BorderType::Plain)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(LINE_SOFT))
-        .title(Span::styled(
-            format!(" {} ", title.to_uppercase()),
-            eyebrow_style(),
-        ))
+        .title(Span::styled(format!(" {} ", title), eyebrow_style()))
         .title_alignment(Alignment::Left)
-        .padding(Padding::new(1, 1, 1, 0))
+        .padding(Padding::new(1, 1, 0, 0))
 }
 
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -84,7 +81,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
         return;
     }
 
-    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
+    let version = format!(" v{}", env!("CARGO_PKG_VERSION"));
     let version_w = version.chars().count() as u16;
     let brand_text = " osu-collect";
     let brand_w = brand_text.chars().count() as u16;
@@ -99,22 +96,24 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             brand_text,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(ACCENT),
         ))),
         layout[0],
     );
 
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.titles().len() * 2);
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.titles().len() * 3);
     for (i, title) in tabs.titles().iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled("  ", Style::default().fg(LINE)));
+            spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
         }
-        let style = if i == tabs.active() {
-            Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
+        if i == tabs.active() {
+            spans.push(Span::styled(
+                format!("[ {} ]", title),
+                Style::default().fg(ACCENT),
+            ));
         } else {
-            Style::default().fg(TEXT_FAINT)
-        };
-        spans.push(Span::styled(title.clone(), style));
+            spans.push(Span::styled(title.clone(), Style::default().fg(TEXT_FAINT)));
+        }
     }
     frame.render_widget(
         Paragraph::new(Line::from(spans)).alignment(Alignment::Left),
@@ -136,19 +135,19 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
         Span::styled(field.value.clone(), Style::default().fg(ACCENT))
     };
 
-    let row_style = if focused {
-        Style::default().fg(TEXT)
+    let label_style = if focused {
+        Style::default().fg(TEXT_MUTED)
     } else {
-        Style::default()
+        Style::default().fg(TEXT_DIM)
     };
 
     let spans = vec![
         focus_span(focused),
-        Span::styled(format!("{}: ", field.label), Style::default().fg(TEXT_DIM)),
+        Span::styled(format!("{}: ", field.label), label_style),
         value,
     ];
 
-    ListItem::new(Line::from(spans)).style(row_style)
+    ListItem::new(Line::from(spans))
 }
 
 pub fn toggle_item(label: &str, state: bool, focused: bool) -> ListItem<'static> {
@@ -173,7 +172,7 @@ pub fn cycle_item(
     focused: bool,
 ) -> ListItem<'static> {
     let label_style = if focused {
-        Style::default().fg(TEXT)
+        Style::default().fg(TEXT_MUTED)
     } else {
         Style::default().fg(TEXT_DIM)
     };
@@ -186,7 +185,7 @@ pub fn cycle_item(
             spans.push(Span::styled("  ", Style::default().fg(LINE)));
         }
         let style = if opt == selected {
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+            Style::default().fg(ACCENT)
         } else {
             Style::default().fg(TEXT_FAINT)
         };
@@ -200,6 +199,10 @@ pub fn section_header(label: &str) -> ListItem<'static> {
         Span::raw("  "),
         Span::styled(label.to_uppercase(), eyebrow_style()),
     ]))
+}
+
+pub fn spacer() -> ListItem<'static> {
+    ListItem::new(Line::from(""))
 }
 
 pub fn focus_span(focused: bool) -> Span<'static> {
@@ -230,7 +233,10 @@ pub fn status_style(stage: DownloadStage) -> Style {
 }
 
 pub fn thread_item(index: usize, status: &ThreadStatusLine) -> ListItem<'static> {
-    let prefix = Span::styled(format!("t{}: ", index + 1), Style::default().fg(TEXT_FAINT));
+    let prefix = Span::styled(
+        format!("  t{:<2} ", index + 1),
+        Style::default().fg(TEXT_FAINT),
+    );
     let line = Line::from(vec![
         prefix,
         Span::styled(status.message.clone(), thread_style(status)),
