@@ -87,11 +87,15 @@ pub async fn validate_zip_archive(path: &Path) -> Result<()> {
     let mut buffer = vec![0u8; search_size as usize];
     file.read_exact(&mut buffer).await?;
 
-    if has_eocd_signature(&buffer) {
-        Ok(())
-    } else {
-        Err(DownloadError::validation_failed("ZIP EOCD signature not found").into())
-    }
+    task::spawn_blocking(move || {
+        if has_eocd_signature(&buffer) {
+            Ok(())
+        } else {
+            Err(DownloadError::validation_failed("ZIP EOCD signature not found").into())
+        }
+    })
+    .await
+    .map_err(|err| DownloadError::worker_error(format!("Validation task failed: {err}")))?
 }
 
 /// Check if buffer contains ZIP EOCD signature
