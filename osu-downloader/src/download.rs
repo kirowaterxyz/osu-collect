@@ -24,16 +24,32 @@ pub(crate) struct DownloadParams<'a> {
 
 /// Sanitize a filename from Content-Disposition header or generate default
 fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
-    if let Some(name) = raw {
-        // Basic sanitization
-        name.chars()
-            .map(|c| match c {
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                c => c,
-            })
-            .collect()
+    let fallback = || format!("{beatmapset_id}.osz");
+
+    let Some(name) = raw else {
+        return fallback();
+    };
+
+    let sanitized: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c => c,
+        })
+        .collect();
+
+    // Reject empty, dot-only, or traversal names; ensure no path separators survive.
+    // Check starts_with("..") to catch ../foo → .._foo after char-mapping.
+    let is_safe = !sanitized.is_empty()
+        && sanitized != "."
+        && sanitized != ".."
+        && !sanitized.starts_with("..")
+        && std::path::Path::new(&sanitized).file_name() == Some(std::ffi::OsStr::new(&sanitized));
+
+    if is_safe {
+        sanitized
     } else {
-        format!("{}.osz", beatmapset_id)
+        fallback()
     }
 }
 
@@ -295,6 +311,10 @@ mod tests {
             sanitize_filename(Some("test/file.osz"), 456),
             "test_file.osz"
         );
+        assert_eq!(sanitize_filename(Some(".."), 789), "789.osz");
+        assert_eq!(sanitize_filename(Some("."), 789), "789.osz");
+        assert_eq!(sanitize_filename(Some(""), 789), "789.osz");
+        assert_eq!(sanitize_filename(Some("../etc/passwd"), 789), "789.osz");
     }
 
     #[test]
