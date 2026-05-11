@@ -151,6 +151,8 @@ pub enum DownloadResult {
         size_bytes: u64,
         /// MD5 hash (if computed)
         md5_hash: Option<String>,
+        /// Mirror that served the file
+        mirror_used: MirrorKind,
     },
     /// Download was skipped
     Skipped {
@@ -195,6 +197,7 @@ mod tests {
             filename: "test.osz".to_string(),
             size_bytes: 1024,
             md5_hash: None,
+            mirror_used: crate::MirrorKind::Custom,
         };
         assert!(success.is_success());
         assert!(!success.is_skipped());

@@ -167,16 +167,14 @@ async fn download_single_with_events(
             filename,
             size_bytes,
             md5_hash,
+            mirror_used,
         }) => {
             let _ = event_tx.send(DownloadEvent::BeatmapsetCompleted {
                 beatmapset_id,
                 filename: filename.clone(),
                 size_bytes: *size_bytes,
                 md5_hash: md5_hash.clone(),
-                mirror_used: mirrors
-                    .first()
-                    .map(|m| m.kind())
-                    .unwrap_or(crate::MirrorKind::Custom),
+                mirror_used: *mirror_used,
             });
         }
         Ok(DownloadResult::Skipped { reason }) => {

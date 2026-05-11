@@ -210,6 +210,7 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Down
         filename,
         size_bytes: stream_result.bytes_written,
         md5_hash: stream_result.hash,
+        mirror_used: mirror.kind(),
     })
 }
 
