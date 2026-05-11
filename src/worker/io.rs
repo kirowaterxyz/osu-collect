@@ -152,7 +152,9 @@ pub async fn download_with_streaming(
             worker.update(chunk.clone());
         }
 
-        last_progress_at = Instant::now();
+        if downloaded.saturating_sub(last_progress_bytes) >= MIN_PROGRESS_DELTA {
+            last_progress_at = Instant::now();
+        }
 
         if let Some(ref callback) = progress_callback {
             let delta = downloaded.saturating_sub(last_progress_bytes);
