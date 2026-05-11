@@ -3,8 +3,8 @@
 use crate::Result;
 use std::time::Duration;
 
-/// Default timeout for beatmapset downloads (30 seconds)
-pub const DEFAULT_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default connection timeout for beatmapset downloads (30 seconds)
+pub const DEFAULT_DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Default timeout for API requests (15 seconds)
 #[cfg(feature = "collection")]
@@ -13,7 +13,7 @@ pub const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(15);
 /// Create a configured HTTP client for downloading beatmapsets
 pub fn create_download_client(user_agent: Option<String>) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
-        .timeout(DEFAULT_DOWNLOAD_TIMEOUT)
+        .connect_timeout(DEFAULT_DOWNLOAD_CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(5))
         .pool_max_idle_per_host(10);
 
