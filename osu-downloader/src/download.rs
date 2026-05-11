@@ -86,6 +86,7 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
     }
 
     let mut last_error = None;
+    let mut mirror_missed = false;
 
     // Try each mirror
     for mirror in mirrors {
@@ -101,7 +102,10 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
         );
 
         match try_mirror(&mirror, &params).await {
-            Ok(result) => return Ok(result),
+            Ok(MirrorAttempt::Downloaded(result)) => return Ok(result),
+            Ok(MirrorAttempt::NotFound) => {
+                mirror_missed = true;
+            }
             Err(err) => {
                 warn!(
                     "Failed to download {} from {}: {}",
@@ -120,7 +124,12 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
         }
     }
 
-    // All mirrors failed
+    if mirror_missed {
+        return Ok(DownloadResult::Skipped {
+            reason: SkipReason::UnavailableOnMirrors,
+        });
+    }
+
     Err(last_error.unwrap_or_else(|| {
         DownloadError::AllMirrorsFailed {
             beatmapset_id: params.beatmapset_id,
@@ -129,8 +138,14 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
     }))
 }
 
+#[derive(Debug)]
+enum MirrorAttempt {
+    Downloaded(DownloadResult),
+    NotFound,
+}
+
 /// Try downloading from a specific mirror
-async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<DownloadResult> {
+async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<MirrorAttempt> {
     // Make HTTP request
     let url = mirror.url_for(params.beatmapset_id);
     let response = params.client.get(&url).send().await?;
@@ -146,9 +161,7 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Down
     }
 
     if status == reqwest::StatusCode::NOT_FOUND {
-        return Ok(DownloadResult::Skipped {
-            reason: SkipReason::UnavailableOnMirrors,
-        });
+        return Ok(MirrorAttempt::NotFound);
     }
 
     if !status.is_success() {
@@ -207,12 +220,12 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Down
         validation::validate_zip_archive(&output_path).await?;
     }
 
-    Ok(DownloadResult::Success {
+    Ok(MirrorAttempt::Downloaded(DownloadResult::Success {
         filename,
         size_bytes: stream_result.bytes_written,
         md5_hash: stream_result.hash,
         mirror_used: mirror.kind(),
-    })
+    }))
 }
 
 #[cfg(test)]
