@@ -123,7 +123,8 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
     }
 
     let mut last_error = None;
-    let mut mirror_missed = false;
+    let mut attempted_mirrors = 0usize;
+    let mut missed_mirrors = 0usize;
     let mut total_attempts: u32 = 0;
 
     // Try each mirror
@@ -133,6 +134,7 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
             return (Err(DownloadError::Cancelled.into()), total_attempts);
         }
 
+        attempted_mirrors += 1;
         debug!(
             "Attempting download of {} from {}",
             params.beatmapset_id,
@@ -144,7 +146,7 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
             match try_mirror(&mirror, &params).await {
                 Ok(MirrorAttempt::Downloaded(result)) => return (Ok(result), total_attempts),
                 Ok(MirrorAttempt::NotFound) => {
-                    mirror_missed = true;
+                    missed_mirrors += 1;
                     break;
                 }
                 Err(err) if should_retry(&err) && attempt < params.max_retries => {
@@ -185,7 +187,7 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
         }
     }
 
-    if mirror_missed {
+    if last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors {
         return (
             Ok(DownloadResult::Skipped {
                 reason: SkipReason::UnavailableOnMirrors,
@@ -345,6 +347,28 @@ mod tests {
         assert_eq!(
             extract_filename_from_header(header2),
             Some("test file.osz".to_string())
+        );
+    }
+
+    #[test]
+    fn partial_mirror_miss_prefers_last_error() {
+        let last_error = Some(crate::Error::Download(DownloadError::HttpStatus(500)));
+        let attempted_mirrors = 2;
+        let missed_mirrors = 1;
+
+        assert!(
+            !(last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors)
+        );
+    }
+
+    #[test]
+    fn all_mirror_misses_skip_without_error() {
+        let last_error: Option<crate::Error> = None;
+        let attempted_mirrors = 2;
+        let missed_mirrors = 2;
+
+        assert!(
+            last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors
         );
     }
 }
