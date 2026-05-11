@@ -1,13 +1,14 @@
 //! Worker module for streaming downloads and I/O
 
-use crate::{validation::HashWorker, DownloadError, Result};
+use crate::{DownloadError, Result};
 use futures_util::StreamExt;
+use md5::{Digest, Md5};
 use std::{
     path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{fs, io::AsyncWriteExt, time::timeout};
+use tokio::{fs, fs::OpenOptions, io::AsyncWriteExt, time::timeout};
 
 /// Minimum bytes changed to emit progress update
 const MIN_PROGRESS_DELTA: u64 = 131_072; // 128 KB
@@ -41,11 +42,15 @@ pub async fn download_with_streaming(
     progress_timeout: Duration,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<DownloadStreamResult> {
-    let mut file = fs::File::create(output_path).await?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .await?;
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
     let total = content_length.unwrap_or(0);
-    let mut hash_worker = Some(HashWorker::new());
+    let mut hasher = Md5::new();
 
     let mut last_progress_bytes = 0u64;
     let mut last_progress_emitted = Instant::now();
@@ -53,9 +58,6 @@ pub async fn download_with_streaming(
     loop {
         // Check for cancellation
         if *cancel_rx.borrow_and_update() {
-            if let Some(worker) = hash_worker.take() {
-                worker.abort();
-            }
             file.shutdown().await.ok();
             let _ = fs::remove_file(output_path).await;
             return Ok(DownloadStreamResult {
@@ -69,9 +71,6 @@ pub async fn download_with_streaming(
         let maybe_chunk = match timeout(progress_timeout, stream.next()).await {
             Ok(chunk) => chunk,
             Err(_) => {
-                if let Some(worker) = hash_worker.take() {
-                    worker.abort();
-                }
                 file.shutdown().await.ok();
                 let _ = fs::remove_file(output_path).await;
                 return Err(DownloadError::ProgressTimeout.into());
@@ -85,9 +84,6 @@ pub async fn download_with_streaming(
         let chunk = match chunk {
             Ok(bytes) => bytes,
             Err(err) => {
-                if let Some(worker) = hash_worker.take() {
-                    worker.abort();
-                }
                 file.shutdown().await.ok();
                 let _ = fs::remove_file(output_path).await;
                 return Err(DownloadError::http(err.to_string()).into());
@@ -98,18 +94,12 @@ pub async fn download_with_streaming(
 
         // Write to file
         if let Err(err) = file.write_all(&chunk).await {
-            if let Some(worker) = hash_worker.take() {
-                worker.abort();
-            }
             file.shutdown().await.ok();
             let _ = fs::remove_file(output_path).await;
             return Err(DownloadError::io(err.to_string()).into());
         }
 
-        // Update hash
-        if let Some(worker) = hash_worker.as_ref() {
-            worker.update(chunk);
-        }
+        hasher.update(&chunk);
 
         // Emit progress
         if let Some(ref callback) = progress_callback {
@@ -126,9 +116,6 @@ pub async fn download_with_streaming(
 
     // Final cancellation check
     if *cancel_rx.borrow() {
-        if let Some(worker) = hash_worker.take() {
-            worker.abort();
-        }
         file.shutdown().await.ok();
         let _ = fs::remove_file(output_path).await;
         return Ok(DownloadStreamResult {
@@ -140,9 +127,6 @@ pub async fn download_with_streaming(
 
     // Flush and finalize
     if let Err(err) = file.flush().await {
-        if let Some(worker) = hash_worker.take() {
-            worker.abort();
-        }
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after flush error");
         }
@@ -150,9 +134,6 @@ pub async fn download_with_streaming(
     }
 
     if let Err(err) = file.sync_data().await {
-        if let Some(worker) = hash_worker.take() {
-            worker.abort();
-        }
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after sync error");
         }
@@ -160,21 +141,19 @@ pub async fn download_with_streaming(
     }
 
     if let Err(err) = file.shutdown().await {
-        if let Some(worker) = hash_worker.take() {
-            worker.abort();
-        }
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after shutdown error");
         }
         return Err(DownloadError::io(err.to_string()).into());
     }
 
-    // Finalize hash
-    let hash = if let Some(worker) = hash_worker.take() {
-        Some(worker.finalize().await?)
-    } else {
-        None
-    };
+    let hash = Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    );
 
     // Final progress callback
     if let Some(ref callback) = progress_callback {

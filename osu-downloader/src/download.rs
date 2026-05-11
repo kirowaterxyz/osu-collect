@@ -6,9 +6,18 @@ use crate::{
     worker::download_with_streaming,
     DownloadError, DownloadResult, Result, SkipReason,
 };
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::time::sleep;
 use tracing::{debug, warn};
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Parameters for downloading a beatmapset
 pub(crate) struct DownloadParams<'a> {
@@ -222,6 +231,18 @@ fn should_retry(err: &crate::Error) -> bool {
     }
 }
 
+fn temp_path_for(output_path: &Path) -> PathBuf {
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download");
+    output_path.with_file_name(format!(
+        "{name}.download-{}-{counter}.tmp",
+        std::process::id()
+    ))
+}
+
 /// Try downloading from a specific mirror
 async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<MirrorAttempt> {
     // Make HTTP request
@@ -278,27 +299,46 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
 
     let output_path = params.output_dir.join(&filename);
 
-    // Stream download
-    let stream_result = download_with_streaming(
+    let temp_path = temp_path_for(&output_path);
+    let stream_result = match download_with_streaming(
         response,
-        &output_path,
+        &temp_path,
         content_length,
         params.progress_callback.clone(),
         params.progress_timeout,
         params.cancel_rx.clone(),
     )
-    .await?;
+    .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(err);
+        }
+    };
 
     if stream_result.cancelled {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(DownloadError::Cancelled.into());
     }
 
-    // Verify archive if requested
     if params.verify_archive {
-        if let Err(err) = validation::validate_zip_archive(&output_path).await {
-            let _ = tokio::fs::remove_file(&output_path).await;
+        if let Err(err) = validation::validate_zip_archive(&temp_path).await {
+            let _ = tokio::fs::remove_file(&temp_path).await;
             return Err(err);
         }
+    }
+
+    if tokio::fs::try_exists(&output_path).await? {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Ok(MirrorAttempt::Downloaded(DownloadResult::Skipped {
+            reason: SkipReason::AlreadyExists,
+        }));
+    }
+
+    if let Err(err) = tokio::fs::rename(&temp_path, &output_path).await {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
     }
 
     Ok(MirrorAttempt::Downloaded(DownloadResult::Success {
