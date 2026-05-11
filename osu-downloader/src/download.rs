@@ -59,21 +59,29 @@ fn extract_filename_from_header(header_value: &str) -> Option<String> {
 
 /// Download a single beatmapset with mirror fallback
 pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadResult> {
-    // Check if file already exists
-    let potential_filename = format!("{}.osz", params.beatmapset_id);
-    let potential_path = params.output_dir.join(&potential_filename);
-
-    match tokio::fs::try_exists(&potential_path).await {
-        Ok(true) => {
-            debug!(
-                "Beatmapset {} already exists, skipping",
-                params.beatmapset_id
-            );
-            return Ok(DownloadResult::Skipped {
-                reason: SkipReason::AlreadyExists,
-            });
-        }
-        Ok(false) => {}
+    // Check if any file matching `{id}*.osz` already exists in output_dir
+    let prefix = format!("{}", params.beatmapset_id);
+    match tokio::fs::read_dir(params.output_dir).await {
+        Ok(mut dir) => loop {
+            match dir.next_entry().await {
+                Ok(Some(entry)) => {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.starts_with(prefix.as_str()) && name.ends_with(".osz") {
+                        debug!(
+                            "beatmapset {} already exists ({}), skipping",
+                            params.beatmapset_id, name
+                        );
+                        return Ok(DownloadResult::Skipped {
+                            reason: SkipReason::AlreadyExists,
+                        });
+                    }
+                }
+                Ok(None) => break,
+                Err(err) => return Err(DownloadError::io(err.to_string()).into()),
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => return Err(DownloadError::io(err.to_string()).into()),
     }
 
