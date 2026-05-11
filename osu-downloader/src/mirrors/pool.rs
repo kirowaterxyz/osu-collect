@@ -26,18 +26,15 @@ impl MirrorPool {
         self.mirrors.len() == 1
     }
 
-    /// Get a prioritized list of mirrors for attempting downloads
-    ///
-    /// Returns mirrors in order: ready mirrors first, then cooling mirrors by soonest availability
+    /// Get a prioritized list of ready mirrors for attempting downloads
     pub fn plan(&self) -> Vec<Mirror> {
         let now = Instant::now();
         let mut penalties = self.penalties.lock().unwrap();
-        let mut ready: Vec<Mirror> = Vec::with_capacity(self.mirrors.len());
-        let mut cooling: Vec<(Mirror, Instant)> = Vec::new();
+        let mut ready = Vec::with_capacity(self.mirrors.len());
 
         for mirror in self.mirrors.iter() {
             match penalties.get(&mirror.kind()).copied() {
-                Some(until) if until > now => cooling.push((mirror.clone(), until)),
+                Some(until) if until > now => {}
                 Some(_) => {
                     penalties.remove(&mirror.kind());
                     ready.push(mirror.clone());
@@ -46,15 +43,6 @@ impl MirrorPool {
             }
         }
 
-        drop(penalties);
-
-        if ready.is_empty() {
-            cooling.sort_by_key(|(_, until)| *until);
-            return cooling.into_iter().map(|(mirror, _)| mirror).collect();
-        }
-
-        cooling.sort_by_key(|(_, until)| *until);
-        ready.extend(cooling.into_iter().map(|(mirror, _)| mirror));
         ready
     }
 
@@ -132,5 +120,28 @@ mod tests {
 
         pool.clear_penalty(MirrorKind::Nerinyan);
         assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_none());
+    }
+
+    #[test]
+    fn test_plan_excludes_cooling_mirrors() {
+        let mirrors = vec![Mirror::nerinyan(), Mirror::osu_direct()];
+        let pool = MirrorPool::new(mirrors);
+
+        pool.mark_rate_limited(MirrorKind::Nerinyan);
+
+        let plan = pool.plan();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].kind(), MirrorKind::OsuDirect);
+    }
+
+    #[test]
+    fn test_plan_returns_empty_when_all_mirrors_cooling() {
+        let mirrors = vec![Mirror::nerinyan()];
+        let pool = MirrorPool::new(mirrors);
+
+        pool.mark_rate_limited(MirrorKind::Nerinyan);
+
+        assert!(pool.plan().is_empty());
+        assert!(pool.single_mirror_cooldown().is_some());
     }
 }
