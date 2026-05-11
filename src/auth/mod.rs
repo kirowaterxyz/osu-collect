@@ -222,7 +222,12 @@ pub async fn ensure_valid(client: &reqwest::Client, auth: &mut StoredAuth) -> Re
     )
     .await?;
     apply_token_response(auth, token_resp);
-    save(auth)?;
+    let snap = auth.clone();
+    tokio::task::spawn_blocking(move || save(&snap))
+        .await
+        .map_err(|e| {
+            AppError::other_dynamic(format!("save task panicked: {e}").into_boxed_str())
+        })??;
     Ok(())
 }
 
