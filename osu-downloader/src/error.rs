@@ -74,6 +74,10 @@ pub enum DownloadError {
     #[error("Worker error: {0}")]
     WorkerError(String),
 
+    /// Non-success HTTP status code received during download
+    #[error("HTTP {0}")]
+    HttpStatus(u16),
+
     /// HTTP/network error during download
     #[error("HTTP error: {0}")]
     Http(String),

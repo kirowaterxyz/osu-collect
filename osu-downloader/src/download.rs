@@ -169,8 +169,11 @@ enum MirrorAttempt {
 
 fn should_retry(err: &crate::Error) -> bool {
     match err {
-        crate::Error::Http(err) => err.is_timeout() || err.is_connect() || err.is_request(),
-        crate::Error::Download(DownloadError::Http(_)) => true,
+        crate::Error::Http(err) => err.is_timeout() || err.is_connect(),
+        crate::Error::Download(DownloadError::HttpStatus(s)) => {
+            matches!(s, 429 | 500 | 502 | 503 | 504)
+        }
+        crate::Error::Download(DownloadError::ProgressTimeout) => true,
         _ => false,
     }
 }
@@ -196,7 +199,7 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
     }
 
     if !status.is_success() {
-        return Err(DownloadError::http(format!("HTTP {}", status)).into());
+        return Err(DownloadError::HttpStatus(status.as_u16()).into());
     }
 
     // Reject HTML/JSON responses (captcha pages, maintenance notices)
