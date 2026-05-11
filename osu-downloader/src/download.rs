@@ -62,7 +62,10 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> Result<DownloadR
     let potential_filename = format!("{}.osz", params.beatmapset_id);
     let potential_path = params.output_dir.join(&potential_filename);
 
-    if potential_path.exists() {
+    if tokio::fs::try_exists(&potential_path)
+        .await
+        .unwrap_or(false)
+    {
         debug!(
             "Beatmapset {} already exists, skipping",
             params.beatmapset_id
