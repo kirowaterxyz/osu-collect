@@ -1,11 +1,10 @@
 use super::messages::AppMessage;
 use crate::{
-    config::{Config, OfficialConfig},
+    config::Config,
     download::{DownloadConfig, DownloadRequest},
     mirrors::{CatboyRegion, MirrorEndpoint, MirrorKind},
 };
 use std::{env, str::FromStr};
-use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct InputField {
@@ -36,7 +35,6 @@ pub enum HomeField {
     MirrorCatboyCentral,
     MirrorCatboyUs,
     MirrorCatboyAsia,
-    MirrorOfficial,
     Threads,
     SkipExisting,
     AutoOverwrite,
@@ -57,7 +55,6 @@ pub struct HomeTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
-    pub official: bool,
     pub no_video: bool,
     pub verify_zip_eocd: bool,
     pub focus: HomeField,
@@ -66,7 +63,6 @@ pub struct HomeTab {
     default_threads: u8,
     default_retries: u8,
     default_directory: String,
-    official_config: OfficialConfig,
 }
 
 impl HomeTab {
@@ -78,14 +74,6 @@ impl HomeTab {
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
-        let official_config = config.official.clone();
-        let official = config.mirror.official
-            && (crate::auth::load().is_some() || official_config.credentials().is_some());
-        if config.mirror.official && !official {
-            warn!(
-                "official mirror enabled in config but no auth or credentials found; set official.client_id and official.client_secret"
-            );
-        }
         let custom_template = config.mirror.custom_template().unwrap_or("");
 
         if !nerinyan
@@ -95,7 +83,6 @@ impl HomeTab {
             && !osu_direct
             && !sayobot
             && !nekoha
-            && !official
             && custom_template.is_empty()
         {
             nerinyan = true;
@@ -145,7 +132,6 @@ impl HomeTab {
             osu_direct,
             sayobot,
             nekoha,
-            official,
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
             focus: HomeField::Collection,
@@ -154,7 +140,6 @@ impl HomeTab {
             default_threads,
             default_retries,
             default_directory,
-            official_config,
         }
     }
 
@@ -169,8 +154,7 @@ impl HomeTab {
             HomeField::MirrorNekoha => HomeField::MirrorCatboyCentral,
             HomeField::MirrorCatboyCentral => HomeField::MirrorCatboyUs,
             HomeField::MirrorCatboyUs => HomeField::MirrorCatboyAsia,
-            HomeField::MirrorCatboyAsia => HomeField::MirrorOfficial,
-            HomeField::MirrorOfficial => HomeField::Threads,
+            HomeField::MirrorCatboyAsia => HomeField::Threads,
             HomeField::Threads => HomeField::SkipExisting,
             HomeField::SkipExisting => HomeField::AutoOverwrite,
             HomeField::AutoOverwrite => HomeField::NoVideo,
@@ -190,8 +174,7 @@ impl HomeTab {
             HomeField::MirrorCatboyCentral => HomeField::MirrorNekoha,
             HomeField::MirrorCatboyUs => HomeField::MirrorCatboyCentral,
             HomeField::MirrorCatboyAsia => HomeField::MirrorCatboyUs,
-            HomeField::MirrorOfficial => HomeField::MirrorCatboyAsia,
-            HomeField::Threads => HomeField::MirrorOfficial,
+            HomeField::Threads => HomeField::MirrorCatboyAsia,
             HomeField::SkipExisting => HomeField::Threads,
             HomeField::AutoOverwrite => HomeField::SkipExisting,
             HomeField::NoVideo => HomeField::AutoOverwrite,
@@ -215,7 +198,6 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
-            | HomeField::MirrorOfficial
             | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
@@ -235,7 +217,6 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
-            | HomeField::MirrorOfficial
             | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
@@ -264,16 +245,6 @@ impl HomeTab {
             }
             HomeField::MirrorNekoha => {
                 self.nekoha = !self.nekoha;
-            }
-            HomeField::MirrorOfficial => {
-                if !self.official
-                    && crate::auth::load().is_none()
-                    && self.official_config.credentials().is_none()
-                {
-                    warn!("no auth tokens or official credentials");
-                } else {
-                    self.official = !self.official;
-                }
             }
             HomeField::SkipExisting => {
                 self.skip_existing = !self.skip_existing;
@@ -332,18 +303,6 @@ impl HomeTab {
                 }
             })
             .collect();
-
-        if self.official {
-            if let Some(auth) = crate::auth::load() {
-                mirrors.push(MirrorEndpoint::official(auth.bearer_token()));
-            } else if self.official_config.credentials().is_some() {
-                mirrors.push(MirrorEndpoint::official_pending(Some(
-                    self.official_config.clone(),
-                )));
-            } else {
-                warn!("official mirror enabled but no auth or credentials found; skipping");
-            }
-        }
 
         let trimmed_custom = self.custom_mirror.value.trim();
         if !trimmed_custom.is_empty()

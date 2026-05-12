@@ -64,12 +64,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
             form.catboy_asia,
             form.focus == HomeField::MirrorCatboyAsia,
         ),
-        mirror_toggle(
-            "official",
-            "osu.ppy.sh/api/v2",
-            form.official,
-            form.focus == HomeField::MirrorOfficial,
-        ),
         components::spacer(),
         components::section_header("download"),
         components::help_item("threads controls parallel downloads; blank uses config"),
@@ -110,11 +104,10 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::MirrorCatboyCentral => 11,
         HomeField::MirrorCatboyUs => 12,
         HomeField::MirrorCatboyAsia => 13,
-        HomeField::MirrorOfficial => 14,
-        HomeField::Threads => 18,
-        HomeField::SkipExisting => 19,
-        HomeField::AutoOverwrite => 20,
-        HomeField::NoVideo => 21,
+        HomeField::Threads => 17,
+        HomeField::SkipExisting => 18,
+        HomeField::AutoOverwrite => 19,
+        HomeField::NoVideo => 20,
     };
 
     let inner_block = components::panel_block("home");

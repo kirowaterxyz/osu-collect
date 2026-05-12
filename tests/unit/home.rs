@@ -12,7 +12,6 @@ fn home_all_off(config: &Config) -> HomeTab {
     home.custom_mirror.value = String::new();
     home
 }
-
 #[test]
 fn build_mirror_list_returns_selected_mirrors() {
     let config = Config::default();
@@ -60,18 +59,13 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
 }
 
 #[test]
-fn build_mirror_list_includes_official_with_config_credentials() {
+fn build_mirror_list_never_includes_official() {
     let mut config = Config::default();
     config.mirror.official = true;
-    config.official.client_id = Some("42".to_string());
-    config.official.client_secret = Some("secret".to_string());
-    let mut home = home_all_off(&config);
-    home.official = true;
+    let home = home_all_off(&config);
 
     let mirrors = home.build_mirror_list();
 
-    assert_eq!(mirrors.len(), 1);
-    assert_eq!(mirrors[0].kind, MirrorKind::Official);
-    assert!(mirrors[0].headers.is_none());
-    assert!(mirrors[0].official.is_some());
+    assert!(mirrors.is_empty());
+    assert!(!mirrors.iter().any(|m| m.kind == MirrorKind::Official));
 }

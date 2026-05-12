@@ -10,10 +10,9 @@ use super::{
     },
 };
 use crate::{
-    auth,
     config::constants::DEFAULT_PROGRESS_WATCHDOG_SECS,
     core::collection::{create_collection_db, model::Collection},
-    mirrors::{MirrorEndpoint, MirrorKind, MirrorPool},
+    mirrors::{MirrorEndpoint, MirrorPool},
     utils::{AppError, check_available_space, is_low_disk_space},
     worker::{DownloadContext, DownloadContextConfig, StatusSink},
 };
@@ -272,7 +271,7 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     let RunDownloadCoreParams {
         session,
         shutdown,
-        mut mirrors,
+        mirrors,
         concurrent,
         max_retries,
         skip_existing,
@@ -316,7 +315,6 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     check_and_warn_low_disk_space(&status, id, &output.output_dir);
 
     let download_client = http_client::download_client()?;
-    refresh_official_mirror_auth(&download_client, &mut mirrors).await?;
     let thread_count = concurrent.max(1) as usize;
     let ctx = build_download_context(BuildContextParams {
         id,
@@ -480,52 +478,6 @@ async fn try_remove_empty_output_dir(output_dir: &Path) -> Result<(), DownloadEr
     }
 
     fs::remove_dir(output_dir).await?;
-    Ok(())
-}
-
-async fn refresh_official_mirror_auth(
-    client: &reqwest::Client,
-    mirrors: &mut [MirrorEndpoint],
-) -> Result<(), DownloadError> {
-    let Some(first_official) = mirrors
-        .iter()
-        .find(|mirror| matches!(mirror.kind, MirrorKind::Official))
-    else {
-        return Ok(());
-    };
-
-    let token = match auth::load() {
-        Some(mut stored_auth) => {
-            auth::ensure_valid(client, &mut stored_auth)
-                .await
-                .map_err(|err| DownloadError::internal(format!("official auth failed: {err}")))?;
-            stored_auth.bearer_token().to_string()
-        }
-        None => {
-            let official = first_official.official.as_ref().ok_or_else(|| {
-                DownloadError::internal(
-                    "official credentials required; set official.client_id and official.client_secret",
-                )
-            })?;
-            let (client_id, client_secret) = official.credentials().ok_or_else(|| {
-                DownloadError::internal(
-                    "official credentials required; set official.client_id and official.client_secret",
-                )
-            })?;
-            auth::client_credentials(client, client_id, client_secret)
-                .await
-                .map_err(|err| DownloadError::internal(format!("official auth failed: {err}")))?
-                .access_token
-        }
-    };
-
-    for mirror in mirrors
-        .iter_mut()
-        .filter(|mirror| matches!(mirror.kind, MirrorKind::Official))
-    {
-        mirror.set_official_token(&token);
-    }
-
     Ok(())
 }
 

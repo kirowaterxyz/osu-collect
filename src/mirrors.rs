@@ -1,10 +1,7 @@
 // Re-export core types from osu-downloader
 pub use osu_downloader::{CatboyRegion, MirrorKind, MirrorPool};
 
-use crate::{
-    config::OfficialConfig,
-    utils::{AppError, Result},
-};
+use crate::utils::{AppError, Result};
 use osu_downloader::Mirror;
 
 // MirrorEndpoint wraps osu-downloader's Mirror but exposes public fields for compatibility
@@ -13,7 +10,6 @@ pub struct MirrorEndpoint {
     pub kind: MirrorKind,
     pub template: Box<str>,
     pub headers: Option<reqwest::header::HeaderMap>,
-    pub official: Option<OfficialConfig>,
 }
 
 impl MirrorEndpoint {
@@ -22,36 +18,7 @@ impl MirrorEndpoint {
             kind: mirror.kind(),
             template: mirror.url_for(0).replace("0", "{id}").into_boxed_str(),
             headers: None,
-            official: None,
         })
-    }
-
-    pub fn official(bearer_token: &str) -> Self {
-        let mut endpoint = Self::official_pending(None);
-        endpoint.set_official_token(bearer_token);
-        endpoint
-    }
-
-    pub fn official_pending(official: Option<OfficialConfig>) -> Self {
-        Self {
-            kind: MirrorKind::Official,
-            template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download".into(),
-            headers: None,
-            official,
-        }
-    }
-
-    pub fn set_official_token(&mut self, bearer_token: &str) {
-        let mut map = reqwest::header::HeaderMap::new();
-        if let Ok(value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {bearer_token}"))
-        {
-            map.insert(reqwest::header::AUTHORIZATION, value);
-        }
-        map.insert(
-            reqwest::header::ACCEPT,
-            reqwest::header::HeaderValue::from_static("application/json"),
-        );
-        self.headers = Some(map);
     }
 
     pub fn custom(template: &str) -> Result<Self> {
@@ -60,7 +27,6 @@ impl MirrorEndpoint {
             kind: MirrorKind::Custom,
             template: template.into(),
             headers: None,
-            official: None,
         })
     }
 
@@ -103,7 +69,6 @@ impl From<Mirror> for MirrorEndpoint {
             kind: mirror.kind(),
             template: mirror.url_for(0).replace("0", "{id}").into_boxed_str(),
             headers: mirror.headers().cloned(),
-            official: None,
         }
     }
 }
