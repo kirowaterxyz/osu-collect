@@ -1,4 +1,5 @@
 /target
+.env
 /build
 .idea
 .gitnexus

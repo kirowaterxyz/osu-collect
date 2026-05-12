@@ -106,4 +106,55 @@ fn main() {
     cxx_builder.compile("osu_realm_bridge");
 
     println!("cargo:rerun-if-changed=vendor/realm-cpp/realm-core");
+
+    emit_auth_credentials();
+}
+
+fn emit_auth_credentials() {
+    println!("cargo:rerun-if-env-changed=OSU_CLIENT_ID");
+    println!("cargo:rerun-if-env-changed=OSU_CLIENT_SECRET");
+    println!("cargo:rerun-if-changed=.env");
+
+    // CI sets these directly as environment variables; they take precedence.
+    let id_from_env = env::var("OSU_CLIENT_ID").ok();
+    let secret_from_env = env::var("OSU_CLIENT_SECRET").ok();
+
+    let (client_id, client_secret) = match (id_from_env, secret_from_env) {
+        (Some(id), Some(secret)) => (id, secret),
+        _ => {
+            // Fall back to .env file for local development.
+            let (id, secret) = read_dot_env();
+            (id.unwrap_or_default(), secret.unwrap_or_default())
+        }
+    };
+
+    if !client_id.is_empty() {
+        println!("cargo:rustc-env=OSU_CLIENT_ID={client_id}");
+    }
+    if !client_secret.is_empty() {
+        println!("cargo:rustc-env=OSU_CLIENT_SECRET={client_secret}");
+    }
+}
+
+fn read_dot_env() -> (Option<String>, Option<String>) {
+    let Ok(contents) = fs::read_to_string(".env") else {
+        return (None, None);
+    };
+    let mut id = None;
+    let mut secret = None;
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, val)) = line.split_once('=') {
+            let val = val.trim().trim_matches('"').trim_matches('\'');
+            match key.trim() {
+                "OSU_CLIENT_ID" => id = Some(val.to_owned()),
+                "OSU_CLIENT_SECRET" => secret = Some(val.to_owned()),
+                _ => {}
+            }
+        }
+    }
+    (id, secret)
 }
