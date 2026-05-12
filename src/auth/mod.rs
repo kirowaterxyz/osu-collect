@@ -4,12 +4,21 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
+pub fn bundled_credentials() -> Option<(&'static str, &'static str)> {
+    let id = option_env!("OSU_CLIENT_ID")?;
+    let secret = option_env!("OSU_CLIENT_SECRET")?;
+    if id.is_empty() || secret.is_empty() {
+        return None;
+    }
+    Some((id, secret))
+}
+
 const AUTH_FILE: &str = "auth.json";
 const CALLBACK_PORT: u16 = 7273;
 const REFRESH_MARGIN_SECS: u64 = 60;
 const OSU_AUTHORIZE_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 const OSU_TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
-const OAUTH_SCOPES: &[&str] = &["public", "identify", "lazer"];
+const OAUTH_SCOPES: &[&str] = &["public", "identify"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
@@ -329,10 +338,8 @@ pub async fn run_login_flow(
     let state = generate_state();
     let auth_url = build_authorize_url(client_id, &redirect_uri, OAUTH_SCOPES, &state);
 
-    println!("opening browser for osu! login...");
-    println!("if the browser did not open, visit:\n  {auth_url}");
-
-    let _ = open::that(&auth_url);
+    open::that(&auth_url)
+        .map_err(|e| AppError::other_dynamic(format!("open browser: {e}").into_boxed_str()))?;
 
     let (mut stream, _) = listener
         .accept()
@@ -429,7 +436,8 @@ mod tests {
         assert!(url.contains("client_id=42"));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("state=abc123"));
-        assert!(url.contains("lazer"));
+        assert!(url.contains("public+identify"));
+        assert!(!url.contains("lazer"));
     }
 
     #[test]
@@ -489,7 +497,7 @@ mod tests {
 
     #[test]
     fn refresh_body_includes_required_fields() {
-        let params = refresh_params("42", "secret", "rt_abc", "public identify lazer");
+        let params = refresh_params("42", "secret", "rt_abc", "public identify");
 
         assert!(
             params
@@ -514,7 +522,7 @@ mod tests {
         assert!(
             params
                 .iter()
-                .any(|(key, value)| *key == "scope" && *value == "public identify lazer")
+                .any(|(key, value)| *key == "scope" && *value == "public identify")
         );
     }
 
@@ -588,7 +596,7 @@ mod tests {
             access_token: "access".into(),
             refresh_token: Some("refresh".into()),
             expires_at: 9999999999,
-            scopes: vec!["public".into(), "lazer".into()],
+            scopes: vec!["public".into(), "identify".into()],
         };
 
         let json = serde_json::to_string_pretty(&auth).unwrap();
@@ -599,6 +607,8 @@ mod tests {
         assert_eq!(loaded.client_id, "my_id");
         assert_eq!(loaded.access_token, "access");
         assert_eq!(loaded.refresh_token.as_deref(), Some("refresh"));
-        assert!(loaded.scopes.contains(&"lazer".to_string()));
+        assert!(loaded.scopes.contains(&"public".to_string()));
+        assert!(loaded.scopes.contains(&"identify".to_string()));
+        assert!(!loaded.scopes.contains(&"lazer".to_string()));
     }
 }

@@ -1,6 +1,6 @@
 use super::{home::InputField, messages::AppMessage};
 use crate::config::{
-    Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig, OfficialConfig,
+    Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
     constants::{DEFAULT_RETRIES, DEFAULT_THREADS, LOG_FORMATS, LOG_LEVELS},
 };
 
@@ -13,10 +13,7 @@ pub enum ConfigField {
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
-    MirrorOfficial,
     MirrorCustomUrl,
-    OfficialClientId,
-    OfficialClientSecret,
     DownloadSkipExisting,
     DownloadThreads,
     DownloadRetries,
@@ -33,8 +30,6 @@ impl ConfigField {
         matches!(
             self,
             ConfigField::MirrorCustomUrl
-                | ConfigField::OfficialClientId
-                | ConfigField::OfficialClientSecret
                 | ConfigField::DownloadThreads
                 | ConfigField::DownloadRetries
                 | ConfigField::LoggingDirectory
@@ -50,10 +45,8 @@ pub struct ConfigTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
-    pub official: bool,
     pub custom_mirror: InputField,
-    pub official_client_id: InputField,
-    pub official_client_secret: InputField,
+    pub auth_loaded: bool,
     pub skip_existing: bool,
     pub threads: InputField,
     pub retries: InputField,
@@ -77,22 +70,12 @@ impl ConfigTab {
             osu_direct: config.mirror.osu_direct,
             sayobot: config.mirror.sayobot,
             nekoha: config.mirror.nekoha,
-            official: config.mirror.official,
             custom_mirror: InputField {
                 label: "Custom mirror URL",
                 value: config.mirror.custom_template().unwrap_or("").to_string(),
                 placeholder: "https://example.com/d/{id}".to_string(),
             },
-            official_client_id: InputField {
-                label: "official client id",
-                value: config.official.client_id.clone().unwrap_or_default(),
-                placeholder: "osu! oauth client id".to_string(),
-            },
-            official_client_secret: InputField {
-                label: "official client secret",
-                value: config.official.client_secret.clone().unwrap_or_default(),
-                placeholder: "osu! oauth client secret".to_string(),
-            },
+            auth_loaded: crate::auth::load().is_some(),
             skip_existing: config.download.skip_existing,
             threads: InputField {
                 label: "Default thread count",
@@ -135,11 +118,8 @@ impl ConfigTab {
             ConfigField::MirrorCatboyAsia => ConfigField::MirrorOsuDirect,
             ConfigField::MirrorOsuDirect => ConfigField::MirrorSayobot,
             ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
-            ConfigField::MirrorNekoha => ConfigField::MirrorOfficial,
-            ConfigField::MirrorOfficial => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::OfficialClientId,
-            ConfigField::OfficialClientId => ConfigField::OfficialClientSecret,
-            ConfigField::OfficialClientSecret => ConfigField::DownloadSkipExisting,
+            ConfigField::MirrorNekoha => ConfigField::MirrorCustomUrl,
+            ConfigField::MirrorCustomUrl => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
             ConfigField::DownloadThreads => ConfigField::DownloadRetries,
             ConfigField::DownloadRetries => ConfigField::DownloadNoVideo,
@@ -161,11 +141,8 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => ConfigField::MirrorCatboyAsia,
             ConfigField::MirrorSayobot => ConfigField::MirrorOsuDirect,
             ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
-            ConfigField::OfficialClientSecret => ConfigField::OfficialClientId,
-            ConfigField::OfficialClientId => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::MirrorOfficial,
-            ConfigField::MirrorOfficial => ConfigField::MirrorNekoha,
-            ConfigField::DownloadSkipExisting => ConfigField::OfficialClientSecret,
+            ConfigField::MirrorCustomUrl => ConfigField::MirrorNekoha,
+            ConfigField::DownloadSkipExisting => ConfigField::MirrorCustomUrl,
             ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadRetries => ConfigField::DownloadThreads,
             ConfigField::DownloadNoVideo => ConfigField::DownloadRetries,
@@ -181,8 +158,6 @@ impl ConfigTab {
         self.clear_message();
         match self.focus {
             ConfigField::MirrorCustomUrl => self.custom_mirror.value.push(ch),
-            ConfigField::OfficialClientId => self.official_client_id.value.push(ch),
-            ConfigField::OfficialClientSecret => self.official_client_secret.value.push(ch),
             ConfigField::DownloadThreads if ch.is_ascii_digit() => {
                 self.threads.value.push(ch);
             }
@@ -199,12 +174,6 @@ impl ConfigTab {
         match self.focus {
             ConfigField::MirrorCustomUrl => {
                 self.custom_mirror.value.pop();
-            }
-            ConfigField::OfficialClientId => {
-                self.official_client_id.value.pop();
-            }
-            ConfigField::OfficialClientSecret => {
-                self.official_client_secret.value.pop();
             }
             ConfigField::DownloadThreads => {
                 self.threads.value.pop();
@@ -229,7 +198,6 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
-            ConfigField::MirrorOfficial => self.official = !self.official,
             ConfigField::DownloadSkipExisting => self.skip_existing = !self.skip_existing,
             ConfigField::DownloadNoVideo => self.no_video = !self.no_video,
             ConfigField::DownloadVerifyZipEocd => {
@@ -238,9 +206,7 @@ impl ConfigTab {
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
-            ConfigField::OfficialClientId
-            | ConfigField::OfficialClientSecret
-            | ConfigField::MirrorCustomUrl
+            ConfigField::MirrorCustomUrl
             | ConfigField::DownloadThreads
             | ConfigField::DownloadRetries
             | ConfigField::LoggingDirectory => {}
@@ -265,7 +231,7 @@ impl ConfigTab {
             osu_direct: self.osu_direct,
             sayobot: self.sayobot,
             nekoha: self.nekoha,
-            official: self.official,
+            official: false,
             url: self
                 .trimmed_custom_mirror()
                 .map(|value| value.into_boxed_str()),
@@ -292,10 +258,6 @@ impl ConfigTab {
             mirror,
             download,
             logging,
-            official: OfficialConfig {
-                client_id: self.trimmed_official_client_id(),
-                client_secret: self.trimmed_official_client_secret(),
-            },
         })
     }
 
@@ -305,6 +267,10 @@ impl ConfigTab {
 
     pub fn set_info(&mut self, message: impl Into<String>) {
         self.message = Some(AppMessage::info(message));
+    }
+
+    pub fn set_loading(&mut self, message: impl Into<String>) {
+        self.message = Some(AppMessage::loading(message));
     }
 
     pub fn clear_message(&mut self) {
@@ -360,24 +326,6 @@ impl ConfigTab {
 
     fn trimmed_logging_dir(&self) -> Option<String> {
         let trimmed = self.logging_dir.value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    }
-
-    fn trimmed_official_client_id(&self) -> Option<String> {
-        let trimmed = self.official_client_id.value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    }
-
-    fn trimmed_official_client_secret(&self) -> Option<String> {
-        let trimmed = self.official_client_secret.value.trim();
         if trimmed.is_empty() {
             None
         } else {

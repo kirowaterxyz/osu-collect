@@ -56,24 +56,27 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.nekoha,
             form.focus == ConfigField::MirrorNekoha,
         ),
-        components::row_item(
-            "official",
-            Some("requires login"),
-            form.official,
-            form.focus == ConfigField::MirrorOfficial,
-        ),
         components::input_item(
             &form.custom_mirror,
             form.focus == ConfigField::MirrorCustomUrl,
         ),
-        components::input_item(
-            &form.official_client_id,
-            form.focus == ConfigField::OfficialClientId,
+        components::spacer(),
+        components::section_header("osu! login"),
+        components::row_item(
+            if form.auth_loaded {
+                "logged in"
+            } else {
+                "not logged in"
+            },
+            None,
+            form.auth_loaded,
+            false,
         ),
-        components::input_item(
-            &form.official_client_secret,
-            form.focus == ConfigField::OfficialClientSecret,
-        ),
+        components::help_item(if crate::auth::bundled_credentials().is_some() {
+            "l login · o logout"
+        } else {
+            "build with OSU_CLIENT_ID and OSU_CLIENT_SECRET to enable login"
+        }),
         components::spacer(),
         components::section_header("download"),
         components::help_item("defaults used by home and updates downloads"),
@@ -135,19 +138,16 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::MirrorOsuDirect => 6,
         ConfigField::MirrorSayobot => 7,
         ConfigField::MirrorNekoha => 8,
-        ConfigField::MirrorOfficial => 9,
-        ConfigField::MirrorCustomUrl => 10,
-        ConfigField::OfficialClientId => 11,
-        ConfigField::OfficialClientSecret => 12,
-        ConfigField::DownloadSkipExisting => 16,
-        ConfigField::DownloadThreads => 17,
-        ConfigField::DownloadRetries => 18,
-        ConfigField::DownloadNoVideo => 19,
-        ConfigField::DownloadVerifyZipEocd => 20,
-        ConfigField::LoggingEnabled => 24,
-        ConfigField::LoggingLevel => 25,
-        ConfigField::LoggingFormat => 26,
-        ConfigField::LoggingDirectory => 27,
+        ConfigField::MirrorCustomUrl => 9,
+        ConfigField::DownloadSkipExisting => 15,
+        ConfigField::DownloadThreads => 16,
+        ConfigField::DownloadRetries => 17,
+        ConfigField::DownloadNoVideo => 18,
+        ConfigField::DownloadVerifyZipEocd => 19,
+        ConfigField::LoggingEnabled => 23,
+        ConfigField::LoggingLevel => 24,
+        ConfigField::LoggingFormat => 25,
+        ConfigField::LoggingDirectory => 26,
     };
 
     let inner_block = components::panel_block("config");

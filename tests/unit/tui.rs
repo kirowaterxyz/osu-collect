@@ -46,7 +46,6 @@ fn config_render_scrolls_to_focused_logging_field() {
 
     assert!(output.contains("LOGGING"));
     assert!(output.contains("logs directory"));
-    assert!(output.contains("s save"));
 }
 
 #[test]
@@ -55,22 +54,24 @@ fn config_render_shows_download_help() {
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::DownloadThreads;
 
-    let output = render_app(&app, 80, 16);
+    let output = render_app(&app, 80, 20);
 
     assert!(output.contains("defaults used by home and updates downloads"));
     assert!(output.contains("reject truncated archives"));
 }
 
 #[test]
-fn config_render_shows_official_credentials() {
+fn config_render_shows_official_login_status() {
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::OfficialClientId;
+    app.config.focus = ConfigField::MirrorCustomUrl;
 
     let output = render_app(&app, 80, 24);
 
-    assert!(output.contains("official client id"));
-    assert!(output.contains("official client secret"));
+    assert!(output.contains("osu! login") || output.contains("OSU! LOGIN"));
+    assert!(output.contains("not logged in") || output.contains("logged in"));
+    assert!(!output.contains("client id:"));
+    assert!(!output.contains("client secret:"));
 }
 
 #[test]

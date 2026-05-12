@@ -1,6 +1,5 @@
 use osu_collect::auth::{StoredAuth, build_authorize_url};
-use osu_collect::config::{Config, OfficialConfig};
-use osu_collect::mirrors::{MirrorEndpoint, MirrorKind};
+use osu_collect::config::Config;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
@@ -18,7 +17,7 @@ fn make_auth(expires_at: u64) -> StoredAuth {
         access_token: "tok".into(),
         refresh_token: Some("rtok".into()),
         expires_at,
-        scopes: vec!["lazer".into()],
+        scopes: vec!["public".into(), "identify".into()],
     }
 }
 
@@ -27,14 +26,15 @@ fn authorize_url_required_params() {
     let url = build_authorize_url(
         "99",
         "http://localhost:7273/oauth/callback",
-        &["public", "lazer"],
+        &["public", "identify"],
         "mystate",
     );
     assert!(url.starts_with("https://osu.ppy.sh/oauth/authorize"));
     assert!(url.contains("client_id=99"));
     assert!(url.contains("response_type=code"));
     assert!(url.contains("state=mystate"));
-    assert!(url.contains("lazer"));
+    assert!(url.contains("public+identify"));
+    assert!(!url.contains("lazer"));
 }
 
 #[test]
@@ -71,7 +71,9 @@ fn token_persistence_roundtrip() {
     assert_eq!(loaded.client_id, "1");
     assert_eq!(loaded.access_token, "tok");
     assert_eq!(loaded.refresh_token.as_deref(), Some("rtok"));
-    assert!(loaded.scopes.contains(&"lazer".to_string()));
+    assert!(loaded.scopes.contains(&"public".to_string()));
+    assert!(loaded.scopes.contains(&"identify".to_string()));
+    assert!(!loaded.scopes.contains(&"lazer".to_string()));
 }
 
 #[test]
@@ -101,61 +103,9 @@ fn state_mismatch_rejected_by_caller() {
 }
 
 #[test]
-fn official_credentials_trim_and_validate() {
-    let config = OfficialConfig {
-        client_id: Some(" 42 ".to_string()),
-        client_secret: Some(" secret ".to_string()),
-    };
-
-    assert_eq!(config.credentials(), Some(("42", "secret")));
-
-    let missing = OfficialConfig {
-        client_id: Some(" ".to_string()),
-        client_secret: Some("secret".to_string()),
-    };
-    assert!(missing.credentials().is_none());
-}
-
-#[test]
-fn config_validation_accepts_official_credentials() {
+fn config_validation_ignores_legacy_official_mirror_flag() {
     let mut config = Config::default();
     config.mirror.official = true;
-    config.official.client_id = Some("42".to_string());
-    config.official.client_secret = Some("secret".to_string());
 
     assert!(config.validate().is_ok());
-}
-
-#[test]
-fn pending_official_mirror_carries_credentials_until_tokenized() {
-    let config = OfficialConfig {
-        client_id: Some("42".to_string()),
-        client_secret: Some("secret".to_string()),
-    };
-    let endpoint = MirrorEndpoint::official_pending(Some(config));
-
-    assert_eq!(endpoint.kind, MirrorKind::Official);
-    assert!(endpoint.headers.is_none());
-    assert!(endpoint.official.is_some());
-}
-
-#[test]
-fn tokenized_official_mirror_preserves_bearer_header() {
-    let mut endpoint = MirrorEndpoint::official_pending(None);
-    endpoint.set_official_token("abc123");
-    let mirror = endpoint.to_mirror();
-    let headers = mirror.headers().expect("official headers");
-
-    assert_eq!(
-        headers
-            .get(reqwest::header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok()),
-        Some("Bearer abc123")
-    );
-    assert_eq!(
-        headers
-            .get(reqwest::header::ACCEPT)
-            .and_then(|value| value.to_str().ok()),
-        Some("application/json")
-    );
 }

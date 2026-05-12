@@ -1,6 +1,7 @@
 use super::{App, AppCommand, collection_state};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus},
+    auth,
     config::{Config, constants::CONCURRENT_REQUESTS},
     core::collection::{Collection, api_client},
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
@@ -36,6 +37,12 @@ pub enum UpdatesEvent {
     Error(String),
 }
 
+#[derive(Debug)]
+enum AuthEvent {
+    LoginComplete(Result<(), String>),
+    LogoutComplete(Result<(), String>),
+}
+
 pub async fn run(
     config: Config,
     startup_notice: Option<String>,
@@ -60,6 +67,7 @@ pub async fn run(
 
     let (download_tx, mut download_rx) = mpsc::unbounded_channel::<DownloadEvent>();
     let (updates_tx, mut updates_rx) = mpsc::unbounded_channel::<UpdatesEvent>();
+    let (auth_tx, mut auth_rx) = mpsc::unbounded_channel::<AuthEvent>();
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<InputEvent>();
     let input_handle = spawn_input_thread(input_tx.clone());
 
@@ -86,9 +94,13 @@ pub async fn run(
                 trace!(?event, "Received updates event");
                 handle_updates_event(event, &mut app, &updates_tx);
             }
+            Some(event) = auth_rx.recv() => {
+                trace!(?event, "Received auth event");
+                handle_auth_event(event, &mut app);
+            }
             Some(input) = input_rx.recv() => {
                 trace!(?input, "Processing input event");
-                should_quit = handle_input(input, &mut app, &download_tx, &updates_tx, &mut active_downloads);
+                should_quit = handle_input(input, &mut app, &download_tx, &updates_tx, &auth_tx, &mut active_downloads);
             }
             else => break,
         }
@@ -118,10 +130,13 @@ fn handle_input(
     app: &mut App,
     download_tx: &mpsc::UnboundedSender<DownloadEvent>,
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
+    auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
 ) -> bool {
     match input {
-        InputEvent::Key(key) => handle_key_event(key, app, download_tx, updates_tx, downloads),
+        InputEvent::Key(key) => {
+            handle_key_event(key, app, download_tx, updates_tx, auth_tx, downloads)
+        }
         InputEvent::Resize => false,
         InputEvent::Tick => {
             app.clear_expired_messages();
@@ -135,6 +150,7 @@ fn handle_key_event(
     app: &mut App,
     download_tx: &mpsc::UnboundedSender<DownloadEvent>,
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
+    auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
 ) -> bool {
     trace!(?key, "Handling key event");
@@ -171,6 +187,15 @@ fn handle_key_event(
             };
             app.handle_cancel_result(id, was_running);
         }
+        Some(AppCommand::Login {
+            client_id,
+            client_secret,
+        }) => {
+            spawn_login_task(client_id, client_secret, auth_tx.clone());
+        }
+        Some(AppCommand::Logout) => {
+            spawn_logout_task(auth_tx.clone());
+        }
         Some(AppCommand::ScanLocalDatabase) => {
             spawn_scan_task(app, updates_tx.clone());
         }
@@ -187,6 +212,47 @@ fn handle_key_event(
     }
 
     false
+}
+
+fn handle_auth_event(event: AuthEvent, app: &mut App) {
+    match event {
+        AuthEvent::LoginComplete(Ok(())) => {
+            app.config.set_info("login successful");
+            app.config.auth_loaded = true;
+        }
+        AuthEvent::LoginComplete(Err(err)) => {
+            app.config.set_error(format!("login failed: {err}"));
+        }
+        AuthEvent::LogoutComplete(Ok(())) => {
+            app.config.set_info("logged out");
+            app.config.auth_loaded = false;
+        }
+        AuthEvent::LogoutComplete(Err(err)) => {
+            app.config.set_error(format!("logout failed: {err}"));
+        }
+    }
+}
+
+fn spawn_login_task(
+    client_id: String,
+    client_secret: String,
+    tx: mpsc::UnboundedSender<AuthEvent>,
+) {
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let result = auth::run_login_flow(&client, &client_id, &client_secret)
+            .await
+            .map(|_| ())
+            .map_err(|err| err.to_string());
+        let _ = tx.send(AuthEvent::LoginComplete(result));
+    });
+}
+
+fn spawn_logout_task(tx: mpsc::UnboundedSender<AuthEvent>) {
+    tokio::task::spawn_blocking(move || {
+        let result = auth::delete().map_err(|err| err.to_string());
+        let _ = tx.send(AuthEvent::LogoutComplete(result));
+    });
 }
 
 fn download_finished_id(event: &DownloadEvent) -> Option<DownloadId> {

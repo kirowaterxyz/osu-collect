@@ -31,7 +31,7 @@ impl<'a> FooterView<'a> {
             CONFIG_TAB_INDEX => Self {
                 message: view.config.form.message.as_ref(),
                 quit_prompt: view.config.quit_prompt,
-                hint: "↑↓ move · space/←→ change · s save · q quit",
+                hint: "↑↓ move · space change · l login · o logout · s save",
             },
             _ => Self {
                 message: None,

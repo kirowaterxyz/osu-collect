@@ -46,6 +46,11 @@ pub enum AppCommand {
     CancelDownload {
         id: DownloadId,
     },
+    Login {
+        client_id: String,
+        client_secret: String,
+    },
+    Logout,
     ScanLocalDatabase,
     Quit,
 }
@@ -144,6 +149,24 @@ impl App {
             }
             Err(err) => self.config.set_error(err),
         }
+    }
+
+    fn request_login(&mut self) -> Option<AppCommand> {
+        let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
+            self.config
+                .set_error("login unavailable — build without credentials");
+            return None;
+        };
+        self.config.set_loading("opening browser...");
+        Some(AppCommand::Login {
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+        })
+    }
+
+    fn request_logout(&mut self) -> AppCommand {
+        self.config.set_loading("logging out...");
+        AppCommand::Logout
     }
 
     fn total_tabs(&self) -> usize {
@@ -341,7 +364,6 @@ impl App {
                             | HomeField::MirrorOsuDirect
                             | HomeField::MirrorSayobot
                             | HomeField::MirrorNekoha
-                            | HomeField::MirrorOfficial
                             | HomeField::NoVideo
                     ) {
                         self.home.toggle_current();
@@ -367,8 +389,13 @@ impl App {
                 CONFIG_TAB_INDEX => {
                     let focus = self.config.focus;
                     let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                    if ch == 's' && !is_ctrl && !focus.is_text_input() {
-                        self.try_save_config();
+                    if !is_ctrl && !focus.is_text_input() {
+                        match ch {
+                            's' => self.try_save_config(),
+                            'l' => return self.request_login(),
+                            'o' => return Some(self.request_logout()),
+                            _ => self.config.handle_char(ch),
+                        }
                     } else {
                         self.config.handle_char(ch);
                     }
