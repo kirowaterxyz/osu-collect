@@ -132,6 +132,21 @@ fn urlencoding_simple(s: &str) -> String {
     out
 }
 
+fn authorization_code_params<'a>(
+    client_id: &'a str,
+    client_secret: &'a str,
+    redirect_uri: &'a str,
+    code: &'a str,
+) -> [(&'a str, &'a str); 5] {
+    [
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("code", code),
+        ("grant_type", "authorization_code"),
+        ("redirect_uri", redirect_uri),
+    ]
+}
+
 pub async fn exchange_code(
     client: &reqwest::Client,
     client_id: &str,
@@ -139,13 +154,7 @@ pub async fn exchange_code(
     redirect_uri: &str,
     code: &str,
 ) -> Result<TokenResponse> {
-    let params = [
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("code", code),
-        ("grant_type", "authorization_code"),
-        ("redirect_uri", redirect_uri),
-    ];
+    let params = authorization_code_params(client_id, client_secret, redirect_uri, code);
 
     let resp = client
         .post(OSU_TOKEN_URL)
@@ -155,16 +164,31 @@ pub async fn exchange_code(
         .map_err(|e| AppError::other_dynamic(format!("token request: {e}").into_boxed_str()))?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::other_dynamic(
-            format!("token exchange failed ({status}): {body}").into_boxed_str(),
-        ));
+        return Err(token_request_failed("token exchange", resp.status()));
     }
 
     resp.json::<TokenResponse>()
         .await
         .map_err(|e| AppError::other_dynamic(format!("token parse: {e}").into_boxed_str()))
+}
+
+fn token_request_failed(operation: &str, status: reqwest::StatusCode) -> AppError {
+    AppError::other_dynamic(format!("{operation} failed ({status})").into_boxed_str())
+}
+
+fn refresh_params<'a>(
+    client_id: &'a str,
+    client_secret: &'a str,
+    refresh_token: &'a str,
+    scope: &'a str,
+) -> [(&'a str, &'a str); 5] {
+    [
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("scope", scope),
+    ]
 }
 
 pub async fn refresh(
@@ -174,13 +198,7 @@ pub async fn refresh(
     refresh_token: &str,
 ) -> Result<TokenResponse> {
     let scope = OAUTH_SCOPES.join(" ");
-    let params = [
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-        ("scope", scope.as_str()),
-    ];
+    let params = refresh_params(client_id, client_secret, refresh_token, &scope);
 
     let resp = client
         .post(OSU_TOKEN_URL)
@@ -190,11 +208,7 @@ pub async fn refresh(
         .map_err(|e| AppError::other_dynamic(format!("refresh request: {e}").into_boxed_str()))?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::other_dynamic(
-            format!("token refresh failed ({status}): {body}").into_boxed_str(),
-        ));
+        return Err(token_request_failed("token refresh", resp.status()));
     }
 
     resp.json::<TokenResponse>()
@@ -202,25 +216,61 @@ pub async fn refresh(
         .map_err(|e| AppError::other_dynamic(format!("refresh parse: {e}").into_boxed_str()))
 }
 
+fn client_credentials_params<'a>(
+    client_id: &'a str,
+    client_secret: &'a str,
+) -> [(&'a str, &'a str); 4] {
+    [
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("grant_type", "client_credentials"),
+        ("scope", "public"),
+    ]
+}
+
+pub async fn client_credentials(
+    client: &reqwest::Client,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<TokenResponse> {
+    let params = client_credentials_params(client_id, client_secret);
+
+    client_credentials_with_url(client, OSU_TOKEN_URL, &params).await
+}
+
+async fn client_credentials_with_url(
+    client: &reqwest::Client,
+    token_url: &str,
+    params: &[(&str, &str)],
+) -> Result<TokenResponse> {
+    let resp = client
+        .post(token_url)
+        .form(params)
+        .send()
+        .await
+        .map_err(|e| AppError::other_dynamic(format!("token request: {e}").into_boxed_str()))?;
+
+    if !resp.status().is_success() {
+        return Err(token_request_failed("token request", resp.status()));
+    }
+
+    resp.json::<TokenResponse>()
+        .await
+        .map_err(|e| AppError::other_dynamic(format!("token parse: {e}").into_boxed_str()))
+}
+
 pub async fn ensure_valid(client: &reqwest::Client, auth: &mut StoredAuth) -> Result<()> {
     if !auth.is_expired() {
         return Ok(());
     }
 
-    let Some(ref rt) = auth.refresh_token.clone() else {
-        return Err(AppError::other_dynamic(Box::from(
-            "no refresh token; re-run `osu-collect login`",
-        )));
+    let token_resp = if let Some(refresh_token) = auth.refresh_token.as_deref() {
+        info!("refreshing OAuth token");
+        refresh(client, &auth.client_id, &auth.client_secret, refresh_token).await?
+    } else {
+        info!("refreshing OAuth token with client credentials");
+        client_credentials(client, &auth.client_id, &auth.client_secret).await?
     };
-
-    info!("refreshing OAuth token");
-    let token_resp = refresh(
-        client,
-        &auth.client_id.clone(),
-        &auth.client_secret.clone(),
-        rt,
-    )
-    .await?;
     apply_token_response(auth, token_resp);
     let snap = auth.clone();
     tokio::task::spawn_blocking(move || save(&snap))
@@ -394,6 +444,104 @@ mod tests {
     fn parse_callback_query_missing_fields() {
         let line = "GET /oauth/callback?code=only HTTP/1.1";
         assert!(parse_callback_query(line).is_err());
+    }
+
+    #[test]
+    fn token_request_error_omits_body() {
+        let err = token_request_failed("token refresh", reqwest::StatusCode::UNAUTHORIZED);
+        let message = err.to_string();
+
+        assert!(message.contains("token refresh failed"));
+        assert!(message.contains("401"));
+        assert!(!message.contains("access_token"));
+        assert!(!message.contains("invalid_client"));
+        assert!(!message.contains("secret"));
+    }
+
+    #[test]
+    fn authorization_code_body_includes_required_fields() {
+        let params = authorization_code_params("42", "secret", "http://localhost/callback", "code");
+
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_id" && *value == "42")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_secret" && *value == "secret")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "grant_type" && *value == "authorization_code")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "code" && *value == "code")
+        );
+        assert!(params
+            .iter()
+            .any(|(key, value)| *key == "redirect_uri" && *value == "http://localhost/callback"));
+    }
+
+    #[test]
+    fn refresh_body_includes_required_fields() {
+        let params = refresh_params("42", "secret", "rt_abc", "public identify lazer");
+
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_id" && *value == "42")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_secret" && *value == "secret")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "grant_type" && *value == "refresh_token")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "refresh_token" && *value == "rt_abc")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "scope" && *value == "public identify lazer")
+        );
+    }
+
+    #[test]
+    fn client_credentials_body_includes_required_fields() {
+        let params = client_credentials_params("42", "secret");
+
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_id" && *value == "42")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "client_secret" && *value == "secret")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "grant_type" && *value == "client_credentials")
+        );
+        assert!(
+            params
+                .iter()
+                .any(|(key, value)| *key == "scope" && *value == "public")
+        );
     }
 
     #[test]

@@ -247,7 +247,11 @@ fn temp_path_for(output_path: &Path) -> PathBuf {
 async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<MirrorAttempt> {
     // Make HTTP request
     let url = mirror.url_for(params.beatmapset_id);
-    let response = params.client.get(&url).send().await?;
+    let mut request = params.client.get(&url);
+    if let Some(headers) = mirror.headers() {
+        request = request.headers(headers.clone());
+    }
+    let response = request.send().await?;
 
     let status = response.status();
 

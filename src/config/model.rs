@@ -37,10 +37,22 @@ pub struct MirrorConfig {
     pub url: Option<Box<str>>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct OfficialConfig {
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+}
+
+impl OfficialConfig {
+    pub fn credentials(&self) -> Option<(&str, &str)> {
+        let client_id = self.client_id.as_deref()?.trim();
+        let client_secret = self.client_secret.as_deref()?.trim();
+        if client_id.is_empty() || client_secret.is_empty() {
+            None
+        } else {
+            Some((client_id, client_secret))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -199,6 +211,12 @@ impl Config {
             if retries > 10 {
                 warn!(retries, "Max retries is high; this may cause long runtimes");
             }
+        }
+
+        if self.mirror.official && self.official.credentials().is_none() {
+            return Err(AppError::config(
+                "official mirror requires official.client_id and official.client_secret",
+            ));
         }
 
         Ok(())

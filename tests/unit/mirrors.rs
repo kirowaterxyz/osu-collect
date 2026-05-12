@@ -65,3 +65,23 @@ fn to_mirror_roundtrip() {
     let back = MirrorEndpoint::from(mirror);
     assert_eq!(back.kind, MirrorKind::Nerinyan);
 }
+
+#[test]
+fn official_mirror_roundtrip_preserves_auth_headers() {
+    let endpoint = MirrorEndpoint::official("abc123");
+    let back = MirrorEndpoint::from(endpoint.to_mirror());
+    let headers = back.headers.expect("official headers");
+
+    assert_eq!(
+        headers
+            .get(reqwest::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer abc123")
+    );
+    assert_eq!(
+        headers
+            .get(reqwest::header::ACCEPT)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+}

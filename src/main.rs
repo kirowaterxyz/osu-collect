@@ -1,7 +1,7 @@
 use osu_collect::app::run_app;
 use osu_collect::auth;
 use osu_collect::auto_update::spawn_background_update;
-use osu_collect::config::{ConfigService, LogLevel};
+use osu_collect::config::{ConfigService, LogLevel, OfficialConfig};
 use osu_collect::realm_bridge::ffi::set_realm_debug_logging;
 use osu_collect::utils;
 #[cfg(windows)]
@@ -33,14 +33,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn cmd_login() -> Result<(), Box<dyn std::error::Error>> {
-    let client_id = std::env::var("OSU_CLIENT_ID").map_err(|_| {
-        "OSU_CLIENT_ID env var not set; create an OAuth app at https://osu.ppy.sh/home/account/edit#oauth"
-    })?;
-    let client_secret =
-        std::env::var("OSU_CLIENT_SECRET").map_err(|_| "OSU_CLIENT_SECRET env var not set")?;
+    let config = ConfigService::new().load_or_default();
+    let env_credentials = OfficialConfig {
+        client_id: std::env::var("OSU_CLIENT_ID").ok(),
+        client_secret: std::env::var("OSU_CLIENT_SECRET").ok(),
+    };
+    let (client_id, client_secret) = env_credentials
+        .credentials()
+        .or_else(|| config.official.credentials())
+        .ok_or("set OSU_CLIENT_ID and OSU_CLIENT_SECRET or official credentials in config")?;
 
     let client = reqwest::Client::new();
-    auth::run_login_flow(&client, &client_id, &client_secret).await?;
+    auth::run_login_flow(&client, client_id, client_secret).await?;
     println!("login successful — tokens saved");
     Ok(())
 }

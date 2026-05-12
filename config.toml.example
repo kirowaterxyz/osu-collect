@@ -9,14 +9,16 @@ catboy_asia = false
 osu_direct = false
 sayobot = false
 
-# use the official osu! API v2 as a download source (requires OAuth login)
-# run `osu-collect login` after setting OSU_CLIENT_ID and OSU_CLIENT_SECRET
-# register your OAuth app at https://osu.ppy.sh/home/account/edit#oauth
-# set the callback URL to: http://localhost:7273/oauth/callback
+# use the official osu! API v2 as a download source
 official = false
 
 # Optional custom mirror template (must contain {id})
 # url = "https://example.com/d/{id}"
+
+[official]
+# osu! oauth credentials for login or client-credentials downloads
+# client_id = ""
+# client_secret = ""
 
 [download]
 # autoskip existing files without prompting (default: false)

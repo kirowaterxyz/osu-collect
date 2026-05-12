@@ -3,6 +3,7 @@ mod pool;
 pub use pool::MirrorPool;
 
 use crate::error::{Error, Result};
+use reqwest::header::HeaderMap;
 use std::time::Duration;
 
 /// Region for Catboy mirror
@@ -123,6 +124,7 @@ impl MirrorKind {
 pub struct Mirror {
     pub(crate) kind: MirrorKind,
     pub(crate) template: Box<str>,
+    pub(crate) headers: Option<HeaderMap>,
 }
 
 impl Mirror {
@@ -135,6 +137,7 @@ impl Mirror {
         Ok(Self {
             kind: MirrorKind::Custom,
             template: template.into_boxed_str(),
+            headers: None,
         })
     }
 
@@ -171,7 +174,19 @@ impl Mirror {
         kind.download_template(no_video).map(|template| Self {
             kind,
             template: template.into_boxed_str(),
+            headers: None,
         })
+    }
+
+    /// Attach HTTP headers to requests sent through this mirror.
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    /// Get HTTP headers attached to this mirror.
+    pub fn headers(&self) -> Option<&HeaderMap> {
+        self.headers.as_ref()
     }
 
     /// Get the mirror kind

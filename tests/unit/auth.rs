@@ -1,4 +1,6 @@
 use osu_collect::auth::{StoredAuth, build_authorize_url};
+use osu_collect::config::{Config, OfficialConfig};
+use osu_collect::mirrors::{MirrorEndpoint, MirrorKind};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
@@ -99,25 +101,61 @@ fn state_mismatch_rejected_by_caller() {
 }
 
 #[test]
-fn refresh_body_includes_required_fields() {
-    let required = ["client_id", "client_secret", "grant_type", "refresh_token"];
-    let body_params = [
-        ("client_id", "42"),
-        ("client_secret", "secret"),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", "rt_abc"),
-        ("scope", "public identify lazer"),
-    ];
-    for field in required {
-        assert!(
-            body_params.iter().any(|(k, _)| *k == field),
-            "refresh body missing field: {field}"
-        );
-    }
-    let grant = body_params
-        .iter()
-        .find(|(k, _)| *k == "grant_type")
-        .map(|(_, v)| *v)
-        .unwrap();
-    assert_eq!(grant, "refresh_token");
+fn official_credentials_trim_and_validate() {
+    let config = OfficialConfig {
+        client_id: Some(" 42 ".to_string()),
+        client_secret: Some(" secret ".to_string()),
+    };
+
+    assert_eq!(config.credentials(), Some(("42", "secret")));
+
+    let missing = OfficialConfig {
+        client_id: Some(" ".to_string()),
+        client_secret: Some("secret".to_string()),
+    };
+    assert!(missing.credentials().is_none());
+}
+
+#[test]
+fn config_validation_accepts_official_credentials() {
+    let mut config = Config::default();
+    config.mirror.official = true;
+    config.official.client_id = Some("42".to_string());
+    config.official.client_secret = Some("secret".to_string());
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn pending_official_mirror_carries_credentials_until_tokenized() {
+    let config = OfficialConfig {
+        client_id: Some("42".to_string()),
+        client_secret: Some("secret".to_string()),
+    };
+    let endpoint = MirrorEndpoint::official_pending(Some(config));
+
+    assert_eq!(endpoint.kind, MirrorKind::Official);
+    assert!(endpoint.headers.is_none());
+    assert!(endpoint.official.is_some());
+}
+
+#[test]
+fn tokenized_official_mirror_preserves_bearer_header() {
+    let mut endpoint = MirrorEndpoint::official_pending(None);
+    endpoint.set_official_token("abc123");
+    let mirror = endpoint.to_mirror();
+    let headers = mirror.headers().expect("official headers");
+
+    assert_eq!(
+        headers
+            .get(reqwest::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer abc123")
+    );
+    assert_eq!(
+        headers
+            .get(reqwest::header::ACCEPT)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
 }
