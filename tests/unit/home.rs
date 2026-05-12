@@ -58,3 +58,20 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
     let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind).collect();
     assert_eq!(request_kinds, standalone_kinds);
 }
+
+#[test]
+fn build_mirror_list_includes_official_with_config_credentials() {
+    let mut config = Config::default();
+    config.mirror.official = true;
+    config.official.client_id = Some("42".to_string());
+    config.official.client_secret = Some("secret".to_string());
+    let mut home = home_all_off(&config);
+    home.official = true;
+
+    let mirrors = home.build_mirror_list();
+
+    assert_eq!(mirrors.len(), 1);
+    assert_eq!(mirrors[0].kind, MirrorKind::Official);
+    assert!(mirrors[0].headers.is_none());
+    assert!(mirrors[0].official.is_some());
+}

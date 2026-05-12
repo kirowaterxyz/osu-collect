@@ -341,6 +341,7 @@ impl App {
                             | HomeField::MirrorOsuDirect
                             | HomeField::MirrorSayobot
                             | HomeField::MirrorNekoha
+                            | HomeField::MirrorOfficial
                             | HomeField::NoVideo
                     ) {
                         self.home.toggle_current();
@@ -384,6 +385,12 @@ impl App {
         }
 
         None
+    }
+
+    pub fn clear_expired_messages(&mut self) {
+        self.home.clear_expired_message();
+        self.updates.clear_expired_message();
+        self.config.clear_expired_message();
     }
 
     pub fn handle_download_event(&mut self, event: DownloadEvent) {

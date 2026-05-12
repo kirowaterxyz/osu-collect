@@ -4,7 +4,7 @@ use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_IND
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -21,22 +21,22 @@ impl<'a> FooterView<'a> {
             HOME_TAB_INDEX => Self {
                 message: view.home.form.message.as_ref(),
                 quit_prompt: view.home.form.quit_prompt,
-                hint: " ↑↓ navigate · space toggle · enter download · q quit",
+                hint: "↑↓ move · space toggle · enter download · q quit",
             },
             UPDATES_TAB_INDEX => Self {
                 message: view.updates.form.message.as_ref(),
                 quit_prompt: false,
-                hint: " ↑↓ navigate · space expand/toggle · a/d all/none · enter download",
+                hint: "↑↓ move · space open/toggle · a/d all/none · enter download",
             },
             CONFIG_TAB_INDEX => Self {
                 message: view.config.form.message.as_ref(),
                 quit_prompt: view.config.quit_prompt,
-                hint: " ↑↓ navigate · space/←→ change · s save · q quit",
+                hint: "↑↓ move · space/←→ change · s save · q quit",
             },
             _ => Self {
                 message: None,
                 quit_prompt: false,
-                hint: " ↑↓ scroll · q quit",
+                hint: "↑↓ scroll · q quit",
             },
         }
     }
@@ -51,7 +51,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
         let line = Line::from(vec![
             Span::styled(" ! ", Style::default().fg(components::WARNING)),
             Span::styled(
-                "press q again to quit; all downloads will be cancelled.",
+                "press q again to quit; downloads will stop.",
                 Style::default().fg(components::TEXT_DIM),
             ),
         ]);
@@ -60,16 +60,18 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
     }
 
     if let Some(msg) = view.message {
-        let (glyph, color) = match msg.kind {
-            MessageKind::Info => ("✓ ", components::SUCCESS),
-            MessageKind::Error => ("✗ ", components::DANGER),
-            MessageKind::Loading => ("… ", components::WARNING),
+        let (label, color) = match msg.kind {
+            MessageKind::Info => ("info", components::INFO),
+            MessageKind::Error => ("error", components::DANGER),
+            MessageKind::Loading => ("loading", components::WARNING),
         };
         let line = Line::from(vec![
-            Span::styled(format!(" {glyph}"), Style::default().fg(color)),
+            Span::raw(" "),
+            components::status_pill(label, color),
+            Span::raw(" "),
             Span::styled(
                 msg.text.trim_start().to_string(),
-                Style::default().fg(color),
+                Style::default().fg(components::TEXT_MUTED),
             ),
         ]);
         frame.render_widget(Paragraph::new(line), area);
@@ -82,17 +84,19 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
 
 fn build_hint_line(hint: &'static str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
-    let dim = Style::default().fg(components::TEXT_FAINT);
-    let key_style = Style::default().fg(components::ACCENT);
-    let sep_style = Style::default().fg(components::LINE_SOFT);
+    let label_style = Style::default().fg(components::TEXT_FAINT);
+    let key_style = Style::default()
+        .fg(components::ACCENT)
+        .add_modifier(Modifier::BOLD);
+    let separator_style = Style::default().fg(components::LINE_SOFT);
 
-    for (segment_idx, segment) in hint.split('·').enumerate() {
+    for (segment_index, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();
         if trimmed.is_empty() {
             continue;
         }
-        if segment_idx > 0 {
-            spans.push(Span::styled("  ·  ", sep_style));
+        if segment_index > 0 {
+            spans.push(Span::styled("  │  ", separator_style));
         } else {
             spans.push(Span::raw(" "));
         }
@@ -101,7 +105,7 @@ fn build_hint_line(hint: &'static str) -> Line<'static> {
         let label = parts.next().unwrap_or("");
         spans.push(Span::styled(key.to_string(), key_style));
         if !label.is_empty() {
-            spans.push(Span::styled(format!(" {label}"), dim));
+            spans.push(Span::styled(format!(" {label}"), label_style));
         }
     }
 

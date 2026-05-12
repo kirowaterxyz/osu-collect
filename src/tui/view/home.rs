@@ -20,6 +20,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         components::input_item(&form.directory, form.focus == HomeField::Directory),
         components::spacer(),
         components::section_header("mirrors"),
+        components::help_item("space toggles mirrors; custom URL must contain {id}"),
         components::input_item(&form.custom_mirror, form.focus == HomeField::CustomMirror),
         mirror_toggle(
             "nerinyan",
@@ -64,50 +65,56 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
             form.focus == HomeField::MirrorCatboyAsia,
         ),
         mirror_toggle(
-            "use official",
+            "official",
             "osu.ppy.sh/api/v2",
             form.official,
             form.focus == HomeField::MirrorOfficial,
         ),
         components::spacer(),
         components::section_header("download"),
+        components::help_item("threads controls parallel downloads; blank uses config"),
         components::input_item(&form.threads, form.focus == HomeField::Threads),
-        components::toggle_item(
+        components::row_item(
             "skip existing files",
+            Some("keep files already on disk"),
             form.skip_existing,
             form.focus == HomeField::SkipExisting,
         ),
-        components::toggle_item(
-            "auto-overwrite",
+        components::row_item(
+            "overwrite existing files",
+            Some("redownload and replace matches"),
             form.auto_overwrite,
             form.focus == HomeField::AutoOverwrite,
         ),
-        components::toggle_item(
-            "download without video",
+        components::row_item(
+            "skip videos",
+            Some("smaller downloads"),
             form.no_video,
             form.focus == HomeField::NoVideo,
         ),
+        components::summary_item(&[
+            components::Metric::accent("threads", form.resolved_threads().to_string()),
+            components::Metric::muted("retries", form.resolved_retries().to_string()),
+            components::Metric::muted("mode", if form.no_video { "no video" } else { "full" }),
+        ]),
     ];
 
-    // indices account for section_header rows and spacer rows
     let focused_index = match form.focus {
         HomeField::Collection => 1,
         HomeField::Directory => 2,
-        // spacer at 3, mirrors header at 4
-        HomeField::CustomMirror => 5,
-        HomeField::MirrorNerinyan => 6,
-        HomeField::MirrorOsuDirect => 7,
-        HomeField::MirrorSayobot => 8,
-        HomeField::MirrorNekoha => 9,
-        HomeField::MirrorCatboyCentral => 10,
-        HomeField::MirrorCatboyUs => 11,
-        HomeField::MirrorCatboyAsia => 12,
-        HomeField::MirrorOfficial => 13,
-        // spacer at 14, download header at 15
-        HomeField::Threads => 16,
-        HomeField::SkipExisting => 17,
-        HomeField::AutoOverwrite => 18,
-        HomeField::NoVideo => 19,
+        HomeField::CustomMirror => 6,
+        HomeField::MirrorNerinyan => 7,
+        HomeField::MirrorOsuDirect => 8,
+        HomeField::MirrorSayobot => 9,
+        HomeField::MirrorNekoha => 10,
+        HomeField::MirrorCatboyCentral => 11,
+        HomeField::MirrorCatboyUs => 12,
+        HomeField::MirrorCatboyAsia => 13,
+        HomeField::MirrorOfficial => 14,
+        HomeField::Threads => 18,
+        HomeField::SkipExisting => 19,
+        HomeField::AutoOverwrite => 20,
+        HomeField::NoVideo => 21,
     };
 
     let inner_block = components::panel_block("home");
@@ -116,24 +123,27 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let visible_height = inner.height as usize;
     let (start, end) = components::scroll_window(&items, focused_index, visible_height);
-    let visible_items = items[start..end].to_vec();
-
-    let list = List::new(visible_items).highlight_symbol("");
+    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
 }
 
 fn mirror_toggle(label: &str, url: &str, value: bool, focused: bool) -> ListItem<'static> {
     let (marker, marker_style) = components::check_marker(value);
     let label_style = if focused {
-        Style::default().fg(components::TEXT)
+        Style::default()
+            .fg(components::TEXT)
+            .add_modifier(ratatui::style::Modifier::BOLD)
     } else {
         Style::default().fg(components::TEXT_MUTED)
     };
     let spans = vec![
         components::focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}  "), label_style),
-        Span::styled(url.to_string(), Style::default().fg(components::TEXT_FAINT)),
+        Span::styled(format!(" {label}"), label_style),
+        Span::styled(
+            format!("  {url}"),
+            Style::default().fg(components::TEXT_FAINT),
+        ),
     ];
 
     ListItem::new(Line::from(spans))

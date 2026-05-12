@@ -12,3 +12,4 @@ pub mod mirrors;
 pub mod passes;
 pub mod size_fetcher;
 pub mod tracker;
+pub mod tui;

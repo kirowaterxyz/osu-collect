@@ -1,7 +1,4 @@
-use super::{
-    home::InputField,
-    messages::{AppMessage, MessageKind},
-};
+use super::{home::InputField, messages::AppMessage};
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
@@ -450,28 +447,25 @@ impl UpdatesTab {
 
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.scan.scan_status = ScanStatus::Error;
-        self.message = Some(AppMessage {
-            kind: MessageKind::Error,
-            text: message.into(),
-        });
+        self.message = Some(AppMessage::error(message));
     }
 
     pub fn set_info(&mut self, message: impl Into<String>) {
-        self.message = Some(AppMessage {
-            kind: MessageKind::Info,
-            text: message.into(),
-        });
+        self.message = Some(AppMessage::info(message));
     }
 
     pub fn set_loading(&mut self, message: impl Into<String>) {
-        self.message = Some(AppMessage {
-            kind: MessageKind::Loading,
-            text: message.into(),
-        });
+        self.message = Some(AppMessage::loading(message));
     }
 
     pub fn clear_message(&mut self) {
         self.message = None;
+    }
+
+    pub fn clear_expired_message(&mut self) {
+        if self.message.as_ref().is_some_and(AppMessage::is_expired) {
+            self.message = None;
+        }
     }
 
     pub fn is_path_auto_detected(&self) -> bool {

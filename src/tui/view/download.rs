@@ -7,14 +7,14 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
 
 use super::{DownloadView, components};
 
-const INFO_HEIGHT: u16 = 7;
+const INFO_HEIGHT: u16 = 8;
 const GAUGE_HEIGHT: u16 = 3;
 
 pub fn render(frame: &mut Frame, area: Rect, view: DownloadView) {
@@ -60,73 +60,20 @@ fn should_render_disk_warning(page: &CollectionPage) -> bool {
 
 fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(available) = page.low_disk_space {
-        let text = format!(
-            " not enough free space in target directory ({} available). free up space before downloading.",
-            format_bytes(available)
-        );
+        let text = format!(" low disk space: {} available", format_bytes(available));
         let paragraph = Paragraph::new(text).style(Style::default().fg(components::WARNING));
         frame.render_widget(paragraph, area);
     }
 }
 
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
-    let stage_label = match page.stage {
-        DownloadStage::Pending => "pending",
-        DownloadStage::Resolving => "resolving",
-        DownloadStage::Rechecking => "rechecking existing maps",
-        DownloadStage::Downloading => "downloading",
-        DownloadStage::Completed => "completed",
-        DownloadStage::Failed => "failed",
-    };
     let status =
         if matches!(page.stage, DownloadStage::Downloading) && page.all_threads_rate_limited() {
             "rate limited"
         } else {
-            stage_label
+            stage_label(page.stage)
         };
-
-    let speed_display = if matches!(page.stage, DownloadStage::Downloading) {
-        let speed = page.cumulative_speed();
-        if speed >= 1.0 {
-            Some(format_speed(speed))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let counts_line = |label: &str, downloaded: u32, skipped: u32, failed: u32, unverified: u32| {
-        let displayed_skipped = skipped.saturating_add(unverified);
-        let mut parts = vec![
-            format!("{downloaded} downloaded"),
-            format!("{displayed_skipped} skipped"),
-            format!("{failed} failed"),
-        ];
-        if unverified > 0 {
-            parts.push(format!("{unverified} unverified"));
-        }
-        format!(" {label}: {}", parts.join(" · "))
-    };
-
-    let summary_line = if let Some(summary) = &page.summary {
-        counts_line(
-            "done",
-            summary.downloaded,
-            summary.skipped,
-            summary.failed,
-            summary.unverified,
-        )
-    } else {
-        counts_line(
-            "progress",
-            page.stats.downloaded,
-            page.stats.skipped,
-            page.stats.failed,
-            page.stats.unverified,
-        )
-    };
-
+    let speed_display = current_speed(page);
     let bytes_display = if matches!(
         page.stage,
         DownloadStage::Downloading | DownloadStage::Completed
@@ -139,21 +86,20 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     };
 
     let key_style = Style::default().fg(components::TEXT_FAINT);
-    let val_muted = Style::default().fg(components::TEXT_MUTED);
-
+    let value_style = Style::default().fg(components::TEXT_MUTED);
     let mut status_spans = vec![
-        Span::styled("status:     ", key_style),
-        Span::styled(status, components::status_style(page.stage)),
+        Span::styled("status: ", key_style),
+        components::status_pill(status, status_color(page.stage, status)),
     ];
     if let Some(speed) = speed_display {
-        status_spans.push(Span::styled("  ", key_style));
+        status_spans.push(Span::styled("  speed ", key_style));
         status_spans.push(Span::styled(
             speed,
             Style::default().fg(components::SUCCESS),
         ));
     }
     if let Some(bytes) = bytes_display {
-        status_spans.push(Span::styled("  ", key_style));
+        status_spans.push(Span::styled("  size ", key_style));
         status_spans.push(Span::styled(
             bytes,
             Style::default().fg(components::WARNING),
@@ -166,24 +112,33 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             Span::styled(page.title.clone(), Style::default().fg(components::ACCENT)),
         ]),
         Line::from(vec![
-            Span::styled("uploader:   ", key_style),
+            Span::styled("uploader: ", key_style),
             Span::styled(
                 page.uploader.as_deref().unwrap_or("unknown").to_owned(),
-                val_muted,
+                value_style,
             ),
         ]),
         Line::from(vec![
-            Span::styled("output:     ", key_style),
+            Span::styled("output: ", key_style),
             Span::styled(
-                page.output_dir
-                    .as_deref()
-                    .unwrap_or("preparing...")
-                    .to_owned(),
-                val_muted,
+                page.output_dir.as_deref().unwrap_or("preparing").to_owned(),
+                value_style,
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("settings: ", key_style),
+            Span::styled(
+                format!("{} threads", page.thread_statuses.len()),
+                Style::default().fg(components::ACCENT),
+            ),
+            Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+            Span::styled(
+                "failed maps appear below",
+                Style::default().fg(components::TEXT_FAINT),
             ),
         ]),
         Line::from(status_spans),
-        Line::from(Span::styled(summary_line, val_muted)),
+        Line::from(summary_spans(page)),
     ];
 
     let paragraph = Paragraph::new(lines)
@@ -191,6 +146,96 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         .wrap(Wrap { trim: true });
 
     frame.render_widget(paragraph, area);
+}
+
+fn stage_label(stage: DownloadStage) -> &'static str {
+    match stage {
+        DownloadStage::Pending => "pending",
+        DownloadStage::Resolving => "resolving",
+        DownloadStage::Rechecking => "rechecking",
+        DownloadStage::Downloading => "downloading",
+        DownloadStage::Completed => "completed",
+        DownloadStage::Failed => "failed",
+    }
+}
+
+fn current_speed(page: &CollectionPage) -> Option<String> {
+    if !matches!(page.stage, DownloadStage::Downloading) {
+        return None;
+    }
+
+    let speed = page.cumulative_speed();
+    if speed >= 1.0 {
+        Some(format_speed(speed))
+    } else {
+        None
+    }
+}
+
+fn status_color(stage: DownloadStage, status: &str) -> ratatui::style::Color {
+    if status == "rate limited" {
+        components::WARNING
+    } else {
+        components::status_style(stage)
+            .fg
+            .unwrap_or(components::TEXT_DIM)
+    }
+}
+
+fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
+    let (label, downloaded, skipped, failed, unverified) = if let Some(summary) = &page.summary {
+        (
+            "done",
+            summary.downloaded,
+            summary.skipped,
+            summary.failed,
+            summary.unverified,
+        )
+    } else {
+        (
+            "progress",
+            page.stats.downloaded,
+            page.stats.skipped,
+            page.stats.failed,
+            page.stats.unverified,
+        )
+    };
+    let displayed_skipped = skipped.saturating_add(unverified);
+    let mut spans = vec![
+        Span::styled(
+            format!("{label}: "),
+            Style::default().fg(components::TEXT_FAINT),
+        ),
+        Span::styled(
+            format!("{downloaded} downloaded"),
+            Style::default().fg(components::SUCCESS),
+        ),
+        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled(
+            format!("{displayed_skipped} skipped"),
+            Style::default().fg(components::TEXT_MUTED),
+        ),
+        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled(
+            format!("{failed} failed"),
+            if failed > 0 {
+                Style::default().fg(components::DANGER)
+            } else {
+                Style::default().fg(components::TEXT_MUTED)
+            },
+        ),
+    ];
+    if unverified > 0 {
+        spans.push(Span::styled(
+            "  │  ",
+            Style::default().fg(components::LINE_SOFT),
+        ));
+        spans.push(Span::styled(
+            format!("{unverified} unverified"),
+            Style::default().fg(components::WARNING),
+        ));
+    }
+    spans
 }
 
 fn format_speed(bytes_per_sec: f64) -> String {
@@ -207,7 +252,7 @@ fn format_bytes_progress(downloaded: u64, total: u64) -> String {
     let downloaded_gb = downloaded as f64 / GB;
     let total_gb = total as f64 / GB;
 
-    format!("{:.2}/{:.2} GB", downloaded_gb, total_gb)
+    format!("{downloaded_gb:.2}/{total_gb:.2} GB")
 }
 
 fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
@@ -220,10 +265,12 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let mut top_style = Style::default().fg(components::TEXT_DIM);
     if !page.progress_label_style_locked || page.progress_label_bold_when_locked {
-        top_style = top_style.fg(components::TEXT_MUTED);
+        top_style = top_style
+            .fg(components::TEXT_MUTED)
+            .add_modifier(Modifier::BOLD);
     }
 
-    let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} in queue ");
+    let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} queued ");
     let verified_title = format!(" {verified_display}/{total_collection} verified ");
 
     let block = Block::default()
@@ -259,38 +306,39 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let mut items: Vec<ListItem> = Vec::new();
 
-    for (idx, status) in page.thread_statuses.iter().enumerate() {
+    for (index, status) in page.thread_statuses.iter().enumerate() {
         if status.should_display() {
-            items.push(components::thread_item(idx, status));
+            items.push(components::thread_item(index, status));
         }
     }
 
     if items.is_empty() && page.failed_maps.is_empty() {
-        items.push(ListItem::new(Line::from(Span::styled(
-            "no active threads",
-            Style::default().fg(components::TEXT_FAINT),
-        ))));
+        items.push(ListItem::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "no active threads",
+                Style::default().fg(components::TEXT_FAINT),
+            ),
+        ])));
     }
 
     if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed)
         && !page.failed_maps.is_empty()
     {
-        let header = format!("  FAILED  ({})", page.failed_maps.len());
-        items.push(ListItem::new(Line::from(Span::styled(
-            header,
-            Style::default().fg(components::DANGER),
-        ))));
+        items.push(components::section_header("failed"));
 
         for failure in &page.failed_maps {
-            let reason = summarize_failure(&failure.reason);
             items.push(ListItem::new(Line::from(vec![
-                Span::styled("  ", Style::default()),
+                Span::raw("  "),
                 Span::styled(
                     format!("#{}", failure.id),
                     Style::default().fg(components::TEXT_FAINT),
                 ),
                 Span::styled("  ", Style::default()),
-                Span::styled(reason, Style::default().fg(components::DANGER)),
+                Span::styled(
+                    summarize_failure(&failure.reason),
+                    Style::default().fg(components::DANGER),
+                ),
             ])));
         }
     }
@@ -310,48 +358,52 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
-    let key_style = Style::default().fg(components::TEXT_FAINT);
-
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("downloaded: ", key_style),
-            Span::styled(
-                summary.downloaded.to_string(),
-                Style::default().fg(components::SUCCESS),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("skipped:    ", key_style),
-            Span::styled(
-                displayed_skipped.to_string(),
-                Style::default().fg(components::TEXT_DIM),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("failed:     ", key_style),
-            Span::styled(
-                summary.failed.to_string(),
-                if summary.failed > 0 {
-                    Style::default().fg(components::DANGER)
-                } else {
-                    Style::default().fg(components::TEXT_DIM)
-                },
-            ),
-        ]),
+    let failed_style = if summary.failed > 0 {
+        Style::default().fg(components::DANGER)
+    } else {
+        Style::default().fg(components::TEXT_MUTED)
+    };
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled("DOWNLOADED", eyebrow_style()),
+        Span::raw(" "),
+        Span::styled(
+            summary.downloaded.to_string(),
+            Style::default().fg(components::ACCENT),
+        ),
+        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled("SKIPPED", eyebrow_style()),
+        Span::raw(" "),
+        Span::styled(
+            displayed_skipped.to_string(),
+            Style::default().fg(components::TEXT_MUTED),
+        ),
+        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled("FAILED", eyebrow_style()),
+        Span::raw(" "),
+        Span::styled(summary.failed.to_string(), failed_style),
     ];
-
     if summary.unverified > 0 {
-        lines.push(Line::from(vec![
-            Span::styled("unverified: ", key_style),
-            Span::styled(
-                summary.unverified.to_string(),
-                Style::default().fg(components::WARNING),
-            ),
-        ]));
+        spans.push(Span::styled(
+            "  │  ",
+            Style::default().fg(components::LINE_SOFT),
+        ));
+        spans.push(Span::styled("UNVERIFIED", eyebrow_style()));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            summary.unverified.to_string(),
+            Style::default().fg(components::WARNING),
+        ));
     }
 
-    let paragraph = Paragraph::new(lines).block(components::panel_block("results"));
+    let paragraph = Paragraph::new(Line::from(spans)).block(components::panel_block("results"));
     frame.render_widget(paragraph, area);
+}
+
+fn eyebrow_style() -> Style {
+    Style::default()
+        .fg(components::TEXT_FAINT)
+        .add_modifier(Modifier::BOLD | Modifier::DIM)
 }
 
 fn summarize_failure(reason: &str) -> String {

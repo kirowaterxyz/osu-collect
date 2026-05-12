@@ -1,6 +1,6 @@
-use super::messages::{AppMessage, MessageKind};
+use super::messages::AppMessage;
 use crate::{
-    config::Config,
+    config::{Config, OfficialConfig},
     download::{DownloadConfig, DownloadRequest},
     mirrors::{CatboyRegion, MirrorEndpoint, MirrorKind},
 };
@@ -66,6 +66,7 @@ pub struct HomeTab {
     default_threads: u8,
     default_retries: u8,
     default_directory: String,
+    official_config: OfficialConfig,
 }
 
 impl HomeTab {
@@ -77,10 +78,12 @@ impl HomeTab {
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
-        let official = config.mirror.official && crate::auth::load().is_some();
+        let official_config = config.official.clone();
+        let official = config.mirror.official
+            && (crate::auth::load().is_some() || official_config.credentials().is_some());
         if config.mirror.official && !official {
             warn!(
-                "official mirror enabled in config but no auth tokens found; run `osu-collect login`"
+                "official mirror enabled in config but no auth or credentials found; set official.client_id and official.client_secret"
             );
         }
         let custom_template = config.mirror.custom_template().unwrap_or("");
@@ -151,6 +154,7 @@ impl HomeTab {
             default_threads,
             default_retries,
             default_directory,
+            official_config,
         }
     }
 
@@ -262,8 +266,11 @@ impl HomeTab {
                 self.nekoha = !self.nekoha;
             }
             HomeField::MirrorOfficial => {
-                if !self.official && crate::auth::load().is_none() {
-                    warn!("no auth tokens; run `osu-collect login` first");
+                if !self.official
+                    && crate::auth::load().is_none()
+                    && self.official_config.credentials().is_none()
+                {
+                    warn!("no auth tokens or official credentials");
                 } else {
                     self.official = !self.official;
                 }
@@ -288,17 +295,17 @@ impl HomeTab {
     }
 
     pub fn set_error(&mut self, message: &str) {
-        self.message = Some(AppMessage {
-            kind: MessageKind::Error,
-            text: message.to_string(),
-        });
+        self.message = Some(AppMessage::error(message));
     }
 
     pub fn set_info(&mut self, message: &str) {
-        self.message = Some(AppMessage {
-            kind: MessageKind::Info,
-            text: message.to_string(),
-        });
+        self.message = Some(AppMessage::info(message));
+    }
+
+    pub fn clear_expired_message(&mut self) {
+        if self.message.as_ref().is_some_and(AppMessage::is_expired) {
+            self.message = None;
+        }
     }
 
     pub fn build_mirror_list(&self) -> Vec<MirrorEndpoint> {
@@ -327,13 +334,14 @@ impl HomeTab {
             .collect();
 
         if self.official {
-            match crate::auth::load() {
-                Some(auth) => {
-                    mirrors.push(MirrorEndpoint::official(auth.bearer_token()));
-                }
-                None => {
-                    warn!("official mirror enabled but no auth tokens found; skipping");
-                }
+            if let Some(auth) = crate::auth::load() {
+                mirrors.push(MirrorEndpoint::official(auth.bearer_token()));
+            } else if self.official_config.credentials().is_some() {
+                mirrors.push(MirrorEndpoint::official_pending(Some(
+                    self.official_config.clone(),
+                )));
+            } else {
+                warn!("official mirror enabled but no auth or credentials found; skipping");
             }
         }
 

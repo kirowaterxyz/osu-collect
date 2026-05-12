@@ -123,7 +123,10 @@ fn handle_input(
     match input {
         InputEvent::Key(key) => handle_key_event(key, app, download_tx, updates_tx, downloads),
         InputEvent::Resize => false,
-        InputEvent::Tick => false,
+        InputEvent::Tick => {
+            app.clear_expired_messages();
+            false
+        }
     }
 }
 
