@@ -14,7 +14,11 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
+use tokio::{
+    sync::mpsc::UnboundedSender,
+    task::JoinHandle,
+    time::{Instant, sleep},
+};
 use tracing::{debug, info, trace, warn};
 
 type ResultMessage = (usize, u32, crate::utils::Result<DownloadResult>);
@@ -99,7 +103,13 @@ async fn download_single_target(
                 rate_limited: true,
                 beatmapset_id: Some(beatmapset_id),
             });
-            sleep(wait_for).await;
+            if cancellable_sleep(wait_for, &shutdown_inner).await {
+                warn!(
+                    download_id = context.id,
+                    beatmapset_id, "Download task aborted during mirror cooldown"
+                );
+                break Ok(DownloadResult::Aborted);
+            }
             continue;
         }
 
@@ -109,7 +119,13 @@ async fn download_single_target(
                 download_id = context.id,
                 beatmapset_id, "all mirrors penalized, waiting 5s"
             );
-            sleep(Duration::from_secs(5)).await;
+            if cancellable_sleep(Duration::from_secs(5), &shutdown_inner).await {
+                warn!(
+                    download_id = context.id,
+                    beatmapset_id, "Download task aborted while all mirrors were penalized"
+                );
+                break Ok(DownloadResult::Aborted);
+            }
             continue;
         }
         let first_mirror = mirror_plan
@@ -146,6 +162,22 @@ async fn download_single_target(
         )
         .await;
         break result;
+    }
+}
+
+async fn cancellable_sleep(duration: Duration, shutdown: &super::ShutdownToken) -> bool {
+    let deadline = Instant::now() + duration;
+    loop {
+        if shutdown.is_cancelled() {
+            return true;
+        }
+
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+
+        sleep((deadline - now).min(Duration::from_millis(100))).await;
     }
 }
 
@@ -209,6 +241,33 @@ impl MirrorFailureStats {
 impl MirrorFailureSnapshot {
     pub(crate) fn mirror_label(&self) -> &'static str {
         self.mirror.label()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cancellable_sleep;
+    use crate::download::ShutdownToken;
+    use std::time::{Duration, Instant};
+
+    #[tokio::test]
+    async fn cooldown_sleep_exits_after_shutdown() {
+        let shutdown = ShutdownToken::new();
+        let canceller = shutdown.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            canceller.cancel();
+        });
+
+        let started = Instant::now();
+        assert!(cancellable_sleep(Duration::from_secs(5), &shutdown).await);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn cooldown_sleep_finishes_without_shutdown() {
+        let shutdown = ShutdownToken::new();
+        assert!(!cancellable_sleep(Duration::from_millis(5), &shutdown).await);
     }
 }
 
