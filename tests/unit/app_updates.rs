@@ -71,8 +71,8 @@ fn collection_ids_for_scan_skips_ids_outside_u32() {
 #[test]
 fn deleted_maps_for_scan_only_uses_selected_collections() {
     let mut state = CollectionStateFile::default();
-    state.update(10, vec![1, 2, 3], vec![1, 3, 999]);
-    state.update(20, vec![4, 5], vec![4, 5]);
+    state.update(10, vec![1, 2, 3], vec![1, 3, 999], vec![]);
+    state.update(20, vec![4, 5], vec![4, 5], vec![]);
 
     let deleted = deleted_maps_for_scan(&state, &[10]);
 

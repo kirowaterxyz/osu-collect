@@ -25,6 +25,9 @@ pub struct CollectionRecord {
     pub last_seen_beatmapsets: Vec<u32>,
     #[serde(default)]
     pub last_installed_beatmapsets: Vec<u32>,
+    /// local DB snapshot at time of last scan; enables manually-added detection
+    #[serde(default)]
+    pub snapshot_local_beatmapset_ids: Vec<u32>,
     pub last_scan_unix_secs: u64,
 }
 
@@ -43,11 +46,19 @@ impl CollectionStateFile {
             .unwrap_or_default()
     }
 
+    pub fn snapshot_local_at_scan(&self, collection_id: u32) -> &[u32] {
+        self.collections
+            .get(&collection_id)
+            .map(|r| r.snapshot_local_beatmapset_ids.as_slice())
+            .unwrap_or_default()
+    }
+
     pub fn update(
         &mut self,
         collection_id: u32,
         beatmapset_ids: Vec<u32>,
         installed_ids: Vec<u32>,
+        local_snapshot_ids: Vec<u32>,
     ) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -58,6 +69,7 @@ impl CollectionStateFile {
             CollectionRecord {
                 last_seen_beatmapsets: beatmapset_ids,
                 last_installed_beatmapsets: installed_ids,
+                snapshot_local_beatmapset_ids: local_snapshot_ids,
                 last_scan_unix_secs: now,
             },
         );

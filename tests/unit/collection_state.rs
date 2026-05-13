@@ -19,8 +19,8 @@ fn save_and_load_round_trip() {
         schema_version: 1,
         collections: Default::default(),
     };
-    state.update(42, vec![100, 200, 300], vec![100, 300]);
-    state.update(99, vec![1, 2], vec![2]);
+    state.update(42, vec![100, 200, 300], vec![100, 300], vec![]);
+    state.update(99, vec![1, 2], vec![2], vec![]);
 
     collection_state::save(&state, &path);
     assert!(path.exists(), "state file must exist after save");
@@ -48,7 +48,7 @@ fn save_is_atomic_no_tmp_left_on_success() {
     let tmp = path.with_extension("toml.tmp");
 
     let mut state = CollectionStateFile::default();
-    state.update(1, vec![10, 20], vec![10]);
+    state.update(1, vec![10, 20], vec![10], vec![]);
     collection_state::save(&state, &path);
 
     assert!(path.exists(), "final file must exist");
@@ -75,8 +75,8 @@ fn last_scan_accessors_unknown_collection_return_empty_slices() {
 #[test]
 fn update_overwrites_previous_record() {
     let mut state = CollectionStateFile::default();
-    state.update(5, vec![1, 2, 3], vec![1]);
-    state.update(5, vec![10, 20], vec![20]);
+    state.update(5, vec![1, 2, 3], vec![1], vec![]);
+    state.update(5, vec![10, 20], vec![20], vec![]);
 
     let seen = &state.collections[&5].last_seen_beatmapsets;
     assert_eq!(seen.len(), 2);

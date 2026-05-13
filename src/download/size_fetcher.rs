@@ -1,5 +1,5 @@
 use crate::config::constants::{CONCURRENT_REQUESTS, MIRROR_CHECK_URLS, NEKOHA_API_BASE};
-use futures_util::{StreamExt, TryStreamExt, stream};
+use futures_util::{StreamExt, TryStreamExt, future, stream};
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};
@@ -166,38 +166,50 @@ async fn check_availability_on_any_mirror(client: &Client, beatmapset_id: u32) -
     check_availability_on_urls(client, beatmapset_id, MIRROR_CHECK_URLS).await
 }
 
+/// Probe one mirror URL, following redirects up to `MAX_REDIRECTS` and retrying
+/// transient errors up to `MIRROR_RETRIES` times.
+async fn probe_with_redirects(client: &Client, beatmapset_id: u32, template: &str) -> bool {
+    let mut url = template.replace("{id}", &beatmapset_id.to_string());
+    let mut redirects_remaining = MAX_REDIRECTS;
+    let mut retries_remaining = MIRROR_RETRIES;
+
+    loop {
+        match probe_mirror(client, beatmapset_id, &url).await {
+            ProbeResult::Available => return true,
+            ProbeResult::RetryRedirect(next) => {
+                if redirects_remaining == 0 {
+                    trace!(beatmapset_id, mirror = %url, "redirect limit reached while probing mirror");
+                    return false;
+                }
+                redirects_remaining = redirects_remaining.saturating_sub(1);
+                url = next;
+            }
+            ProbeResult::RetryTransient => {
+                if retries_remaining == 0 {
+                    return false;
+                }
+                retries_remaining = retries_remaining.saturating_sub(1);
+            }
+            ProbeResult::Rejected => return false,
+        }
+    }
+}
+
 #[doc(hidden)]
 pub async fn check_availability_on_urls(
     client: &Client,
     beatmapset_id: u32,
     urls: &[&str],
 ) -> bool {
-    for template in urls {
-        let mut url = template.replace("{id}", &beatmapset_id.to_string());
-        let mut redirects_remaining = MAX_REDIRECTS;
-        let mut attempts: usize = 0;
+    // Probe all mirrors concurrently; short-circuit on first confirmed availability.
+    let probes = urls
+        .iter()
+        .map(|template| probe_with_redirects(client, beatmapset_id, template));
 
-        while attempts <= MIRROR_RETRIES {
-            match probe_mirror(client, beatmapset_id, &url).await {
-                ProbeResult::Available => return true,
-                ProbeResult::RetryRedirect(next) => {
-                    if redirects_remaining == 0 {
-                        trace!(beatmapset_id, mirror = %url, "Redirect limit reached while probing mirror");
-                        break;
-                    }
-                    redirects_remaining = redirects_remaining.saturating_sub(1);
-                    url = next;
-                    continue;
-                }
-                ProbeResult::RetryTransient => {
-                    attempts = attempts.saturating_add(1);
-                    continue;
-                }
-                ProbeResult::Rejected => break,
-            }
-        }
-    }
-    false
+    future::join_all(probes)
+        .await
+        .into_iter()
+        .any(|available| available)
 }
 
 enum ProbeResult {
@@ -211,6 +223,7 @@ async fn probe_mirror(client: &Client, beatmapset_id: u32, url: &str) -> ProbeRe
     let result = client
         .get(url)
         .header("Range", "bytes=0-3")
+        .header("Connection", "close")
         .timeout(Duration::from_secs(10))
         .send()
         .await;

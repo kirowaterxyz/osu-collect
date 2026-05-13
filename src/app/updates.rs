@@ -92,6 +92,7 @@ impl PathState {
 
 #[derive(Debug, Clone)]
 pub struct ScanState {
+    pub local_collections_raw: Vec<LocalCollection>,
     pub local_beatmapsets: HashMap<u32, LocalBeatmapset>,
     pub all_local_checksums: HashSet<String>,
     pub scan_status: ScanStatus,
@@ -101,6 +102,7 @@ pub struct ScanState {
 impl ScanState {
     fn new() -> Self {
         Self {
+            local_collections_raw: Vec::new(),
             local_beatmapsets: HashMap::new(),
             all_local_checksums: HashSet::new(),
             scan_status: ScanStatus::Idle,
@@ -412,6 +414,8 @@ impl UpdatesTab {
             "Processing local collections for updatable IDs"
         );
 
+        self.scan.local_collections_raw = collections.clone();
+
         // Only keep collections that have a recognizable osu!collector ID
         self.selection.local_collections = collections
             .into_iter()
@@ -640,6 +644,10 @@ fn extract_collection_id(name: &str) -> Option<u64> {
     }
 
     None
+}
+
+pub fn extract_collection_id_pub(name: &str) -> Option<u64> {
+    extract_collection_id(name)
 }
 
 impl Default for UpdatesTab {
