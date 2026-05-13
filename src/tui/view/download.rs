@@ -406,7 +406,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu! correctly",
+                "Done! Check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu correctly",
                 Style::default().fg(components::TEXT_MUTED),
             ),
         ]),
@@ -414,7 +414,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "and drop a star while you're at it :3",
+                "and leave a star while you're at it :3",
                 Style::default().fg(components::TEXT_FAINT),
             ),
         ]),
