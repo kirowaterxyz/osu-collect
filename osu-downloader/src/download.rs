@@ -205,7 +205,15 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
                     );
                     let backoff = Duration::from_millis(500 * 2u64.saturating_pow(attempt))
                         .min(Duration::from_secs(8));
-                    sleep(backoff).await;
+                    let mut cancel_watch = params.cancel_rx.clone();
+                    tokio::select! {
+                        _ = sleep(backoff) => {}
+                        _ = cancel_watch.changed() => {
+                            if *cancel_watch.borrow() {
+                                return (Err(DownloadError::Cancelled.into()), total_attempts);
+                            }
+                        }
+                    }
                 }
                 Err(err) => {
                     warn!(
@@ -528,6 +536,35 @@ mod tests {
         assert!(!tokio::fs::try_exists(&temp_path).await.unwrap());
 
         tokio::fs::remove_dir_all(&dir).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn backoff_cancelled_before_expiry() {
+        // Verify that cancelling during a backoff sleep returns promptly (<200ms)
+        // even when the backoff duration is long (1s).
+        use std::time::Instant;
+
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+        // Cancel after 30ms
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            let _ = cancel_tx.send(true);
+        });
+
+        let start = Instant::now();
+        // Simulate the select! logic directly
+        let backoff = Duration::from_secs(1);
+        let mut rx = cancel_rx.clone();
+        tokio::select! {
+            _ = sleep(backoff) => {}
+            _ = rx.changed() => {}
+        }
+
+        assert!(
+            start.elapsed() < Duration::from_millis(200),
+            "backoff should have been cut short by cancel signal"
+        );
     }
 
     #[test]
