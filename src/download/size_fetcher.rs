@@ -1,5 +1,5 @@
 use crate::config::constants::{CONCURRENT_REQUESTS, MIRROR_CHECK_URLS, NEKOHA_API_BASE};
-use futures_util::{StreamExt, TryStreamExt, future, stream};
+use futures_util::{StreamExt, TryStreamExt, stream, stream::FuturesUnordered};
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};
@@ -201,15 +201,17 @@ pub async fn check_availability_on_urls(
     beatmapset_id: u32,
     urls: &[&str],
 ) -> bool {
-    // Probe all mirrors concurrently; short-circuit on first confirmed availability.
-    let probes = urls
+    let mut probes: FuturesUnordered<_> = urls
         .iter()
-        .map(|template| probe_with_redirects(client, beatmapset_id, template));
+        .map(|template| probe_with_redirects(client, beatmapset_id, template))
+        .collect();
 
-    future::join_all(probes)
-        .await
-        .into_iter()
-        .any(|available| available)
+    while let Some(available) = probes.next().await {
+        if available {
+            return true;
+        }
+    }
+    false
 }
 
 enum ProbeResult {

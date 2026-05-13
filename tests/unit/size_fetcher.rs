@@ -4,6 +4,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::{Duration, timeout};
@@ -102,6 +103,55 @@ async fn probe_reads_only_zip_magic_prefix() {
 
     let _ = timeout(Duration::from_secs(2), handle).await;
     assert!(stopped_early.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn availability_short_circuits_when_other_mirrors_hang() {
+    let (fast_base, fast_handle) = start_server(|_request| {
+        let mut body = vec![0x50, 0x4B, 0x03, 0x04];
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.append(&mut body);
+        String::from_utf8(response).unwrap()
+    })
+    .await;
+
+    let slow_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let slow_addr = slow_listener.local_addr().unwrap();
+    let slow_base = format!("http://{}", slow_addr);
+    let slow_handle = tokio::spawn(async move {
+        loop {
+            match slow_listener.accept().await {
+                Ok((_socket, _)) => tokio::time::sleep(Duration::from_secs(30)).await,
+                Err(_) => break,
+            }
+        }
+    });
+
+    let fast_template = format!("{}/d/{{id}}", fast_base);
+    let slow_template = format!("{}/d/{{id}}", slow_base);
+    let client = Client::new();
+    let start = Instant::now();
+    let available = check_availability_on_urls(
+        &client,
+        42,
+        &[fast_template.as_str(), slow_template.as_str()],
+    )
+    .await;
+    let elapsed = start.elapsed();
+
+    assert!(available, "expected success once fast mirror returns ZIP magic");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "short-circuit failed: took {}ms (full probe timeout is 10s × retries)",
+        elapsed.as_millis()
+    );
+
+    fast_handle.abort();
+    slow_handle.abort();
 }
 
 #[tokio::test]
