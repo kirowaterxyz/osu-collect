@@ -133,14 +133,14 @@ pub async fn fetch_beatmapset_sizes(client: &Client, beatmapset_ids: &[u32]) -> 
         .collect()
         .await;
 
-    let mut total_bytes: u64 = 0;
+    let mut known_bytes: u64 = 0;
     let mut fetched_count: usize = 0;
     let mut missing_count: u32 = 0;
 
     for (_id, size_opt) in results {
         match size_opt {
             Some(size) => {
-                total_bytes = total_bytes.saturating_add(size);
+                known_bytes = known_bytes.saturating_add(size);
                 fetched_count += 1;
             }
             None => {
@@ -149,8 +149,16 @@ pub async fn fetch_beatmapset_sizes(client: &Client, beatmapset_ids: &[u32]) -> 
         }
     }
 
+    let total_bytes = if missing_count > 0 && fetched_count > 0 {
+        let average = known_bytes / fetched_count as u64;
+        known_bytes.saturating_add(average.saturating_mul(missing_count as u64))
+    } else {
+        known_bytes
+    };
+
     debug!(
         total_bytes,
+        known_bytes,
         fetched = fetched_count,
         missing = missing_count,
         "Fetched beatmapset sizes from nekoha"
