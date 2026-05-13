@@ -343,12 +343,21 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     frame.render_widget(block, area);
 
     let visible_height = inner.height as usize;
-    let (start, end) =
-        components::scroll_window(&items, items.len().saturating_sub(1), visible_height);
+    let total = items.len();
+    page.thread_total_items.set(total);
+    page.thread_visible_items.set(visible_height);
+
+    let max_scroll = total.saturating_sub(visible_height);
+    let start = page.thread_scroll.min(max_scroll);
+    let end = (start + visible_height).min(total);
     let visible_items = items[start..end].to_vec();
 
     let list = List::new(visible_items).highlight_symbol("");
     frame.render_widget(list, inner);
+
+    if total > visible_height {
+        components::render_scroll_indicator(frame, area, start, total);
+    }
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {

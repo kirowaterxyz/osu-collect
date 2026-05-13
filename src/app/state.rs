@@ -371,6 +371,8 @@ impl App {
                         || self.updates.selection.in_beatmap_list)
                 {
                     self.updates.scroll_up();
+                } else if let Some(page) = self.active_download_page_mut() {
+                    page.scroll_threads_up();
                 } else {
                     self.focus_prev_field();
                 }
@@ -381,6 +383,8 @@ impl App {
                         || self.updates.selection.in_beatmap_list)
                 {
                     self.updates.scroll_down();
+                } else if let Some(page) = self.active_download_page_mut() {
+                    page.scroll_threads_down();
                 } else {
                     self.focus_next_field();
                 }
@@ -649,6 +653,14 @@ impl App {
             None
         } else {
             self.downloads.get(tab_index - STATIC_TABS)
+        }
+    }
+
+    pub fn active_download_page_mut(&mut self) -> Option<&mut CollectionPage> {
+        if self.active_tab < STATIC_TABS {
+            None
+        } else {
+            self.downloads.get_mut(self.active_tab - STATIC_TABS)
         }
     }
 

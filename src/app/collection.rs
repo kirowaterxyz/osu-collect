@@ -90,6 +90,9 @@ pub struct CollectionPage {
     pub progress_label_style_locked: bool,
     pub progress_label_bold_when_locked: bool,
     pub low_disk_space: Option<u64>,
+    pub thread_scroll: usize,
+    pub thread_visible_items: Cell<usize>,
+    pub thread_total_items: Cell<usize>,
     cached_cumulative_speed: Cell<f64>,
     last_speed_update: Cell<Option<Instant>>,
 }
@@ -116,6 +119,9 @@ impl CollectionPage {
             progress_label_style_locked: false,
             progress_label_bold_when_locked: true,
             low_disk_space: None,
+            thread_scroll: 0,
+            thread_visible_items: Cell::new(0),
+            thread_total_items: Cell::new(0),
             cached_cumulative_speed: Cell::new(0.0),
             last_speed_update: Cell::new(None),
         }
@@ -274,6 +280,19 @@ impl CollectionPage {
             .collect();
         entries.sort_by_key(|a| a.id);
         self.failed_maps = entries;
+    }
+
+    pub fn scroll_threads_up(&mut self) {
+        self.thread_scroll = self.thread_scroll.saturating_sub(1);
+    }
+
+    pub fn scroll_threads_down(&mut self) {
+        let total = self.thread_total_items.get();
+        let visible = self.thread_visible_items.get();
+        let max_scroll = total.saturating_sub(visible);
+        if self.thread_scroll < max_scroll {
+            self.thread_scroll += 1;
+        }
     }
 
     pub fn total_downloaded_bytes(&self) -> u64 {

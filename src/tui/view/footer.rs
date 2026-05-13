@@ -56,7 +56,7 @@ impl<'a> FooterView<'a> {
             _ => Self {
                 message: None,
                 quit_prompt: false,
-                hint: "↑↓ scroll  ·  q quit/cancel",
+                hint: "↑↓ scroll threads  ·  q quit/cancel",
                 tick,
             },
         }
