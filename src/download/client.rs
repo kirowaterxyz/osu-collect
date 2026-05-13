@@ -291,6 +291,7 @@ async fn process_mirror_response(
                     sanitized_filename.clone().into_boxed_str(),
                 ));
             }
+            fs::remove_file(&output_path).await?;
         }
     }
 
@@ -334,16 +335,20 @@ async fn write_and_verify_archive(
         }
     };
 
+    context.cleanup_tracker.track(&stream.temp_path);
+
     if stream.aborted {
         context.cleanup_tracker.mark_removed(&output_path);
+        context.cleanup_tracker.mark_removed(&stream.temp_path);
         return Ok(DownloadResult::Aborted);
     }
 
     if let Some(expected) = content_length
         && stream.bytes_written < expected
     {
-        let _ = fs::remove_file(&output_path).await;
+        let _ = fs::remove_file(&stream.temp_path).await;
         context.cleanup_tracker.mark_removed(&output_path);
+        context.cleanup_tracker.mark_removed(&stream.temp_path);
         return Ok(DownloadResult::failed(
             Some(mirror.kind),
             format!(
@@ -355,9 +360,10 @@ async fn write_and_verify_archive(
         ));
     }
 
-    if let Err(err) = ensure_valid_archive(&output_path, context.verify_zip_eocd).await {
-        let _ = fs::remove_file(&output_path).await;
+    if let Err(err) = ensure_valid_archive(&stream.temp_path, context.verify_zip_eocd).await {
+        let _ = fs::remove_file(&stream.temp_path).await;
         context.cleanup_tracker.mark_removed(&output_path);
+        context.cleanup_tracker.mark_removed(&stream.temp_path);
         return Ok(DownloadResult::failed(
             Some(mirror.kind),
             format!(
@@ -370,7 +376,15 @@ async fn write_and_verify_archive(
 
     let hash = stream.hash.unwrap_or_else(|| "unknown".into());
 
+    if let Err(err) = fs::rename(&stream.temp_path, &output_path).await {
+        let _ = fs::remove_file(&stream.temp_path).await;
+        context.cleanup_tracker.mark_removed(&output_path);
+        context.cleanup_tracker.mark_removed(&stream.temp_path);
+        return Err(AppError::from(err));
+    }
+
     context.cleanup_tracker.mark_complete(&output_path);
+    context.cleanup_tracker.mark_complete(&stream.temp_path);
 
     Ok(DownloadResult::Success(CompletedDownload {
         filename: sanitized_filename.into_boxed_str(),

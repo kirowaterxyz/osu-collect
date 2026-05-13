@@ -10,17 +10,32 @@ use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::{
     io::{ErrorKind, SeekFrom},
-    path::Path,
-    sync::{Arc, mpsc},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 use tokio::{
-    fs,
+    fs::{self, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     task,
     time::timeout,
 };
 use tracing::debug;
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn temp_path_for(output_path: &Path) -> PathBuf {
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download");
+    output_path.with_file_name(format!("{name}.part-{}-{counter}", std::process::id()))
+}
 
 struct HashWorker {
     sender: Option<mpsc::Sender<Bytes>>,
@@ -77,6 +92,7 @@ pub struct DownloadStreamResult {
     pub aborted: bool,
     pub hash: Option<Box<str>>,
     pub bytes_written: u64,
+    pub temp_path: PathBuf,
 }
 
 pub async fn download_with_streaming(
@@ -87,7 +103,12 @@ pub async fn download_with_streaming(
     progress_timeout: Duration,
     shutdown: ShutdownToken,
 ) -> Result<DownloadStreamResult> {
-    let mut file = fs::File::create(output_path).await?;
+    let temp_path = temp_path_for(output_path);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .await?;
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
     let total = content_length.unwrap_or(0);
@@ -101,11 +122,12 @@ pub async fn download_with_streaming(
         if shutdown.is_cancelled() {
             abort_hash_worker(&mut hash_worker);
             file.shutdown().await?;
-            let _ = fs::remove_file(output_path).await;
+            let _ = fs::remove_file(&temp_path).await;
             return Ok(DownloadStreamResult {
                 aborted: true,
                 hash: None,
                 bytes_written: downloaded,
+                temp_path,
             });
         }
 
@@ -114,7 +136,7 @@ pub async fn download_with_streaming(
             Err(_) => {
                 abort_hash_worker(&mut hash_worker);
                 file.shutdown().await.ok();
-                let _ = fs::remove_file(output_path).await;
+                let _ = fs::remove_file(&temp_path).await;
                 let stalled_for = last_progress_at.elapsed().as_secs();
                 return Err(AppError::other_dynamic(
                     format!(
@@ -135,7 +157,7 @@ pub async fn download_with_streaming(
             Err(err) => {
                 abort_hash_worker(&mut hash_worker);
                 file.shutdown().await.ok();
-                let _ = fs::remove_file(output_path).await;
+                let _ = fs::remove_file(&temp_path).await;
                 return Err(AppError::from(err));
             }
         };
@@ -144,7 +166,7 @@ pub async fn download_with_streaming(
         if let Err(err) = file.write_all(&chunk).await {
             abort_hash_worker(&mut hash_worker);
             file.shutdown().await.ok();
-            let _ = fs::remove_file(output_path).await;
+            let _ = fs::remove_file(&temp_path).await;
             return Err(AppError::from(err));
         }
 
@@ -171,24 +193,32 @@ pub async fn download_with_streaming(
     if shutdown.is_cancelled() {
         abort_hash_worker(&mut hash_worker);
         file.shutdown().await.ok();
-        let _ = fs::remove_file(output_path).await;
+        let _ = fs::remove_file(&temp_path).await;
         return Ok(DownloadStreamResult {
             aborted: true,
             hash: None,
             bytes_written: downloaded,
+            temp_path,
         });
     }
 
     if let Err(err) = file.flush().await {
         abort_hash_worker(&mut hash_worker);
         file.shutdown().await.ok();
-        let _ = fs::remove_file(output_path).await;
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(AppError::from(err));
+    }
+
+    if let Err(err) = file.sync_all().await {
+        abort_hash_worker(&mut hash_worker);
+        file.shutdown().await.ok();
+        let _ = fs::remove_file(&temp_path).await;
         return Err(AppError::from(err));
     }
 
     if let Err(err) = file.shutdown().await {
         abort_hash_worker(&mut hash_worker);
-        let _ = fs::remove_file(output_path).await;
+        let _ = fs::remove_file(&temp_path).await;
         return Err(AppError::from(err));
     }
 
@@ -207,6 +237,7 @@ pub async fn download_with_streaming(
         aborted: false,
         hash: digest,
         bytes_written: downloaded,
+        temp_path,
     })
 }
 

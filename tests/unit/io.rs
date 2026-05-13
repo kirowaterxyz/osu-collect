@@ -2,6 +2,9 @@
 mod tests {
     use crate::common::{create_temp_file, minimal_zip_bytes};
     use osu_collect::worker::io::ensure_valid_archive;
+    use osu_collect::{download::ShutdownToken, worker::io::download_with_streaming};
+    use std::time::Duration;
+    use tokio::{io::AsyncWriteExt, net::TcpListener};
 
     fn cleanup_temp_file(path: &std::path::Path) {
         let _ = std::fs::remove_file(path);
@@ -110,5 +113,33 @@ mod tests {
         );
 
         cleanup_temp_file(&path);
+    }
+
+    #[tokio::test]
+    async fn stream_error_keeps_final_archive_absent() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let response = b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nPK\x03\x04";
+            socket.write_all(response).await.unwrap();
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("123.osz");
+        let response = reqwest::get(url).await.unwrap();
+        let result = download_with_streaming(
+            response,
+            &output_path,
+            Some(100),
+            None,
+            Duration::from_secs(5),
+            ShutdownToken::new(),
+        )
+        .await;
+
+        server.await.unwrap();
+        assert!(result.is_err());
+        assert!(!output_path.exists());
     }
 }
