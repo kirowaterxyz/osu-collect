@@ -1,5 +1,5 @@
 use crate::{
-    app::{collection_state, runtime, snapshots, updates::extract_collection_id_pub},
+    app::{collection_state, failed_maps, runtime, snapshots, updates::extract_collection_id_pub},
     osu_db::common::BeatmapReader,
     osu_db::{LazerReader, LocalBeatmapset, OsuClient, StableReader},
 };
@@ -176,15 +176,25 @@ pub async fn run_update_collections(
         .map(|diff| diff.manually_added.len())
         .sum::<usize>();
 
-    info!("fetching collections from API and checking mirrors");
+    let failed_beatmapset_ids = failed_maps::failed_maps_path()
+        .as_deref()
+        .map(failed_maps::load)
+        .map(|failed_maps| failed_maps.ids())
+        .unwrap_or_default();
+    let hidden_failed_count = failed_beatmapset_ids.len();
+
+    info!("fetching collections from API");
     let t_fetch = Instant::now();
 
-    let (missing, collection_seen) = runtime::fetch_and_compare(
+    let (missing, collection_seen) = runtime::fetch_and_compare_with_progress(
         args.client,
         collection_ids.clone(),
         local_beatmapsets.clone(),
         local_checksums_set,
         snapshot_diffs,
+        runtime::FetchCompareSettings {
+            hidden_failed_beatmapset_ids: failed_beatmapset_ids,
+        },
     )
     .await?;
 
@@ -252,6 +262,9 @@ pub async fn run_update_collections(
     }
     if added_count > 0 {
         eprintln!("info: {added_count} maps added manually since last scan; they will remain");
+    }
+    if hidden_failed_count > 0 {
+        eprintln!("info: {hidden_failed_count} failed maps hidden; recheck from the TUI to include them");
     }
 
     if !missing.is_empty() {

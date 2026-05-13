@@ -1,6 +1,9 @@
 use osu_collect::app::{
     collection_state::CollectionStateFile,
-    runtime::{collection_ids_for_scan, deleted_maps_for_scan},
+    runtime::{
+        FetchCompareSettings, collection_ids_for_scan, deleted_maps_for_scan,
+        should_hide_failed_beatmapset,
+    },
     updates::{MissingBeatmapset, MissingStatus, UpdatesTab},
 };
 use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
@@ -245,6 +248,16 @@ fn missing_beatmap_selection_preserved_across_refresh() {
         .find(|b| b.id == 2)
         .unwrap();
     assert!(id2.selected, "id=2 selection should survive refresh");
+}
+
+#[test]
+fn fetch_compare_settings_identifies_hidden_failed_ids() {
+    let settings = FetchCompareSettings {
+        hidden_failed_beatmapset_ids: HashSet::from([1234]),
+    };
+
+    assert!(should_hide_failed_beatmapset(&settings, 1234));
+    assert!(!should_hide_failed_beatmapset(&settings, 5678));
 }
 
 #[test]

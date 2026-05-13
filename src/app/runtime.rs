@@ -38,6 +38,7 @@ pub enum UpdatesEvent {
         missing: Vec<MissingBeatmapset>,
         collection_seen: HashMap<u32, Vec<u32>>,
         manually_added_count: usize,
+        hidden_failed_count: usize,
     },
     Error(String),
 }
@@ -370,6 +371,7 @@ fn handle_updates_event(
             missing,
             collection_seen,
             manually_added_count,
+            hidden_failed_count,
         } => {
             // Ignore stale results from previous scan
             if generation != app.updates.scan.scan_generation {
@@ -389,7 +391,12 @@ fn handle_updates_event(
             app.updates.set_missing_beatmaps(missing);
             app.updates.scan.scan_status = ScanStatus::Ready;
 
-            let msg = build_scan_summary(count, previously_deleted_count, manually_added_count);
+            let msg = build_scan_summary(
+                count,
+                previously_deleted_count,
+                manually_added_count,
+                hidden_failed_count,
+            );
             app.updates.set_info(msg);
 
             for (collection_id, ids) in collection_seen {
@@ -416,7 +423,12 @@ fn handle_updates_event(
     }
 }
 
-fn build_scan_summary(count: usize, previously_deleted: usize, manually_added: usize) -> String {
+fn build_scan_summary(
+    count: usize,
+    previously_deleted: usize,
+    manually_added: usize,
+    hidden_failed: usize,
+) -> String {
     let mut msg = format!(" {count} missing beatmapsets");
     if previously_deleted > 0 {
         msg.push_str(&format!(
@@ -427,6 +439,9 @@ fn build_scan_summary(count: usize, previously_deleted: usize, manually_added: u
         msg.push_str(&format!(
             "; {manually_added} added manually since last scan"
         ));
+    }
+    if hidden_failed > 0 {
+        msg.push_str(&format!("; {hidden_failed} hidden failed maps"));
     }
     msg
 }
@@ -598,23 +613,24 @@ fn spawn_fetch_and_compare_task(
         .values()
         .map(|diff| diff.manually_added.len())
         .sum();
+    let failed_beatmapset_ids = failed_maps::failed_maps_path()
+        .as_deref()
+        .map(failed_maps::load)
+        .map(|failed_maps| failed_maps.ids())
+        .unwrap_or_default();
+    let hidden_failed_count = failed_beatmapset_ids.len();
 
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
     let handle = tokio::spawn(async move {
-        let progress_tx = tx.clone();
         let result = fetch_and_compare_with_progress(
             client_type,
             selected_collection_ids,
             local_beatmapsets,
             all_local_checksums,
             snapshot_diffs,
-            move |phase| {
-                let FetchPhase::CheckingMirrors { candidates } = phase;
-                let _ = progress_tx.send(UpdatesEvent::Progress {
-                    generation,
-                    message: format!("checking {candidates} beatmapsets on mirrors..."),
-                });
+            FetchCompareSettings {
+                hidden_failed_beatmapset_ids: failed_beatmapset_ids,
             },
         )
         .await;
@@ -626,6 +642,7 @@ fn spawn_fetch_and_compare_task(
                     missing,
                     collection_seen,
                     manually_added_count: added_count,
+                    hidden_failed_count,
                 });
             }
             Err(err) => {
@@ -636,9 +653,13 @@ fn spawn_fetch_and_compare_task(
     app.scan_handle = Some(handle);
 }
 
-#[derive(Debug, Clone)]
-pub enum FetchPhase {
-    CheckingMirrors { candidates: usize },
+#[derive(Debug, Clone, Default)]
+pub struct FetchCompareSettings {
+    pub hidden_failed_beatmapset_ids: HashSet<u32>,
+}
+
+pub fn should_hide_failed_beatmapset(settings: &FetchCompareSettings, beatmapset_id: u32) -> bool {
+    settings.hidden_failed_beatmapset_ids.contains(&beatmapset_id)
 }
 
 #[derive(Debug, Clone)]
@@ -679,7 +700,7 @@ pub async fn fetch_and_compare(
         local_beatmapsets,
         local_checksums,
         snapshot_diffs,
-        |_| {},
+        FetchCompareSettings::default(),
     )
     .await
 }
@@ -690,7 +711,7 @@ pub async fn fetch_and_compare_with_progress(
     local_beatmapsets: HashMap<u32, LocalBeatmapset>,
     local_checksums: HashSet<String>,
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
-    mut report_phase: impl FnMut(FetchPhase),
+    settings: FetchCompareSettings,
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
     let client = crate::download::http_client::api_client().map_err(|e| e.to_string())?;
     let mut seen_beatmapsets: HashSet<u32> = HashSet::new();
@@ -769,9 +790,14 @@ pub async fn fetch_and_compare_with_progress(
                 continue;
             }
 
+            if should_hide_failed_beatmapset(&settings, beatmapset.id) {
+                trace!(beatmapset_id = beatmapset.id, "skipping failed beatmapset");
+                continue;
+            }
+
             trace!(
                 beatmapset_id = beatmapset.id,
-                "Not installed, adding to candidates"
+                "not installed, adding to candidates"
             );
             candidates_to_check.push((
                 CollectionBeatmapset {
@@ -791,74 +817,29 @@ pub async fn fetch_and_compare_with_progress(
     debug!(
         seen_total = seen_beatmapsets.len(),
         candidates = candidates_to_check.len(),
-        "Finished scanning collections"
+        "finished scanning collections"
     );
 
     let mut all_missing: Vec<MissingBeatmapset> = Vec::new();
 
-    if !candidates_to_check.is_empty() {
-        let beatmapset_ids: Vec<u32> = candidates_to_check
-            .iter()
-            .map(|(beatmapset, ..)| beatmapset.id)
-            .collect();
-        debug!(
-            count = beatmapset_ids.len(),
-            "Checking beatmapset availability on mirrors"
-        );
+    for (beatmapset, collection_id, collection_name) in candidates_to_check {
+        let previously_deleted = snapshot_diffs
+            .get(&collection_id)
+            .map(|diff| beatmapset.is_in_snapshot(client_type, &diff.manually_deleted))
+            .unwrap_or(false);
 
-        report_phase(FetchPhase::CheckingMirrors {
-            candidates: beatmapset_ids.len(),
-        });
-        let mirror_client = download::create_download_client().map_err(|e| e.to_string())?;
-        let t_mirror = std::time::Instant::now();
-        let mirror_result =
-            download::check_mirror_availability(&mirror_client, &beatmapset_ids).await;
-        info!(
-            elapsed_ms = t_mirror.elapsed().as_millis(),
-            candidates = beatmapset_ids.len(),
-            available = mirror_result.available.len(),
-            unavailable = mirror_result.unavailable.len(),
-            "phase: mirror availability check"
-        );
-
-        for (beatmapset, collection_id, collection_name) in candidates_to_check {
-            if mirror_result.unavailable.contains(&beatmapset.id) {
-                trace!(
-                    beatmapset_id = beatmapset.id,
-                    "Skipping unavailable beatmapset"
-                );
-                continue;
-            }
-
-            let previously_deleted = snapshot_diffs
-                .get(&collection_id)
-                .map(|diff| beatmapset.is_in_snapshot(client_type, &diff.manually_deleted))
-                .unwrap_or(false);
-
-            if previously_deleted {
-                trace!(
-                    beatmapset_id = beatmapset.id,
-                    "marking as previously deleted"
-                );
-            }
-
-            all_missing.push(MissingBeatmapset {
-                id: beatmapset.id,
-                status: MissingStatus::NotInstalled,
-                collection_id,
-                collection_name,
-                selected: !previously_deleted,
-                previously_deleted,
-            });
+        if previously_deleted {
+            trace!(beatmapset_id = beatmapset.id, "marking as previously deleted");
         }
 
-        info!(
-            candidates = beatmapset_ids.len(),
-            available = mirror_result.available.len(),
-            unavailable = mirror_result.unavailable.len(),
-            missing = all_missing.len(),
-            "Filtered missing beatmapsets by mirror availability"
-        );
+        all_missing.push(MissingBeatmapset {
+            id: beatmapset.id,
+            status: MissingStatus::NotInstalled,
+            collection_id,
+            collection_name,
+            selected: !previously_deleted,
+            previously_deleted,
+        });
     }
 
     all_missing.sort_by(|a, b| {
