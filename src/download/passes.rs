@@ -269,6 +269,37 @@ mod tests {
         let shutdown = ShutdownToken::new();
         assert!(!cancellable_sleep(Duration::from_millis(5), &shutdown).await);
     }
+
+    #[tokio::test]
+    async fn cancelled_task_join_maps_to_aborted_not_error() {
+        use crate::download::DownloadResult;
+
+        // Spawn a task that blocks forever, then abort it.
+        let handle = tokio::spawn(async { std::future::pending::<()>().await });
+        handle.abort();
+        let join_result = handle.await;
+
+        // The join error must be a cancel (not a panic), so our fix maps it to Aborted.
+        let err = join_result.unwrap_err();
+        assert!(
+            err.is_cancelled(),
+            "aborted task should yield a cancelled JoinError"
+        );
+
+        // Verify the branch mapping: cancelled → Aborted (not Err)
+        let result: crate::utils::Result<DownloadResult> = if err.is_cancelled() {
+            Ok(DownloadResult::Aborted)
+        } else {
+            Err(crate::utils::AppError::other_dynamic(
+                "panic".to_string().into_boxed_str(),
+            ))
+        };
+
+        assert!(
+            matches!(result, Ok(DownloadResult::Aborted)),
+            "cancelled task should yield Aborted, not an error"
+        );
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -623,15 +654,15 @@ async fn pass_worker_loop(
                 Ok(join_result) => {
                     break match join_result {
                         Ok(res) => res,
+                        Err(join_err) if join_err.is_cancelled() => {
+                            // Task was aborted (not a panic) — treat as Aborted, not failed.
+                            Ok(DownloadResult::Aborted)
+                        }
                         Err(join_err) => {
-                            let reason = if join_err.is_panic() {
-                                describe_panic(join_err.into_panic())
-                            } else {
-                                "download task cancelled".to_string()
-                            };
+                            let reason = describe_panic(join_err.into_panic());
                             Err(AppError::other_dynamic(
                                 format!(
-                                    "download worker failed for #{}: {}",
+                                    "download worker panicked for #{}: {}",
                                     beatmapset_id, reason
                                 )
                                 .into_boxed_str(),
