@@ -400,7 +400,29 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         ));
     }
 
-    let paragraph = Paragraph::new(Line::from(spans)).block(components::panel_block("results"));
+    let lines = vec![
+        Line::from(spans),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu! correctly",
+                Style::default().fg(components::TEXT_MUTED),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "and drop a star while you're at it :3",
+                Style::default().fg(components::TEXT_FAINT),
+            ),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(lines)
+        .block(components::panel_block("results"))
+        .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 
