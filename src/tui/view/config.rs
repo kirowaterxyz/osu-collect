@@ -69,7 +69,8 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         components::spacer(),
         components::section_header("osu! login"),
         auth_status_item(&form.login_state),
-        login_action_item(form),
+        login_entry_item(form),
+        logout_entry_item(form),
         components::spacer(),
         components::section_header("download"),
         components::help_item("defaults used by home and updates downloads"),
@@ -130,15 +131,16 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::MirrorSayobot => 7,
         ConfigField::MirrorNekoha => 8,
         ConfigField::MirrorCustomUrl => 9,
-        ConfigField::LoginAction => 13,
-        ConfigField::DownloadSkipExisting => 15,
-        ConfigField::DownloadThreads => 16,
-        ConfigField::DownloadNoVideo => 17,
-        ConfigField::DownloadVerifyZipEocd => 18,
-        ConfigField::LoggingEnabled => 22,
-        ConfigField::LoggingLevel => 23,
-        ConfigField::LoggingFormat => 24,
-        ConfigField::LoggingDirectory => 25,
+        ConfigField::LoginEntry => 13,
+        ConfigField::LogoutEntry => 14,
+        ConfigField::DownloadSkipExisting => 16,
+        ConfigField::DownloadThreads => 17,
+        ConfigField::DownloadNoVideo => 18,
+        ConfigField::DownloadVerifyZipEocd => 19,
+        ConfigField::LoggingEnabled => 23,
+        ConfigField::LoggingLevel => 24,
+        ConfigField::LoggingFormat => 25,
+        ConfigField::LoggingDirectory => 26,
     };
 
     let inner_block = components::panel_block("config");
@@ -156,8 +158,8 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     frame.render_widget(list, inner);
 }
 
-fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
-    let focused = form.focus == ConfigField::LoginAction;
+fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {
+    let focused = form.focus == ConfigField::LoginEntry;
     let available = crate::auth::bundled_credentials().is_some();
 
     let (label, style) = if !available {
@@ -167,32 +169,14 @@ fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
         )
     } else {
         match &form.login_state {
-            AuthLoginState::LoggedOut => (
-                "l  log in".to_string(),
-                if focused {
-                    Style::default()
-                        .fg(components::TEXT_MUTED)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(components::TEXT_MUTED)
-                },
-            ),
+            AuthLoginState::LoggedOut => ("log in".to_string(), action_style(focused)),
             AuthLoginState::InProgress(_) => (
                 "logging in…".to_string(),
                 Style::default()
                     .fg(components::WARNING)
                     .add_modifier(Modifier::ITALIC),
             ),
-            AuthLoginState::LoggedIn => (
-                "l to re-login  ·  o to log out".to_string(),
-                if focused {
-                    Style::default()
-                        .fg(components::TEXT_MUTED)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(components::TEXT_MUTED)
-                },
-            ),
+            AuthLoginState::LoggedIn => ("re-login".to_string(), action_style(focused)),
         }
     };
 
@@ -200,6 +184,32 @@ fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
         components::focus_span(focused),
         Span::styled(label, style),
     ]))
+}
+
+fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {
+    let focused = form.focus == ConfigField::LogoutEntry;
+    let enabled = matches!(form.login_state, AuthLoginState::LoggedIn);
+
+    let style = if enabled {
+        action_style(focused)
+    } else {
+        Style::default().fg(components::TEXT_FAINT)
+    };
+
+    ListItem::new(Line::from(vec![
+        components::focus_span(focused),
+        Span::styled("log out".to_string(), style),
+    ]))
+}
+
+fn action_style(focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(components::TEXT_MUTED)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(components::TEXT_MUTED)
+    }
 }
 
 fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {

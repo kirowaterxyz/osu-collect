@@ -413,6 +413,13 @@ impl App {
                         UpdatesAction::None | UpdatesAction::RefreshAll => {}
                     }
                 }
+                if self.active_tab() == CONFIG_TAB_INDEX {
+                    match self.config.focus {
+                        ConfigField::LoginEntry => return self.request_login(),
+                        ConfigField::LogoutEntry => return self.request_logout(),
+                        _ => {}
+                    }
+                }
             }
             KeyCode::Char(' ') => match self.active_tab() {
                 HOME_TAB_INDEX => {
@@ -462,12 +469,6 @@ impl App {
                     if !is_ctrl && !focus.is_text_input() {
                         match ch {
                             's' => self.try_save_config(),
-                            'l' if focus == ConfigField::LoginAction => {
-                                return self.request_login();
-                            }
-                            'o' if focus == ConfigField::LoginAction => {
-                                return self.request_logout();
-                            }
                             _ => self.config.handle_char(ch),
                         }
                     } else {

@@ -37,14 +37,11 @@ impl<'a> FooterView<'a> {
                 tick,
             },
             CONFIG_TAB_INDEX => {
-                let hint = if view.config.form.focus == ConfigField::LoginAction {
-                    if view.config.form.auth_loaded {
-                        "l re-login  ·  o log out"
-                    } else {
-                        "l log in"
+                let hint = match view.config.form.focus {
+                    ConfigField::LoginEntry | ConfigField::LogoutEntry => {
+                        "↑↓ move  ·  enter confirm  ·  s save"
                     }
-                } else {
-                    "↑↓ move  ·  space change  ·  s save"
+                    _ => "↑↓ move  ·  space change  ·  s save",
                 };
                 Self {
                     message: view.config.form.message.as_ref(),

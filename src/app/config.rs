@@ -21,7 +21,8 @@ pub enum ConfigField {
     MirrorSayobot,
     MirrorNekoha,
     MirrorCustomUrl,
-    LoginAction,
+    LoginEntry,
+    LogoutEntry,
     DownloadSkipExisting,
     DownloadThreads,
     DownloadNoVideo,
@@ -121,8 +122,9 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => ConfigField::MirrorSayobot,
             ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
             ConfigField::MirrorNekoha => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::LoginAction,
-            ConfigField::LoginAction => ConfigField::DownloadSkipExisting,
+            ConfigField::MirrorCustomUrl => ConfigField::LoginEntry,
+            ConfigField::LoginEntry => ConfigField::LogoutEntry,
+            ConfigField::LogoutEntry => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
             ConfigField::DownloadThreads => ConfigField::DownloadNoVideo,
             ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
@@ -144,8 +146,9 @@ impl ConfigTab {
             ConfigField::MirrorSayobot => ConfigField::MirrorOsuDirect,
             ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
             ConfigField::MirrorCustomUrl => ConfigField::MirrorNekoha,
-            ConfigField::LoginAction => ConfigField::MirrorCustomUrl,
-            ConfigField::DownloadSkipExisting => ConfigField::LoginAction,
+            ConfigField::LoginEntry => ConfigField::MirrorCustomUrl,
+            ConfigField::LogoutEntry => ConfigField::LoginEntry,
+            ConfigField::DownloadSkipExisting => ConfigField::LogoutEntry,
             ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadNoVideo => ConfigField::DownloadThreads,
             ConfigField::LoggingEnabled => ConfigField::DownloadVerifyZipEocd,
@@ -203,7 +206,8 @@ impl ConfigTab {
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
             ConfigField::MirrorCustomUrl
-            | ConfigField::LoginAction
+            | ConfigField::LoginEntry
+            | ConfigField::LogoutEntry
             | ConfigField::DownloadThreads
             | ConfigField::LoggingDirectory => {}
         }
@@ -428,21 +432,25 @@ mod tests {
     }
 
     #[test]
-    fn next_field_cycles_through_login_action() {
+    fn next_field_cycles_through_login_entries() {
         let mut tab = ConfigTab::new(&Config::default());
         tab.focus = ConfigField::MirrorCustomUrl;
         tab.next_field();
-        assert_eq!(tab.focus, ConfigField::LoginAction);
+        assert_eq!(tab.focus, ConfigField::LoginEntry);
+        tab.next_field();
+        assert_eq!(tab.focus, ConfigField::LogoutEntry);
         tab.next_field();
         assert_eq!(tab.focus, ConfigField::DownloadSkipExisting);
     }
 
     #[test]
-    fn prev_field_cycles_through_login_action() {
+    fn prev_field_cycles_through_login_entries() {
         let mut tab = ConfigTab::new(&Config::default());
         tab.focus = ConfigField::DownloadSkipExisting;
         tab.prev_field();
-        assert_eq!(tab.focus, ConfigField::LoginAction);
+        assert_eq!(tab.focus, ConfigField::LogoutEntry);
+        tab.prev_field();
+        assert_eq!(tab.focus, ConfigField::LoginEntry);
         tab.prev_field();
         assert_eq!(tab.focus, ConfigField::MirrorCustomUrl);
     }
@@ -451,7 +459,7 @@ mod tests {
     fn all_fields_form_complete_cycle() {
         let mut tab = ConfigTab::new(&Config::default());
         let start = tab.focus;
-        let total = 17;
+        let total = 18;
         for _ in 0..total {
             tab.next_field();
         }

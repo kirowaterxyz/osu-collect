@@ -244,18 +244,28 @@ fn login_field_is_reachable_via_focus_cycle() {
         state: KeyEventState::empty(),
     };
 
-    // cycle through all fields and check that LoginAction appears
-    let mut found_login_action = false;
+    // cycle through all fields and check that LoginEntry and LogoutEntry appear
+    let mut found_login = false;
+    let mut found_logout = false;
     for _ in 0..25 {
-        if app.config.focus == ConfigField::LoginAction {
-            found_login_action = true;
+        if app.config.focus == ConfigField::LoginEntry {
+            found_login = true;
+        }
+        if app.config.focus == ConfigField::LogoutEntry {
+            found_logout = true;
+        }
+        if found_login && found_logout {
             break;
         }
         app.handle_key(down);
     }
     assert!(
-        found_login_action,
-        "LoginAction field must be reachable via down-arrow navigation"
+        found_login,
+        "LoginEntry field must be reachable via down-arrow navigation"
+    );
+    assert!(
+        found_logout,
+        "LogoutEntry field must be reachable via down-arrow navigation"
     );
 }
 
@@ -265,12 +275,12 @@ fn login_action_row_renders_when_focused() {
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::LoginAction;
+    app.config.focus = ConfigField::LoginEntry;
 
     let output = render_app(&app, 120, 30);
     assert!(
-        output.contains("log in") || output.contains("log out") || output.contains("logging in"),
-        "LoginAction row must render a visible action label"
+        output.contains("log in") || output.contains("re-login") || output.contains("logging in"),
+        "LoginEntry row must render a visible action label"
     );
 }
 

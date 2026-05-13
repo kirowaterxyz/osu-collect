@@ -330,24 +330,19 @@ async fn try_mirror_once(
         )
     });
 
-    let result = match process_mirror_response(
-        mirror,
-        response,
-        beatmapset_id,
-        context,
-        progress_callback,
-    )
-    .await
-    {
-        Ok(res) => res,
-        Err(err) => {
-            return Ok(MirrorAttempt::Definitive(format!(
-                "{} via {}",
-                err,
-                mirror.display_name()
-            )));
-        }
-    };
+    let result =
+        match process_mirror_response(mirror, response, beatmapset_id, context, progress_callback)
+            .await
+        {
+            Ok(res) => res,
+            Err(err) => {
+                return Ok(MirrorAttempt::Definitive(format!(
+                    "{} via {}",
+                    err,
+                    mirror.display_name()
+                )));
+            }
+        };
 
     Ok(MirrorAttempt::Done(result))
 }
