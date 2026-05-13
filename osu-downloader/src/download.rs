@@ -81,6 +81,14 @@ fn extract_filename_from_header(header_value: &str) -> Option<String> {
     None
 }
 
+fn matches_beatmapset_file_name(beatmapset_id: u32, name: &str) -> bool {
+    let Some(rest) = name.strip_prefix(&beatmapset_id.to_string()) else {
+        return false;
+    };
+
+    rest == ".osz" || rest.starts_with(' ') && rest.ends_with(".osz")
+}
+
 /// Download a single beatmapset with mirror fallback.
 ///
 /// Returns the download result and the number of retry attempts made.
@@ -90,15 +98,13 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<Download
 }
 
 async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
-    // Check if any file matching `{id}*.osz` already exists in output_dir
-    let prefix = format!("{}", params.beatmapset_id);
     match tokio::fs::read_dir(params.output_dir).await {
         Ok(mut dir) => loop {
             match dir.next_entry().await {
                 Ok(Some(entry)) => {
                     let name = entry.file_name();
                     let name = name.to_string_lossy();
-                    if name.starts_with(prefix.as_str()) && name.ends_with(".osz") {
+                    if matches_beatmapset_file_name(params.beatmapset_id, &name) {
                         debug!(
                             "beatmapset {} already exists ({}), skipping",
                             params.beatmapset_id, name
@@ -405,6 +411,15 @@ mod tests {
             extract_filename_from_header(header2),
             Some("test file.osz".to_string())
         );
+    }
+
+    #[test]
+    fn matches_exact_beatmapset_file_names() {
+        assert!(matches_beatmapset_file_name(123, "123.osz"));
+        assert!(matches_beatmapset_file_name(123, "123 artist.osz"));
+        assert!(!matches_beatmapset_file_name(123, "1234.osz"));
+        assert!(!matches_beatmapset_file_name(123, "123artist.osz"));
+        assert!(!matches_beatmapset_file_name(123, "123 artist.zip"));
     }
 
     #[test]
