@@ -41,10 +41,10 @@ pub async fn validate_zip_archive(path: &Path) -> Result<()> {
     let mut header_buf = [0u8; 4];
     file.read_exact(&mut header_buf).await?;
     if &header_buf != LOCAL_HEADER_SIGNATURE {
-        return Err(
-            DownloadError::validation_failed("ZIP local file header signature not found at offset 0")
-                .into(),
-        );
+        return Err(DownloadError::validation_failed(
+            "ZIP local file header signature not found at offset 0",
+        )
+        .into());
     }
 
     // Read the tail to find the EOCD record
@@ -57,9 +57,8 @@ pub async fn validate_zip_archive(path: &Path) -> Result<()> {
     file.read_exact(&mut buffer).await?;
 
     task::spawn_blocking(move || {
-        let eocd_pos = find_eocd_position(&buffer).ok_or_else(|| {
-            DownloadError::validation_failed("ZIP EOCD signature not found")
-        })?;
+        let eocd_pos = find_eocd_position(&buffer)
+            .ok_or_else(|| DownloadError::validation_failed("ZIP EOCD signature not found"))?;
 
         // Central directory offset is a u32 at EOCD+16; it must be < file_size.
         let abs_eocd = search_start + eocd_pos as u64;
@@ -94,44 +93,44 @@ fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     fn minimal_zip_bytes() -> Vec<u8> {
         // Minimal valid ZIP: one empty stored file + EOCD.
         // Local file header for empty file named "a"
         let local_header: &[u8] = &[
             0x50, 0x4B, 0x03, 0x04, // local file header sig
-            0x14, 0x00,             // version needed
-            0x00, 0x00,             // flags
-            0x00, 0x00,             // compression (stored)
+            0x14, 0x00, // version needed
+            0x00, 0x00, // flags
+            0x00, 0x00, // compression (stored)
             0x00, 0x00, 0x00, 0x00, // mod time/date
             0x00, 0x00, 0x00, 0x00, // crc32
             0x00, 0x00, 0x00, 0x00, // compressed size
             0x00, 0x00, 0x00, 0x00, // uncompressed size
-            0x01, 0x00,             // filename length = 1
-            0x00, 0x00,             // extra field length
-            b'a',                   // filename
+            0x01, 0x00, // filename length = 1
+            0x00, 0x00, // extra field length
+            b'a', // filename
         ];
         // Central directory header
         let cd_header: &[u8] = &[
             0x50, 0x4B, 0x01, 0x02, // central dir sig
-            0x14, 0x00,             // version made by
-            0x14, 0x00,             // version needed
-            0x00, 0x00,             // flags
-            0x00, 0x00,             // compression
+            0x14, 0x00, // version made by
+            0x14, 0x00, // version needed
+            0x00, 0x00, // flags
+            0x00, 0x00, // compression
             0x00, 0x00, 0x00, 0x00, // mod time/date
             0x00, 0x00, 0x00, 0x00, // crc32
             0x00, 0x00, 0x00, 0x00, // compressed size
             0x00, 0x00, 0x00, 0x00, // uncompressed size
-            0x01, 0x00,             // filename length
-            0x00, 0x00,             // extra field length
-            0x00, 0x00,             // comment length
-            0x00, 0x00,             // disk start
-            0x00, 0x00,             // internal attrs
+            0x01, 0x00, // filename length
+            0x00, 0x00, // extra field length
+            0x00, 0x00, // comment length
+            0x00, 0x00, // disk start
+            0x00, 0x00, // internal attrs
             0x00, 0x00, 0x00, 0x00, // external attrs
             0x00, 0x00, 0x00, 0x00, // local header offset
-            b'a',                   // filename
+            b'a', // filename
         ];
         let local_len = local_header.len() as u32;
         let cd_len = cd_header.len() as u32;
@@ -139,10 +138,10 @@ mod tests {
         let eocd: Vec<u8> = {
             let mut v = vec![
                 0x50, 0x4B, 0x05, 0x06, // EOCD sig
-                0x00, 0x00,             // disk number
-                0x00, 0x00,             // disk with CD
-                0x01, 0x00,             // entries on disk
-                0x01, 0x00,             // total entries
+                0x00, 0x00, // disk number
+                0x00, 0x00, // disk with CD
+                0x01, 0x00, // entries on disk
+                0x01, 0x00, // total entries
             ];
             v.extend_from_slice(&cd_len.to_le_bytes()); // CD size
             v.extend_from_slice(&local_len.to_le_bytes()); // CD offset = after local header

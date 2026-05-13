@@ -61,7 +61,10 @@ mod tests {
         Collection {
             id: 1,
             name: "test".into(),
-            uploader: Uploader { id: 0, username: "".into() },
+            uploader: Uploader {
+                id: 0,
+                username: "".into(),
+            },
             beatmapsets,
         }
     }

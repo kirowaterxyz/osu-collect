@@ -42,7 +42,7 @@ fn download_client_builder(
 pub fn create_api_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .timeout(DEFAULT_API_TIMEOUT)
-        .pool_max_idle_per_host(5)
+        .pool_max_idle_per_host(20)
         .build()?)
 }
 

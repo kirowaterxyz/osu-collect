@@ -155,7 +155,11 @@ async fn download_single_with_events(
 
     let _ = event_tx.send(DownloadEvent::BeatmapsetStarted {
         beatmapset_id,
-        mirror: mirror_pool.plan().first().map(|m| m.kind()).unwrap_or(crate::MirrorKind::Custom),
+        mirror: mirror_pool
+            .plan()
+            .first()
+            .map(|m| m.kind())
+            .unwrap_or(crate::MirrorKind::Custom),
     });
 
     // Progress callback with speed calculation
@@ -337,9 +341,9 @@ mod tests {
             events.push(ev);
         }
 
-        let started_pos = events.iter().position(|e| {
-            matches!(e, DownloadEvent::BeatmapsetStarted { .. })
-        });
+        let started_pos = events
+            .iter()
+            .position(|e| matches!(e, DownloadEvent::BeatmapsetStarted { .. }));
         let ended_pos = events.iter().position(|e| {
             matches!(
                 e,

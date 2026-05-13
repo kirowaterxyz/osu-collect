@@ -397,7 +397,10 @@ mod selective_snapshot_tests {
 
         tracker.mark_verified(2);
 
-        assert!(snapshot_should_save_after_selective_download(&[1, 2], &tracker));
+        assert!(snapshot_should_save_after_selective_download(
+            &[1, 2],
+            &tracker
+        ));
     }
 
     fn collection_db_should_save_after_download(failures: &[(u32, String)]) -> bool {
