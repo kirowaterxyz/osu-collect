@@ -352,25 +352,27 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         return Ok(());
     }
 
-    let collection = target.collection().clone();
-    let output_dir = ctx.output_dir.as_ref().as_path().to_path_buf();
-    let db_result =
-        tokio::task::spawn_blocking(move || create_collection_database(&collection, &output_dir))
-            .await
-            .map_err(|e| {
-                AppError::other_dynamic(format!("spawn_blocking panicked: {e}").into_boxed_str())
-            })
-            .and_then(|r| r);
-    match db_result {
-        Ok(()) => {
-            log_status(&status, id, "collection.db created successfully");
-            info!("collection.db created successfully");
-        }
-        Err(e) => {
-            let message = format!("failed to create collection.db: {e}");
-            log_status(&status, id, message.clone());
-            error!(error = %e, "failed to create collection.db");
-            return Err(DownloadError::internal(message));
+    if failure_report.is_empty() {
+        let collection = target.collection().clone();
+        let output_dir = ctx.output_dir.as_ref().as_path().to_path_buf();
+        let db_result =
+            tokio::task::spawn_blocking(move || create_collection_database(&collection, &output_dir))
+                .await
+                .map_err(|e| {
+                    AppError::other_dynamic(format!("spawn_blocking panicked: {e}").into_boxed_str())
+                })
+                .and_then(|r| r);
+        match db_result {
+            Ok(()) => {
+                log_status(&status, id, "collection.db created successfully");
+                info!("collection.db created successfully");
+            }
+            Err(e) => {
+                let message = format!("failed to create collection.db: {e}");
+                log_status(&status, id, message.clone());
+                error!(error = %e, "failed to create collection.db");
+                return Err(DownloadError::internal(message));
+            }
         }
     }
 

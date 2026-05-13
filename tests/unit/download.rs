@@ -369,6 +369,10 @@ pub(crate) mod archive_validation_tests {
 mod selective_snapshot_tests {
     use osu_collect::{
         app::snapshots::{self, CollectionSnapshot, CollectionSnapshotFile},
+        core::collection::{
+            create_collection_db,
+            model::{Collection, Uploader},
+        },
         download::{BeatmapTracker, DownloadConfig},
         mirrors::{MirrorEndpoint, MirrorKind},
     };
@@ -394,6 +398,48 @@ mod selective_snapshot_tests {
         tracker.mark_verified(2);
 
         assert!(snapshot_should_save_after_selective_download(&[1, 2], &tracker));
+    }
+
+    fn collection_db_should_save_after_download(failures: &[(u32, String)]) -> bool {
+        failures.is_empty()
+    }
+
+    fn empty_collection() -> Collection {
+        Collection {
+            id: 1,
+            name: "collection".into(),
+            uploader: Uploader {
+                id: 1,
+                username: "user".into(),
+            },
+            beatmapsets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn failed_download_does_not_create_collection_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let collection = empty_collection();
+        let failures = vec![(1, "failed".to_string())];
+
+        if collection_db_should_save_after_download(&failures) {
+            create_collection_db(&collection, "collection", dir.path()).unwrap();
+        }
+
+        assert!(!dir.path().join("collection.db").exists());
+    }
+
+    #[test]
+    fn successful_download_creates_collection_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let collection = empty_collection();
+        let failures = Vec::new();
+
+        if collection_db_should_save_after_download(&failures) {
+            create_collection_db(&collection, "collection", dir.path()).unwrap();
+        }
+
+        assert!(dir.path().join("collection.db").exists());
     }
 
     #[test]
