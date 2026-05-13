@@ -184,6 +184,16 @@ impl Mirror {
         self
     }
 
+    pub(crate) fn with_no_video(self, no_video: bool) -> Self {
+        match Self::builtin(self.kind, no_video) {
+            Some(mut mirror) => {
+                mirror.headers = self.headers;
+                mirror
+            }
+            None => self,
+        }
+    }
+
     /// Get HTTP headers attached to this mirror.
     pub fn headers(&self) -> Option<&HeaderMap> {
         self.headers.as_ref()

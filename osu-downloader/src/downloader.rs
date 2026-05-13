@@ -130,7 +130,7 @@ impl DownloaderBuilder {
         let mirrors = self
             .mirrors
             .into_iter()
-            .map(|mirror| Mirror::builtin(mirror.kind(), self.no_video).unwrap_or(mirror))
+            .map(|mirror| mirror.with_no_video(self.no_video))
             .collect();
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -385,6 +385,30 @@ mod tests {
         assert_eq!(
             downloader.mirror_pool.mirrors()[1].url_for(123),
             "https://example.com/d/123"
+        );
+    }
+
+    #[test]
+    fn test_builder_preserves_builtin_headers_with_no_video() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_static("bearer token"),
+        );
+
+        let downloader = Downloader::builder()
+            .mirror(Mirror::nerinyan().with_headers(headers.clone()))
+            .no_video(true)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            downloader.mirror_pool.mirrors()[0].headers(),
+            Some(&headers)
+        );
+        assert_eq!(
+            downloader.mirror_pool.mirrors()[0].url_for(123),
+            "https://api.nerinyan.moe/d/123?nv=1"
         );
     }
 }
