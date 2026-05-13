@@ -19,6 +19,8 @@ const REFRESH_MARGIN_SECS: u64 = 60;
 const OSU_AUTHORIZE_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 const OSU_TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
 const OAUTH_SCOPES: &[&str] = &["public", "identify"];
+const LOGIN_SUCCESS_PAGE: &str = include_str!("pages/login_success.html");
+const LOGIN_FAILURE_PAGE: &str = include_str!("pages/login_failure.html");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
@@ -359,14 +361,14 @@ pub async fn run_login_flow(
     let (code, returned_state) = parse_callback_query(&request_line)?;
 
     let response_body = if returned_state != state {
-        warn!("OAuth state mismatch — possible CSRF");
-        "state mismatch; login failed".to_string()
+        warn!("OAuth state mismatch (possible CSRF): expected {state}, got {returned_state}");
+        LOGIN_FAILURE_PAGE
     } else {
-        "login successful — you may close this tab".to_string()
+        LOGIN_SUCCESS_PAGE
     };
 
     let http_resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         response_body.len(),
         response_body,
     );
