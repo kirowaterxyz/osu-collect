@@ -1,5 +1,5 @@
 use super::{AppView, components};
-use crate::app::{MessageKind, messages::AppMessage};
+use crate::app::{ConfigField, MessageKind, messages::AppMessage};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
@@ -9,34 +9,55 @@ use ratatui::{
     widgets::Paragraph,
 };
 
+// braille spinner frames — 80ms/frame in cloudy-ui terminal spec
+const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 pub struct FooterView<'a> {
     pub message: Option<&'a AppMessage>,
     pub quit_prompt: bool,
     pub hint: &'static str,
+    /// monotonically increasing tick count for spinner animation
+    pub tick: u64,
 }
 
 impl<'a> FooterView<'a> {
     pub fn for_tab(view: &'a AppView<'a>) -> Self {
+        let tick = view.tick_count;
         match view.active_tab {
             HOME_TAB_INDEX => Self {
                 message: view.home.form.message.as_ref(),
                 quit_prompt: view.home.form.quit_prompt,
-                hint: "↑↓ move · space toggle · enter download · q quit",
+                hint: "↑↓ move  ·  space toggle  ·  enter download  ·  tab next  ·  q quit",
+                tick,
             },
             UPDATES_TAB_INDEX => Self {
                 message: view.updates.form.message.as_ref(),
                 quit_prompt: false,
-                hint: "↑↓ move · space open/toggle · a/d all/none · enter download",
+                hint: "↑↓ move  ·  space open/toggle  ·  a/d all/none  ·  enter download",
+                tick,
             },
-            CONFIG_TAB_INDEX => Self {
-                message: view.config.form.message.as_ref(),
-                quit_prompt: view.config.quit_prompt,
-                hint: "↑↓ move · space change · l login · o logout · s save",
-            },
+            CONFIG_TAB_INDEX => {
+                let hint = if view.config.form.focus == ConfigField::LoginAction {
+                    if view.config.form.auth_loaded {
+                        "l re-login  ·  o log out"
+                    } else {
+                        "l log in"
+                    }
+                } else {
+                    "↑↓ move  ·  space change  ·  s save"
+                };
+                Self {
+                    message: view.config.form.message.as_ref(),
+                    quit_prompt: view.config.quit_prompt,
+                    hint,
+                    tick,
+                }
+            }
             _ => Self {
                 message: None,
                 quit_prompt: false,
-                hint: "↑↓ scroll · q quit",
+                hint: "↑↓ scroll  ·  q quit/cancel",
+                tick,
             },
         }
     }
@@ -48,38 +69,64 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
     }
 
     if view.quit_prompt {
-        let line = Line::from(vec![
-            Span::styled(" ! ", Style::default().fg(components::WARNING)),
-            Span::styled(
-                "press q again to quit; downloads will stop.",
-                Style::default().fg(components::TEXT_DIM),
-            ),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" ⚠ ", Style::default().fg(components::WARNING)),
+                Span::styled(
+                    "press q again to quit — active downloads will stop",
+                    Style::default().fg(components::TEXT_DIM),
+                ),
+            ])),
+            area,
+        );
         return;
     }
 
     if let Some(msg) = view.message {
-        let (label, color) = match msg.kind {
-            MessageKind::Info => ("info", components::INFO),
-            MessageKind::Error => ("error", components::DANGER),
-            MessageKind::Loading => ("loading", components::WARNING),
-        };
-        let line = Line::from(vec![
+        let line = build_message_line(msg, view.tick);
+        frame.render_widget(Paragraph::new(line), area);
+        return;
+    }
+
+    frame.render_widget(Paragraph::new(build_hint_line(view.hint)), area);
+}
+
+fn build_message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
+    match msg.kind {
+        MessageKind::Loading => {
+            let spinner_char = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+            Line::from(vec![
+                Span::styled(
+                    format!(" {spinner_char} "),
+                    Style::default()
+                        .fg(components::ACCENT)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    msg.text.trim_start().to_string(),
+                    Style::default().fg(components::TEXT_MUTED),
+                ),
+            ])
+        }
+        MessageKind::Info => Line::from(vec![
             Span::raw(" "),
-            components::status_pill(label, color),
+            components::status_pill("info", components::INFO),
             Span::raw(" "),
             Span::styled(
                 msg.text.trim_start().to_string(),
                 Style::default().fg(components::TEXT_MUTED),
             ),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
-        return;
+        ]),
+        MessageKind::Error => Line::from(vec![
+            Span::raw(" "),
+            components::status_pill("error", components::DANGER),
+            Span::raw(" "),
+            Span::styled(
+                msg.text.trim_start().to_string(),
+                Style::default().fg(components::TEXT_MUTED),
+            ),
+        ]),
     }
-
-    let line = build_hint_line(view.hint);
-    frame.render_widget(Paragraph::new(line), area);
 }
 
 fn build_hint_line(hint: &'static str) -> Line<'static> {
@@ -110,4 +157,29 @@ fn build_hint_line(hint: &'static str) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spinner_wraps_correctly() {
+        // all 10 frames accessible without panic
+        for tick in 0u64..30 {
+            let frame = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+            assert!(SPINNER_FRAMES.contains(&frame));
+        }
+    }
+
+    #[test]
+    fn hint_line_has_key_and_label_spans() {
+        let line = build_hint_line("↑↓ move  ·  q quit");
+        // should produce spans including the key characters
+        let full: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(full.contains("↑↓"));
+        assert!(full.contains("move"));
+        assert!(full.contains("q"));
+        assert!(full.contains("quit"));
+    }
 }

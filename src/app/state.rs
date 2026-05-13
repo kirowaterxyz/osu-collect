@@ -1,9 +1,10 @@
 use super::{
     collection::{CollectionPage, ThreadStatusLine},
     collection_state::{self, CollectionStateFile},
-    config::ConfigTab,
+    config::{AuthLoginState, ConfigField, ConfigTab},
     home::{HomeField, HomeTab},
-    updates::{UpdatesAction, UpdatesTab},
+    snapshots,
+    updates::{UpdatesAction, UpdatesTab, extract_collection_id_pub},
 };
 use crate::{
     config::{
@@ -29,6 +30,7 @@ pub struct App {
     pub collection_state: CollectionStateFile,
     pub collection_state_path: Option<PathBuf>,
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
+    pub tick_count: u64,
     next_download_id: DownloadId,
     config_service: ConfigService,
 }
@@ -71,6 +73,7 @@ impl App {
             collection_state: coll_state,
             collection_state_path: state_path,
             scan_handle: None,
+            tick_count: 0,
             next_download_id: 1,
             config_service: ConfigService::new(),
         }
@@ -152,6 +155,10 @@ impl App {
     }
 
     fn request_login(&mut self) -> Option<AppCommand> {
+        if matches!(self.config.login_state, AuthLoginState::InProgress(_)) {
+            return None;
+        }
+
         let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
             self.config
                 .set_error("login unavailable — build without credentials");
@@ -164,9 +171,18 @@ impl App {
         })
     }
 
-    fn request_logout(&mut self) -> AppCommand {
-        self.config.set_loading("logging out...");
-        AppCommand::Logout
+    fn request_logout(&mut self) -> Option<AppCommand> {
+        match self.config.login_state {
+            AuthLoginState::LoggedIn => {
+                self.config.set_loading("logging out...");
+                Some(AppCommand::Logout)
+            }
+            AuthLoginState::LoggedOut => {
+                self.config.set_info("already logged out");
+                None
+            }
+            AuthLoginState::InProgress(_) => None,
+        }
     }
 
     fn total_tabs(&self) -> usize {
@@ -272,16 +288,41 @@ impl App {
             max_retries: self.home.resolved_retries(),
         };
 
+        let beatmapsets: Vec<_> = self
+            .updates
+            .scan
+            .local_beatmapsets
+            .values()
+            .cloned()
+            .collect();
+        let current_snapshots = snapshots::current_snapshots(
+            self.updates.path.client_type,
+            &self.updates.scan.local_collections_raw,
+            &beatmapsets,
+            |name| extract_collection_id_pub(name).and_then(|id| u32::try_from(id).ok()),
+        );
+        let snapshots = collection_ids
+            .iter()
+            .filter_map(|collection_id| current_snapshots.get(collection_id).cloned())
+            .collect();
+
         let request = SelectiveDownloadRequest {
             collection_ids,
             beatmapset_ids,
             config,
+            snapshot_dir: snapshots::snapshots_dir(),
+            snapshots,
         };
 
         Some((id, request))
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<AppCommand> {
+        // ctrl+c always quits unconditionally
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            return Some(AppCommand::Quit);
+        }
+
         let is_quit_key = matches!(key.code, KeyCode::Char('q') | KeyCode::Esc);
         if self.home.quit_prompt && !is_quit_key {
             self.home.quit_prompt = false;
@@ -309,8 +350,20 @@ impl App {
                     return Some(cmd);
                 }
             }
-            KeyCode::Tab => self.focus_next_field(),
-            KeyCode::BackTab => self.focus_prev_field(),
+            KeyCode::Tab => {
+                if !self.updates_list_open()
+                    && let Some(cmd) = self.next_tab()
+                {
+                    return Some(cmd);
+                }
+            }
+            KeyCode::BackTab => {
+                if !self.updates_list_open()
+                    && let Some(cmd) = self.prev_tab()
+                {
+                    return Some(cmd);
+                }
+            }
             KeyCode::Up => {
                 if self.active_tab() == UPDATES_TAB_INDEX
                     && (self.updates.selection.in_collection_list
@@ -392,8 +445,12 @@ impl App {
                     if !is_ctrl && !focus.is_text_input() {
                         match ch {
                             's' => self.try_save_config(),
-                            'l' => return self.request_login(),
-                            'o' => return Some(self.request_logout()),
+                            'l' if focus == ConfigField::LoginAction => {
+                                return self.request_login();
+                            }
+                            'o' if focus == ConfigField::LoginAction => {
+                                return self.request_logout();
+                            }
                             _ => self.config.handle_char(ch),
                         }
                     } else {
@@ -418,6 +475,7 @@ impl App {
         self.home.clear_expired_message();
         self.updates.clear_expired_message();
         self.config.clear_expired_message();
+        self.tick_count = self.tick_count.wrapping_add(1);
     }
 
     pub fn handle_download_event(&mut self, event: DownloadEvent) {
