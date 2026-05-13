@@ -95,6 +95,33 @@ pub struct DownloadStreamResult {
     pub temp_path: PathBuf,
 }
 
+/// Best-effort cleanup guard: ensures the temp file is removed from disk
+/// when this guard is dropped while armed. Critical when a tokio task is
+/// forcefully aborted mid-download, because no `await` past the abort point
+/// runs — only Drop does.
+struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 pub async fn download_with_streaming(
     response: reqwest::Response,
     output_path: &Path,
@@ -109,6 +136,7 @@ pub async fn download_with_streaming(
         .create_new(true)
         .open(&temp_path)
         .await?;
+    let mut guard = TempFileGuard::new(temp_path.clone());
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
     let total = content_length.unwrap_or(0);
@@ -232,6 +260,9 @@ pub async fn download_with_streaming(
         Some(worker) => Some(worker.finalize().await?),
         None => None,
     };
+
+    // success path — temp file will be renamed by the caller, so don't delete it.
+    guard.disarm();
 
     Ok(DownloadStreamResult {
         aborted: false,
@@ -370,4 +401,41 @@ async fn handle_invalid(
         }
     }
     Ok(ArchiveValidationResult::Invalid(reason.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_file_guard_removes_on_drop_when_armed() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "osu-collect-test-{}-{}.part",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"hello").unwrap();
+        {
+            let _guard = TempFileGuard::new(path.clone());
+        }
+        assert!(!path.exists(), "guard must remove file when dropped armed");
+    }
+
+    #[test]
+    fn temp_file_guard_keeps_file_when_disarmed() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "osu-collect-test-{}-{}.part",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"hello").unwrap();
+        {
+            let mut guard = TempFileGuard::new(path.clone());
+            guard.disarm();
+        }
+        assert!(path.exists(), "disarmed guard must not remove the file");
+        std::fs::remove_file(&path).unwrap();
+    }
 }
