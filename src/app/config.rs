@@ -1,7 +1,7 @@
 use super::{home::InputField, messages::AppMessage};
 use crate::config::{
     Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
-    constants::{DEFAULT_RETRIES, DEFAULT_THREADS, LOG_FORMATS, LOG_LEVELS},
+    constants::{DEFAULT_THREADS, LOG_FORMATS, LOG_LEVELS},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +24,6 @@ pub enum ConfigField {
     LoginAction,
     DownloadSkipExisting,
     DownloadThreads,
-    DownloadRetries,
     DownloadNoVideo,
     DownloadVerifyZipEocd,
     LoggingEnabled,
@@ -39,7 +38,6 @@ impl ConfigField {
             self,
             ConfigField::MirrorCustomUrl
                 | ConfigField::DownloadThreads
-                | ConfigField::DownloadRetries
                 | ConfigField::LoggingDirectory
         )
     }
@@ -58,7 +56,6 @@ pub struct ConfigTab {
     pub login_state: AuthLoginState,
     pub skip_existing: bool,
     pub threads: InputField,
-    pub retries: InputField,
     pub no_video: bool,
     pub verify_zip_eocd: bool,
     pub logging_enabled: bool,
@@ -100,15 +97,6 @@ impl ConfigTab {
                     .unwrap_or_default(),
                 placeholder: format!("leave blank (default {})", DEFAULT_THREADS),
             },
-            retries: InputField {
-                label: "Download retries",
-                value: config
-                    .download
-                    .max_retries
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-                placeholder: DEFAULT_RETRIES.to_string(),
-            },
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
             logging_enabled: config.logging.enabled,
@@ -136,8 +124,7 @@ impl ConfigTab {
             ConfigField::MirrorCustomUrl => ConfigField::LoginAction,
             ConfigField::LoginAction => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
-            ConfigField::DownloadThreads => ConfigField::DownloadRetries,
-            ConfigField::DownloadRetries => ConfigField::DownloadNoVideo,
+            ConfigField::DownloadThreads => ConfigField::DownloadNoVideo,
             ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
             ConfigField::DownloadVerifyZipEocd => ConfigField::LoggingEnabled,
             ConfigField::LoggingEnabled => ConfigField::LoggingLevel,
@@ -160,8 +147,7 @@ impl ConfigTab {
             ConfigField::LoginAction => ConfigField::MirrorCustomUrl,
             ConfigField::DownloadSkipExisting => ConfigField::LoginAction,
             ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadRetries => ConfigField::DownloadThreads,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadRetries,
+            ConfigField::DownloadNoVideo => ConfigField::DownloadThreads,
             ConfigField::LoggingEnabled => ConfigField::DownloadVerifyZipEocd,
             ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
             ConfigField::LoggingLevel => ConfigField::LoggingEnabled,
@@ -177,9 +163,6 @@ impl ConfigTab {
             ConfigField::DownloadThreads if ch.is_ascii_digit() => {
                 self.threads.value.push(ch);
             }
-            ConfigField::DownloadRetries if ch.is_ascii_digit() => {
-                self.retries.value.push(ch);
-            }
             ConfigField::LoggingDirectory => self.logging_dir.value.push(ch),
             _ => {}
         }
@@ -193,9 +176,6 @@ impl ConfigTab {
             }
             ConfigField::DownloadThreads => {
                 self.threads.value.pop();
-            }
-            ConfigField::DownloadRetries => {
-                self.retries.value.pop();
             }
             ConfigField::LoggingDirectory => {
                 self.logging_dir.value.pop();
@@ -225,7 +205,6 @@ impl ConfigTab {
             ConfigField::MirrorCustomUrl
             | ConfigField::LoginAction
             | ConfigField::DownloadThreads
-            | ConfigField::DownloadRetries
             | ConfigField::LoggingDirectory => {}
         }
     }
@@ -259,7 +238,6 @@ impl ConfigTab {
             concurrent,
             no_video: self.no_video,
             verify_zip_eocd: self.verify_zip_eocd,
-            max_retries: self.parse_retries()?,
         };
 
         let logging = LoggingConfig {
@@ -328,22 +306,6 @@ impl ConfigTab {
             .map_err(|_| "Thread count must be a valid number between 1 and 50".to_string())?;
         if value == 0 || value > 50 {
             return Err("Thread count must be between 1 and 50".to_string());
-        }
-
-        Ok(Some(value))
-    }
-
-    fn parse_retries(&self) -> Result<Option<u8>, String> {
-        let trimmed = self.retries.value.trim();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-
-        let value = trimmed
-            .parse::<u8>()
-            .map_err(|_| "Download retries must be a number between 1 and 10".to_string())?;
-        if !(1..=10).contains(&value) {
-            return Err("Download retries must be between 1 and 10".to_string());
         }
 
         Ok(Some(value))
@@ -489,7 +451,7 @@ mod tests {
     fn all_fields_form_complete_cycle() {
         let mut tab = ConfigTab::new(&Config::default());
         let start = tab.focus;
-        let total = 18; // 17 original + 1 LoginAction
+        let total = 17;
         for _ in 0..total {
             tab.next_field();
         }

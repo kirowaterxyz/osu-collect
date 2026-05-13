@@ -43,7 +43,6 @@ pub struct DownloadConfig {
     pub no_video: bool,
     #[serde(default)]
     pub verify_zip_eocd: bool,
-    pub max_retries: Option<u8>,
 }
 
 impl Default for DownloadConfig {
@@ -53,7 +52,6 @@ impl Default for DownloadConfig {
             concurrent: None,
             no_video: false,
             verify_zip_eocd: false,
-            max_retries: None,
         }
     }
 }
@@ -131,11 +129,6 @@ impl DownloadConfig {
     pub fn resolved_concurrent(&self) -> u8 {
         self.concurrent.unwrap_or(super::constants::DEFAULT_THREADS)
     }
-
-    pub fn resolved_max_retries(&self) -> u8 {
-        self.max_retries
-            .unwrap_or(super::constants::DEFAULT_RETRIES)
-    }
 }
 
 impl Default for LoggingConfig {
@@ -180,16 +173,6 @@ impl Config {
             return Err(AppError::config(
                 "logging.file_dir cannot be empty when logging is enabled",
             ));
-        }
-
-        if let Some(retries) = self.download.max_retries {
-            if retries == 0 {
-                return Err(AppError::config("download.max_retries must be at least 1"));
-            }
-
-            if retries > 10 {
-                warn!(retries, "Max retries is high; this may cause long runtimes");
-            }
         }
 
         Ok(())

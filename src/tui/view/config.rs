@@ -80,7 +80,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.focus == ConfigField::DownloadSkipExisting,
         ),
         components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
-        components::input_item(&form.retries, form.focus == ConfigField::DownloadRetries),
         components::row_item(
             "skip videos",
             Some("smaller downloads"),
@@ -95,7 +94,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ),
         components::summary_item(&[
             components::Metric::accent("threads", configured_or_default(&form.threads.value)),
-            components::Metric::muted("retries", configured_or_default(&form.retries.value)),
             components::Metric::muted("default", DEFAULT_THREADS.to_string()),
         ]),
         components::spacer(),
@@ -135,13 +133,12 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::LoginAction => 13,
         ConfigField::DownloadSkipExisting => 15,
         ConfigField::DownloadThreads => 16,
-        ConfigField::DownloadRetries => 17,
-        ConfigField::DownloadNoVideo => 18,
-        ConfigField::DownloadVerifyZipEocd => 19,
-        ConfigField::LoggingEnabled => 23,
-        ConfigField::LoggingLevel => 24,
-        ConfigField::LoggingFormat => 25,
-        ConfigField::LoggingDirectory => 26,
+        ConfigField::DownloadNoVideo => 17,
+        ConfigField::DownloadVerifyZipEocd => 18,
+        ConfigField::LoggingEnabled => 22,
+        ConfigField::LoggingLevel => 23,
+        ConfigField::LoggingFormat => 24,
+        ConfigField::LoggingDirectory => 25,
     };
 
     let inner_block = components::panel_block("config");

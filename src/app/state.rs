@@ -286,7 +286,6 @@ impl App {
             mirrors,
             concurrent,
             verify_zip_eocd: self.home.verify_zip_eocd,
-            max_retries: self.home.resolved_retries(),
         };
 
         let beatmapsets: Vec<_> = self

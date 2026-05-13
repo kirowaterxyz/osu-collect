@@ -89,7 +89,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         components::summary_item(&[
             components::Metric::accent("threads", form.resolved_threads().to_string()),
             components::Metric::accent("mirrors", form.build_mirrors().len().to_string()),
-            components::Metric::muted("retries", form.resolved_retries().to_string()),
         ]),
     ];
 

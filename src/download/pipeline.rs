@@ -1,7 +1,7 @@
 use super::{
-    BeatmapStage, CleanupTracker, DownloadConfig, DownloadError, DownloadEvent, DownloadHandle,
-    DownloadId, DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadRequest,
-    ShutdownToken, http_client,
+    CleanupTracker, DownloadConfig, DownloadError, DownloadEvent, DownloadHandle, DownloadId,
+    DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadRequest, ShutdownToken,
+    http_client,
     lock::ActiveDownloadRegistry,
     passes::{FailureReport, PassCoordinator},
     session::{DownloadSession, PipelineFlavor, PrepareCollectionParams, PrepareSelectiveParams},
@@ -19,7 +19,6 @@ use crate::{
 };
 use dashmap::DashSet;
 use std::{
-    collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
@@ -136,7 +135,6 @@ struct RunDownloadCoreParams {
     shutdown: ShutdownToken,
     mirrors: Vec<MirrorEndpoint>,
     concurrent: u8,
-    max_retries: u8,
     skip_existing: bool,
     auto_overwrite: bool,
     verify_zip_eocd: bool,
@@ -146,7 +144,6 @@ struct RunDownloadCoreParams {
 struct BuildContextParams {
     id: DownloadId,
     thread_count: usize,
-    max_retries: u8,
     skip_existing: bool,
     auto_overwrite: bool,
     verify_zip_eocd: bool,
@@ -169,7 +166,6 @@ fn build_download_context(params: BuildContextParams) -> Result<DownloadContext,
         skip_existing: params.skip_existing,
         auto_overwrite: params.auto_overwrite,
         verify_zip_eocd: params.verify_zip_eocd,
-        max_retries: params.max_retries,
         shutdown: params.shutdown,
         client: params.client,
         mirror_pool: MirrorPool::new(params.mirrors.into_iter().map(|m| m.to_mirror()).collect()),
@@ -181,88 +177,43 @@ fn build_download_context(params: BuildContextParams) -> Result<DownloadContext,
     }))
 }
 
-async fn run_download_loop(
+async fn run_download_pass(
     ctx: &DownloadContext,
     totals: &mut DownloadSummary,
     log_prefix: &str,
 ) -> FailureReport {
     let mut final_failures = FailureReport::default();
-    let mut attempts: HashMap<u32, u8> = HashMap::new();
-    let mut pass_index: u32 = 1;
-    let max_attempts = ctx.max_retries;
 
-    loop {
-        if ctx.shutdown.is_cancelled() {
-            break;
-        }
+    if ctx.shutdown.is_cancelled() {
+        return final_failures;
+    }
 
-        let pending = ctx.tracker.pending_snapshot();
-        if pending.is_empty() {
-            break;
-        }
+    let pending = ctx.tracker.pending_snapshot();
+    if pending.is_empty() {
+        return final_failures;
+    }
 
-        info!(
-            download_id = ctx.id,
-            remaining = pending.len(),
-            pass = pass_index,
-            thread_count = ctx.thread_count,
-            "{} download pass",
-            log_prefix
-        );
+    info!(
+        download_id = ctx.id,
+        remaining = pending.len(),
+        thread_count = ctx.thread_count,
+        "{} download pass",
+        log_prefix
+    );
 
-        let pass_outcome = PassCoordinator::new(ctx.clone(), totals).run(pending).await;
+    let pass_outcome = PassCoordinator::new(ctx.clone(), totals).run(pending).await;
 
-        if pass_outcome.aborted {
-            warn!("{} aborted during pass", log_prefix);
-            for (beatmapset_id, reason) in pass_outcome.failures.beatmaps() {
-                final_failures.record_error(*beatmapset_id, reason.clone());
-            }
-            break;
-        } else if let Some(summary) = pass_outcome.failures.describe_top_failure() {
-            ctx.emit(DownloadEvent::Log {
-                id: ctx.id,
-                message: format!("Most common failure this pass: {}", summary),
-            });
-        }
+    if pass_outcome.aborted {
+        warn!("{} aborted during pass", log_prefix);
+    } else if let Some(summary) = pass_outcome.failures.describe_top_failure() {
+        ctx.emit(DownloadEvent::Log {
+            id: ctx.id,
+            message: format!("Most common failure: {}", summary),
+        });
+    }
 
-        if pass_outcome.failures.is_empty() {
-            pass_index = pass_index.saturating_add(1);
-            continue;
-        }
-
-        for (beatmapset_id, reason) in pass_outcome.failures.beatmaps() {
-            if ctx.shutdown.is_cancelled() {
-                final_failures.record_error(*beatmapset_id, reason.clone());
-                continue;
-            }
-
-            let attempt_entry = attempts.entry(*beatmapset_id).or_insert(0);
-            let can_retry = *attempt_entry < max_attempts;
-
-            if can_retry && ctx.tracker.mark_pending(*beatmapset_id) {
-                *attempt_entry += 1;
-                totals.failed = totals.failed.saturating_sub(1);
-                let attempt_label = *attempt_entry;
-                ctx.emit(DownloadEvent::BeatmapStatus {
-                    id: ctx.id,
-                    beatmapset_id: *beatmapset_id,
-                    stage: BeatmapStage::Pending,
-                    message: format!("Retrying download ({}/{})", attempt_label, max_attempts),
-                });
-                ctx.emit(DownloadEvent::Log {
-                    id: ctx.id,
-                    message: format!(
-                        "Retrying #{} ({}/{}) after: {}",
-                        beatmapset_id, attempt_label, max_attempts, reason
-                    ),
-                });
-                continue;
-            }
-
-            final_failures.record_error(*beatmapset_id, reason.clone());
-        }
-
-        pass_index = pass_index.saturating_add(1);
+    for (beatmapset_id, reason) in pass_outcome.failures.beatmaps() {
+        final_failures.record_error(*beatmapset_id, reason.clone());
     }
 
     final_failures
@@ -274,7 +225,6 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         shutdown,
         mirrors,
         concurrent,
-        max_retries,
         skip_existing,
         auto_overwrite,
         verify_zip_eocd,
@@ -320,7 +270,6 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     let ctx = build_download_context(BuildContextParams {
         id,
         thread_count,
-        max_retries,
         skip_existing,
         auto_overwrite,
         verify_zip_eocd,
@@ -333,7 +282,7 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         status: status.clone(),
     })?;
 
-    let failure_report = run_download_loop(&ctx, &mut totals, flavor.log_prefix).await;
+    let failure_report = run_download_pass(&ctx, &mut totals, flavor.log_prefix).await;
     ctx.tracker.clear_validation_cache();
 
     if abort_if_shutdown(
@@ -539,7 +488,6 @@ async fn run_download(
         mirrors,
         concurrent,
         verify_zip_eocd,
-        max_retries,
         ..
     } = config;
 
@@ -578,7 +526,6 @@ async fn run_download(
         shutdown,
         mirrors,
         concurrent,
-        max_retries,
         skip_existing,
         auto_overwrite,
         verify_zip_eocd,
@@ -605,7 +552,6 @@ async fn run_selective_download(
         mirrors,
         concurrent,
         verify_zip_eocd,
-        max_retries,
         ..
     } = config;
 
@@ -649,7 +595,6 @@ async fn run_selective_download(
         shutdown,
         mirrors,
         concurrent,
-        max_retries,
         skip_existing: true,
         auto_overwrite: false,
         verify_zip_eocd,

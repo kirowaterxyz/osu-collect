@@ -64,7 +64,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
     let mut items = vec![
         client_toggle(form),
         osu_path_item(form),
-        components::help_item("uses home download settings: mirrors, threads, retries, videos"),
+        components::help_item("uses home download settings: mirrors, threads, videos"),
         collections_header(form),
     ];
 

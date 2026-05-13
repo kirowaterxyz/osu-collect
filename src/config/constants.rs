@@ -25,7 +25,11 @@ pub const DEFAULT_PROGRESS_WATCHDOG_SECS: u64 = 120;
 pub const COLLECTION_FETCH_TIMEOUT_SECS: u64 = 30;
 
 pub const DEFAULT_THREADS: u8 = 3;
-pub const DEFAULT_RETRIES: u8 = 1;
+
+/// Number of transient-error retry attempts per mirror inside a single download attempt.
+pub const TRANSIENT_RETRY_ATTEMPTS: u8 = 3;
+/// Base delay between transient retries (doubles each attempt).
+pub const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(800);
 
 pub const CONFIG_SUBDIR: &str = "osu-collect";
 pub const CONFIG_FILE: &str = "config.toml";

@@ -469,7 +469,6 @@ mod selective_snapshot_tests {
                 }],
                 concurrent: 1,
                 verify_zip_eocd: false,
-                max_retries: 0,
             },
             snapshot_dir: Some(snapshot_dir.clone()),
             snapshots: vec![snapshot.clone()],

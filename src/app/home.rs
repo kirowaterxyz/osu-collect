@@ -61,7 +61,6 @@ pub struct HomeTab {
     pub message: Option<AppMessage>,
     pub quit_prompt: bool,
     default_threads: u8,
-    default_retries: u8,
     default_directory: String,
 }
 
@@ -100,7 +99,6 @@ impl HomeTab {
             .concurrent
             .map(|value| value.to_string())
             .unwrap_or_default();
-        let default_retries = config.download.resolved_max_retries();
 
         Self {
             collection: InputField {
@@ -138,7 +136,6 @@ impl HomeTab {
             message: None,
             quit_prompt: false,
             default_threads,
-            default_retries,
             default_directory,
         }
     }
@@ -346,7 +343,6 @@ impl HomeTab {
             mirrors,
             concurrent: threads_value,
             verify_zip_eocd: self.verify_zip_eocd,
-            max_retries: self.default_retries,
         };
 
         Ok(DownloadRequest {
@@ -367,10 +363,6 @@ impl HomeTab {
         } else {
             parse_thread_count(&self.threads.value).unwrap_or(self.default_threads)
         }
-    }
-
-    pub fn resolved_retries(&self) -> u8 {
-        self.default_retries
     }
 }
 

@@ -96,7 +96,6 @@ pub struct DownloadConfig {
     pub mirrors: Vec<MirrorEndpoint>,
     pub concurrent: u8,
     pub verify_zip_eocd: bool,
-    pub max_retries: u8,
 }
 
 #[derive(Debug, Clone)]
