@@ -48,7 +48,7 @@ impl MirrorPool {
             }
         }
 
-        if !cooling.is_empty() {
+        if ready.is_empty() && !cooling.is_empty() {
             cooling.sort_by_key(|(_, until)| *until);
             ready.extend(cooling.into_iter().map(|(m, _)| m));
         }
@@ -133,16 +133,15 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_puts_cooling_mirrors_at_tail() {
+    fn test_plan_excludes_cooling_mirrors_when_ready_exists() {
         let mirrors = vec![Mirror::nerinyan(), Mirror::osu_direct()];
         let pool = MirrorPool::new(mirrors);
 
         pool.mark_rate_limited(MirrorKind::Nerinyan);
 
         let plan = pool.plan();
-        assert_eq!(plan.len(), 2);
+        assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].kind(), MirrorKind::OsuDirect);
-        assert_eq!(plan[1].kind(), MirrorKind::Nerinyan);
     }
 
     #[test]
