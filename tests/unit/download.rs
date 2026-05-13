@@ -208,9 +208,29 @@ pub(crate) mod archive_validation_tests {
     use osu_collect::worker::io::{
         ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
     };
+    use std::path::Path;
 
     fn cleanup_temp_file(path: &std::path::Path) {
         let _ = std::fs::remove_file(path);
+    }
+
+    fn extract_test_id(path: &Path) -> Option<u32> {
+        let filename = path.file_stem()?.to_str()?;
+        let mut chars = filename.chars().peekable();
+        let mut id = String::new();
+
+        while let Some(ch) = chars.next_if(|ch| ch.is_ascii_digit()) {
+            id.push(ch);
+        }
+
+        if id.is_empty() {
+            return None;
+        }
+
+        match chars.peek() {
+            None | Some(' ') => id.parse().ok(),
+            _ => None,
+        }
     }
 
     #[tokio::test]
@@ -251,6 +271,42 @@ pub(crate) mod archive_validation_tests {
         cleanup_temp_file(&path);
 
         assert!(matches!(result, ArchiveValidationResult::Invalid(_)));
+    }
+
+    #[tokio::test]
+    async fn test_validate_archive_rejects_corrupt_non_empty_file() {
+        let path = create_temp_file(b"not a zip");
+        let opts = ArchiveValidationOptions {
+            verify_zip_eocd: false,
+            remove_on_invalid: false,
+        };
+
+        let result = validate_archive(&path, opts).await.unwrap();
+        cleanup_temp_file(&path);
+
+        assert!(matches!(result, ArchiveValidationResult::Invalid(_)));
+    }
+
+    #[tokio::test]
+    async fn test_validate_archive_accepts_valid_zip_without_full_integrity() {
+        let path = create_temp_file(&minimal_zip_bytes());
+        let opts = ArchiveValidationOptions {
+            verify_zip_eocd: false,
+            remove_on_invalid: false,
+        };
+
+        let result = validate_archive(&path, opts).await.unwrap();
+        cleanup_temp_file(&path);
+
+        assert!(matches!(result, ArchiveValidationResult::Valid));
+    }
+
+    #[test]
+    fn test_precheck_filename_matching_is_exact() {
+        assert_eq!(extract_test_id(Path::new("123.osz")), Some(123));
+        assert_eq!(extract_test_id(Path::new("123 artist.osz")), Some(123));
+        assert_eq!(extract_test_id(Path::new("1234.osz")), Some(1234));
+        assert_eq!(extract_test_id(Path::new("123abc.osz")), None);
     }
 
     #[tokio::test]

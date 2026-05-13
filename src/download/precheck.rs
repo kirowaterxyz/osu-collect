@@ -132,32 +132,21 @@ pub(crate) async fn verify_existing_beatmapsets(
                 let mut validation_error = None;
                 let mut file_size = 0u64;
 
-                if options.verify_integrity {
-                    match validate_archive(&path, opts).await {
-                        Ok(ArchiveValidationResult::Valid) => {
-                            if let Ok(meta) = fs::metadata(&path).await {
-                                file_size = meta.len();
-                            }
-                        }
-                        Ok(ArchiveValidationResult::NotFound) => {
-                            return Ok(None);
-                        }
-                        Ok(ArchiveValidationResult::Invalid(reason))
-                        | Ok(ArchiveValidationResult::Removed(reason)) => {
-                            validation_error = Some(reason);
-                        }
-                        Err(e) => {
-                            return Err((path.clone(), e.to_string()));
+                match validate_archive(&path, opts).await {
+                    Ok(ArchiveValidationResult::Valid) => {
+                        if let Ok(meta) = fs::metadata(&path).await {
+                            file_size = meta.len();
                         }
                     }
-                } else {
-                    let metadata = fs::metadata(&path)
-                        .await
-                        .map_err(|e| (path.clone(), format!("Failed to read metadata: {}", e)))?;
-                    file_size = metadata.len();
-                    if file_size == 0 {
-                        debug!(file = %path.display(), beatmapset_id, "Skipping empty file");
+                    Ok(ArchiveValidationResult::NotFound) => {
                         return Ok(None);
+                    }
+                    Ok(ArchiveValidationResult::Invalid(reason))
+                    | Ok(ArchiveValidationResult::Removed(reason)) => {
+                        validation_error = Some(reason);
+                    }
+                    Err(e) => {
+                        return Err((path.clone(), e.to_string()));
                     }
                 }
 
@@ -403,10 +392,46 @@ fn is_osz_extension(ext: &OsStr) -> bool {
 }
 
 #[inline]
-fn extract_beatmapset_id_from_filename(path: &Path) -> Option<u32> {
+pub(crate) fn extract_beatmapset_id_from_filename(path: &Path) -> Option<u32> {
     let filename = path.file_stem()?.to_str()?;
+    let mut chars = filename.chars().peekable();
+    let mut id = String::new();
 
-    // Filename format is typically "{id}" or "{id} artist - title"
-    let id_part = filename.split_whitespace().next()?;
-    id_part.parse().ok()
+    while let Some(ch) = chars.next_if(|ch| ch.is_ascii_digit()) {
+        id.push(ch);
+    }
+
+    if id.is_empty() {
+        return None;
+    }
+
+    match chars.peek() {
+        None | Some(' ') => id.parse().ok(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_exact_prefixed_beatmapset_ids() {
+        assert_eq!(
+            extract_beatmapset_id_from_filename(Path::new("123.osz")),
+            Some(123)
+        );
+        assert_eq!(
+            extract_beatmapset_id_from_filename(Path::new("123 artist.osz")),
+            Some(123)
+        );
+        assert_eq!(
+            extract_beatmapset_id_from_filename(Path::new("1234.osz")),
+            Some(1234)
+        );
+        assert_eq!(
+            extract_beatmapset_id_from_filename(Path::new("123abc.osz")),
+            None
+        );
+    }
 }
