@@ -33,7 +33,7 @@ impl<'a> FooterView<'a> {
             UPDATES_TAB_INDEX => Self {
                 message: view.updates.form.message.as_ref(),
                 quit_prompt: false,
-                hint: "↑↓ move  ·  space open/toggle  ·  a/d all/none  ·  enter download",
+                hint: "↑↓ move  ·  space open/toggle  ·  r recheck failed  ·  enter download",
                 tick,
             },
             CONFIG_TAB_INDEX => {

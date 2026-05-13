@@ -11,6 +11,7 @@ pub enum UpdatesField {
     OsuPath,
     Collections,
     BeatmapList,
+    RecheckFailedMaps,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub enum UpdatesAction {
     None,
     Download,
     RefreshAll,
+    RecheckFailedMaps,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -98,6 +100,7 @@ pub struct ScanState {
     pub all_local_checksums: HashSet<String>,
     pub scan_status: ScanStatus,
     pub scan_generation: u64,
+    pub failed_beatmapset_count: usize,
 }
 
 impl ScanState {
@@ -108,6 +111,7 @@ impl ScanState {
             all_local_checksums: HashSet::new(),
             scan_status: ScanStatus::Idle,
             scan_generation: 0,
+            failed_beatmapset_count: 0,
         }
     }
 }
@@ -168,7 +172,8 @@ impl UpdatesTab {
             UpdatesField::ClientType => UpdatesField::OsuPath,
             UpdatesField::OsuPath => UpdatesField::Collections,
             UpdatesField::Collections => UpdatesField::BeatmapList,
-            UpdatesField::BeatmapList => UpdatesField::ClientType,
+            UpdatesField::BeatmapList => UpdatesField::RecheckFailedMaps,
+            UpdatesField::RecheckFailedMaps => UpdatesField::ClientType,
         };
     }
 
@@ -182,6 +187,7 @@ impl UpdatesTab {
             UpdatesField::OsuPath => UpdatesField::ClientType,
             UpdatesField::Collections => UpdatesField::OsuPath,
             UpdatesField::BeatmapList => UpdatesField::Collections,
+            UpdatesField::RecheckFailedMaps => UpdatesField::BeatmapList,
         };
     }
 
@@ -255,6 +261,13 @@ impl UpdatesTab {
                     self.selection.in_beatmap_list = true;
                 }
                 UpdatesAction::None
+            }
+            UpdatesField::RecheckFailedMaps => {
+                if self.can_recheck_failed_maps() {
+                    UpdatesAction::RecheckFailedMaps
+                } else {
+                    UpdatesAction::None
+                }
             }
             _ => UpdatesAction::None,
         }
@@ -513,6 +526,14 @@ impl UpdatesTab {
 
     pub fn set_all_checksums(&mut self, checksums: Vec<String>) {
         self.scan.all_local_checksums = checksums.into_iter().collect();
+    }
+
+    pub fn set_failed_beatmapset_count(&mut self, count: usize) {
+        self.scan.failed_beatmapset_count = count;
+    }
+
+    pub fn can_recheck_failed_maps(&self) -> bool {
+        self.scan.failed_beatmapset_count > 0 && self.is_scan_ready()
     }
 
     pub fn is_scan_ready(&self) -> bool {

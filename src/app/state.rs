@@ -398,10 +398,14 @@ impl App {
                     if !in_list && !self.updates.is_scan_ready() {
                         return None;
                     }
-                    if let UpdatesAction::Download = self.updates.handle_enter()
-                        && let Some((id, request)) = self.request_selective_download()
-                    {
-                        return Some(AppCommand::StartSelectiveDownload { id, request });
+                    match self.updates.handle_enter() {
+                        UpdatesAction::Download => {
+                            if let Some((id, request)) = self.request_selective_download() {
+                                return Some(AppCommand::StartSelectiveDownload { id, request });
+                            }
+                        }
+                        UpdatesAction::RecheckFailedMaps => return Some(AppCommand::RecheckFailedMaps),
+                        UpdatesAction::None | UpdatesAction::RefreshAll => {}
                     }
                 }
             }
@@ -425,9 +429,11 @@ impl App {
                         self.home.handle_char(' ');
                     }
                 }
-                UPDATES_TAB_INDEX if self.updates.toggle_current() == UpdatesAction::RefreshAll => {
-                    return Some(AppCommand::ScanLocalDatabase);
-                }
+                UPDATES_TAB_INDEX => match self.updates.toggle_current() {
+                    UpdatesAction::RefreshAll => return Some(AppCommand::ScanLocalDatabase),
+                    UpdatesAction::RecheckFailedMaps => return Some(AppCommand::RecheckFailedMaps),
+                    UpdatesAction::None | UpdatesAction::Download => {}
+                },
                 CONFIG_TAB_INDEX => {
                     if self.config.focus.is_text_input() {
                         self.config.handle_char(' ');
@@ -439,7 +445,12 @@ impl App {
             },
             KeyCode::Char(ch) => match self.active_tab() {
                 HOME_TAB_INDEX => self.home.handle_char(ch),
-                UPDATES_TAB_INDEX => self.updates.handle_char(ch),
+                UPDATES_TAB_INDEX => {
+                    if ch == 'r' && self.updates.can_recheck_failed_maps() {
+                        return Some(AppCommand::RecheckFailedMaps);
+                    }
+                    self.updates.handle_char(ch);
+                }
                 CONFIG_TAB_INDEX => {
                     let focus = self.config.focus;
                     let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);

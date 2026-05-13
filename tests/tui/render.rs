@@ -68,6 +68,18 @@ fn updates_tab_renders_without_panic() {
 }
 
 #[test]
+fn updates_tab_shows_recheck_failed_control() {
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.set_failed_beatmapset_count(2);
+    let buf = render_to_buffer(&app, 120, 40);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+
+    assert!(content.contains("failed maps"));
+    assert!(content.contains("2 hidden"));
+}
+
+#[test]
 fn updates_tab_shows_client_toggle() {
     let mut app = make_app();
     app.next_tab();

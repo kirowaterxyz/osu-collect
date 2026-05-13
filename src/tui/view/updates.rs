@@ -56,6 +56,7 @@ fn focused_item_index(form: &UpdatesTab) -> usize {
                 5
             }
         }
+        UpdatesField::RecheckFailedMaps => form.selection.display_items.len() + 6,
     }
 }
 
@@ -116,6 +117,7 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
         )]));
     }
 
+    items.push(recheck_failed_item(form));
     items
 }
 
@@ -313,8 +315,9 @@ fn collection_item(
 }
 
 fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
-    let focused =
-        form.selection.focus == UpdatesField::BeatmapList && !form.selection.in_collection_list;
+    let focused = form.selection.focus == UpdatesField::BeatmapList
+        && !form.selection.in_collection_list
+        && !form.selection.in_beatmap_list;
     let detail = if is_scanning(form) {
         "loading".to_string()
     } else if form.selection.in_beatmap_list {
@@ -329,6 +332,22 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         form.selection.in_beatmap_list,
         focused,
     )
+}
+
+fn recheck_failed_item(form: &UpdatesTab) -> ListItem<'static> {
+    let focused = form.selection.focus == UpdatesField::RecheckFailedMaps
+        && !form.selection.in_collection_list
+        && !form.selection.in_beatmap_list;
+    let count = form.scan.failed_beatmapset_count;
+    let detail = if count == 0 {
+        "no failed maps".to_string()
+    } else if form.can_recheck_failed_maps() {
+        format!("{count} hidden · space rechecks")
+    } else {
+        format!("{count} hidden · busy")
+    };
+
+    components::disclosure_row("failed maps", detail, false, focused)
 }
 
 fn beatmap_item(
@@ -366,7 +385,7 @@ fn beatmap_item(
 fn is_scanning(form: &UpdatesTab) -> bool {
     matches!(
         form.scan.scan_status,
-        ScanStatus::ReadingDatabase | ScanStatus::FetchingCollection
+        ScanStatus::ReadingDatabase | ScanStatus::FetchingCollection | ScanStatus::CheckingFailedMaps
     )
 }
 

@@ -159,6 +159,27 @@ fn space_on_mirror_field_toggles_state() {
 // ── enter on home tab ─────────────────────────────────────────────────────────
 
 #[test]
+fn recheck_failed_key_dispatches_on_updates_tab() {
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.set_failed_beatmapset_count(2);
+
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+
+    assert!(matches!(cmd, Some(AppCommand::RecheckFailedMaps)));
+}
+
+#[test]
+fn recheck_failed_key_ignored_without_failed_maps() {
+    let mut app = make_app();
+    app.next_tab();
+
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+
+    assert!(cmd.is_none());
+}
+
+#[test]
 fn enter_without_collection_input_produces_error() {
     let mut app = make_app();
     // clear any default value
