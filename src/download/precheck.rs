@@ -86,6 +86,7 @@ pub(crate) async fn verify_existing_beatmapsets(
     }
 
     let mut candidates = Vec::new();
+    let mut orphan_temp_count: usize = 0;
     while let Some(entry) = dir.next_entry().await? {
         if shutdown.is_cancelled() {
             return Ok(PrecheckReport {
@@ -99,6 +100,19 @@ pub(crate) async fn verify_existing_beatmapsets(
         }
 
         let file_name = entry.file_name();
+        if is_orphan_temp_name(&file_name) {
+            let path = entry.path();
+            match fs::remove_file(&path).await {
+                Ok(()) => {
+                    orphan_temp_count = orphan_temp_count.saturating_add(1);
+                    debug!(file = %path.display(), "Removed orphaned temp download file");
+                }
+                Err(err) => {
+                    warn!(file = %path.display(), error = %err, "Failed to remove orphaned temp download file");
+                }
+            }
+            continue;
+        }
         if !is_osz_name(&file_name) {
             continue;
         }
@@ -226,8 +240,18 @@ pub(crate) async fn verify_existing_beatmapsets(
             verified = satisfied.len(),
             skipped,
             unverified = unverified_list.len(),
+            orphan_temp = orphan_temp_count,
             "Existing file verification complete"
         );
+        if orphan_temp_count > 0 {
+            status.emit(DownloadEvent::Log {
+                id,
+                message: format!(
+                    "removed {} orphaned temp download file(s)",
+                    orphan_temp_count
+                ),
+            });
+        }
     }
 
     // Check if files changed during precheck
@@ -392,6 +416,28 @@ fn is_osz_extension(ext: &OsStr) -> bool {
 }
 
 #[inline]
+fn is_orphan_temp_name(name: &OsStr) -> bool {
+    name.to_str()
+        .map(|s| {
+            // matches temp files produced by `temp_path_for` in worker::io:
+            // `<original_name>.part-<pid>-<counter>`
+            if let Some(idx) = s.find(".part-") {
+                let tail = &s[idx + ".part-".len()..];
+                let mut parts = tail.splitn(2, '-');
+                let pid = parts.next().unwrap_or("");
+                let counter = parts.next().unwrap_or("");
+                !pid.is_empty()
+                    && !counter.is_empty()
+                    && pid.bytes().all(|b| b.is_ascii_digit())
+                    && counter.bytes().all(|b| b.is_ascii_digit())
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false)
+}
+
+#[inline]
 pub(crate) fn extract_beatmapset_id_from_filename(path: &Path) -> Option<u32> {
     let filename = path.file_stem()?.to_str()?;
     let mut chars = filename.chars().peekable();
@@ -414,6 +460,37 @@ pub(crate) fn extract_beatmapset_id_from_filename(path: &Path) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_orphan_temp_files() {
+        let yes = [
+            "123.osz.part-12345-0",
+            "abc.osz.part-1-9",
+            "1 artist.osz.part-99999-42",
+        ];
+        let no = [
+            "123.osz",
+            "123.osz.part",
+            "123.osz.part-abc-9",
+            "123.osz.part-9-abc",
+            "123.osz.part-9",
+            "random.txt",
+        ];
+        for name in yes {
+            assert!(
+                is_orphan_temp_name(OsStr::new(name)),
+                "expected match: {}",
+                name
+            );
+        }
+        for name in no {
+            assert!(
+                !is_orphan_temp_name(OsStr::new(name)),
+                "expected no match: {}",
+                name
+            );
+        }
+    }
 
     #[test]
     fn extracts_exact_prefixed_beatmapset_ids() {
