@@ -352,16 +352,14 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
         }
     }
 
-    if tokio::fs::try_exists(&output_path).await? {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Ok(MirrorAttempt::Downloaded(DownloadResult::Skipped {
-            reason: SkipReason::AlreadyExists,
-        }));
-    }
-
-    if let Err(err) = tokio::fs::rename(&temp_path, &output_path).await {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+    match finalize_download(&temp_path, &output_path).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Ok(MirrorAttempt::Downloaded(DownloadResult::Skipped {
+                reason: SkipReason::AlreadyExists,
+            }));
+        }
+        Err(err) => return Err(err),
     }
 
     Ok(MirrorAttempt::Downloaded(DownloadResult::Success {
@@ -370,6 +368,53 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
         md5_hash: stream_result.hash,
         mirror_used: mirror.kind(),
     }))
+}
+
+async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool> {
+    let mut output = match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .await
+    {
+        Ok(output) => output,
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Ok(false);
+        }
+        Err(err) => {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Err(DownloadError::io(err.to_string()).into());
+        }
+    };
+
+    let mut input = match tokio::fs::File::open(temp_path).await {
+        Ok(input) => input,
+        Err(err) => {
+            let _ = tokio::fs::remove_file(output_path).await;
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Err(DownloadError::io(err.to_string()).into());
+        }
+    };
+
+    if let Err(err) = tokio::io::copy(&mut input, &mut output).await {
+        let _ = tokio::fs::remove_file(output_path).await;
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    if let Err(err) = output.sync_all().await {
+        let _ = tokio::fs::remove_file(output_path).await;
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    if let Err(err) = tokio::fs::remove_file(temp_path).await {
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -420,6 +465,29 @@ mod tests {
         assert!(!matches_beatmapset_file_name(123, "1234.osz"));
         assert!(!matches_beatmapset_file_name(123, "123artist.osz"));
         assert!(!matches_beatmapset_file_name(123, "123 artist.zip"));
+    }
+
+    #[tokio::test]
+    async fn finalize_download_preserves_existing_output() {
+        let dir = std::env::temp_dir().join(format!(
+            "osu-downloader-finalize-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        tokio::fs::create_dir(&dir).await.unwrap();
+
+        let temp_path = dir.join("123.osz.tmp");
+        let output_path = dir.join("123.osz");
+        tokio::fs::write(&temp_path, b"new").await.unwrap();
+        tokio::fs::write(&output_path, b"old").await.unwrap();
+
+        let finalized = finalize_download(&temp_path, &output_path).await.unwrap();
+
+        assert!(!finalized);
+        assert_eq!(tokio::fs::read(&output_path).await.unwrap(), b"old");
+        assert!(!tokio::fs::try_exists(&temp_path).await.unwrap());
+
+        tokio::fs::remove_dir_all(&dir).await.unwrap();
     }
 
     #[test]
