@@ -142,6 +142,11 @@ async fn download_single_with_events(
 ) -> Result<DownloadResult, crate::Error> {
     debug!("Starting download of beatmapset {}", beatmapset_id);
 
+    let _ = event_tx.send(DownloadEvent::BeatmapsetStarted {
+        beatmapset_id,
+        mirror: mirror_pool.plan().first().map(|m| m.kind()).unwrap_or(crate::MirrorKind::Custom),
+    });
+
     // Progress callback with speed calculation
     let event_tx_clone = event_tx.clone();
     let progress_state = Arc::new(Mutex::new((0u64, Instant::now())));
@@ -192,10 +197,6 @@ async fn download_single_with_events(
             md5_hash,
             mirror_used,
         }) => {
-            let _ = event_tx.send(DownloadEvent::BeatmapsetStarted {
-                beatmapset_id,
-                mirror: *mirror_used,
-            });
             let _ = event_tx.send(DownloadEvent::BeatmapsetCompleted {
                 beatmapset_id,
                 filename: filename.clone(),
@@ -242,5 +243,73 @@ mod tests {
     #[test]
     fn deduplicate_ids_preserves_first_occurrence_order() {
         assert_eq!(deduplicate_ids(vec![3, 1, 3, 2, 1]), vec![3, 1, 2]);
+    }
+
+    #[tokio::test]
+    async fn started_event_precedes_completed_and_failed() {
+        use crate::{Mirror, mirrors::pool::MirrorPool};
+
+        let dir = tempfile::tempdir().unwrap();
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let client = reqwest::Client::new();
+        let mirror_pool = Arc::new(MirrorPool::new(vec![Mirror::nerinyan()]));
+        let config = BatchConfig {
+            concurrent_downloads: 1,
+            verify_archives: false,
+            progress_timeout: std::time::Duration::from_secs(5),
+            max_retries: 0,
+        };
+
+        // We only want to check ordering, not actual download success.
+        // Run with cancel immediately so the task aborts quickly.
+        drop(cancel_tx);
+        let _ = cancel_rx; // to reuse with channel
+
+        let (cancel_tx2, cancel_rx2) = tokio::sync::watch::channel(false);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let _ = cancel_tx2.send(true);
+        });
+
+        let _ = download_single_with_events(
+            999_999_999,
+            dir.path(),
+            &client,
+            &mirror_pool,
+            &config,
+            event_tx.clone(),
+            cancel_rx2,
+        )
+        .await;
+
+        drop(event_tx);
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+
+        let started_pos = events.iter().position(|e| {
+            matches!(e, DownloadEvent::BeatmapsetStarted { .. })
+        });
+        let ended_pos = events.iter().position(|e| {
+            matches!(
+                e,
+                DownloadEvent::BeatmapsetCompleted { .. }
+                    | DownloadEvent::BeatmapsetFailed { .. }
+                    | DownloadEvent::BeatmapsetSkipped { .. }
+            )
+        });
+
+        assert!(
+            started_pos.is_some(),
+            "BeatmapsetStarted should always be emitted"
+        );
+        if let Some(end_idx) = ended_pos {
+            assert!(
+                started_pos.unwrap() < end_idx,
+                "Started must precede Completed/Failed/Skipped"
+            );
+        }
     }
 }
