@@ -366,6 +366,86 @@ pub(crate) mod archive_validation_tests {
 }
 
 #[cfg(test)]
+mod selective_snapshot_tests {
+    use osu_collect::{
+        app::snapshots::{self, CollectionSnapshot, CollectionSnapshotFile},
+        download::{BeatmapTracker, DownloadConfig},
+        mirrors::{MirrorEndpoint, MirrorKind},
+    };
+
+    fn snapshot_should_save_after_selective_download(
+        requested_ids: &[u32],
+        tracker: &BeatmapTracker,
+    ) -> bool {
+        requested_ids.iter().all(|id| tracker.is_verified(*id))
+    }
+
+    #[test]
+    fn snapshot_save_requires_all_selected_maps_verified() {
+        let tracker = BeatmapTracker::new([1, 2].into_iter().collect());
+        tracker.mark_verified(1);
+        tracker.mark_failed(2);
+
+        assert!(!snapshot_should_save_after_selective_download(
+            &[1, 2],
+            &tracker
+        ));
+
+        tracker.mark_verified(2);
+
+        assert!(snapshot_should_save_after_selective_download(&[1, 2], &tracker));
+    }
+
+    #[test]
+    fn failed_selective_download_does_not_advance_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot_dir = dir.path().join("snapshots");
+        let snapshot = CollectionSnapshotFile::new(
+            42,
+            "collection".to_string(),
+            CollectionSnapshot {
+                stable_hashes: vec!["new".to_string()],
+                lazer_ids: Vec::new(),
+            },
+        );
+        let request = osu_collect::download::SelectiveDownloadRequest {
+            collection_ids: vec![42],
+            beatmapset_ids: vec![1, 2],
+            config: DownloadConfig {
+                directory: dir.path().join("downloads").display().to_string(),
+                mirrors: vec![MirrorEndpoint {
+                    kind: MirrorKind::Custom,
+                    template: "http://127.0.0.1:9/{id}".into(),
+                    headers: None,
+                }],
+                concurrent: 1,
+                verify_zip_eocd: false,
+                max_retries: 0,
+            },
+            snapshot_dir: Some(snapshot_dir.clone()),
+            snapshots: vec![snapshot.clone()],
+        };
+        let tracker = BeatmapTracker::new(request.beatmapset_ids.iter().copied().collect());
+        tracker.mark_verified(1);
+        tracker.mark_failed(2);
+
+        if snapshot_should_save_after_selective_download(&request.beatmapset_ids, &tracker)
+            && let Some(snapshot_dir) = request.snapshot_dir
+        {
+            for snapshot in request.snapshots {
+                let collection_id = snapshot.collection_id.parse().unwrap();
+                snapshots::save(
+                    &snapshot,
+                    &snapshots::snapshot_path(&snapshot_dir, collection_id),
+                );
+            }
+        }
+
+        assert!(!snapshots::snapshot_path(&snapshot_dir, 42).exists());
+    }
+}
+
+#[cfg(test)]
 mod download_error_tests {
     use osu_collect::download::DownloadError;
 

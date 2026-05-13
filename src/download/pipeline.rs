@@ -10,6 +10,7 @@ use super::{
     },
 };
 use crate::{
+    app::snapshots,
     config::constants::DEFAULT_PROGRESS_WATCHDOG_SECS,
     core::collection::{create_collection_db, model::Collection},
     mirrors::{MirrorEndpoint, MirrorPool},
@@ -593,6 +594,8 @@ async fn run_selective_download(
         collection_ids,
         beatmapset_ids,
         config,
+        snapshot_dir,
+        snapshots: collection_snapshots,
     } = request;
     let DownloadConfig {
         directory,
@@ -637,6 +640,7 @@ async fn run_selective_download(
         return Ok(());
     };
 
+    let tracker = session.tracker.clone();
     run_download_core(RunDownloadCoreParams {
         session,
         shutdown,
@@ -648,5 +652,25 @@ async fn run_selective_download(
         verify_zip_eocd,
         flavor,
     })
-    .await
+    .await?;
+
+    if beatmapset_ids.iter().all(|id| tracker.is_verified(*id))
+        && let Some(snapshot_dir) = snapshot_dir
+    {
+        tokio::task::spawn_blocking(move || {
+            for snapshot in collection_snapshots {
+                let Ok(collection_id) = snapshot.collection_id.parse() else {
+                    continue;
+                };
+                snapshots::save(
+                    &snapshot,
+                    &snapshots::snapshot_path(&snapshot_dir, collection_id),
+                );
+            }
+        })
+        .await
+        .map_err(|err| DownloadError::internal(format!("snapshot save task panicked: {err}")))?;
+    }
+
+    Ok(())
 }
