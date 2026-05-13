@@ -4,6 +4,13 @@ use crate::config::{
     constants::{DEFAULT_RETRIES, DEFAULT_THREADS, LOG_FORMATS, LOG_LEVELS},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthLoginState {
+    LoggedOut,
+    InProgress(String),
+    LoggedIn,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
     MirrorNerinyan,
@@ -14,6 +21,7 @@ pub enum ConfigField {
     MirrorSayobot,
     MirrorNekoha,
     MirrorCustomUrl,
+    LoginAction,
     DownloadSkipExisting,
     DownloadThreads,
     DownloadRetries,
@@ -47,6 +55,7 @@ pub struct ConfigTab {
     pub nekoha: bool,
     pub custom_mirror: InputField,
     pub auth_loaded: bool,
+    pub login_state: AuthLoginState,
     pub skip_existing: bool,
     pub threads: InputField,
     pub retries: InputField,
@@ -76,6 +85,11 @@ impl ConfigTab {
                 placeholder: "https://example.com/d/{id}".to_string(),
             },
             auth_loaded: crate::auth::load().is_some(),
+            login_state: if crate::auth::load().is_some() {
+                AuthLoginState::LoggedIn
+            } else {
+                AuthLoginState::LoggedOut
+            },
             skip_existing: config.download.skip_existing,
             threads: InputField {
                 label: "Default thread count",
@@ -119,7 +133,8 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => ConfigField::MirrorSayobot,
             ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
             ConfigField::MirrorNekoha => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::DownloadSkipExisting,
+            ConfigField::MirrorCustomUrl => ConfigField::LoginAction,
+            ConfigField::LoginAction => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
             ConfigField::DownloadThreads => ConfigField::DownloadRetries,
             ConfigField::DownloadRetries => ConfigField::DownloadNoVideo,
@@ -142,7 +157,8 @@ impl ConfigTab {
             ConfigField::MirrorSayobot => ConfigField::MirrorOsuDirect,
             ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
             ConfigField::MirrorCustomUrl => ConfigField::MirrorNekoha,
-            ConfigField::DownloadSkipExisting => ConfigField::MirrorCustomUrl,
+            ConfigField::LoginAction => ConfigField::MirrorCustomUrl,
+            ConfigField::DownloadSkipExisting => ConfigField::LoginAction,
             ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadRetries => ConfigField::DownloadThreads,
             ConfigField::DownloadNoVideo => ConfigField::DownloadRetries,
@@ -207,6 +223,7 @@ impl ConfigTab {
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
             ConfigField::MirrorCustomUrl
+            | ConfigField::LoginAction
             | ConfigField::DownloadThreads
             | ConfigField::DownloadRetries
             | ConfigField::LoggingDirectory => {}
@@ -270,7 +287,24 @@ impl ConfigTab {
     }
 
     pub fn set_loading(&mut self, message: impl Into<String>) {
-        self.message = Some(AppMessage::loading(message));
+        let text = message.into();
+        self.login_state = AuthLoginState::InProgress(text.clone());
+        self.message = Some(AppMessage::loading(text));
+    }
+
+    pub fn set_login_complete(&mut self) {
+        self.auth_loaded = true;
+        self.login_state = AuthLoginState::LoggedIn;
+    }
+
+    pub fn set_login_failed(&mut self) {
+        self.auth_loaded = false;
+        self.login_state = AuthLoginState::LoggedOut;
+    }
+
+    pub fn set_logged_out(&mut self) {
+        self.auth_loaded = false;
+        self.login_state = AuthLoginState::LoggedOut;
     }
 
     pub fn clear_message(&mut self) {
@@ -340,4 +374,125 @@ fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -
         .position(|&value| value == current)
         .map(|idx| values[(idx + 1) % values.len()])
         .unwrap_or(values[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn tab_logged_out() -> ConfigTab {
+        let mut tab = ConfigTab::new(&Config::default());
+        tab.auth_loaded = false;
+        tab.login_state = AuthLoginState::LoggedOut;
+        tab
+    }
+
+    fn tab_logged_in() -> ConfigTab {
+        let mut tab = ConfigTab::new(&Config::default());
+        tab.auth_loaded = true;
+        tab.login_state = AuthLoginState::LoggedIn;
+        tab
+    }
+
+    #[test]
+    fn login_state_initial_logged_out() {
+        let tab = tab_logged_out();
+        assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
+        assert!(!tab.auth_loaded);
+    }
+
+    #[test]
+    fn login_state_initial_logged_in() {
+        let tab = tab_logged_in();
+        assert_eq!(tab.login_state, AuthLoginState::LoggedIn);
+        assert!(tab.auth_loaded);
+    }
+
+    #[test]
+    fn login_flow_opening_browser() {
+        let mut tab = tab_logged_out();
+        tab.set_loading("opening browser...");
+        assert_eq!(
+            tab.login_state,
+            AuthLoginState::InProgress("opening browser...".to_string())
+        );
+        assert!(!tab.auth_loaded);
+    }
+
+    #[test]
+    fn login_flow_awaiting_callback() {
+        let mut tab = tab_logged_out();
+        tab.set_loading("opening browser...");
+        tab.set_loading("waiting for callback...");
+        assert_eq!(
+            tab.login_state,
+            AuthLoginState::InProgress("waiting for callback...".to_string())
+        );
+    }
+
+    #[test]
+    fn login_flow_success() {
+        let mut tab = tab_logged_out();
+        tab.set_loading("opening browser...");
+        tab.set_login_complete();
+        assert_eq!(tab.login_state, AuthLoginState::LoggedIn);
+        assert!(tab.auth_loaded);
+    }
+
+    #[test]
+    fn login_flow_error_returns_to_logged_out() {
+        let mut tab = tab_logged_out();
+        tab.set_loading("opening browser...");
+        tab.set_login_failed();
+        assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
+        assert!(!tab.auth_loaded);
+    }
+
+    #[test]
+    fn logout_clears_state() {
+        let mut tab = tab_logged_in();
+        tab.set_logged_out();
+        assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
+        assert!(!tab.auth_loaded);
+    }
+
+    #[test]
+    fn in_progress_message_does_not_expire() {
+        let mut tab = tab_logged_out();
+        tab.set_loading("opening browser...");
+        let msg = tab.message.as_ref().unwrap();
+        assert!(!msg.is_expired());
+    }
+
+    #[test]
+    fn next_field_cycles_through_login_action() {
+        let mut tab = ConfigTab::new(&Config::default());
+        tab.focus = ConfigField::MirrorCustomUrl;
+        tab.next_field();
+        assert_eq!(tab.focus, ConfigField::LoginAction);
+        tab.next_field();
+        assert_eq!(tab.focus, ConfigField::DownloadSkipExisting);
+    }
+
+    #[test]
+    fn prev_field_cycles_through_login_action() {
+        let mut tab = ConfigTab::new(&Config::default());
+        tab.focus = ConfigField::DownloadSkipExisting;
+        tab.prev_field();
+        assert_eq!(tab.focus, ConfigField::LoginAction);
+        tab.prev_field();
+        assert_eq!(tab.focus, ConfigField::MirrorCustomUrl);
+    }
+
+    #[test]
+    fn all_fields_form_complete_cycle() {
+        let mut tab = ConfigTab::new(&Config::default());
+        let start = tab.focus;
+        let total = 18; // 17 original + 1 LoginAction
+        for _ in 0..total {
+            tab.next_field();
+        }
+        assert_eq!(tab.focus, start, "next_field must complete a full cycle");
+    }
 }

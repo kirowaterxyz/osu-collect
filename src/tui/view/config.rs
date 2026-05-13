@@ -1,8 +1,14 @@
 use crate::{
-    app::{ConfigField, ConfigTab},
+    app::{AuthLoginState, ConfigField, ConfigTab},
     config::{LogFormat, LogLevel, constants::DEFAULT_THREADS},
 };
-use ratatui::{Frame, layout::Rect, widgets::List};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{List, ListItem},
+};
 
 use super::{ConfigView, components};
 
@@ -62,21 +68,8 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ),
         components::spacer(),
         components::section_header("osu! login"),
-        components::row_item(
-            if form.auth_loaded {
-                "logged in"
-            } else {
-                "not logged in"
-            },
-            None,
-            form.auth_loaded,
-            false,
-        ),
-        components::help_item(if crate::auth::bundled_credentials().is_some() {
-            "l login · o logout"
-        } else {
-            "build with OSU_CLIENT_ID and OSU_CLIENT_SECRET to enable login"
-        }),
+        auth_status_item(&form.login_state),
+        login_action_item(form),
         components::spacer(),
         components::section_header("download"),
         components::help_item("defaults used by home and updates downloads"),
@@ -139,6 +132,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::MirrorSayobot => 7,
         ConfigField::MirrorNekoha => 8,
         ConfigField::MirrorCustomUrl => 9,
+        ConfigField::LoginAction => 13,
         ConfigField::DownloadSkipExisting => 15,
         ConfigField::DownloadThreads => 16,
         ConfigField::DownloadRetries => 17,
@@ -156,10 +150,87 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
 
     let visible_height = inner.height as usize;
     let (start, end) = components::scroll_window(&items, focused_index, visible_height);
+    if items.len() > visible_height {
+        components::render_scroll_indicator(frame, inner, start, items.len());
+    }
     let visible_items = items[start..end].to_vec();
 
     let list = List::new(visible_items).highlight_symbol("");
     frame.render_widget(list, inner);
+}
+
+fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
+    let focused = form.focus == ConfigField::LoginAction;
+    let available = crate::auth::bundled_credentials().is_some();
+
+    let (label, style) = if !available {
+        (
+            "login unavailable (no credentials in build)".to_string(),
+            Style::default().fg(components::TEXT_FAINT),
+        )
+    } else {
+        match &form.login_state {
+            AuthLoginState::LoggedOut => (
+                "l  log in".to_string(),
+                if focused {
+                    Style::default()
+                        .fg(components::ACCENT_ALT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(components::TEXT_MUTED)
+                },
+            ),
+            AuthLoginState::InProgress(_) => (
+                "logging in…".to_string(),
+                Style::default()
+                    .fg(components::WARNING)
+                    .add_modifier(Modifier::ITALIC),
+            ),
+            AuthLoginState::LoggedIn => (
+                "l  re-login  ·  o  log out".to_string(),
+                if focused {
+                    Style::default()
+                        .fg(components::ACCENT_ALT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(components::TEXT_MUTED)
+                },
+            ),
+        }
+    };
+
+    ListItem::new(Line::from(vec![
+        components::focus_span(focused),
+        Span::styled(label, style),
+    ]))
+}
+
+fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {
+    let (prefix, text, style) = match state {
+        AuthLoginState::LoggedOut => (
+            components::FOCUS_PAD,
+            "not logged in".to_string(),
+            Style::default().fg(components::TEXT_FAINT),
+        ),
+        AuthLoginState::InProgress(step) => (
+            components::FOCUS_PAD,
+            format!("⋯ {step}"),
+            Style::default()
+                .fg(components::WARNING)
+                .add_modifier(Modifier::ITALIC),
+        ),
+        AuthLoginState::LoggedIn => (
+            components::FOCUS_PAD,
+            "logged in".to_string(),
+            Style::default()
+                .fg(components::ACCENT_ALT)
+                .add_modifier(Modifier::BOLD),
+        ),
+    };
+    ListItem::new(Line::from(vec![
+        Span::raw(prefix),
+        Span::styled(text, style),
+    ]))
 }
 
 fn configured_or_default(value: &str) -> String {
