@@ -29,6 +29,10 @@ pub enum UpdatesEvent {
         beatmapsets: Vec<LocalBeatmapset>,
         all_checksums: Vec<String>,
     },
+    Progress {
+        generation: u64,
+        message: String,
+    },
     ScanComplete {
         generation: u64,
         missing: Vec<MissingBeatmapset>,
@@ -325,7 +329,7 @@ fn handle_updates_event(
             app.updates.set_local_beatmapsets(beatmapsets);
             app.updates.set_all_checksums(all_checksums);
             app.updates.scan.scan_status = ScanStatus::FetchingCollection;
-            app.updates.set_loading("Fetching collections...");
+            app.updates.set_loading("fetching collections...");
 
             let selected_ids = app.updates.selected_collection_ids();
             if selected_ids.is_empty() {
@@ -336,6 +340,14 @@ fn handle_updates_event(
             }
 
             spawn_fetch_and_compare_task(app, selected_ids, updates_tx.clone());
+        }
+        UpdatesEvent::Progress {
+            generation,
+            message,
+        } => {
+            if generation == app.updates.scan.scan_generation {
+                app.updates.set_loading(message);
+            }
         }
         UpdatesEvent::ScanComplete {
             generation,
@@ -574,12 +586,20 @@ fn spawn_fetch_and_compare_task(
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
     let handle = tokio::spawn(async move {
-        let result = fetch_and_compare(
+        let progress_tx = tx.clone();
+        let result = fetch_and_compare_with_progress(
             client_type,
             selected_collection_ids,
             local_beatmapsets,
             all_local_checksums,
             snapshot_diffs,
+            move |phase| {
+                let FetchPhase::CheckingMirrors { candidates } = phase;
+                let _ = progress_tx.send(UpdatesEvent::Progress {
+                    generation,
+                    message: format!("checking {candidates} beatmapsets on mirrors..."),
+                });
+            },
         )
         .await;
 
@@ -598,6 +618,11 @@ fn spawn_fetch_and_compare_task(
         }
     });
     app.scan_handle = Some(handle);
+}
+
+#[derive(Debug, Clone)]
+pub enum FetchPhase {
+    CheckingMirrors { candidates: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -631,6 +656,25 @@ pub async fn fetch_and_compare(
     local_beatmapsets: HashMap<u32, LocalBeatmapset>,
     local_checksums: HashSet<String>,
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
+) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
+    fetch_and_compare_with_progress(
+        client_type,
+        collection_ids,
+        local_beatmapsets,
+        local_checksums,
+        snapshot_diffs,
+        |_| {},
+    )
+    .await
+}
+
+pub async fn fetch_and_compare_with_progress(
+    client_type: OsuClient,
+    collection_ids: Vec<u32>,
+    local_beatmapsets: HashMap<u32, LocalBeatmapset>,
+    local_checksums: HashSet<String>,
+    snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
+    mut report_phase: impl FnMut(FetchPhase),
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
     let client = crate::download::http_client::api_client().map_err(|e| e.to_string())?;
     let mut seen_beatmapsets: HashSet<u32> = HashSet::new();
@@ -746,6 +790,9 @@ pub async fn fetch_and_compare(
             "Checking beatmapset availability on mirrors"
         );
 
+        report_phase(FetchPhase::CheckingMirrors {
+            candidates: beatmapset_ids.len(),
+        });
         let mirror_client = download::create_download_client().map_err(|e| e.to_string())?;
         let t_mirror = std::time::Instant::now();
         let mirror_result =
