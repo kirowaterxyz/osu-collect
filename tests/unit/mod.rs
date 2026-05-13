@@ -6,6 +6,7 @@ pub mod collection_snapshots;
 pub mod collection_state;
 pub mod download;
 pub mod error;
+pub mod failed_maps;
 pub mod home;
 pub mod io;
 pub mod lock;

@@ -1,4 +1,4 @@
-use super::{App, AppCommand, collection_state, snapshots};
+use super::{App, AppCommand, collection_state, failed_maps, snapshots};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id_pub},
     auth,
@@ -85,6 +85,7 @@ pub async fn run(
         tokio::select! {
             Some(event) = download_rx.recv() => {
                 trace!(?event, "Received download event");
+                persist_failed_maps(&event);
                 if let Some(completed_id) = download_finished_id(&event) {
                     debug!(download_id = completed_id, "Download handle finished; awaiting join");
                     if let Some(handle) = active_downloads.remove(&completed_id) {
@@ -260,6 +261,21 @@ fn spawn_logout_task(tx: mpsc::UnboundedSender<AuthEvent>) {
         let result = auth::delete().map_err(|err| err.to_string());
         let _ = tx.send(AuthEvent::LogoutComplete(result));
     });
+}
+
+fn persist_failed_maps(event: &DownloadEvent) {
+    let DownloadEvent::FailedMaps { failures, .. } = event else {
+        return;
+    };
+    if failures.is_empty() {
+        return;
+    }
+    let Some(path) = failed_maps::failed_maps_path() else {
+        warn!("failed maps path unavailable");
+        return;
+    };
+    let ids: Vec<u32> = failures.iter().map(|(id, _)| *id).collect();
+    tokio::task::spawn_blocking(move || failed_maps::record_failures(&path, ids));
 }
 
 fn download_finished_id(event: &DownloadEvent) -> Option<DownloadId> {

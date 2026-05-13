@@ -1,6 +1,7 @@
 pub mod collection;
 pub mod collection_state;
 pub mod config;
+pub mod failed_maps;
 pub mod home;
 pub mod messages;
 pub mod runtime;
