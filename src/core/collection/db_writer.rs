@@ -50,6 +50,12 @@ pub fn create_collection_db(
     Ok(())
 }
 
+/// Generate the folder name that will host the downloaded beatmaps.
+pub fn generate_collection_folder_name(collection: &Collection) -> String {
+    let sanitized_name = sanitize_filename(&collection.name);
+    format!("{}-{}", sanitized_name, collection.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,10 +133,4 @@ mod tests {
 
         assert_eq!(hashes.len(), 2);
     }
-}
-
-/// Generate the folder name that will host the downloaded beatmaps.
-pub fn generate_collection_folder_name(collection: &Collection) -> String {
-    let sanitized_name = sanitize_filename(&collection.name);
-    format!("{}-{}", sanitized_name, collection.id)
 }
