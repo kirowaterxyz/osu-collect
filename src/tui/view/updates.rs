@@ -82,11 +82,6 @@ fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
         {
             items.push(collection_item(collection, start + index == selected_idx));
         }
-    } else if !form.selection.local_collections.is_empty() {
-        items.push(components::summary_item(&[
-            components::Metric::accent("selected", form.selected_collection_count().to_string()),
-            components::Metric::muted("total", form.selection.local_collections.len().to_string()),
-        ]));
     }
 
     items.push(beatmaps_header(form));

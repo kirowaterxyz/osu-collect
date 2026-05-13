@@ -402,6 +402,8 @@ fn handle_updates_event(
             let local_snapshot: Vec<u32> = local_ids.iter().copied().collect();
             let count = missing.len();
             app.updates.set_missing_beatmaps(missing);
+            app.updates
+                .set_failed_beatmapset_count(hidden_failed_count);
             app.updates.scan.scan_status = ScanStatus::Ready;
 
             let msg = build_scan_summary(

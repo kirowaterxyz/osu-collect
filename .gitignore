@@ -5,4 +5,5 @@
 .gitnexus
 testing-db
 *.osz
+*.osz.part-*
 /tmp/
