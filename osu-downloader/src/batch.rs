@@ -11,8 +11,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tokio::{sync::mpsc, task::JoinSet};
+use tracing::{debug, info, warn};
 
 /// Orchestrate batch downloads with concurrent workers
 pub async fn download_batch(
@@ -22,28 +22,31 @@ pub async fn download_batch(
     mirror_pool: Arc<MirrorPool>,
     config: BatchConfig,
     event_tx: mpsc::UnboundedSender<DownloadEvent>,
-    cancel_rx: tokio::sync::watch::Receiver<bool>,
+    mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> DownloadSummary {
     let start_time = Instant::now();
     let beatmapset_ids = deduplicate_ids(beatmapset_ids);
     let total = beatmapset_ids.len();
 
-    // Send session started event
     let _ = event_tx.send(DownloadEvent::SessionStarted {
         total_beatmapsets: total,
     });
 
     let mut summary = DownloadSummary::new(total);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(config.concurrent_downloads));
-    let mut tasks: Vec<(
-        u32,
-        tokio::task::JoinHandle<Result<DownloadResult, crate::Error>>,
-    )> = Vec::new();
+    let mut join_set: JoinSet<(u32, Result<DownloadResult, crate::Error>)> = JoinSet::new();
+    // Track how many were aborted mid-batch (tasks cancelled by JoinSet::abort_all)
+    let mut aborted_count: usize = 0;
 
-    for beatmapset_id in beatmapset_ids {
+    let mut ids_iter = beatmapset_ids.into_iter().peekable();
+
+    // Submission loop: add tasks while not cancelled
+    while ids_iter.peek().is_some() {
         if *cancel_rx.borrow() {
             break;
         }
+
+        let beatmapset_id = ids_iter.next().unwrap();
 
         let permit = semaphore
             .clone()
@@ -54,10 +57,10 @@ pub async fn download_batch(
         let mirror_pool = mirror_pool.clone();
         let output_dir = output_dir.to_path_buf();
         let event_tx = event_tx.clone();
-        let cancel_rx = cancel_rx.clone();
+        let cancel_rx_clone = cancel_rx.clone();
         let config = config.clone();
 
-        let task = tokio::spawn(async move {
+        join_set.spawn(async move {
             let result = download_single_with_events(
                 beatmapset_id,
                 &output_dir,
@@ -65,57 +68,65 @@ pub async fn download_batch(
                 &mirror_pool,
                 &config,
                 event_tx,
-                cancel_rx,
+                cancel_rx_clone,
             )
             .await;
-
             drop(permit);
-            result
+            (beatmapset_id, result)
         });
-
-        tasks.push((beatmapset_id, task));
     }
 
-    // Wait for all tasks to complete
-    for (beatmapset_id, task) in tasks {
-        match task.await {
-            Ok(result) => match result {
-                Ok(DownloadResult::Success { size_bytes, .. }) => {
-                    summary.downloaded.push(beatmapset_id);
-                    summary.total_bytes += size_bytes;
+    // Drain loop: collect results, abort all on cancel signal
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancel_rx.changed() => {
+                if *cancel_rx.borrow() {
+                    aborted_count = join_set.len();
+                    join_set.abort_all();
+                    // drain remaining so tasks are cleaned up
+                    while join_set.join_next().await.is_some() {}
+                    break;
                 }
-                Ok(DownloadResult::Skipped { reason }) => {
-                    summary.skipped.push((beatmapset_id, reason));
+            }
+            result = join_set.join_next() => {
+                match result {
+                    None => break,
+                    Some(Ok((beatmapset_id, Ok(DownloadResult::Success { size_bytes, .. })))) => {
+                        summary.downloaded.push(beatmapset_id);
+                        summary.total_bytes += size_bytes;
+                    }
+                    Some(Ok((beatmapset_id, Ok(DownloadResult::Skipped { reason })))) => {
+                        summary.skipped.push((beatmapset_id, reason));
+                    }
+                    Some(Ok((beatmapset_id, Err(e)))) => {
+                        summary.failed.push((beatmapset_id, e.to_string()));
+                    }
+                    Some(Err(join_err)) => {
+                        // Task was aborted or panicked; we don't have the beatmapset_id here
+                        // because JoinSet only returns the task output on success.
+                        if join_err.is_panic() {
+                            warn!("download task panicked: {join_err}");
+                        }
+                        // Aborted tasks are counted separately, not as failures.
+                    }
                 }
-                Err(e) => {
-                    summary.failed.push((beatmapset_id, e.to_string()));
-                }
-            },
-            Err(join_err) => {
-                let msg = if join_err.is_panic() {
-                    format!("task panicked: {join_err}")
-                } else {
-                    format!("task cancelled: {join_err}")
-                };
-                let _ = event_tx.send(DownloadEvent::BeatmapsetFailed {
-                    beatmapset_id,
-                    error: crate::DownloadError::worker_error(&msg),
-                    retry_count: 0,
-                });
-                summary.failed.push((beatmapset_id, msg));
             }
         }
     }
 
+    if aborted_count > 0 {
+        info!("batch cancelled: {} tasks aborted", aborted_count);
+    }
+
     summary.duration = start_time.elapsed();
 
-    // Send session completed event
     let _ = event_tx.send(DownloadEvent::SessionCompleted {
         summary: summary.clone(),
     });
 
     info!(
-        "Batch download complete: {}/{} downloaded, {} skipped, {} failed",
+        "batch complete: {}/{} downloaded, {} skipped, {} failed",
         summary.downloaded.len(),
         total,
         summary.skipped.len(),
@@ -243,6 +254,43 @@ mod tests {
     #[test]
     fn deduplicate_ids_preserves_first_occurrence_order() {
         assert_eq!(deduplicate_ids(vec![3, 1, 3, 2, 1]), vec![3, 1, 2]);
+    }
+
+    #[tokio::test]
+    async fn cancel_mid_batch_does_not_panic() {
+        use crate::{Mirror, MirrorPool};
+
+        let dir = tempfile::tempdir().unwrap();
+        let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let client = reqwest::Client::new();
+        let mirror_pool = Arc::new(MirrorPool::new(vec![Mirror::nerinyan()]));
+        let config = BatchConfig {
+            concurrent_downloads: 2,
+            verify_archives: false,
+            progress_timeout: std::time::Duration::from_secs(1),
+            max_retries: 0,
+        };
+
+        // Cancel after a short delay
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            let _ = cancel_tx.send(true);
+        });
+
+        let summary = download_batch(
+            vec![1, 2, 3, 4, 5],
+            dir.path(),
+            client,
+            mirror_pool,
+            config,
+            event_tx,
+            cancel_rx,
+        )
+        .await;
+
+        // No panic, and downloaded + skipped + failed <= total
+        assert!(summary.downloaded.len() + summary.skipped.len() + summary.failed.len() <= 5);
     }
 
     #[tokio::test]
