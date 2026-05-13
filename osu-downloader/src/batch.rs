@@ -247,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn started_event_precedes_completed_and_failed() {
-        use crate::{Mirror, mirrors::pool::MirrorPool};
+        use crate::{Mirror, MirrorPool};
 
         let dir = tempfile::tempdir().unwrap();
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
