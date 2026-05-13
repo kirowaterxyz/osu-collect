@@ -12,8 +12,9 @@ use ratatui::{
 
 use super::TabsView;
 
-pub const ACCENT: Color = Color::Rgb(67, 171, 229);
-pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87);
+// cloudy-ui catppuccin mocha palette
+pub const ACCENT: Color = Color::Rgb(67, 171, 229); // sapphire-cyan primary
+pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87); // claude orange (secondary)
 pub const INFO: Color = Color::Rgb(116, 199, 236);
 pub const SUCCESS: Color = Color::Rgb(166, 227, 161);
 pub const WARNING: Color = Color::Rgb(249, 226, 175);
@@ -24,7 +25,9 @@ pub const TEXT_DIM: Color = Color::Rgb(166, 173, 200);
 pub const TEXT_FAINT: Color = Color::Rgb(127, 132, 156);
 pub const LINE: Color = Color::Rgb(69, 71, 90);
 pub const LINE_SOFT: Color = Color::Rgb(49, 50, 68);
+pub const BG: Color = Color::Rgb(30, 30, 46);
 pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
+#[allow(dead_code)]
 pub const BG_SUNKEN: Color = Color::Rgb(17, 17, 27);
 
 pub const FOCUS_MARK: &str = "▎ ";
@@ -40,6 +43,7 @@ pub struct Metric<'a> {
     pub style: Style,
 }
 
+#[allow(dead_code)]
 impl<'a> Metric<'a> {
     pub fn muted(label: &'a str, value: impl Into<String>) -> Self {
         Self {
@@ -56,12 +60,26 @@ impl<'a> Metric<'a> {
             style: Style::default().fg(ACCENT),
         }
     }
+
+    pub fn success(label: &'a str, value: impl Into<String>) -> Self {
+        Self {
+            label,
+            value: value.into(),
+            style: Style::default().fg(SUCCESS),
+        }
+    }
+
+    pub fn danger(label: &'a str, value: impl Into<String>) -> Self {
+        Self {
+            label,
+            value: value.into(),
+            style: Style::default().fg(DANGER),
+        }
+    }
 }
 
-fn eyebrow_style() -> Style {
-    Style::default()
-        .fg(TEXT_FAINT)
-        .add_modifier(Modifier::BOLD | Modifier::DIM)
+pub fn eyebrow_style() -> Style {
+    Style::default().fg(TEXT_FAINT).add_modifier(Modifier::BOLD)
 }
 
 pub fn scroll_window<T>(
@@ -111,13 +129,13 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
         return;
     }
 
-    let version = format!(" v{}", env!("CARGO_PKG_VERSION"));
+    let version = format!(" v{} ", env!("CARGO_PKG_VERSION"));
     let version_width = version.chars().count() as u16;
-    let brand = " osu-collect";
+    let brand = " osu-collect ";
     let brand_width = brand.chars().count() as u16;
 
     let layout = Layout::horizontal([
-        Constraint::Length(brand_width + 1),
+        Constraint::Length(brand_width),
         Constraint::Min(0),
         Constraint::Length(version_width),
     ])
@@ -139,7 +157,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
         let title = title.to_lowercase();
         if index == tabs.active() {
             spans.push(Span::styled(
-                format!("[ {title} ]"),
+                title,
                 Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
             ));
         } else {
@@ -156,6 +174,28 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
             .style(Style::default().fg(TEXT_FAINT))
             .alignment(Alignment::Right),
         layout[2],
+    );
+}
+
+/// Renders a scroll position indicator in the top-right corner of `area`.
+pub fn render_scroll_indicator(frame: &mut Frame, area: Rect, start: usize, total: usize) {
+    if total == 0 || area.width < 6 {
+        return;
+    }
+    let text = format!(" {}/{} ", start + 1, total);
+    let indicator_width = text.len() as u16;
+    if indicator_width >= area.width {
+        return;
+    }
+    let indicator_area = Rect {
+        x: area.x + area.width - indicator_width,
+        y: area.y,
+        width: indicator_width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(text).style(Style::default().fg(TEXT_FAINT)),
+        indicator_area,
     );
 }
 
@@ -207,7 +247,10 @@ pub fn cycle_item(
 pub fn section_header(label: &str) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled(label.to_uppercase(), eyebrow_style()),
+        Span::styled(
+            label.to_uppercase(),
+            Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+        ),
     ]))
 }
 

@@ -22,12 +22,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         return;
     }
 
+    // fill background with mocha bg (slightly lighter than sunken)
     frame.render_widget(
-        Block::default().style(Style::default().bg(components::BG_SUNKEN)),
+        Block::default().style(Style::default().bg(components::BG)),
         area,
     );
 
-    // compact: no separator rows; normal: separator rows between header/content/footer
+    // compact: collapse separators for terminals under 14 rows
     let compact = area.height < 14;
 
     let chunks: Vec<_> = if compact {
@@ -57,11 +58,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
         components::render_separator(frame, chunks[3]);
         (chunks[0], chunks[2], chunks[4])
     };
-
-    frame.render_widget(
-        Block::default().style(Style::default().bg(components::BG_RAISED)),
-        header_area,
-    );
 
     components::render_header(frame, header_area, &view.tabs);
 
@@ -153,6 +149,7 @@ pub struct AppView<'a> {
     pub download: Option<DownloadView<'a>>,
     pub tabs: TabsView,
     pub active_tab: usize,
+    pub tick_count: u64,
 }
 
 impl<'a> From<&'a App> for AppView<'a> {
@@ -167,6 +164,7 @@ impl<'a> From<&'a App> for AppView<'a> {
             download,
             tabs: TabsView::new(app.tab_titles(), active_tab),
             active_tab,
+            tick_count: app.tick_count,
         }
     }
 }
