@@ -26,6 +26,7 @@ pub enum ScanStatus {
     Idle,
     ReadingDatabase,
     FetchingCollection,
+    CheckingFailedMaps,
     Ready,
     Error,
 }

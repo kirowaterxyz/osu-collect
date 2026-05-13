@@ -1,4 +1,6 @@
-use osu_collect::download::size_fetcher::check_availability_on_urls;
+use osu_collect::download::size_fetcher::{
+    check_availability_on_urls, check_mirror_availability_on_urls_with_progress,
+};
 use reqwest::Client;
 use std::sync::{
     Arc,
@@ -152,6 +154,37 @@ async fn availability_short_circuits_when_other_mirrors_hang() {
 
     fast_handle.abort();
     slow_handle.abort();
+}
+
+#[tokio::test]
+async fn availability_progress_reports_each_checked_map() {
+    let (base, handle) = start_server(|_request| {
+        let mut body = vec![0x50, 0x4B, 0x03, 0x04];
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.append(&mut body);
+        String::from_utf8(response).unwrap()
+    })
+    .await;
+
+    let template = format!("{}/d/{{id}}", base);
+    let client = Client::new();
+    let mut progress = Vec::new();
+    let result = check_mirror_availability_on_urls_with_progress(
+        &client,
+        &[1, 2, 3],
+        &[template.as_str()],
+        |checked, total| progress.push((checked, total)),
+    )
+    .await;
+
+    assert_eq!(result.available.len(), 3);
+    assert_eq!(progress, vec![(1, 3), (2, 3), (3, 3)]);
+
+    handle.abort();
 }
 
 #[tokio::test]

@@ -40,6 +40,16 @@ pub enum UpdatesEvent {
         manually_added_count: usize,
         hidden_failed_count: usize,
     },
+    FailedMapRecheckProgress {
+        generation: u64,
+        checked: usize,
+        total: usize,
+    },
+    FailedMapRecheckComplete {
+        generation: u64,
+        available: HashSet<u32>,
+        unavailable: HashSet<u32>,
+    },
     Error(String),
 }
 
@@ -205,6 +215,9 @@ fn handle_key_event(
         }
         Some(AppCommand::ScanLocalDatabase) => {
             spawn_scan_task(app, updates_tx.clone());
+        }
+        Some(AppCommand::RecheckFailedMaps) => {
+            spawn_failed_map_recheck_task(app, updates_tx.clone());
         }
         Some(AppCommand::Quit) => {
             if downloads.is_empty() {
@@ -417,6 +430,32 @@ fn handle_updates_event(
                 tokio::task::spawn_blocking(move || collection_state::save(&state, &path));
             }
         }
+        UpdatesEvent::FailedMapRecheckProgress {
+            generation,
+            checked,
+            total,
+        } => {
+            if generation == app.updates.scan.scan_generation {
+                app.updates
+                    .set_loading(format!("checking failed maps {checked}/{total}..."));
+            }
+        }
+        UpdatesEvent::FailedMapRecheckComplete {
+            generation,
+            available,
+            unavailable,
+        } => {
+            if generation != app.updates.scan.scan_generation {
+                return;
+            }
+            app.updates.set_info(format!(
+                "{} failed maps available; {} still unavailable",
+                available.len(),
+                unavailable.len()
+            ));
+            app.updates.scan.scan_generation = app.updates.scan.scan_generation.wrapping_add(1);
+            spawn_scan_task(app, updates_tx.clone());
+        }
         UpdatesEvent::Error(msg) => {
             app.updates.set_error(msg);
         }
@@ -580,6 +619,53 @@ pub fn snapshot_diffs_for_scan(
             Some((collection_id, diff))
         })
         .collect()
+}
+
+fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
+    if let Some(h) = app.scan_handle.take() {
+        h.abort();
+    }
+
+    let generation = app.updates.scan.scan_generation;
+    let Some(path) = failed_maps::failed_maps_path() else {
+        app.updates.set_info("no failed maps to check");
+        return;
+    };
+    let ids: Vec<u32> = failed_maps::load(&path).beatmapset_ids;
+    if ids.is_empty() {
+        app.updates.set_info("no failed maps to check");
+        return;
+    }
+
+    app.updates.scan.scan_status = ScanStatus::CheckingFailedMaps;
+    app.updates
+        .set_loading(format!("checking failed maps 0/{}...", ids.len()));
+
+    let handle = tokio::spawn(async move {
+        let client = match download::create_download_client() {
+            Ok(client) => client,
+            Err(err) => {
+                let _ = tx.send(UpdatesEvent::Error(err.to_string()));
+                return;
+            }
+        };
+        let progress_tx = tx.clone();
+        let result = download::check_mirror_availability_with_progress(&client, &ids, |checked, total| {
+            let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
+                generation,
+                checked,
+                total,
+            });
+        })
+        .await;
+        failed_maps::remove_available(&path, &result.available);
+        let _ = tx.send(UpdatesEvent::FailedMapRecheckComplete {
+            generation,
+            available: result.available,
+            unavailable: result.unavailable,
+        });
+    });
+    app.scan_handle = Some(handle);
 }
 
 fn spawn_fetch_and_compare_task(

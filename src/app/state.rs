@@ -54,6 +54,7 @@ pub enum AppCommand {
     },
     Logout,
     ScanLocalDatabase,
+    RecheckFailedMaps,
     Quit,
 }
 

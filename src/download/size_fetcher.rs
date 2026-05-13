@@ -58,34 +58,60 @@ pub async fn check_mirror_availability(
     client: &Client,
     beatmapset_ids: &[u32],
 ) -> MirrorAvailabilityResult {
-    let results: Vec<(u32, bool)> = stream::iter(beatmapset_ids.iter().copied())
+    check_mirror_availability_with_progress(client, beatmapset_ids, |_, _| {}).await
+}
+
+pub async fn check_mirror_availability_with_progress(
+    client: &Client,
+    beatmapset_ids: &[u32],
+    report_progress: impl FnMut(usize, usize),
+) -> MirrorAvailabilityResult {
+    check_mirror_availability_on_urls_with_progress(
+        client,
+        beatmapset_ids,
+        MIRROR_CHECK_URLS,
+        report_progress,
+    )
+    .await
+}
+
+#[doc(hidden)]
+pub async fn check_mirror_availability_on_urls_with_progress(
+    client: &Client,
+    beatmapset_ids: &[u32],
+    urls: &[&str],
+    mut report_progress: impl FnMut(usize, usize),
+) -> MirrorAvailabilityResult {
+    let total = beatmapset_ids.len();
+    let mut available = HashSet::new();
+    let mut unavailable = HashSet::new();
+    let mut checked = 0;
+
+    let mut results = stream::iter(beatmapset_ids.iter().copied())
         .map(|id| {
             let client = client.clone();
             async move {
-                let available = check_availability_on_any_mirror(&client, id).await;
+                let available = check_availability_on_urls(&client, id, urls).await;
                 (id, available)
             }
         })
-        .buffer_unordered(CONCURRENT_REQUESTS)
-        .collect()
-        .await;
+        .buffer_unordered(CONCURRENT_REQUESTS);
 
-    let mut available = HashSet::new();
-    let mut unavailable = HashSet::new();
-
-    for (id, is_available) in results {
+    while let Some((id, is_available)) = results.next().await {
         if is_available {
             available.insert(id);
         } else {
             unavailable.insert(id);
         }
+        checked += 1;
+        report_progress(checked, total);
     }
 
     info!(
-        total = beatmapset_ids.len(),
+        total,
         available = available.len(),
         unavailable = unavailable.len(),
-        "Checked beatmapset availability on mirrors"
+        "checked beatmapset availability on mirrors"
     );
 
     MirrorAvailabilityResult {
@@ -162,10 +188,6 @@ async fn fetch_single_size(client: &Client, beatmapset_id: u32) -> Option<u64> {
 
 /// Check if a beatmapset is available on any mirror by verifying ZIP magic bytes.
 /// HEAD requests alone are unreliable as some mirrors return 200 for error pages.
-async fn check_availability_on_any_mirror(client: &Client, beatmapset_id: u32) -> bool {
-    check_availability_on_urls(client, beatmapset_id, MIRROR_CHECK_URLS).await
-}
-
 /// Probe one mirror URL, following redirects up to `MAX_REDIRECTS` and retrying
 /// transient errors up to `MIRROR_RETRIES` times.
 async fn probe_with_redirects(client: &Client, beatmapset_id: u32, template: &str) -> bool {
