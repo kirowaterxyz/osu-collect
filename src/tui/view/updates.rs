@@ -21,99 +21,115 @@ fn render_form(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let items = build_items(form, inner.height);
-    let focused_index = focused_item_index(form);
+    let built = build_view(form, inner.height);
     let visible_height = inner.height as usize;
-    let (start, end) = components::scroll_window(&items, focused_index, visible_height);
-    let visible_items = items[start..end].to_vec();
+    let (start, end) = components::scroll_window(&built.items, built.focused_index, visible_height);
+    let visible_items = built.items[start..end].to_vec();
 
     let list = List::new(visible_items).highlight_symbol("");
     frame.render_widget(list, inner);
 }
 
-fn focused_item_index(form: &UpdatesTab) -> usize {
-    match form.selection.focus {
-        UpdatesField::ClientType => 0,
-        UpdatesField::OsuPath => 1,
-        UpdatesField::Collections => {
-            if form.selection.in_collection_list {
-                4 + form.selection.collections_state.selected().unwrap_or(0)
-            } else {
-                3
-            }
-        }
-        UpdatesField::BeatmapList => {
-            if form.selection.in_beatmap_list {
-                let base = if form.selection.local_collections.is_empty() {
-                    5
-                } else {
-                    6
-                };
-                base + form.selection.beatmaps_state.selected().unwrap_or(0)
-            } else if form.selection.local_collections.is_empty() {
-                4
-            } else {
-                5
-            }
-        }
-        UpdatesField::RecheckFailedMaps => form.selection.display_items.len() + 6,
-    }
+struct BuiltView {
+    items: Vec<ListItem<'static>>,
+    focused_index: usize,
 }
 
-fn build_items(form: &UpdatesTab, area_height: u16) -> Vec<ListItem<'static>> {
-    let mut items = vec![
-        client_toggle(form),
-        osu_path_item(form),
-        components::help_item("uses home download settings: mirrors, threads, videos"),
-        collections_header(form),
-    ];
+fn build_view(form: &UpdatesTab, area_height: u16) -> BuiltView {
+    let mut items: Vec<ListItem<'static>> = Vec::new();
+    let mut focused_index: usize = 0;
+    let focus = form.selection.focus;
 
+    // SOURCE
+    items.push(components::section_header("source"));
+    if focus == UpdatesField::ClientType
+        && !form.selection.in_collection_list
+        && !form.selection.in_beatmap_list
+    {
+        focused_index = items.len();
+    }
+    items.push(client_toggle(form));
+    if focus == UpdatesField::OsuPath
+        && !form.selection.in_collection_list
+        && !form.selection.in_beatmap_list
+    {
+        focused_index = items.len();
+    }
+    items.push(osu_path_item(form));
+    items.push(components::spacer());
+
+    // COLLECTIONS
+    items.push(components::section_header("collections"));
+    if focus == UpdatesField::Collections && !form.selection.in_collection_list {
+        focused_index = items.len();
+    }
+    items.push(collections_header(form));
     if form.selection.in_collection_list {
         let selected_idx = form.selection.collections_state.selected().unwrap_or(0);
         let (start, end) = components::scroll_window(
             &form.selection.local_collections,
             selected_idx,
-            area_height.saturating_sub(6) as usize,
+            area_height.saturating_sub(10) as usize,
         );
-
-        for (index, collection) in form.selection.local_collections[start..end]
+        for (i, collection) in form.selection.local_collections[start..end]
             .iter()
             .enumerate()
         {
-            items.push(collection_item(collection, start + index == selected_idx));
+            let actual = start + i;
+            let is_sel = actual == selected_idx;
+            if is_sel && focus == UpdatesField::Collections {
+                focused_index = items.len();
+            }
+            items.push(collection_item(collection, is_sel));
         }
     }
+    items.push(components::spacer());
 
+    // MISSING BEATMAPS
+    items.push(components::section_header("missing beatmaps"));
+    if focus == UpdatesField::BeatmapList && !form.selection.in_beatmap_list {
+        focused_index = items.len();
+    }
     items.push(beatmaps_header(form));
-
     if form.selection.in_beatmap_list {
         let selected_idx = form.selection.beatmaps_state.selected().unwrap_or(0);
         let (start, end) = components::scroll_window(
             &form.selection.display_items,
             selected_idx,
-            area_height.saturating_sub(5) as usize,
+            area_height.saturating_sub(10) as usize,
         );
-
-        for (index, item) in form.selection.display_items[start..end].iter().enumerate() {
-            items.push(display_item_to_list_item(
-                item,
-                start + index == selected_idx,
-                form,
-            ));
+        for (i, item) in form.selection.display_items[start..end].iter().enumerate() {
+            let actual = start + i;
+            let is_sel = actual == selected_idx;
+            if is_sel && focus == UpdatesField::BeatmapList {
+                focused_index = items.len();
+            }
+            items.push(display_item_to_list_item(item, is_sel, form));
         }
-    } else if form.total_missing_count() > 0 {
-        items.push(components::summary_item(&[
-            components::Metric::accent("selected", form.selected_beatmap_count().to_string()),
-            components::Metric::muted("missing", form.total_missing_count().to_string()),
-        ]));
-    } else if is_scanning(form) {
-        items.push(components::summary_item(&[components::Metric::muted(
-            "status", "loading",
-        )]));
     }
+    items.push(components::spacer());
 
-    items.push(recheck_failed_item(form));
-    items
+    // SUMMARY
+    items.push(summary_metrics(form));
+
+    BuiltView {
+        items,
+        focused_index,
+    }
+}
+
+fn summary_metrics(form: &UpdatesTab) -> ListItem<'static> {
+    let mut metrics = vec![
+        components::Metric::accent("selected", form.selected_beatmap_count().to_string()),
+        components::Metric::muted("missing", form.total_missing_count().to_string()),
+    ];
+    if form.scan.failed_beatmapset_count > 0 {
+        metrics.push(components::Metric::muted(
+            "failed",
+            form.scan.failed_beatmapset_count.to_string(),
+        ));
+    }
+    components::summary_item(&metrics)
 }
 
 fn display_item_to_list_item(
@@ -265,11 +281,7 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     let focused =
         form.selection.focus == UpdatesField::Collections && !form.selection.in_beatmap_list;
     let count = form.selection.local_collections.len();
-    let detail = if form.selection.in_collection_list {
-        format!("{count} loaded · enter closes")
-    } else {
-        format!("{count} loaded · space expands")
-    };
+    let detail = format!("{count} loaded");
 
     components::disclosure_row(
         "collections",
@@ -315,34 +327,11 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         && !form.selection.in_beatmap_list;
     let detail = if is_scanning(form) {
         "loading".to_string()
-    } else if form.selection.in_beatmap_list {
-        "space toggles · a all · d none".to_string()
     } else {
-        format!("{} missing · space expands", form.total_missing_count())
+        format!("{} missing", form.total_missing_count())
     };
 
-    components::disclosure_row(
-        "missing beatmaps",
-        detail,
-        form.selection.in_beatmap_list,
-        focused,
-    )
-}
-
-fn recheck_failed_item(form: &UpdatesTab) -> ListItem<'static> {
-    let focused = form.selection.focus == UpdatesField::RecheckFailedMaps
-        && !form.selection.in_collection_list
-        && !form.selection.in_beatmap_list;
-    let count = form.scan.failed_beatmapset_count;
-    let detail = if count == 0 {
-        "no failed maps".to_string()
-    } else if form.can_recheck_failed_maps() {
-        format!("{count} hidden · space rechecks")
-    } else {
-        format!("{count} hidden · busy")
-    };
-
-    components::disclosure_row("failed maps", detail, false, focused)
+    components::disclosure_row("available", detail, form.selection.in_beatmap_list, focused)
 }
 
 fn beatmap_item(

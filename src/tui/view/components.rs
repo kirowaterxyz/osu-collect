@@ -109,7 +109,10 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
         .border_style(Style::default().fg(LINE_SOFT))
         .title(Span::styled(
             format!(" {} ", title.to_uppercase()),
-            Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(ACCENT_ALT)
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
         ))
         .title_alignment(Alignment::Left)
         .padding(Padding::new(1, 1, 0, 0))
