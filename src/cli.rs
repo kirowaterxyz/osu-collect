@@ -264,7 +264,9 @@ pub async fn run_update_collections(
         eprintln!("info: {added_count} maps added manually since last scan; they will remain");
     }
     if hidden_failed_count > 0 {
-        eprintln!("info: {hidden_failed_count} failed maps hidden; recheck from the TUI to include them");
+        eprintln!(
+            "info: {hidden_failed_count} failed maps hidden; recheck from the TUI to include them"
+        );
     }
 
     if !missing.is_empty() {

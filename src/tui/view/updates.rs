@@ -385,7 +385,9 @@ fn beatmap_item(
 fn is_scanning(form: &UpdatesTab) -> bool {
     matches!(
         form.scan.scan_status,
-        ScanStatus::ReadingDatabase | ScanStatus::FetchingCollection | ScanStatus::CheckingFailedMaps
+        ScanStatus::ReadingDatabase
+            | ScanStatus::FetchingCollection
+            | ScanStatus::CheckingFailedMaps
     )
 }
 

@@ -650,14 +650,15 @@ fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<Update
             }
         };
         let progress_tx = tx.clone();
-        let result = download::check_mirror_availability_with_progress(&client, &ids, |checked, total| {
-            let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
-                generation,
-                checked,
-                total,
-            });
-        })
-        .await;
+        let result =
+            download::check_mirror_availability_with_progress(&client, &ids, |checked, total| {
+                let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
+                    generation,
+                    checked,
+                    total,
+                });
+            })
+            .await;
         failed_maps::remove_available(&path, &result.available);
         let _ = tx.send(UpdatesEvent::FailedMapRecheckComplete {
             generation,
@@ -745,7 +746,9 @@ pub struct FetchCompareSettings {
 }
 
 pub fn should_hide_failed_beatmapset(settings: &FetchCompareSettings, beatmapset_id: u32) -> bool {
-    settings.hidden_failed_beatmapset_ids.contains(&beatmapset_id)
+    settings
+        .hidden_failed_beatmapset_ids
+        .contains(&beatmapset_id)
 }
 
 #[derive(Debug, Clone)]
@@ -915,7 +918,10 @@ pub async fn fetch_and_compare_with_progress(
             .unwrap_or(false);
 
         if previously_deleted {
-            trace!(beatmapset_id = beatmapset.id, "marking as previously deleted");
+            trace!(
+                beatmapset_id = beatmapset.id,
+                "marking as previously deleted"
+            );
         }
 
         all_missing.push(MissingBeatmapset {

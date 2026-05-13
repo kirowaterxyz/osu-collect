@@ -404,7 +404,9 @@ impl App {
                                 return Some(AppCommand::StartSelectiveDownload { id, request });
                             }
                         }
-                        UpdatesAction::RecheckFailedMaps => return Some(AppCommand::RecheckFailedMaps),
+                        UpdatesAction::RecheckFailedMaps => {
+                            return Some(AppCommand::RecheckFailedMaps);
+                        }
                         UpdatesAction::None | UpdatesAction::RefreshAll => {}
                     }
                 }
