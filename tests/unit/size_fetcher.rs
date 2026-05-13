@@ -123,11 +123,8 @@ async fn availability_short_circuits_when_other_mirrors_hang() {
     let slow_addr = slow_listener.local_addr().unwrap();
     let slow_base = format!("http://{}", slow_addr);
     let slow_handle = tokio::spawn(async move {
-        loop {
-            match slow_listener.accept().await {
-                Ok((_socket, _)) => tokio::time::sleep(Duration::from_secs(30)).await,
-                Err(_) => break,
-            }
+        while let Ok((_socket, _)) = slow_listener.accept().await {
+            tokio::time::sleep(Duration::from_secs(30)).await;
         }
     });
 
@@ -143,7 +140,10 @@ async fn availability_short_circuits_when_other_mirrors_hang() {
     .await;
     let elapsed = start.elapsed();
 
-    assert!(available, "expected success once fast mirror returns ZIP magic");
+    assert!(
+        available,
+        "expected success once fast mirror returns ZIP magic"
+    );
     assert!(
         elapsed < Duration::from_secs(5),
         "short-circuit failed: took {}ms (full probe timeout is 10s × retries)",
