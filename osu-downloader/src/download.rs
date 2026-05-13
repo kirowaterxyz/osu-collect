@@ -61,9 +61,11 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
     }
 }
 
-/// Extract filename from Content-Disposition header
+/// Extract filename from Content-Disposition header.
+///
+/// Handles `filename*=UTF-8''...` (RFC 5987) and `filename="..."` (RFC 2616).
+/// Backslash escapes inside quoted strings are decoded per RFC 2616 §2.2.
 fn extract_filename_from_header(header_value: &str) -> Option<String> {
-    // Look for filename*=UTF-8''... or filename="..."
     for part in header_value.split(';') {
         let part = part.trim();
 
@@ -73,12 +75,34 @@ fn extract_filename_from_header(header_value: &str) -> Option<String> {
             }
         }
 
-        if let Some(quoted_name) = part.strip_prefix("filename=") {
-            let name = quoted_name.trim_matches('"');
-            return Some(name.to_string());
+        if let Some(raw) = part.strip_prefix("filename=") {
+            let name = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+                decode_quoted_string(&raw[1..raw.len() - 1])
+            } else {
+                raw.to_string()
+            };
+            return Some(name);
         }
     }
     None
+}
+
+/// Decode backslash-escaped characters inside a quoted-string value (RFC 2616 §2.2).
+///
+/// `\"` → `"`, `\\` → `\`, any other `\X` → `X`.
+fn decode_quoted_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(escaped) = chars.next() {
+                out.push(escaped);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn matches_beatmapset_file_name(beatmapset_id: u32, name: &str) -> bool {
@@ -445,16 +469,32 @@ mod tests {
 
     #[test]
     fn test_extract_filename() {
-        let header1 = "attachment; filename=\"test.osz\"";
         assert_eq!(
-            extract_filename_from_header(header1),
+            extract_filename_from_header("attachment; filename=\"test.osz\""),
             Some("test.osz".to_string())
         );
 
-        let header2 = "attachment; filename*=UTF-8''test%20file.osz";
         assert_eq!(
-            extract_filename_from_header(header2),
+            extract_filename_from_header("attachment; filename*=UTF-8''test%20file.osz"),
             Some("test file.osz".to_string())
+        );
+
+        // Backslash-escaped quote inside quoted-string (RFC 2616 §2.2)
+        assert_eq!(
+            extract_filename_from_header(r#"attachment; filename="foo\"bar.osz""#),
+            Some(r#"foo"bar.osz"#.to_string())
+        );
+
+        // Escaped backslash
+        assert_eq!(
+            extract_filename_from_header(r#"attachment; filename="foo\\bar.osz""#),
+            Some(r#"foo\bar.osz"#.to_string())
+        );
+
+        // Non-quoted form (no outer quotes)
+        assert_eq!(
+            extract_filename_from_header("attachment; filename=plain.osz"),
+            Some("plain.osz".to_string())
         );
     }
 
