@@ -131,11 +131,6 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
                 format!("{} threads", page.thread_statuses.len()),
                 Style::default().fg(components::ACCENT),
             ),
-            Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
-            Span::styled(
-                "failed maps appear below",
-                Style::default().fg(components::TEXT_FAINT),
-            ),
         ]),
         Line::from(status_spans),
         Line::from(summary_spans(page)),

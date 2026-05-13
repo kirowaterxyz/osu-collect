@@ -174,7 +174,7 @@ fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
                 "l  log in".to_string(),
                 if focused {
                     Style::default()
-                        .fg(components::ACCENT_ALT)
+                        .fg(components::TEXT_MUTED)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(components::TEXT_MUTED)
@@ -187,10 +187,10 @@ fn login_action_item(form: &ConfigTab) -> ListItem<'static> {
                     .add_modifier(Modifier::ITALIC),
             ),
             AuthLoginState::LoggedIn => (
-                "l  re-login  ·  o  log out".to_string(),
+                "l to re-login  ·  o to log out".to_string(),
                 if focused {
                     Style::default()
-                        .fg(components::ACCENT_ALT)
+                        .fg(components::TEXT_MUTED)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(components::TEXT_MUTED)
@@ -209,21 +209,21 @@ fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {
     let (prefix, text, style) = match state {
         AuthLoginState::LoggedOut => (
             components::FOCUS_PAD,
-            "not logged in".to_string(),
+            "> not logged in".to_string(),
             Style::default().fg(components::TEXT_FAINT),
         ),
         AuthLoginState::InProgress(step) => (
             components::FOCUS_PAD,
-            format!("⋯ {step}"),
+            format!("> {step}"),
             Style::default()
                 .fg(components::WARNING)
                 .add_modifier(Modifier::ITALIC),
         ),
         AuthLoginState::LoggedIn => (
             components::FOCUS_PAD,
-            "logged in".to_string(),
+            "> logged in".to_string(),
             Style::default()
-                .fg(components::ACCENT_ALT)
+                .fg(components::ACCENT)
                 .add_modifier(Modifier::BOLD),
         ),
     };

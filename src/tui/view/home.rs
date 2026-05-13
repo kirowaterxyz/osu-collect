@@ -66,30 +66,30 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         ),
         components::spacer(),
         components::section_header("download"),
-        components::help_item("threads controls parallel downloads; blank uses config"),
         components::input_item(&form.threads, form.focus == HomeField::Threads),
         components::row_item(
-            "skip existing files",
-            Some("keep files already on disk"),
+            "skip existing",
+            None,
             form.skip_existing,
             form.focus == HomeField::SkipExisting,
         ),
         components::row_item(
-            "overwrite existing files",
-            Some("redownload and replace matches"),
+            "overwrite existing",
+            None,
             form.auto_overwrite,
             form.focus == HomeField::AutoOverwrite,
         ),
         components::row_item(
-            "skip videos",
-            Some("smaller downloads"),
+            "no video",
+            None,
             form.no_video,
             form.focus == HomeField::NoVideo,
         ),
+        components::spacer(),
         components::summary_item(&[
             components::Metric::accent("threads", form.resolved_threads().to_string()),
+            components::Metric::accent("mirrors", form.build_mirrors().len().to_string()),
             components::Metric::muted("retries", form.resolved_retries().to_string()),
-            components::Metric::muted("mode", if form.no_video { "no video" } else { "full" }),
         ]),
     ];
 
