@@ -38,6 +38,8 @@ pub struct ThreadStatusLine {
     last_update: Option<Instant>,
     speed_bytes_per_sec: f64,
     active_beatmap: Option<u32>,
+    current_downloaded: u64,
+    current_total: u64,
 }
 
 impl ThreadStatusLine {
@@ -49,6 +51,8 @@ impl ThreadStatusLine {
             last_update: None,
             speed_bytes_per_sec: 0.0,
             active_beatmap: None,
+            current_downloaded: 0,
+            current_total: 0,
         }
     }
 
@@ -71,6 +75,14 @@ impl ThreadStatusLine {
 
     pub fn should_display(&self) -> bool {
         !(Self::is_idle_message(&self.message) || Self::is_completion_message(&self.message))
+    }
+
+    pub fn progress_ratio(&self) -> Option<f32> {
+        if self.current_total == 0 {
+            return None;
+        }
+        let ratio = self.current_downloaded as f32 / self.current_total as f32;
+        Some(ratio.clamp(0.0, 1.0))
     }
 }
 
@@ -213,6 +225,10 @@ impl CollectionPage {
                         return;
                     }
                 }
+                if status.active_beatmap != Some(job_id) {
+                    status.current_downloaded = 0;
+                    status.current_total = 0;
+                }
                 status.active_beatmap = Some(job_id);
             } else if is_completion {
                 return;
@@ -225,12 +241,18 @@ impl CollectionPage {
                 || ThreadStatusLine::is_idle_message(message)
             {
                 status.active_beatmap = None;
+                status.current_downloaded = 0;
+                status.current_total = 0;
             }
         }
     }
 
-    pub fn update_thread_progress(&mut self, thread_index: usize, downloaded: u64) {
+    pub fn update_thread_progress(&mut self, thread_index: usize, downloaded: u64, total: u64) {
         if let Some(status) = self.thread_statuses.get_mut(thread_index) {
+            status.current_downloaded = downloaded;
+            if total > 0 {
+                status.current_total = total;
+            }
             let now = Instant::now();
             if let Some(last_update) = status.last_update {
                 let elapsed = now.duration_since(last_update);
@@ -253,6 +275,8 @@ impl CollectionPage {
             status.bytes_downloaded = 0;
             status.last_update = None;
             status.speed_bytes_per_sec = 0.0;
+            status.current_downloaded = 0;
+            status.current_total = 0;
         }
     }
 

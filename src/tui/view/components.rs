@@ -345,15 +345,51 @@ pub fn status_style(stage: DownloadStage) -> Style {
     }
 }
 
-pub fn thread_item(index: usize, status: &ThreadStatusLine) -> ListItem<'static> {
-    let line = Line::from(vec![
-        Span::styled(
-            format!("  t{:<2} ", index + 1),
+pub fn thread_item(index: usize, status: &ThreadStatusLine, width: u16) -> ListItem<'static> {
+    const BAR_WIDTH: u16 = 12;
+    const LABEL_WIDTH: u16 = 5;
+    const RESERVED_RIGHT: u16 = BAR_WIDTH + 1 + LABEL_WIDTH;
+
+    let prefix = format!("  t{:<2} ", index + 1);
+    let prefix_w = prefix.chars().count() as u16;
+    let message = status.message.clone();
+    let message_w = message.chars().count() as u16;
+
+    let mut spans = vec![
+        Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
+        Span::styled(message, thread_style(status)),
+    ];
+
+    let used = prefix_w.saturating_add(message_w);
+    if width >= used + RESERVED_RIGHT {
+        let pad = (width - used - RESERVED_RIGHT) as usize;
+        spans.push(Span::raw(" ".repeat(pad)));
+
+        let (filled, label) = match status.progress_ratio() {
+            Some(ratio) => {
+                let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
+                (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
+            }
+            None => (0, "  --".to_string()),
+        };
+        let empty = BAR_WIDTH - filled;
+
+        let bar_color = if status.rate_limited { WARNING } else { ACCENT };
+        spans.push(Span::styled(
+            "█".repeat(filled as usize),
+            Style::default().fg(bar_color),
+        ));
+        spans.push(Span::styled(
+            "░".repeat(empty as usize),
+            Style::default().fg(LINE_SOFT),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}"),
             Style::default().fg(TEXT_FAINT),
-        ),
-        Span::styled(status.message.clone(), thread_style(status)),
-    ]);
-    ListItem::new(line)
+        ));
+    }
+
+    ListItem::new(Line::from(spans))
 }
 
 fn field_label_style(focused: bool) -> Style {

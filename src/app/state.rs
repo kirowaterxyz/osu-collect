@@ -567,7 +567,7 @@ impl App {
             } => {
                 if let Some(page) = self.page_mut(id) {
                     page.update_progress(beatmapset_id, downloaded, total);
-                    page.update_thread_progress(thread_index, downloaded);
+                    page.update_thread_progress(thread_index, downloaded, total);
                 }
             }
             DownloadEvent::BeatmapStatus {

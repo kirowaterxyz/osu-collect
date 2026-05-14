@@ -285,6 +285,47 @@ fn login_action_row_renders_when_focused() {
 }
 
 #[test]
+fn thread_view_renders_progress_bar_when_downloading() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 5;
+    page.download_target = 5;
+    page.register_beatmaps(&[42]);
+    page.update_thread_status(0, "Downloading #42 from mirror", false, Some(42));
+    page.update_thread_progress(0, 5_000_000, 10_000_000);
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(output.contains("█"), "filled bar segment must render");
+    assert!(output.contains("░"), "empty bar segment must render");
+    assert!(
+        output.contains("50%"),
+        "percent label must reflect progress"
+    );
+}
+
+#[test]
+fn fetching_message_switches_active_beatmap_without_pre_emit() {
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.update_thread_status(0, "Downloading #100 from mirror", false, Some(100));
+    page.update_thread_progress(0, 1_000_000, 4_000_000);
+
+    page.update_thread_status(0, "Fetching #101 from mirror", false, Some(101));
+
+    let thread = &page.thread_statuses[0];
+    assert!(thread.message.contains("Fetching"));
+    assert!(thread.message.contains("#101"));
+    assert_eq!(
+        thread.progress_ratio(),
+        None,
+        "progress must reset when switching to a new beatmap"
+    );
+}
+
+#[test]
 fn footer_info_message_uses_info_color() {
     let mut app = App::new(Config::default());
     app.home.set_info("ready");

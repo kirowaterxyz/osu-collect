@@ -351,11 +351,16 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         return;
     }
 
+    let block = components::panel_block("threads");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let row_width = inner.width;
     let mut items: Vec<ListItem> = Vec::new();
 
     for (index, status) in page.thread_statuses.iter().enumerate() {
         if status.should_display() {
-            items.push(components::thread_item(index, status));
+            items.push(components::thread_item(index, status, row_width));
         }
     }
 
@@ -389,10 +394,6 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             ])));
         }
     }
-
-    let block = components::panel_block("threads");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
 
     let visible_height = inner.height as usize;
     let total = items.len();
