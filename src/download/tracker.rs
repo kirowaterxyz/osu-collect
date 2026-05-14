@@ -175,10 +175,8 @@ impl BeatmapTracker {
             entry.state = BeatmapState::Verified;
             true
         } else {
-            self.inner
-                .insert(id, BeatmapEntry::new(BeatmapState::Verified));
-            self.counters.inc_verified();
-            true
+            tracing::warn!(beatmapset_id = id, "mark_verified called on unregistered id");
+            false
         }
     }
 
