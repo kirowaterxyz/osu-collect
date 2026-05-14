@@ -694,32 +694,26 @@ async fn pass_worker_loop(
                 async move { download_single_target(&job_context, slot, beatmapset_id).await },
             );
 
-        let result = loop {
-            if context.shutdown.is_cancelled() {
-                result_task.abort();
-                break Ok(DownloadResult::Aborted);
-            }
-            match tokio::time::timeout(Duration::from_millis(50), &mut result_task).await {
-                Ok(join_result) => {
-                    break match join_result {
-                        Ok(res) => res,
-                        Err(join_err) if join_err.is_cancelled() => {
-                            // Task was aborted (not a panic) — treat as Aborted, not failed.
-                            Ok(DownloadResult::Aborted)
-                        }
-                        Err(join_err) => {
-                            let reason = describe_panic(join_err.into_panic());
-                            Err(AppError::other_dynamic(
-                                format!(
-                                    "download worker panicked for #{}: {}",
-                                    beatmapset_id, reason
-                                )
-                                .into_boxed_str(),
-                            ))
-                        }
-                    };
+        let result = tokio::select! {
+            join_result = &mut result_task => {
+                match join_result {
+                    Ok(res) => res,
+                    Err(join_err) if join_err.is_cancelled() => Ok(DownloadResult::Aborted),
+                    Err(join_err) => {
+                        let reason = describe_panic(join_err.into_panic());
+                        Err(AppError::other_dynamic(
+                            format!(
+                                "download worker panicked for #{}: {}",
+                                beatmapset_id, reason
+                            )
+                            .into_boxed_str(),
+                        ))
+                    }
                 }
-                Err(_timeout) => continue,
+            }
+            _ = context.shutdown.cancelled() => {
+                result_task.abort();
+                Ok(DownloadResult::Aborted)
             }
         };
         if result_tx.send((slot, beatmapset_id, result)).is_err() {

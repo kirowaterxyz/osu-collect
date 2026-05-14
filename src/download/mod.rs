@@ -29,13 +29,14 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 use tracing::warn;
 
 #[derive(Clone, Debug, Default)]
 pub struct ShutdownToken {
     cancelled: Arc<AtomicBool>,
     completed: Arc<AtomicBool>,
+    notify: Arc<Notify>,
 }
 
 impl ShutdownToken {
@@ -43,11 +44,16 @@ impl ShutdownToken {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicBool::new(false)),
+            notify: Arc::new(Notify::new()),
         }
     }
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+    }
+
+    pub fn cancelled(&self) -> impl std::future::Future<Output = ()> + '_ {
+        self.notify.notified()
     }
 
     pub fn cancel(&self) {
@@ -57,6 +63,7 @@ impl ShutdownToken {
         if self.cancelled.swap(true, Ordering::SeqCst) {
             warn!("ShutdownToken: cancel called multiple times");
         }
+        self.notify.notify_waiters();
     }
 
     pub fn mark_completed(&self) {
