@@ -87,7 +87,7 @@ pub async fn download_with_streaming(
             Err(err) => {
                 file.get_mut().shutdown().await.ok();
                 let _ = fs::remove_file(output_path).await;
-                return Err(DownloadError::http(err.to_string()).into());
+                return Err(DownloadError::stream(err.to_string()).into());
             }
         };
 

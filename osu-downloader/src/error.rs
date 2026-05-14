@@ -82,6 +82,10 @@ pub enum DownloadError {
     #[error("HTTP error: {0}")]
     Http(String),
 
+    /// Response body stream failed during download
+    #[error("Stream error: {0}")]
+    Stream(String),
+
     /// I/O error during download
     #[error("I/O error: {0}")]
     Io(String),
@@ -115,6 +119,10 @@ impl DownloadError {
 
     pub(crate) fn http(msg: impl Into<String>) -> Self {
         DownloadError::Http(msg.into())
+    }
+
+    pub(crate) fn stream(msg: impl Into<String>) -> Self {
+        DownloadError::Stream(msg.into())
     }
 
     pub(crate) fn io(msg: impl Into<String>) -> Self {

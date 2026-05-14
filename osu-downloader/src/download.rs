@@ -308,7 +308,7 @@ fn should_retry(err: &crate::Error) -> bool {
         crate::Error::Download(DownloadError::HttpStatus(s)) => {
             matches!(s, 500 | 502 | 503 | 504)
         }
-        crate::Error::Download(DownloadError::ProgressTimeout) => true,
+        crate::Error::Download(DownloadError::ProgressTimeout | DownloadError::Stream(_)) => true,
         _ => false,
     }
 }
