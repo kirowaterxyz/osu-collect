@@ -403,6 +403,19 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
 }
 
 async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool> {
+    match tokio::fs::rename(temp_path, output_path).await {
+        Ok(()) => return Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Ok(false);
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {}
+        Err(err) => {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Err(DownloadError::io(err.to_string()).into());
+        }
+    }
+
     let mut output = match tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
