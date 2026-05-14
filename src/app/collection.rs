@@ -1,9 +1,16 @@
 use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, status};
-use std::{cell::Cell, collections::HashMap, collections::VecDeque, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
+
+const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
@@ -40,12 +47,16 @@ pub struct ThreadStatusLine {
     active_beatmap: Option<u32>,
     current_downloaded: u64,
     current_total: u64,
+    displayed_message: RefCell<String>,
+    displayed_rate_limited: Cell<bool>,
+    status_changed_at: Cell<Option<Instant>>,
 }
 
 impl ThreadStatusLine {
     fn new(message: impl Into<String>) -> Self {
+        let initial = message.into();
         Self {
-            message: message.into(),
+            message: initial.clone(),
             rate_limited: false,
             bytes_downloaded: 0,
             last_update: None,
@@ -53,6 +64,9 @@ impl ThreadStatusLine {
             active_beatmap: None,
             current_downloaded: 0,
             current_total: 0,
+            displayed_message: RefCell::new(initial),
+            displayed_rate_limited: Cell::new(false),
+            status_changed_at: Cell::new(None),
         }
     }
 
@@ -73,8 +87,33 @@ impl ThreadStatusLine {
         message.trim().eq_ignore_ascii_case("idle")
     }
 
+    fn resolve_display(&self) {
+        if let Some(changed_at) = self.status_changed_at.get()
+            && changed_at.elapsed() >= STATUS_DEBOUNCE
+        {
+            *self.displayed_message.borrow_mut() = self.message.clone();
+            self.displayed_rate_limited.set(self.rate_limited);
+            self.status_changed_at.set(None);
+        }
+    }
+
+    pub fn displayed_message(&self) -> String {
+        self.resolve_display();
+        self.displayed_message.borrow().clone()
+    }
+
+    pub fn displayed_rate_limited(&self) -> bool {
+        self.resolve_display();
+        self.displayed_rate_limited.get()
+    }
+
     pub fn should_display(&self) -> bool {
-        !(Self::is_idle_message(&self.message) || Self::is_completion_message(&self.message))
+        let message = self.displayed_message();
+        !(Self::is_idle_message(&message) || Self::is_completion_message(&message))
+    }
+
+    pub fn should_show_bar(&self) -> bool {
+        self.displayed_message().starts_with(status::DOWNLOADING)
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
@@ -243,6 +282,14 @@ impl CollectionPage {
                 status.active_beatmap = None;
                 status.current_downloaded = 0;
                 status.current_total = 0;
+            }
+
+            let matches_displayed = *status.displayed_message.borrow() == status.message
+                && status.displayed_rate_limited.get() == status.rate_limited;
+            if matches_displayed {
+                status.status_changed_at.set(None);
+            } else {
+                status.status_changed_at.set(Some(Instant::now()));
             }
         }
     }

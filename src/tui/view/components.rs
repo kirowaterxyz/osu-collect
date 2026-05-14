@@ -352,41 +352,47 @@ pub fn thread_item(index: usize, status: &ThreadStatusLine, width: u16) -> ListI
 
     let prefix = format!("  t{:<2} ", index + 1);
     let prefix_w = prefix.chars().count() as u16;
-    let message = status.message.clone();
+    let message = status.displayed_message();
     let message_w = message.chars().count() as u16;
+    let rate_limited = status.displayed_rate_limited();
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
-        Span::styled(message, thread_style(status)),
+        Span::styled(
+            message,
+            thread_style_for(&status.displayed_message(), rate_limited),
+        ),
     ];
 
-    let used = prefix_w.saturating_add(message_w);
-    if width >= used + RESERVED_RIGHT {
-        let pad = (width - used - RESERVED_RIGHT) as usize;
-        spans.push(Span::raw(" ".repeat(pad)));
+    if status.should_show_bar() {
+        let used = prefix_w.saturating_add(message_w);
+        if width >= used + RESERVED_RIGHT {
+            let pad = (width - used - RESERVED_RIGHT) as usize;
+            spans.push(Span::raw(" ".repeat(pad)));
 
-        let (filled, label) = match status.progress_ratio() {
-            Some(ratio) => {
-                let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
-                (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
-            }
-            None => (0, "  --".to_string()),
-        };
-        let empty = BAR_WIDTH - filled;
+            let (filled, label) = match status.progress_ratio() {
+                Some(ratio) => {
+                    let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
+                    (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
+                }
+                None => (0, "  --".to_string()),
+            };
+            let empty = BAR_WIDTH - filled;
 
-        let bar_color = if status.rate_limited { WARNING } else { ACCENT };
-        spans.push(Span::styled(
-            "█".repeat(filled as usize),
-            Style::default().fg(bar_color),
-        ));
-        spans.push(Span::styled(
-            "░".repeat(empty as usize),
-            Style::default().fg(LINE_SOFT),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}"),
-            Style::default().fg(TEXT_FAINT),
-        ));
+            let bar_color = if rate_limited { WARNING } else { ACCENT };
+            spans.push(Span::styled(
+                "█".repeat(filled as usize),
+                Style::default().fg(bar_color),
+            ));
+            spans.push(Span::styled(
+                "░".repeat(empty as usize),
+                Style::default().fg(LINE_SOFT),
+            ));
+            spans.push(Span::styled(
+                format!(" {label}"),
+                Style::default().fg(TEXT_FAINT),
+            ));
+        }
     }
 
     ListItem::new(Line::from(spans))
@@ -400,12 +406,12 @@ fn field_label_style(focused: bool) -> Style {
     }
 }
 
-fn thread_style(status: &ThreadStatusLine) -> Style {
-    if status.rate_limited {
+fn thread_style_for(message: &str, rate_limited: bool) -> Style {
+    if rate_limited {
         return Style::default().fg(WARNING);
     }
 
-    let message = status.message.to_lowercase();
+    let message = message.to_lowercase();
     if message.contains("error") || message.starts_with("failed") {
         return Style::default().fg(DANGER);
     }

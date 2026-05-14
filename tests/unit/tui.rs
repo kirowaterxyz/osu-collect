@@ -294,6 +294,7 @@ fn thread_view_renders_progress_bar_when_downloading() {
     page.register_beatmaps(&[42]);
     page.update_thread_status(0, "Downloading #42 from mirror", false, Some(42));
     page.update_thread_progress(0, 5_000_000, 10_000_000);
+    std::thread::sleep(std::time::Duration::from_millis(150));
     app.downloads.push(page);
     app.active_tab = 3;
 
@@ -304,6 +305,49 @@ fn thread_view_renders_progress_bar_when_downloading() {
     assert!(
         output.contains("50%"),
         "percent label must reflect progress"
+    );
+}
+
+#[test]
+fn thread_view_omits_progress_bar_when_fetching() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 5;
+    page.download_target = 5;
+    page.register_beatmaps(&[42]);
+    page.update_thread_status(0, "Fetching #42 from mirror", false, Some(42));
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(output.contains("Fetching"), "fetching status must render");
+    assert!(
+        !output.contains("█") && !output.contains("░"),
+        "bar must not render while status is not Downloading"
+    );
+}
+
+#[test]
+fn thread_status_change_is_debounced() {
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.update_thread_status(0, "Fetching #1 from mirror", false, Some(1));
+    page.update_thread_status(0, "Downloading #1 from mirror", false, Some(1));
+
+    let thread = &page.thread_statuses[0];
+    assert_eq!(
+        thread.displayed_message(),
+        "Idle",
+        "rapid changes within debounce window must not promote yet"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    assert_eq!(
+        thread.displayed_message(),
+        "Downloading #1 from mirror",
+        "stable status must promote after debounce expires"
     );
 }
 
