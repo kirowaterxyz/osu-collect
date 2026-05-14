@@ -18,6 +18,7 @@ use crate::{
     worker::StatusSink,
 };
 use dashmap::DashSet;
+use futures_util::{StreamExt, stream};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -413,6 +414,8 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
     Ok(collection)
 }
 
+const RESOLVE_CONCURRENCY: usize = 6;
+
 pub(crate) async fn resolve_selective_collections(
     collection_ids: &[u32],
     requested_collections: Vec<SelectiveDownloadCollection>,
@@ -420,11 +423,56 @@ pub(crate) async fn resolve_selective_collections(
     status: &StatusSink,
     id: DownloadId,
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
-    let collection_service = HttpCollectionService::builder().build()?;
+    let service = HttpCollectionService::builder().build()?;
+    resolve_selective_with(
+        &service,
+        collection_ids,
+        requested_collections,
+        beatmapset_ids,
+        status,
+        id,
+    )
+    .await
+}
 
+async fn resolve_selective_with<S>(
+    service: &S,
+    collection_ids: &[u32],
+    requested_collections: Vec<SelectiveDownloadCollection>,
+    beatmapset_ids: &[u32],
+    status: &StatusSink,
+    id: DownloadId,
+) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError>
+where
+    S: CollectionService,
+{
     let target_set: HashSet<u32> = beatmapset_ids.iter().copied().collect();
-    let mut collection_names = Vec::new();
-    let mut resolved_collections = Vec::new();
+
+    let total = collection_ids.len() as u32;
+    status.emit(DownloadEvent::ResolveProgress {
+        id,
+        current: 0,
+        total,
+    });
+
+    // buffered() preserves input order so resolved_collections lines up with collection_ids.
+    let fetch_results: Vec<(u32, Result<_, _>)> =
+        stream::iter(collection_ids.iter().copied().enumerate())
+            .map(|(index, collection_id)| async move {
+                let result = service.fetch_collection(collection_id).await;
+                status.emit(DownloadEvent::ResolveProgress {
+                    id,
+                    current: (index as u32).saturating_add(1),
+                    total,
+                });
+                (collection_id, result)
+            })
+            .buffered(RESOLVE_CONCURRENCY)
+            .collect()
+            .await;
+
+    let mut collection_names = Vec::with_capacity(fetch_results.len());
+    let mut resolved_collections = Vec::with_capacity(fetch_results.len());
     let mut selected_collection = Collection {
         id: collection_ids.first().copied().unwrap_or_default(),
         name: "updates".into(),
@@ -434,16 +482,10 @@ pub(crate) async fn resolve_selective_collections(
         },
         beatmapsets: Vec::new(),
     };
+    let mut seen_beatmapset_ids: HashSet<u32> = HashSet::new();
 
-    let total = collection_ids.len() as u32;
-    status.emit(DownloadEvent::ResolveProgress {
-        id,
-        current: 0,
-        total,
-    });
-
-    for (index, &collection_id) in collection_ids.iter().enumerate() {
-        match collection_service.fetch_collection(collection_id).await {
+    for (collection_id, result) in fetch_results {
+        match result {
             Ok(collection) => {
                 let requested_collection = requested_collections
                     .iter()
@@ -469,11 +511,7 @@ pub(crate) async fn resolve_selective_collections(
                         if requested_ids.contains(&beatmapset.id) {
                             resolved_collection.beatmapset_ids.push(beatmapset.id);
                         }
-                        if !selected_collection
-                            .beatmapsets
-                            .iter()
-                            .any(|selected| selected.id == beatmapset.id)
-                        {
+                        if seen_beatmapset_ids.insert(beatmapset.id) {
                             selected_collection.beatmapsets.push(beatmapset);
                         }
                     }
@@ -491,11 +529,6 @@ pub(crate) async fn resolve_selective_collections(
                 );
             }
         }
-        status.emit(DownloadEvent::ResolveProgress {
-            id,
-            current: (index as u32).saturating_add(1),
-            total,
-        });
     }
 
     selected_collection.name = selective_collection_name(&collection_names);
@@ -572,4 +605,132 @@ async fn perform_initial_precheck(
     }
     stage_status(status, id, DownloadStage::Downloading);
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::collection::model::{Beatmap, Beatmapset};
+    use std::sync::Mutex;
+
+    struct MockService {
+        responses: Vec<(u32, Result<Collection, &'static str>)>,
+    }
+
+    impl CollectionService for MockService {
+        async fn fetch_collection(&self, id: u32) -> utils::Result<Collection> {
+            let response = self
+                .responses
+                .iter()
+                .find(|(cid, _)| *cid == id)
+                .map(|(_, r)| r.clone())
+                .unwrap_or(Err("missing"));
+            response.map_err(utils::AppError::other)
+        }
+    }
+
+    fn beatmapset(id: u32) -> Beatmapset {
+        Beatmapset {
+            id,
+            beatmaps: vec![Beatmap {
+                id,
+                checksum: "abc".into(),
+            }],
+        }
+    }
+
+    fn collection(id: u32, name: &str, ids: &[u32]) -> Collection {
+        Collection {
+            id,
+            name: name.into(),
+            uploader: Uploader {
+                id: 0,
+                username: "u".into(),
+            },
+            beatmapsets: ids.iter().copied().map(beatmapset).collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_selective_dedupes_overlapping_beatmapsets_and_preserves_order() {
+        let service = MockService {
+            responses: vec![
+                (1, Ok(collection(1, "alpha", &[10, 11]))),
+                (2, Ok(collection(2, "beta", &[10, 12]))),
+            ],
+        };
+        let requested = vec![
+            SelectiveDownloadCollection {
+                id: 1,
+                name: String::new(),
+                beatmapset_ids: vec![10, 11],
+            },
+            SelectiveDownloadCollection {
+                id: 2,
+                name: String::new(),
+                beatmapset_ids: vec![10, 12],
+            },
+        ];
+        let events = Arc::new(Mutex::new(Vec::<(u32, u32)>::new()));
+        let sink = {
+            let events = Arc::clone(&events);
+            StatusSink::from_fn(move |event| {
+                if let DownloadEvent::ResolveProgress { current, total, .. } = event {
+                    events.lock().unwrap().push((current, total));
+                }
+            })
+        };
+
+        let (selected, resolved, names) =
+            resolve_selective_with(&service, &[1, 2], requested, &[10, 11, 12], &sink, 7)
+                .await
+                .expect("resolve must succeed");
+
+        let bs_ids: Vec<u32> = selected.beatmapsets.iter().map(|b| b.id).collect();
+        assert_eq!(bs_ids, vec![10, 11, 12], "dedup + ordered by input");
+        assert_eq!(names, vec!["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(resolved.len(), 2);
+        let observed = events.lock().unwrap().clone();
+        assert!(observed.contains(&(0, 2)), "initial progress emitted");
+        assert!(observed.contains(&(2, 2)), "final progress emitted");
+    }
+
+    #[tokio::test]
+    async fn resolve_selective_skips_failed_fetches() {
+        let service = MockService {
+            responses: vec![
+                (1, Ok(collection(1, "alpha", &[10]))),
+                (2, Err("offline")),
+                (3, Ok(collection(3, "gamma", &[11]))),
+            ],
+        };
+        let requested = vec![
+            SelectiveDownloadCollection {
+                id: 1,
+                name: String::new(),
+                beatmapset_ids: vec![10],
+            },
+            SelectiveDownloadCollection {
+                id: 3,
+                name: String::new(),
+                beatmapset_ids: vec![11],
+            },
+        ];
+
+        let (selected, resolved, _names) = resolve_selective_with(
+            &service,
+            &[1, 2, 3],
+            requested,
+            &[10, 11],
+            &StatusSink::noop(),
+            7,
+        )
+        .await
+        .expect("partial resolve must succeed");
+
+        let mut bs_ids: Vec<u32> = selected.beatmapsets.iter().map(|b| b.id).collect();
+        bs_ids.sort_unstable();
+        assert_eq!(bs_ids, vec![10, 11]);
+        assert_eq!(resolved.len(), 2);
+    }
 }
