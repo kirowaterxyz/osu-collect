@@ -288,7 +288,7 @@ fn should_retry(err: &crate::Error) -> bool {
     match err {
         crate::Error::Http(err) => err.is_timeout() || err.is_connect(),
         crate::Error::Download(DownloadError::HttpStatus(s)) => {
-            matches!(s, 429 | 500 | 502 | 503 | 504)
+            matches!(s, 500 | 502 | 503 | 504)
         }
         crate::Error::Download(DownloadError::ProgressTimeout) => true,
         _ => false,
