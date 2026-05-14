@@ -625,6 +625,14 @@ impl<'a> PassCoordinator<'a> {
                     download_id = self.context.id,
                     beatmapset_id, "Download aborted mid-pass"
                 );
+                self.context.tracker.mark_failed(beatmapset_id);
+                self.totals.failed = self.totals.failed.saturating_add(1);
+                let _ = complete_beatmap(
+                    &self.context.tracker,
+                    &self.context.status,
+                    self.context.id,
+                    beatmapset_id,
+                );
                 self.context.emit(DownloadEvent::BeatmapStatus {
                     id: self.context.id,
                     beatmapset_id,
