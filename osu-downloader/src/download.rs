@@ -498,10 +498,7 @@ async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool>
         return Err(DownloadError::io(err.to_string()).into());
     }
 
-    if let Err(err) = tokio::fs::remove_file(temp_path).await {
-        let _ = tokio::fs::remove_file(output_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
-    }
+    let _ = tokio::fs::remove_file(temp_path).await;
 
     Ok(true)
 }
