@@ -366,6 +366,25 @@ fn fetching_status_promotes_after_debounce_expires() {
 }
 
 #[test]
+fn rechecking_stage_shows_verification_progress() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Rechecking;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.skipped = 3;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(
+        output.contains("3/10 verified"),
+        "gauge must show running verification count during rechecking"
+    );
+}
+
+#[test]
 fn fetching_message_switches_active_beatmap_without_pre_emit() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.update_thread_status(0, "Downloading #100 from mirror", false, Some(100));

@@ -211,6 +211,13 @@ pub(crate) async fn verify_existing_beatmapsets(
                             id,
                             duration_us: record.duration_us,
                         });
+                        status.emit(DownloadEvent::OverallProgress {
+                            id,
+                            downloaded: 0,
+                            skipped,
+                            failed: 0,
+                            unverified: unverified_list.len() as u32,
+                        });
                     }
                     continue;
                 }
@@ -229,6 +236,13 @@ pub(crate) async fn verify_existing_beatmapsets(
                         status.emit(DownloadEvent::BeatmapVerified {
                             id,
                             duration_us: record.duration_us,
+                        });
+                        status.emit(DownloadEvent::OverallProgress {
+                            id,
+                            downloaded: 0,
+                            skipped,
+                            failed: 0,
+                            unverified: unverified_list.len() as u32,
                         });
                     }
                 }
