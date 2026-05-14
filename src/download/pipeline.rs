@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     app::snapshots,
-    config::constants::DEFAULT_PROGRESS_WATCHDOG_SECS,
+    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, DIRECTORY_LOCK_FILE},
     core::collection::{
         CollectionDbEntry, create_collection_db, create_collection_db_entries, model::Collection,
     },
@@ -429,8 +429,11 @@ async fn handle_shutdown_cleanup(
 async fn try_remove_empty_output_dir(output_dir: &Path) -> Result<(), DownloadError> {
     let mut entries = fs::read_dir(output_dir).await?;
 
-    if entries.next_entry().await?.is_some() {
-        return Err(DownloadError::DirectoryNotEmpty);
+    while let Some(entry) = entries.next_entry().await? {
+        if entry.file_name() != DIRECTORY_LOCK_FILE {
+            return Err(DownloadError::DirectoryNotEmpty);
+        }
+        fs::remove_file(entry.path()).await?;
     }
 
     fs::remove_dir(output_dir).await?;
@@ -886,6 +889,16 @@ mod tests {
             !dir.path().join("collection.db").exists(),
             "no db when nothing was newly downloaded"
         );
+    }
+
+    #[tokio::test]
+    async fn empty_output_cleanup_removes_legacy_lock_file() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join(DIRECTORY_LOCK_FILE), "").unwrap();
+
+        try_remove_empty_output_dir(dir.path()).await.unwrap();
+
+        assert!(!dir.path().exists());
     }
 
     #[test]

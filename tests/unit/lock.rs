@@ -1,4 +1,4 @@
-use osu_collect::download::lock::ActiveDownloadRegistry;
+use osu_collect::download::lock::{ActiveDownloadRegistry, DownloadLockGuard};
 use std::path::PathBuf;
 
 #[test]
@@ -21,4 +21,26 @@ fn registry_independent_paths() {
     assert!(registry.try_insert(&path_b));
     registry.remove(&path_a);
     registry.remove(&path_b);
+}
+
+#[test]
+fn registry_canonicalizes_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let direct = dir.path();
+    let equivalent = dir.path().join(".");
+    let registry = ActiveDownloadRegistry::new();
+
+    assert!(registry.try_insert(direct));
+    assert!(!registry.try_insert(&equivalent));
+    registry.remove(&equivalent);
+    assert!(registry.try_insert(direct));
+}
+
+#[test]
+fn lock_file_is_not_created_in_output_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = ActiveDownloadRegistry::new();
+    let _guard = DownloadLockGuard::acquire(dir.path(), &registry).unwrap();
+
+    assert!(!dir.path().join(".osu-collect.lock").exists());
 }
