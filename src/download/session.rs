@@ -484,6 +484,22 @@ pub(crate) async fn resolve_selective_collections(
 
     selected_collection.name = selective_collection_name(&collection_names);
 
+    if resolved_collections.is_empty() {
+        warn!(
+            collection_count = collection_ids.len(),
+            "no collections resolved in selective download"
+        );
+        return Err(DownloadError::EmptyCollection);
+    }
+
+    if selected_collection.beatmapsets.is_empty() {
+        warn!(
+            collection_count = collection_ids.len(),
+            "no requested beatmapsets matched any fetched collection"
+        );
+        return Err(DownloadError::NoBeatmapsets);
+    }
+
     info!(
         collection_count = collection_ids.len(),
         resolved_count = collection_names.len(),
