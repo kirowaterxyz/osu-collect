@@ -250,13 +250,26 @@ fn format_bytes_progress(downloaded: u64, total: u64) -> String {
     format!("{downloaded_gb:.2}/{total_gb:.2} GB")
 }
 
+fn format_avg_verify(avg_ms: u64) -> String {
+    if avg_ms < 1000 {
+        format!("{avg_ms}ms")
+    } else if avg_ms < 60_000 {
+        format!("{:.1}s", avg_ms as f64 / 1000.0)
+    } else {
+        format!("{:.1}m", avg_ms as f64 / 60_000.0)
+    }
+}
+
 fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let queue_remaining = page.download_target;
     let total_collection = page.total_maps.max(1);
     let downloaded = page.stats.downloaded as usize;
+    let failed = page.stats.failed as usize;
     let verified = downloaded + page.stats.skipped as usize;
     let verified_display = verified.min(total_collection);
-    let ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
+    let failed_display = failed.min(total_collection.saturating_sub(verified_display));
+    let verified_ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
+    let failed_ratio = (failed_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
     let mut top_style = Style::default().fg(components::TEXT_DIM);
     if !page.progress_label_style_locked || page.progress_label_bold_when_locked {
@@ -266,7 +279,14 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     }
 
     let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} queued ");
-    let verified_title = format!(" {verified_display}/{total_collection} verified ");
+    let verified_title = if let Some(avg_ms) = page.avg_verify_ms() {
+        format!(
+            " {verified_display}/{total_collection} verified ({} avg. per map) ",
+            format_avg_verify(avg_ms)
+        )
+    } else {
+        format!(" {verified_display}/{total_collection} verified ")
+    };
 
     let block = Block::default()
         .title(Line::from(Span::styled(downloaded_title, top_style)).left_aligned())
@@ -278,17 +298,47 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             .right_aligned(),
         );
 
-    let gauge = Gauge::default()
-        .block(block)
-        .ratio(ratio)
-        .label(Span::raw(""))
-        .gauge_style(
-            Style::default()
-                .fg(components::ACCENT)
-                .bg(components::BG_RAISED),
-        );
+    if failed_display == 0 {
+        let gauge = Gauge::default()
+            .block(block)
+            .ratio(verified_ratio)
+            .label(Span::raw(""))
+            .gauge_style(
+                Style::default()
+                    .fg(components::ACCENT)
+                    .bg(components::BG_RAISED),
+            );
+        frame.render_widget(gauge, area);
+    } else {
+        // Render two-segment bar: verified (accent) + failed (danger)
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+        let bar_width = inner.width as usize;
+        let verified_cells = ((verified_ratio * bar_width as f64).round() as usize).min(bar_width);
+        let failed_cells =
+            ((failed_ratio * bar_width as f64).round() as usize).min(bar_width - verified_cells);
+        let empty_cells = bar_width.saturating_sub(verified_cells + failed_cells);
 
-    frame.render_widget(gauge, area);
+        let bar = Line::from(vec![
+            Span::styled(
+                "█".repeat(verified_cells),
+                Style::default().fg(components::ACCENT),
+            ),
+            Span::styled(
+                "█".repeat(failed_cells),
+                Style::default().fg(components::DANGER),
+            ),
+            Span::styled(
+                "░".repeat(empty_cells),
+                Style::default().fg(components::BG_RAISED),
+            ),
+        ]);
+        let paragraph = Paragraph::new(bar);
+        frame.render_widget(paragraph, inner);
+    }
 }
 
 fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
@@ -441,4 +491,19 @@ fn summarize_failure(reason: &str) -> String {
         truncated.push_str("...");
     }
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_avg_verify_ms_boundary() {
+        assert_eq!(format_avg_verify(0), "0ms");
+        assert_eq!(format_avg_verify(999), "999ms");
+        assert_eq!(format_avg_verify(1000), "1.0s");
+        assert_eq!(format_avg_verify(59_999), "60.0s");
+        assert_eq!(format_avg_verify(60_000), "1.0m");
+        assert_eq!(format_avg_verify(120_000), "2.0m");
+    }
 }

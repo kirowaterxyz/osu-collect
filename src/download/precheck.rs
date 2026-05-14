@@ -12,7 +12,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::fs;
 use tracing::{debug, info, warn};
@@ -83,6 +83,7 @@ pub(crate) async fn verify_existing_beatmapsets(
         file_size: u64,
         path: PathBuf,
         validation_error: Option<String>,
+        duration_ms: u64,
     }
 
     let mut candidates = Vec::new();
@@ -143,6 +144,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                     return Ok(None);
                 }
 
+                let verify_start = Instant::now();
                 let mut validation_error = None;
                 let mut file_size = 0u64;
 
@@ -164,11 +166,13 @@ pub(crate) async fn verify_existing_beatmapsets(
                     }
                 }
 
+                let duration_ms = verify_start.elapsed().as_millis() as u64;
                 Ok(Some(FileRecord {
                     beatmapset_id,
                     file_size,
                     path,
                     validation_error,
+                    duration_ms,
                 }))
             }
         })
@@ -203,6 +207,10 @@ pub(crate) async fn verify_existing_beatmapsets(
                             stage: BeatmapStage::Failed,
                             message: format!("Existing file failed validation: {}", error),
                         });
+                        status.emit(DownloadEvent::BeatmapVerified {
+                            id,
+                            duration_ms: record.duration_ms,
+                        });
                     }
                     continue;
                 }
@@ -217,6 +225,10 @@ pub(crate) async fn verify_existing_beatmapsets(
                             beatmapset_id: record.beatmapset_id,
                             stage: BeatmapStage::Skipped,
                             message: "Already present".to_string(),
+                        });
+                        status.emit(DownloadEvent::BeatmapVerified {
+                            id,
+                            duration_ms: record.duration_ms,
                         });
                     }
                 }

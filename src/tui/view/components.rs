@@ -180,7 +180,6 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
     );
 }
 
-
 pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     let value = if field.value.is_empty() {
         Span::styled(field.placeholder.clone(), Style::default().fg(TEXT_FAINT))

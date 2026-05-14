@@ -1,6 +1,6 @@
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
-    config::{LogFormat, LogLevel, constants::default_threads},
+    config::{LogFormat, LogLevel},
 };
 use ratatui::{
     Frame,
@@ -17,7 +17,57 @@ pub fn render(frame: &mut Frame, area: Rect, view: ConfigView) {
 }
 
 fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
+    // 0: section_header("download")
+    // 1: help_item
+    // 2: DownloadSkipExisting
+    // 3: DownloadThreads
+    // 4: DownloadNoVideo
+    // 5: DownloadVerifyZipEocd
+    // 6: spacer
+    // 7: section_header("mirrors")
+    // 8: help_item
+    // 9: MirrorNerinyan
+    // 10: MirrorCatboyCentral
+    // 11: MirrorCatboyUs
+    // 12: MirrorCatboyAsia
+    // 13: MirrorOsuDirect
+    // 14: MirrorSayobot
+    // 15: MirrorNekoha
+    // 16: MirrorCustomUrl
+    // 17: spacer
+    // 18: section_header("logging")
+    // 19: LoggingEnabled
+    // 20: LoggingLevel
+    // 21: LoggingFormat
+    // 22: LoggingDirectory
+    // 23: spacer
+    // 24: section_header("osu! login")
+    // 25: auth_status_item
+    // 26: LoginEntry
+    // 27: LogoutEntry
     let items = vec![
+        components::section_header("download"),
+        components::help_item("defaults used by home and updates downloads"),
+        components::row_item(
+            "skip existing files",
+            Some("keep files already on disk"),
+            form.skip_existing,
+            form.focus == ConfigField::DownloadSkipExisting,
+        ),
+        components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
+        components::row_item(
+            "skip videos",
+            Some("smaller downloads"),
+            form.no_video,
+            form.focus == ConfigField::DownloadNoVideo,
+        ),
+        components::row_item(
+            "verify .osz integrity",
+            Some("reject truncated archives"),
+            form.verify_zip_eocd,
+            form.focus == ConfigField::DownloadVerifyZipEocd,
+        ),
+        components::spacer(),
         components::section_header("mirrors"),
         components::help_item("space toggles mirrors; custom URL must contain {id}"),
         components::row_item(
@@ -67,37 +117,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.focus == ConfigField::MirrorCustomUrl,
         ),
         components::spacer(),
-        components::section_header("osu! login"),
-        auth_status_item(&form.login_state),
-        login_entry_item(form),
-        logout_entry_item(form),
-        components::spacer(),
-        components::section_header("download"),
-        components::help_item("defaults used by home and updates downloads"),
-        components::row_item(
-            "skip existing files",
-            Some("keep files already on disk"),
-            form.skip_existing,
-            form.focus == ConfigField::DownloadSkipExisting,
-        ),
-        components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
-        components::row_item(
-            "skip videos",
-            Some("smaller downloads"),
-            form.no_video,
-            form.focus == ConfigField::DownloadNoVideo,
-        ),
-        components::row_item(
-            "verify .osz integrity",
-            Some("reject truncated archives"),
-            form.verify_zip_eocd,
-            form.focus == ConfigField::DownloadVerifyZipEocd,
-        ),
-        components::summary_item(&[
-            components::Metric::accent("threads", configured_or_default(&form.threads.value)),
-            components::Metric::muted("default", default_threads().to_string()),
-        ]),
-        components::spacer(),
         components::section_header("logging"),
         components::toggle_item(
             "enable logging",
@@ -120,27 +139,32 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             &form.logging_dir,
             form.focus == ConfigField::LoggingDirectory,
         ),
+        components::spacer(),
+        components::section_header("osu! login"),
+        auth_status_item(&form.login_state),
+        login_entry_item(form),
+        logout_entry_item(form),
     ];
 
     let focused_index = match form.focus {
-        ConfigField::MirrorNerinyan => 2,
-        ConfigField::MirrorCatboyCentral => 3,
-        ConfigField::MirrorCatboyUs => 4,
-        ConfigField::MirrorCatboyAsia => 5,
-        ConfigField::MirrorOsuDirect => 6,
-        ConfigField::MirrorSayobot => 7,
-        ConfigField::MirrorNekoha => 8,
-        ConfigField::MirrorCustomUrl => 9,
-        ConfigField::LoginEntry => 13,
-        ConfigField::LogoutEntry => 14,
-        ConfigField::DownloadSkipExisting => 16,
-        ConfigField::DownloadThreads => 17,
-        ConfigField::DownloadNoVideo => 18,
-        ConfigField::DownloadVerifyZipEocd => 19,
-        ConfigField::LoggingEnabled => 23,
-        ConfigField::LoggingLevel => 24,
-        ConfigField::LoggingFormat => 25,
-        ConfigField::LoggingDirectory => 26,
+        ConfigField::DownloadSkipExisting => 2,
+        ConfigField::DownloadThreads => 3,
+        ConfigField::DownloadNoVideo => 4,
+        ConfigField::DownloadVerifyZipEocd => 5,
+        ConfigField::MirrorNerinyan => 9,
+        ConfigField::MirrorCatboyCentral => 10,
+        ConfigField::MirrorCatboyUs => 11,
+        ConfigField::MirrorCatboyAsia => 12,
+        ConfigField::MirrorOsuDirect => 13,
+        ConfigField::MirrorSayobot => 14,
+        ConfigField::MirrorNekoha => 15,
+        ConfigField::MirrorCustomUrl => 16,
+        ConfigField::LoggingEnabled => 19,
+        ConfigField::LoggingLevel => 20,
+        ConfigField::LoggingFormat => 21,
+        ConfigField::LoggingDirectory => 22,
+        ConfigField::LoginEntry => 26,
+        ConfigField::LogoutEntry => 27,
     };
 
     let inner_block = components::panel_block("config");
@@ -235,15 +259,6 @@ fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {
         Span::raw(prefix),
         Span::styled(text, style),
     ]))
-}
-
-fn configured_or_default(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        "default".to_string()
-    } else {
-        trimmed.to_string()
-    }
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {

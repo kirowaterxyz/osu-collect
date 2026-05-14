@@ -55,7 +55,7 @@ fn config_render_scrolls_to_focused_logging_field() {
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::LoggingDirectory;
 
-    let output = render_app(&app, 40, 10);
+    let output = render_app(&app, 40, 12);
 
     assert!(output.contains("LOGGING"));
     assert!(output.contains("logs directory"));
@@ -77,7 +77,7 @@ fn config_render_shows_download_help() {
 fn config_render_shows_official_login_status() {
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.config.focus = ConfigField::LoginEntry;
 
     let output = render_app(&app, 80, 24);
 

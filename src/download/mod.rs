@@ -191,6 +191,10 @@ pub enum DownloadEvent {
         id: DownloadId,
         failures: Vec<(u32, String)>,
     },
+    BeatmapVerified {
+        id: DownloadId,
+        duration_ms: u64,
+    },
     Finished {
         id: DownloadId,
         summary: DownloadSummary,

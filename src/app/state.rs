@@ -635,6 +635,13 @@ impl App {
                     page.stage = stage;
                 }
             }
+            DownloadEvent::BeatmapVerified { id, duration_ms } => {
+                if let Some(page) = self.page_mut(id) {
+                    page.stats.verify_total_count = page.stats.verify_total_count.saturating_add(1);
+                    page.stats.verify_total_ms =
+                        page.stats.verify_total_ms.saturating_add(duration_ms);
+                }
+            }
             DownloadEvent::FailedMaps { id, failures } => {
                 if let Some(page) = self.page_mut(id) {
                     page.set_failed_maps(failures);

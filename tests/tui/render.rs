@@ -146,6 +146,53 @@ fn footer_shows_hint_line() {
     assert!(content.contains("move") || content.contains("quit") || content.contains("↑↓"));
 }
 
+// ── gauge label ──────────────────────────────────────────────────────────────
+
+#[test]
+fn gauge_label_shows_avg_when_verified() {
+    use osu_collect::app::CollectionPage;
+
+    let mut page = CollectionPage::new(1, "test".to_string(), 1);
+    page.total_maps = 10;
+    page.stats.downloaded = 3;
+    page.stats.skipped = 2;
+    page.stats.verify_total_count = 5;
+    page.stats.verify_total_ms = 5000;
+
+    let avg = page.avg_verify_ms();
+    assert_eq!(avg, Some(1000));
+}
+
+#[test]
+fn gauge_label_none_when_no_verified() {
+    use osu_collect::app::CollectionPage;
+
+    let page = CollectionPage::new(1, "test".to_string(), 1);
+    assert_eq!(page.avg_verify_ms(), None);
+}
+
+// ── config item order ─────────────────────────────────────────────────────────
+
+#[test]
+fn config_tab_shows_download_section_before_mirrors() {
+    let mut app = make_app();
+    app.next_tab();
+    app.next_tab();
+    let buf = render_to_buffer(&app, 120, 60);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    // both sections should be present
+    assert!(content.contains("download") || content.contains("DOWNLOAD"));
+    assert!(content.contains("mirrors") || content.contains("MIRRORS"));
+    // "download" text should appear before "mirrors" text in the rendered buffer
+    let dl_pos = content
+        .find("download")
+        .or_else(|| content.find("DOWNLOAD"));
+    let mir_pos = content.find("mirrors").or_else(|| content.find("MIRRORS"));
+    if let (Some(d), Some(m)) = (dl_pos, mir_pos) {
+        assert!(d < m, "download section should render before mirrors");
+    }
+}
+
 // ── zero-size terminal ────────────────────────────────────────────────────────
 
 #[test]

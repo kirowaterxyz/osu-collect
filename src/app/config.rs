@@ -108,13 +108,17 @@ impl ConfigTab {
                 value: config.logging.file_dir.as_deref().unwrap_or("").to_string(),
                 placeholder: "~/.local/share/osu-collect/logs".to_string(),
             },
-            focus: ConfigField::MirrorNerinyan,
+            focus: ConfigField::DownloadSkipExisting,
             message: None,
         }
     }
 
     pub fn next_field(&mut self) {
         self.focus = match self.focus {
+            ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
+            ConfigField::DownloadThreads => ConfigField::DownloadNoVideo,
+            ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
+            ConfigField::DownloadVerifyZipEocd => ConfigField::MirrorNerinyan,
             ConfigField::MirrorNerinyan => ConfigField::MirrorCatboyCentral,
             ConfigField::MirrorCatboyCentral => ConfigField::MirrorCatboyUs,
             ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyAsia,
@@ -122,23 +126,23 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => ConfigField::MirrorSayobot,
             ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
             ConfigField::MirrorNekoha => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::LoginEntry,
-            ConfigField::LoginEntry => ConfigField::LogoutEntry,
-            ConfigField::LogoutEntry => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
-            ConfigField::DownloadThreads => ConfigField::DownloadNoVideo,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::DownloadVerifyZipEocd => ConfigField::LoggingEnabled,
+            ConfigField::MirrorCustomUrl => ConfigField::LoggingEnabled,
             ConfigField::LoggingEnabled => ConfigField::LoggingLevel,
             ConfigField::LoggingLevel => ConfigField::LoggingFormat,
             ConfigField::LoggingFormat => ConfigField::LoggingDirectory,
-            ConfigField::LoggingDirectory => ConfigField::MirrorNerinyan,
+            ConfigField::LoggingDirectory => ConfigField::LoginEntry,
+            ConfigField::LoginEntry => ConfigField::LogoutEntry,
+            ConfigField::LogoutEntry => ConfigField::DownloadSkipExisting,
         };
     }
 
     pub fn prev_field(&mut self) {
         self.focus = match self.focus {
-            ConfigField::MirrorNerinyan => ConfigField::LoggingDirectory,
+            ConfigField::DownloadSkipExisting => ConfigField::LogoutEntry,
+            ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
+            ConfigField::DownloadNoVideo => ConfigField::DownloadThreads,
+            ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
+            ConfigField::MirrorNerinyan => ConfigField::DownloadVerifyZipEocd,
             ConfigField::MirrorCatboyCentral => ConfigField::MirrorNerinyan,
             ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyCentral,
             ConfigField::MirrorCatboyAsia => ConfigField::MirrorCatboyUs,
@@ -146,16 +150,12 @@ impl ConfigTab {
             ConfigField::MirrorSayobot => ConfigField::MirrorOsuDirect,
             ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
             ConfigField::MirrorCustomUrl => ConfigField::MirrorNekoha,
-            ConfigField::LoginEntry => ConfigField::MirrorCustomUrl,
-            ConfigField::LogoutEntry => ConfigField::LoginEntry,
-            ConfigField::DownloadSkipExisting => ConfigField::LogoutEntry,
-            ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadThreads,
-            ConfigField::LoggingEnabled => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
+            ConfigField::LoggingEnabled => ConfigField::MirrorCustomUrl,
             ConfigField::LoggingLevel => ConfigField::LoggingEnabled,
             ConfigField::LoggingFormat => ConfigField::LoggingLevel,
             ConfigField::LoggingDirectory => ConfigField::LoggingFormat,
+            ConfigField::LoginEntry => ConfigField::LoggingDirectory,
+            ConfigField::LogoutEntry => ConfigField::LoginEntry,
         };
     }
 

@@ -494,13 +494,7 @@ impl<'a> PassCoordinator<'a> {
         match result {
             Ok(DownloadResult::Success(file)) => {
                 self.context.mirror_pool.clear_penalty(file.mirror);
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("{} #{}", status::VERIFYING_PREFIX, beatmapset_id),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                let verify_start = Instant::now();
 
                 trace!(
                     download_id = self.context.id,
@@ -525,6 +519,10 @@ impl<'a> PassCoordinator<'a> {
                     beatmapset_id,
                     stage: BeatmapStage::Success,
                     message: success_message,
+                });
+                self.context.emit(DownloadEvent::BeatmapVerified {
+                    id: self.context.id,
+                    duration_ms: verify_start.elapsed().as_millis() as u64,
                 });
                 self.context.emit(DownloadEvent::ThreadStatus {
                     id: self.context.id,
