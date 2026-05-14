@@ -467,6 +467,9 @@ impl<'a> PassCoordinator<'a> {
             });
         }
 
+        while let Ok((slot, beatmapset_id, result)) = result_rx.try_recv() {
+            self.process_result(slot, beatmapset_id, result, &mut failures).await;
+        }
         drop(result_rx);
         feed_handle.abort();
 
