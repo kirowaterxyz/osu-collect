@@ -1,4 +1,4 @@
-mod components;
+pub(crate) mod components;
 mod config;
 mod download;
 mod footer;

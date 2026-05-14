@@ -1,12 +1,14 @@
 use crate::app::runtime::InputEvent;
+use crate::tui::view::components::BG;
 use crossterm::{
     event::{self, Event as CrosstermEvent, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
 use std::{
-    io::{self, Stdout},
+    io::{self, Stdout, Write},
+    sync::Once,
     thread,
     time::Duration,
 };
@@ -14,19 +16,51 @@ use tokio::sync::mpsc;
 
 pub type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
+static PANIC_HOOK: Once = Once::new();
+
 pub fn setup_terminal() -> io::Result<TuiTerminal> {
+    install_panic_hook();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    let _ = set_terminal_bg(&mut stdout, BG);
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }
 
 pub fn cleanup_terminal(terminal: &mut TuiTerminal) -> io::Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    let backend = terminal.backend_mut();
+    let _ = reset_terminal_bg(backend);
+    execute!(backend, LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn install_panic_hook() {
+    PANIC_HOOK.call_once(|| {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let mut stdout = io::stdout();
+            let _ = reset_terminal_bg(&mut stdout);
+            let _ = execute!(stdout, LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+            default(info);
+        }));
+    });
+}
+
+fn set_terminal_bg<W: Write>(out: &mut W, color: Color) -> io::Result<()> {
+    if let Color::Rgb(r, g, b) = color {
+        write!(out, "\x1b]11;rgb:{r:02x}/{g:02x}/{b:02x}\x1b\\")?;
+        out.flush()?;
+    }
+    Ok(())
+}
+
+fn reset_terminal_bg<W: Write>(out: &mut W) -> io::Result<()> {
+    write!(out, "\x1b]111\x1b\\")?;
+    out.flush()
 }
 
 pub fn spawn_input_thread(tx: mpsc::UnboundedSender<InputEvent>) -> Option<thread::JoinHandle<()>> {
@@ -56,4 +90,30 @@ pub fn spawn_input_thread(tx: mpsc::UnboundedSender<InputEvent>) -> Option<threa
             }
         })
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_terminal_bg_emits_osc11_with_hex_rgb() {
+        let mut buf = Vec::new();
+        set_terminal_bg(&mut buf, Color::Rgb(30, 30, 46)).unwrap();
+        assert_eq!(buf, b"\x1b]11;rgb:1e/1e/2e\x1b\\");
+    }
+
+    #[test]
+    fn set_terminal_bg_skips_non_rgb_colors() {
+        let mut buf = Vec::new();
+        set_terminal_bg(&mut buf, Color::Reset).unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn reset_terminal_bg_emits_osc111() {
+        let mut buf = Vec::new();
+        reset_terminal_bg(&mut buf).unwrap();
+        assert_eq!(buf, b"\x1b]111\x1b\\");
+    }
 }
