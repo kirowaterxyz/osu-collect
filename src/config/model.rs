@@ -127,7 +127,8 @@ impl MirrorConfig {
 
 impl DownloadConfig {
     pub fn resolved_concurrent(&self) -> u8 {
-        self.concurrent.unwrap_or(super::constants::DEFAULT_THREADS)
+        self.concurrent
+            .unwrap_or_else(super::constants::default_threads)
     }
 }
 

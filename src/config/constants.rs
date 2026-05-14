@@ -24,12 +24,18 @@ pub const DOWNLOAD_TIMEOUT_SECS: u64 = 60;
 pub const DEFAULT_PROGRESS_WATCHDOG_SECS: u64 = 120;
 pub const COLLECTION_FETCH_TIMEOUT_SECS: u64 = 30;
 
-pub const DEFAULT_THREADS: u8 = 3;
+pub fn default_threads() -> u8 {
+    std::thread::available_parallelism()
+        .map(|n| (n.get() as u8).min(50))
+        .unwrap_or(1)
+}
 
 /// Number of transient-error retry attempts per mirror inside a single download attempt.
 pub const TRANSIENT_RETRY_ATTEMPTS: u8 = 3;
 /// Base delay between transient retries (doubles each attempt).
 pub const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(800);
+/// Hard cap on per-beatmap network retries before the worker gives up silently (not counted as failed).
+pub const NETWORK_RETRY_CAP: u32 = 1000;
 
 pub const CONFIG_SUBDIR: &str = "osu-collect";
 pub const CONFIG_FILE: &str = "config.toml";

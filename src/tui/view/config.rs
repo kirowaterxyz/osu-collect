@@ -1,6 +1,6 @@
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
-    config::{LogFormat, LogLevel, constants::DEFAULT_THREADS},
+    config::{LogFormat, LogLevel, constants::default_threads},
 };
 use ratatui::{
     Frame,
@@ -95,7 +95,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ),
         components::summary_item(&[
             components::Metric::accent("threads", configured_or_default(&form.threads.value)),
-            components::Metric::muted("default", DEFAULT_THREADS.to_string()),
+            components::Metric::muted("default", default_threads().to_string()),
         ]),
         components::spacer(),
         components::section_header("logging"),

@@ -119,7 +119,7 @@ impl HomeTab {
             threads: InputField {
                 label: "Threads",
                 value: threads_value,
-                placeholder: "3".to_string(),
+                placeholder: default_threads.to_string(),
             },
             skip_existing: config.download.skip_existing,
             auto_overwrite: false,

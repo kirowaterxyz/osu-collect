@@ -1,7 +1,7 @@
 use super::{home::InputField, messages::AppMessage};
 use crate::config::{
     Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
-    constants::{DEFAULT_THREADS, LOG_FORMATS, LOG_LEVELS},
+    constants::{LOG_FORMATS, LOG_LEVELS, default_threads},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +96,7 @@ impl ConfigTab {
                     .concurrent
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
-                placeholder: format!("leave blank (default {})", DEFAULT_THREADS),
+                placeholder: format!("leave blank (default {})", default_threads()),
             },
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
