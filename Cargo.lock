@@ -1380,6 +1380,7 @@ dependencies = [
  "dirs",
  "fs2",
  "futures-util",
+ "link-cplusplus",
  "md-5",
  "open",
  "osu-db",

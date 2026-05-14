@@ -78,6 +78,20 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=version");
             // Link zlib (downloaded by realm-core on Windows)
             println!("cargo:rustc-link-lib=static=zlib");
+            // Force static C++ runtime on mingw so the EXE doesn't depend on libstdc++-6.dll.
+            // `-l:libstdc++.a` targets the archive directly without flipping the linker into
+            // -Bstatic mode. The group wrapper lets ld rescan so libstdc++.a's __imp_setlocale
+            // / strxfrm / wcscoll refs resolve against the msvcrt import lib re-added after it.
+            if is_windows_gnu {
+                println!("cargo:rustc-link-arg=-Wl,--start-group");
+                println!("cargo:rustc-link-arg=-l:libstdc++.a");
+                println!("cargo:rustc-link-arg=-l:libwinpthread.a");
+                println!("cargo:rustc-link-arg=-lmingwex");
+                println!("cargo:rustc-link-arg=-lmoldname");
+                println!("cargo:rustc-link-arg=-lmsvcrt");
+                println!("cargo:rustc-link-arg=-lkernel32");
+                println!("cargo:rustc-link-arg=-Wl,--end-group");
+            }
         }
         _ => {}
     }
@@ -89,6 +103,11 @@ fn main() {
         .include(&realm_include_dir)
         .include(realm_build.join("include"))
         .include("include");
+
+    // Suppress cc-rs' default dynamic stdc++ link on mingw; we emit static=stdc++ above.
+    if is_windows_gnu {
+        cxx_builder.cpp_link_stdlib(None);
+    }
 
     if is_msvc {
         cxx_builder

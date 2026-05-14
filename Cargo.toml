@@ -40,6 +40,9 @@ tracing-appender = "0.2.4"
 regex-lite = "0.1.9"
 whoami = "2.1.1"
 cxx = "1.0.194"
+# Suppress link-cplusplus's unconditional `-lstdc++`; build.rs owns C++ runtime linking
+# so Windows mingw builds can statically pull libstdc++.a instead of libstdc++-6.dll.
+link-cplusplus = { version = "1", features = ["nothing"] }
 fs2 = "0.4.3"
 smallvec = "1.15.1"
 sha2 = "0.11.0"
