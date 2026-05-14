@@ -288,6 +288,10 @@ impl CollectionPage {
                 && status.displayed_rate_limited.get() == status.rate_limited;
             if matches_displayed {
                 status.status_changed_at.set(None);
+            } else if status.message.starts_with(status::DOWNLOADING) {
+                *status.displayed_message.borrow_mut() = status.message.clone();
+                status.displayed_rate_limited.set(status.rate_limited);
+                status.status_changed_at.set(None);
             } else {
                 status.status_changed_at.set(Some(Instant::now()));
             }

@@ -331,23 +331,37 @@ fn thread_view_omits_progress_bar_when_fetching() {
 }
 
 #[test]
-fn thread_status_change_is_debounced() {
+fn thread_status_change_is_debounced_except_for_downloading() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.update_thread_status(0, "Fetching #1 from mirror", false, Some(1));
-    page.update_thread_status(0, "Downloading #1 from mirror", false, Some(1));
 
-    let thread = &page.thread_statuses[0];
     assert_eq!(
-        thread.displayed_message(),
+        page.thread_statuses[0].displayed_message(),
         "Idle",
-        "rapid changes within debounce window must not promote yet"
+        "non-Downloading status must wait for the debounce window"
     );
 
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    page.update_thread_status(0, "Downloading #1 from mirror", false, Some(1));
+
     assert_eq!(
-        thread.displayed_message(),
+        page.thread_statuses[0].displayed_message(),
         "Downloading #1 from mirror",
-        "stable status must promote after debounce expires"
+        "Downloading status must bypass debounce and promote immediately"
+    );
+}
+
+#[test]
+fn fetching_status_promotes_after_debounce_expires() {
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.update_thread_status(0, "Fetching #1 from mirror", false, Some(1));
+
+    assert_eq!(page.thread_statuses[0].displayed_message(), "Idle");
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    assert_eq!(
+        page.thread_statuses[0].displayed_message(),
+        "Fetching #1 from mirror",
     );
 }
 
