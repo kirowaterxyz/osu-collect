@@ -195,18 +195,12 @@ async fn download_single_target(
 }
 
 async fn cancellable_sleep(duration: Duration, shutdown: &super::ShutdownToken) -> bool {
-    let deadline = Instant::now() + duration;
-    loop {
-        if shutdown.is_cancelled() {
-            return true;
-        }
-
-        let now = Instant::now();
-        if now >= deadline {
-            return false;
-        }
-
-        sleep((deadline - now).min(Duration::from_millis(100))).await;
+    if shutdown.is_cancelled() {
+        return true;
+    }
+    tokio::select! {
+        _ = sleep(duration) => false,
+        _ = shutdown.cancelled() => true,
     }
 }
 
