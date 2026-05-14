@@ -38,7 +38,6 @@ impl Default for ActiveDownloadRegistry {
 
 pub struct DownloadLockGuard {
     path: PathBuf,
-    lock_file_path: PathBuf,
     file: Option<StdFile>,
     registry: ActiveDownloadRegistry,
 }
@@ -52,9 +51,8 @@ impl DownloadLockGuard {
         }
 
         match Self::lock_directory(path) {
-            Ok((file, lock_file_path)) => Ok(Self {
+            Ok(file) => Ok(Self {
                 path: path.to_path_buf(),
-                lock_file_path,
                 file: Some(file),
                 registry: registry.clone(),
             }),
@@ -65,7 +63,7 @@ impl DownloadLockGuard {
         }
     }
 
-    fn lock_directory(path: &Path) -> Result<(StdFile, PathBuf), DownloadError> {
+    fn lock_directory(path: &Path) -> Result<StdFile, DownloadError> {
         let lock_file_path = path.join(DIRECTORY_LOCK_FILE);
         let file = OpenOptions::new()
             .read(true)
@@ -86,7 +84,7 @@ impl DownloadLockGuard {
             return Err(DownloadError::Io(err));
         }
 
-        Ok((file, lock_file_path))
+        Ok(file)
     }
 }
 
@@ -102,16 +100,9 @@ impl Drop for DownloadLockGuard {
             );
         }
 
-        if let Err(err) = std::fs::remove_file(&self.lock_file_path)
-            && err.kind() != io::ErrorKind::NotFound
-        {
-            warn!(
-                file = %self.lock_file_path.display(),
-                error = %err,
-                "Failed to remove directory lock file"
-            );
-        }
-
+        // Leave the lock file in place. Removing it between unlock and the next
+        // process acquiring it creates a race where two processes both see a fresh
+        // file and both believe they hold the lock.
         self.registry.remove(&self.path);
     }
 }
