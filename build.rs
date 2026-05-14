@@ -100,7 +100,8 @@ fn main() {
         cxx_builder
             .flag_if_supported("-std=c++17")
             .flag_if_supported("-Wno-unused-parameter")
-            .flag_if_supported("-Wno-error");
+            .flag_if_supported("-Wno-error")
+            .flag_if_supported("-Wno-maybe-uninitialized");
     }
 
     cxx_builder.compile("osu_realm_bridge");
