@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{fs, fs::OpenOptions, io::AsyncWriteExt, time::timeout};
+use tokio::{fs, fs::OpenOptions, io::{AsyncWriteExt, BufWriter}, time::timeout};
 
 /// Minimum bytes changed to emit progress update
 const MIN_PROGRESS_DELTA: u64 = 131_072; // 128 KB
@@ -42,11 +42,12 @@ pub async fn download_with_streaming(
     progress_timeout: Duration,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<DownloadStreamResult> {
-    let mut file = OpenOptions::new()
+    let raw_file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(output_path)
         .await?;
+    let mut file = BufWriter::with_capacity(256 * 1024, raw_file);
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
     let total = content_length.unwrap_or(0);
@@ -58,7 +59,7 @@ pub async fn download_with_streaming(
     loop {
         // Check for cancellation
         if *cancel_rx.borrow_and_update() {
-            file.shutdown().await.ok();
+            file.get_mut().shutdown().await.ok();
             let _ = fs::remove_file(output_path).await;
             return Ok(DownloadStreamResult {
                 cancelled: true,
@@ -71,7 +72,7 @@ pub async fn download_with_streaming(
         let maybe_chunk = match timeout(progress_timeout, stream.next()).await {
             Ok(chunk) => chunk,
             Err(_) => {
-                file.shutdown().await.ok();
+                file.get_mut().shutdown().await.ok();
                 let _ = fs::remove_file(output_path).await;
                 return Err(DownloadError::ProgressTimeout.into());
             }
@@ -84,7 +85,7 @@ pub async fn download_with_streaming(
         let chunk = match chunk {
             Ok(bytes) => bytes,
             Err(err) => {
-                file.shutdown().await.ok();
+                file.get_mut().shutdown().await.ok();
                 let _ = fs::remove_file(output_path).await;
                 return Err(DownloadError::http(err.to_string()).into());
             }
@@ -94,7 +95,7 @@ pub async fn download_with_streaming(
 
         // Write to file
         if let Err(err) = file.write_all(&chunk).await {
-            file.shutdown().await.ok();
+            file.get_mut().shutdown().await.ok();
             let _ = fs::remove_file(output_path).await;
             return Err(DownloadError::io(err.to_string()).into());
         }
@@ -116,7 +117,7 @@ pub async fn download_with_streaming(
 
     // Final cancellation check
     if *cancel_rx.borrow() {
-        file.shutdown().await.ok();
+        file.get_mut().shutdown().await.ok();
         let _ = fs::remove_file(output_path).await;
         return Ok(DownloadStreamResult {
             cancelled: true,
@@ -125,7 +126,7 @@ pub async fn download_with_streaming(
         });
     }
 
-    // Flush and finalize
+    // Flush BufWriter to kernel, sync to disk, then shut down
     if let Err(err) = file.flush().await {
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after flush error");
@@ -133,14 +134,14 @@ pub async fn download_with_streaming(
         return Err(DownloadError::io(err.to_string()).into());
     }
 
-    if let Err(err) = file.sync_data().await {
+    if let Err(err) = file.get_mut().sync_data().await {
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after sync error");
         }
         return Err(DownloadError::io(err.to_string()).into());
     }
 
-    if let Err(err) = file.shutdown().await {
+    if let Err(err) = file.get_mut().shutdown().await {
         if let Err(rm_err) = fs::remove_file(output_path).await {
             tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after shutdown error");
         }
