@@ -180,27 +180,6 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
     );
 }
 
-/// Renders a scroll position indicator in the top-right corner of `area`.
-pub fn render_scroll_indicator(frame: &mut Frame, area: Rect, start: usize, total: usize) {
-    if total == 0 || area.width < 6 {
-        return;
-    }
-    let text = format!(" {}/{} ", start + 1, total);
-    let indicator_width = text.len() as u16;
-    if indicator_width >= area.width {
-        return;
-    }
-    let indicator_area = Rect {
-        x: area.x + area.width - indicator_width,
-        y: area.y,
-        width: indicator_width,
-        height: 1,
-    };
-    frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(TEXT_FAINT)),
-        indicator_area,
-    );
-}
 
 pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     let value = if field.value.is_empty() {

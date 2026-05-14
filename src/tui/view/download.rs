@@ -354,10 +354,6 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let list = List::new(visible_items).highlight_symbol("");
     frame.render_widget(list, inner);
-
-    if total > visible_height {
-        components::render_scroll_indicator(frame, area, start, total);
-    }
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {

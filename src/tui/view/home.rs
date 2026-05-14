@@ -115,9 +115,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let visible_height = inner.height as usize;
     let (start, end) = components::scroll_window(&items, focused_index, visible_height);
-    if items.len() > visible_height {
-        components::render_scroll_indicator(frame, inner, start, items.len());
-    }
     let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
 }
