@@ -385,6 +385,160 @@ fn rechecking_stage_shows_verification_progress() {
 }
 
 #[test]
+fn rechecking_stage_replaces_top_title_with_recheck_progress() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Rechecking;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.skipped = 3;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(
+        output.contains("rechecking 3/10"),
+        "gauge top title must show recheck progress instead of downloaded/queued during rechecking"
+    );
+    assert!(
+        !output.contains("queued"),
+        "queued count must not appear in the gauge top title during rechecking"
+    );
+}
+
+#[test]
+fn rechecking_stage_threads_panel_shows_verification_status() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Rechecking;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.skipped = 2;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(
+        output.contains("verifying existing archives"),
+        "threads panel must show verification status during rechecking"
+    );
+    assert!(
+        !output.contains("no active threads"),
+        "rechecking must replace the idle-threads placeholder"
+    );
+}
+
+#[test]
+fn resolving_stage_renders_indeterminate_gauge_and_status() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(
+        output.contains("resolving collection"),
+        "gauge title must announce the resolving stage"
+    );
+    assert!(
+        output.contains("fetching collection metadata"),
+        "threads panel must replace the idle placeholder while resolving"
+    );
+    assert!(
+        !output.contains("0 downloaded  0 queued"),
+        "downloaded/queued label must not appear while resolving"
+    );
+    assert!(
+        !output.contains("0/1 verified"),
+        "verified label must not appear while resolving"
+    );
+}
+
+#[test]
+fn resolving_stage_with_progress_shows_count_in_title_and_threads() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
+    page.resolve_progress = Some((2, 5));
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(
+        output.contains("resolving 2/5 collections"),
+        "gauge title must reflect resolve progress"
+    );
+    assert!(
+        output.contains("fetching collection 2/5"),
+        "threads panel must show resolve progress count"
+    );
+}
+
+#[test]
+fn resolving_stage_indeterminate_chunk_advances_with_tick() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let buf0 = render_buffer(&app, 100, 24);
+    app.tick_count = 4;
+    let buf1 = render_buffer(&app, 100, 24);
+
+    let cyan = Color::Rgb(116, 199, 236);
+    let count_cyan = |buf: &ratatui::buffer::Buffer| -> usize {
+        buf.content
+            .iter()
+            .filter(|cell| cell.symbol() == "█" && cell.style().fg == Some(cyan))
+            .count()
+    };
+    let positions = |buf: &ratatui::buffer::Buffer| -> Vec<usize> {
+        buf.content
+            .iter()
+            .enumerate()
+            .filter(|(_, cell)| cell.symbol() == "█" && cell.style().fg == Some(cyan))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    assert!(count_cyan(&buf0) > 0, "indeterminate chunk must render");
+    assert_ne!(
+        positions(&buf0),
+        positions(&buf1),
+        "indeterminate chunk must move with tick_count"
+    );
+}
+
+#[test]
+fn rechecking_stage_uses_warning_color_on_gauge() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Rechecking;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.skipped = 5;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let buf = render_buffer(&app, 100, 24);
+    let warning = Color::Rgb(249, 226, 175);
+
+    let has_warning_fill = buf
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "█" && cell.style().fg == Some(warning));
+    assert!(
+        has_warning_fill,
+        "gauge fill must use warning color during rechecking"
+    );
+}
+
+#[test]
 fn fetching_message_switches_active_beatmap_without_pre_emit() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.update_thread_status(0, "Downloading #100 from mirror", false, Some(100));

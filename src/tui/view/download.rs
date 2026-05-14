@@ -42,9 +42,11 @@ pub fn render(frame: &mut Frame, area: Rect, view: DownloadView) {
     let threads_area = sections[index];
 
     render_info(frame, info_area, page);
-    render_gauge(frame, gauge_area, page);
+    render_gauge(frame, gauge_area, page, view.tick);
     render_threads(frame, threads_area, page);
 }
+
+const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 fn should_render_disk_warning(page: &CollectionPage) -> bool {
     page.low_disk_space.is_some()
@@ -262,7 +264,22 @@ fn format_avg_verify(avg_us: u64) -> String {
     }
 }
 
-fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
+fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
+    if matches!(
+        page.stage,
+        DownloadStage::Pending | DownloadStage::Resolving
+    ) {
+        if let Some((current, total)) = page.resolve_progress
+            && total > 0
+        {
+            render_resolve_progress_gauge(frame, area, current, total, tick);
+        } else {
+            render_indeterminate_gauge(frame, area, page.stage, tick);
+        }
+        return;
+    }
+
+    let is_rechecking = matches!(page.stage, DownloadStage::Rechecking);
     let queue_remaining = page.download_target;
     let total_collection = page.total_maps.max(1);
     let downloaded = page.stats.downloaded as usize;
@@ -279,8 +296,15 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             .fg(components::TEXT_MUTED)
             .add_modifier(Modifier::BOLD);
     }
+    if is_rechecking {
+        top_style = top_style.fg(components::WARNING);
+    }
 
-    let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} queued ");
+    let top_title = if is_rechecking {
+        format!(" rechecking {verified_display}/{total_collection} ")
+    } else {
+        format!(" {downloaded} downloaded  {queue_remaining} queued ")
+    };
     let verified_title = if let Some(avg_us) = page.avg_verify_us() {
         format!(
             " {verified_display}/{total_collection} verified ({} avg) ",
@@ -291,7 +315,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     };
 
     let block = Block::default()
-        .title(Line::from(Span::styled(downloaded_title, top_style)).left_aligned())
+        .title(Line::from(Span::styled(top_title, top_style)).left_aligned())
         .title_bottom(
             Line::from(Span::styled(
                 verified_title,
@@ -300,16 +324,18 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             .right_aligned(),
         );
 
+    let fill_color = if is_rechecking {
+        components::WARNING
+    } else {
+        components::ACCENT
+    };
+
     if failed_display == 0 {
         let gauge = Gauge::default()
             .block(block)
             .ratio(verified_ratio)
             .label(Span::raw(""))
-            .gauge_style(
-                Style::default()
-                    .fg(components::ACCENT)
-                    .bg(components::BG_RAISED),
-            );
+            .gauge_style(Style::default().fg(fill_color).bg(components::BG_RAISED));
         frame.render_widget(gauge, area);
     } else {
         // Render two-segment bar: verified (accent) + failed (danger)
@@ -325,10 +351,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         let empty_cells = bar_width.saturating_sub(verified_cells + failed_cells);
 
         let bar = Line::from(vec![
-            Span::styled(
-                "█".repeat(verified_cells),
-                Style::default().fg(components::ACCENT),
-            ),
+            Span::styled("█".repeat(verified_cells), Style::default().fg(fill_color)),
             Span::styled(
                 "█".repeat(failed_cells),
                 Style::default().fg(components::DANGER),
@@ -341,6 +364,91 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         let paragraph = Paragraph::new(bar);
         frame.render_widget(paragraph, inner);
     }
+}
+
+fn render_indeterminate_gauge(frame: &mut Frame, area: Rect, stage: DownloadStage, tick: u64) {
+    let spinner = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+    let label = match stage {
+        DownloadStage::Pending => "preparing",
+        _ => "resolving collection",
+    };
+    let title = format!(" {spinner} {label} ");
+
+    render_indeterminate_block(frame, area, &title, tick);
+}
+
+fn render_resolve_progress_gauge(
+    frame: &mut Frame,
+    area: Rect,
+    current: u32,
+    total: u32,
+    tick: u64,
+) {
+    let spinner = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+    let title = format!(" {spinner} resolving {current}/{total} collections ");
+    let title_style = Style::default()
+        .fg(components::INFO)
+        .add_modifier(Modifier::BOLD);
+
+    let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
+
+    let ratio = if total == 0 {
+        0.0
+    } else {
+        (current as f64 / total as f64).clamp(0.0, 1.0)
+    };
+
+    let gauge = Gauge::default()
+        .block(block)
+        .ratio(ratio)
+        .label(Span::raw(""))
+        .gauge_style(
+            Style::default()
+                .fg(components::INFO)
+                .bg(components::BG_RAISED),
+        );
+    frame.render_widget(gauge, area);
+}
+
+fn render_indeterminate_block(frame: &mut Frame, area: Rect, title: &str, tick: u64) {
+    let title_style = Style::default()
+        .fg(components::INFO)
+        .add_modifier(Modifier::BOLD);
+    let block = Block::default()
+        .title(Line::from(Span::styled(title.to_string(), title_style)).left_aligned());
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let bar_width = inner.width as usize;
+    let chunk_width = (bar_width / 5).clamp(3, bar_width);
+    let span = bar_width.saturating_sub(chunk_width).max(1);
+    let phase = (tick as usize) % (2 * span);
+    let chunk_start = if phase <= span {
+        phase
+    } else {
+        2 * span - phase
+    };
+    let chunk_end = (chunk_start + chunk_width).min(bar_width);
+    let visible = chunk_end - chunk_start;
+    let trailing = bar_width - chunk_start - visible;
+
+    let bar = Line::from(vec![
+        Span::styled(
+            "░".repeat(chunk_start),
+            Style::default().fg(components::BG_RAISED),
+        ),
+        Span::styled("█".repeat(visible), Style::default().fg(components::INFO)),
+        Span::styled(
+            "░".repeat(trailing),
+            Style::default().fg(components::BG_RAISED),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(bar), inner);
 }
 
 fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
@@ -365,12 +473,30 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     }
 
     if items.is_empty() && page.failed_maps.is_empty() {
+        let (text, color) = match page.stage {
+            DownloadStage::Rechecking => {
+                let total = page.total_maps.max(1);
+                let verified =
+                    (page.stats.downloaded as usize + page.stats.skipped as usize).min(total);
+                (
+                    format!("verifying existing archives — {verified}/{total}"),
+                    components::WARNING,
+                )
+            }
+            DownloadStage::Pending | DownloadStage::Resolving => {
+                let text = match page.resolve_progress {
+                    Some((current, total)) if total > 0 => {
+                        format!("fetching collection {current}/{total}...")
+                    }
+                    _ => "fetching collection metadata...".to_string(),
+                };
+                (text, components::INFO)
+            }
+            _ => ("no active threads".to_string(), components::TEXT_FAINT),
+        };
         items.push(ListItem::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                "no active threads",
-                Style::default().fg(components::TEXT_FAINT),
-            ),
+            Span::styled(text, Style::default().fg(color)),
         ])));
     }
 

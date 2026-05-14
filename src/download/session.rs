@@ -196,6 +196,8 @@ impl DownloadSession {
             params.collection_ids,
             params.collections,
             params.beatmapset_ids,
+            &params.status,
+            params.id,
         )
         .await?;
         let output =
@@ -415,6 +417,8 @@ pub(crate) async fn resolve_selective_collections(
     collection_ids: &[u32],
     requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
+    status: &StatusSink,
+    id: DownloadId,
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
     let collection_service = HttpCollectionService::builder().build()?;
 
@@ -431,7 +435,14 @@ pub(crate) async fn resolve_selective_collections(
         beatmapsets: Vec::new(),
     };
 
-    for &collection_id in collection_ids {
+    let total = collection_ids.len() as u32;
+    status.emit(DownloadEvent::ResolveProgress {
+        id,
+        current: 0,
+        total,
+    });
+
+    for (index, &collection_id) in collection_ids.iter().enumerate() {
         match collection_service.fetch_collection(collection_id).await {
             Ok(collection) => {
                 let requested_collection = requested_collections
@@ -480,6 +491,11 @@ pub(crate) async fn resolve_selective_collections(
                 );
             }
         }
+        status.emit(DownloadEvent::ResolveProgress {
+            id,
+            current: (index as u32).saturating_add(1),
+            total,
+        });
     }
 
     selected_collection.name = selective_collection_name(&collection_names);

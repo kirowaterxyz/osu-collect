@@ -139,6 +139,11 @@ pub enum DownloadEvent {
         total_maps: usize,
         output_dir: String,
     },
+    ResolveProgress {
+        id: DownloadId,
+        current: u32,
+        total: u32,
+    },
     CollectionSizeResolved {
         id: DownloadId,
         total_bytes: u64,

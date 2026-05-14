@@ -103,12 +103,7 @@ impl<'a> From<&'a UpdatesTab> for UpdatesView<'a> {
 #[derive(Clone, Copy)]
 pub struct DownloadView<'a> {
     pub page: &'a CollectionPage,
-}
-
-impl<'a> From<&'a CollectionPage> for DownloadView<'a> {
-    fn from(page: &'a CollectionPage) -> Self {
-        Self { page }
-    }
+    pub tick: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -155,7 +150,11 @@ pub struct AppView<'a> {
 impl<'a> From<&'a App> for AppView<'a> {
     fn from(app: &'a App) -> Self {
         let active_tab = app.active_tab();
-        let download = app.download_for_tab(active_tab).map(DownloadView::from);
+        let tick_count = app.tick_count;
+        let download = app.download_for_tab(active_tab).map(|page| DownloadView {
+            page,
+            tick: tick_count,
+        });
 
         Self {
             home: HomeView::from(&app.home),

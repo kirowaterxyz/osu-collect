@@ -535,6 +535,11 @@ impl App {
                     page.push_log("Collection fetched");
                 }
             }
+            DownloadEvent::ResolveProgress { id, current, total } => {
+                if let Some(page) = self.page_mut(id) {
+                    page.resolve_progress = Some((current, total));
+                }
+            }
             DownloadEvent::CollectionSizeResolved { id, total_bytes } => {
                 if let Some(page) = self.page_mut(id) {
                     page.stats.total_collection_bytes = Some(total_bytes);
