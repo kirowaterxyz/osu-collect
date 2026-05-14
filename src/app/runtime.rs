@@ -804,7 +804,6 @@ pub async fn fetch_and_compare_with_progress(
     settings: FetchCompareSettings,
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
     let client = crate::download::http_client::api_client().map_err(|e| e.to_string())?;
-    let mut seen_beatmapsets: HashSet<u32> = HashSet::new();
     let mut candidates_to_check: Vec<(CollectionBeatmapset, u32, String)> = Vec::new();
     let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
 
@@ -849,12 +848,14 @@ pub async fn fetch_and_compare_with_progress(
         let api_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
         collection_seen.insert(collection_id, api_ids);
 
+        // Dedupe within this collection only — the same beatmapset can appear
+        // in multiple collections and must be tracked per collection_id.
+        let mut seen_in_collection: HashSet<u32> = HashSet::new();
+
         for beatmapset in &collection.beatmapsets {
-            // Skip if we've already processed this beatmapset (from another collection)
-            if seen_beatmapsets.contains(&beatmapset.id) {
+            if !seen_in_collection.insert(beatmapset.id) {
                 continue;
             }
-            seen_beatmapsets.insert(beatmapset.id);
 
             // Skip if beatmapset exists locally (by ID)
             if local_beatmapsets.contains_key(&beatmapset.id) {
@@ -905,7 +906,6 @@ pub async fn fetch_and_compare_with_progress(
     }
 
     debug!(
-        seen_total = seen_beatmapsets.len(),
         candidates = candidates_to_check.len(),
         "finished scanning collections"
     );
