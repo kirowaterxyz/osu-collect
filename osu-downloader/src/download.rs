@@ -175,26 +175,40 @@ async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<Downlo
         Err(err) => return (Err(DownloadError::io(err.to_string()).into()), 0),
     }
 
-    // Get mirror plan
-    let mirrors = params.mirror_pool.plan();
-    if mirrors.is_empty() {
-        return (
-            Err(DownloadError::AllMirrorsFailed {
-                beatmapset_id: params.beatmapset_id,
+    let mut total_attempts: u32 = 0;
+
+    let mirrors = loop {
+        let mirrors = params.mirror_pool.plan();
+        if !mirrors.is_empty() {
+            break mirrors;
+        }
+
+        let Some(cooldown) = params.mirror_pool.earliest_cooldown() else {
+            return (
+                Err(DownloadError::AllMirrorsFailed {
+                    beatmapset_id: params.beatmapset_id,
+                }
+                .into()),
+                total_attempts,
+            );
+        };
+
+        let mut cancel_watch = params.cancel_rx.clone();
+        tokio::select! {
+            _ = sleep(cooldown) => {}
+            _ = cancel_watch.changed() => {
+                if *cancel_watch.borrow() {
+                    return (Err(DownloadError::Cancelled.into()), total_attempts);
+                }
             }
-            .into()),
-            0,
-        );
-    }
+        }
+    };
 
     let mut last_error = None;
     let mut attempted_mirrors = 0usize;
     let mut missed_mirrors = 0usize;
-    let mut total_attempts: u32 = 0;
 
-    // Try each mirror
     for mirror in mirrors {
-        // Check cancellation
         if *params.cancel_rx.borrow() {
             return (Err(DownloadError::Cancelled.into()), total_attempts);
         }

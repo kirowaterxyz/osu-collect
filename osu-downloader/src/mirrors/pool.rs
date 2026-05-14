@@ -27,19 +27,14 @@ impl MirrorPool {
     }
 
     /// Get a prioritized list of mirrors for attempting downloads.
-    ///
-    /// Returns mirrors in order: ready mirrors first, then cooling mirrors sorted by
-    /// soonest availability. Cooling mirrors are included as a fallback tail so that
-    /// all-cooling configurations can still make progress instead of returning empty.
     pub fn plan(&self) -> Vec<Mirror> {
         let now = Instant::now();
         let mut penalties = self.penalties.lock().unwrap();
         let mut ready: Vec<Mirror> = Vec::with_capacity(self.mirrors.len());
-        let mut cooling: Vec<(Mirror, Instant)> = Vec::new();
 
         for mirror in self.mirrors.iter() {
             match penalties.get(&mirror.kind()).copied() {
-                Some(until) if until > now => cooling.push((mirror.clone(), until)),
+                Some(until) if until > now => {}
                 Some(_) => {
                     penalties.remove(&mirror.kind());
                     ready.push(mirror.clone());
@@ -48,12 +43,19 @@ impl MirrorPool {
             }
         }
 
-        if ready.is_empty() && !cooling.is_empty() {
-            cooling.sort_by_key(|(_, until)| *until);
-            ready.extend(cooling.into_iter().map(|(m, _)| m));
-        }
-
         ready
+    }
+
+    /// Get the earliest remaining cooldown across configured mirrors.
+    pub fn earliest_cooldown(&self) -> Option<Duration> {
+        let now = Instant::now();
+        let penalties = self.penalties.lock().unwrap();
+
+        self.mirrors
+            .iter()
+            .filter_map(|mirror| penalties.get(&mirror.kind()).copied())
+            .filter_map(|until| (until > now).then_some(until - now))
+            .min()
     }
 
     /// Get cooldown info if using a single mirror and it's rate limited
@@ -63,16 +65,8 @@ impl MirrorPool {
         }
 
         let mirror = self.mirrors.first()?.clone();
-        let now = Instant::now();
-        let penalties = self.penalties.lock().unwrap();
-
-        penalties.get(&mirror.kind()).and_then(|&until| {
-            if until > now {
-                Some((mirror, until - now))
-            } else {
-                None
-            }
-        })
+        let duration = self.earliest_cooldown()?;
+        Some((mirror, duration))
     }
 
     /// Mark a mirror as rate limited
@@ -145,15 +139,15 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_returns_all_mirrors_when_all_cooling() {
+    fn test_plan_returns_no_mirrors_when_all_cooling() {
         let mirrors = vec![Mirror::nerinyan()];
         let pool = MirrorPool::new(mirrors);
 
         pool.mark_rate_limited(MirrorKind::Nerinyan);
 
         let plan = pool.plan();
-        assert_eq!(plan.len(), 1);
-        assert_eq!(plan[0].kind(), MirrorKind::Nerinyan);
+        assert!(plan.is_empty());
+        assert!(pool.earliest_cooldown().is_some());
         assert!(pool.single_mirror_cooldown().is_some());
     }
 }
