@@ -199,6 +199,7 @@ impl CollectionPage {
     ) {
         if let Some(status) = self.thread_statuses.get_mut(thread_index) {
             let is_assignment = message.starts_with(status::DOWNLOADING)
+                || message.starts_with(status::FETCHING)
                 || message.starts_with(status::RECHECKING_PREFIX);
             let is_completion = ThreadStatusLine::is_completion_message(message);
 

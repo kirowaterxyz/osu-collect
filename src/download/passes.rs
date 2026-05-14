@@ -131,17 +131,6 @@ async fn download_single_target(
             .map(|mirror: &crate::mirrors::MirrorEndpoint| mirror.display_name())
             .unwrap_or("selected mirror");
 
-        let activity_label = status::DOWNLOADING;
-        context.emit(DownloadEvent::ThreadStatus {
-            id: context.id,
-            thread_index: slot,
-            message: format!(
-                "{} #{} from {}",
-                activity_label, beatmapset_id, first_mirror
-            ),
-            rate_limited: false,
-            beatmapset_id: Some(beatmapset_id),
-        });
         trace!(
             download_id = context.id,
             beatmapset_id,
