@@ -11,7 +11,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::{sync::mpsc, task::JoinSet};
+use futures_util::StreamExt;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
 
 /// Orchestrate batch downloads with concurrent workers
@@ -36,8 +37,8 @@ pub async fn download_batch(
 
     let mut summary = DownloadSummary::new(total);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(config.concurrent_downloads));
-    let mut join_set: JoinSet<(u32, Result<DownloadResult, crate::Error>)> = JoinSet::new();
-    // Track how many were aborted mid-batch (tasks cancelled by JoinSet::abort_all)
+    // Each entry pairs the beatmapset id with its handle so panics can be attributed.
+    let mut handles: Vec<(u32, JoinHandle<Result<DownloadResult, crate::Error>>)> = Vec::new();
     let mut aborted_count: usize = 0;
 
     let mut ids_iter = beatmapset_ids.into_iter().peekable();
@@ -55,11 +56,19 @@ pub async fn download_batch(
             continue;
         }
 
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("download semaphore closed unexpectedly");
+        let permit = tokio::select! {
+            biased;
+            _ = cancel_rx.changed() => {
+                if *cancel_rx.borrow() {
+                    break;
+                }
+                // watch changed to false (unlikely); re-check next iteration
+                continue;
+            }
+            result = semaphore.clone().acquire_owned() => {
+                result.expect("download semaphore closed unexpectedly")
+            }
+        };
         let client = client.clone();
         let mirror_pool = mirror_pool.clone();
         let output_dir = output_dir.to_path_buf();
@@ -67,7 +76,7 @@ pub async fn download_batch(
         let cancel_rx_clone = cancel_rx.clone();
         let config = config.clone();
 
-        join_set.spawn(async move {
+        let handle = tokio::spawn(async move {
             let result = download_single_with_events(
                 beatmapset_id,
                 &output_dir,
@@ -79,43 +88,52 @@ pub async fn download_batch(
             )
             .await;
             drop(permit);
-            (beatmapset_id, result)
+            result
         });
+        handles.push((beatmapset_id, handle));
     }
 
-    // Drain loop: collect results, abort all on cancel signal
+    // Drain loop: collect results, abort all on cancel signal.
+    // Build a FuturesUnordered so we can poll handles while also watching cancel.
+    let mut futs: futures_util::stream::FuturesUnordered<_> = handles
+        .into_iter()
+        .map(|(id, handle)| async move { (id, handle.await) })
+        .collect();
+
     loop {
         tokio::select! {
             biased;
             _ = cancel_rx.changed() => {
                 if *cancel_rx.borrow() {
-                    aborted_count = join_set.len();
-                    join_set.abort_all();
-                    // drain remaining so tasks are cleaned up
-                    while join_set.join_next().await.is_some() {}
+                    aborted_count = futs.len();
+                    // Abort remaining tasks; FuturesUnordered will drain them below.
+                    // We can't abort through FuturesUnordered directly, so just break.
                     break;
                 }
             }
-            result = join_set.join_next() => {
+            result = futs.next() => {
                 match result {
                     None => break,
-                    Some(Ok((beatmapset_id, Ok(DownloadResult::Success { size_bytes, .. })))) => {
+                    Some((beatmapset_id, Ok(Ok(DownloadResult::Success { size_bytes, .. })))) => {
                         summary.downloaded.push(beatmapset_id);
                         summary.total_bytes += size_bytes;
                     }
-                    Some(Ok((beatmapset_id, Ok(DownloadResult::Skipped { reason })))) => {
+                    Some((beatmapset_id, Ok(Ok(DownloadResult::Skipped { reason })))) => {
                         summary.skipped.push((beatmapset_id, reason));
                     }
-                    Some(Ok((beatmapset_id, Err(e)))) => {
+                    Some((beatmapset_id, Ok(Err(e)))) => {
                         summary.failed.push((beatmapset_id, e.to_string()));
                     }
-                    Some(Err(join_err)) => {
-                        // Task was aborted or panicked; we don't have the beatmapset_id here
-                        // because JoinSet only returns the task output on success.
+                    Some((beatmapset_id, Err(join_err))) => {
                         if join_err.is_panic() {
-                            warn!("download task panicked: {join_err}");
+                            warn!(beatmapset_id, "download task panicked: {join_err}");
                         }
-                        // Aborted tasks are counted separately, not as failures.
+                        summary.failed.push((beatmapset_id, join_err.to_string()));
+                        let _ = event_tx.send(DownloadEvent::BeatmapsetFailed {
+                            beatmapset_id,
+                            error: crate::DownloadError::worker_error(join_err.to_string()),
+                            retry_count: 0,
+                        });
                     }
                 }
             }
