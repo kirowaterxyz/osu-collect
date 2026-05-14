@@ -183,12 +183,6 @@ impl CollectionClient {
     }
 }
 
-impl Default for CollectionClient {
-    fn default() -> Self {
-        Self::new().expect("Failed to create collection client")
-    }
-}
-
 /// Fetch a collection from osucollector.com with retries
 async fn fetch_collection(client: &reqwest::Client, collection_id: u32) -> Result<Collection> {
     let url = format!("https://osucollector.com/api/collections/{}", collection_id);
