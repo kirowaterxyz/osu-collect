@@ -148,6 +148,10 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<Download
 }
 
 async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
+    if let Err(err) = tokio::fs::create_dir_all(params.output_dir).await {
+        return (Err(DownloadError::io(err.to_string()).into()), 0);
+    }
+
     match tokio::fs::read_dir(params.output_dir).await {
         Ok(mut dir) => loop {
             match dir.next_entry().await {
