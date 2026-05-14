@@ -5,13 +5,13 @@ use crate::{
     mirrors::MirrorPool,
     DownloadEvent, DownloadResult, DownloadSummary, SkipReason,
 };
+use futures_util::StreamExt;
 use std::{
     collections::HashSet,
     path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use futures_util::StreamExt;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
 
@@ -52,7 +52,9 @@ pub async fn download_batch(
         let beatmapset_id = ids_iter.next().unwrap();
 
         if present.contains(&beatmapset_id) {
-            summary.skipped.push((beatmapset_id, SkipReason::AlreadyExists));
+            summary
+                .skipped
+                .push((beatmapset_id, SkipReason::AlreadyExists));
             continue;
         }
 
@@ -94,7 +96,9 @@ pub async fn download_batch(
     }
 
     // Drain loop: collect results, abort all on cancel signal.
-    // Build a FuturesUnordered so we can poll handles while also watching cancel.
+    // Keep raw handles alongside FuturesUnordered so we can abort on cancel.
+    let abort_handles: Vec<tokio::task::AbortHandle> =
+        handles.iter().map(|(_, h)| h.abort_handle()).collect();
     let mut futs: futures_util::stream::FuturesUnordered<_> = handles
         .into_iter()
         .map(|(id, handle)| async move { (id, handle.await) })
@@ -106,8 +110,9 @@ pub async fn download_batch(
             _ = cancel_rx.changed() => {
                 if *cancel_rx.borrow() {
                     aborted_count = futs.len();
-                    // Abort remaining tasks; FuturesUnordered will drain them below.
-                    // We can't abort through FuturesUnordered directly, so just break.
+                    for h in &abort_handles {
+                        h.abort();
+                    }
                     break;
                 }
             }
