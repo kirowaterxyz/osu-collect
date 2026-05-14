@@ -175,7 +175,10 @@ impl BeatmapTracker {
             entry.state = BeatmapState::Verified;
             true
         } else {
-            tracing::warn!(beatmapset_id = id, "mark_verified called on unregistered id");
+            tracing::warn!(
+                beatmapset_id = id,
+                "mark_verified called on unregistered id"
+            );
             false
         }
     }

@@ -12,7 +12,9 @@ pub const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Create a configured HTTP client for downloading beatmapsets
 pub fn create_download_client(user_agent: Option<String>) -> Result<reqwest::Client> {
-    download_client_builder(user_agent).build().map_err(Into::into)
+    download_client_builder(user_agent)
+        .build()
+        .map_err(Into::into)
 }
 
 fn download_client_builder(user_agent: Option<String>) -> reqwest::ClientBuilder {

@@ -8,7 +8,12 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{fs, fs::OpenOptions, io::{AsyncWriteExt, BufWriter}, time::timeout};
+use tokio::{
+    fs,
+    fs::OpenOptions,
+    io::{AsyncWriteExt, BufWriter},
+    time::timeout,
+};
 
 /// Minimum bytes changed to emit progress update
 const MIN_PROGRESS_DELTA: u64 = 131_072; // 128 KB
