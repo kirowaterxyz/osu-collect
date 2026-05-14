@@ -283,7 +283,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} queued ");
     let verified_title = if let Some(avg_us) = page.avg_verify_us() {
         format!(
-            " {verified_display}/{total_collection} verified ({} avg. per map) ",
+            " {verified_display}/{total_collection} verified ({} avg) ",
             format_avg_verify(avg_us)
         )
     } else {
