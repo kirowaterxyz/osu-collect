@@ -22,7 +22,10 @@ use futures_util::{StreamExt, stream};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
 };
 use tokio::fs;
 use tracing::{debug, info, warn};
@@ -455,21 +458,28 @@ where
         total,
     });
 
-    // buffered() preserves input order so resolved_collections lines up with collection_ids.
-    let fetch_results: Vec<(u32, Result<_, _>)> =
-        stream::iter(collection_ids.iter().copied().enumerate())
-            .map(|(index, collection_id)| async move {
+    // buffered() polls futures concurrently and yields results in input order, but
+    // side effects fire when each future completes — which is non-deterministic. A
+    // shared counter keeps the emitted "current" monotonic regardless of completion order.
+    let progress = Arc::new(AtomicU32::new(0));
+
+    let fetch_results: Vec<(u32, Result<_, _>)> = stream::iter(collection_ids.iter().copied())
+        .map(|collection_id| {
+            let progress = Arc::clone(&progress);
+            async move {
                 let result = service.fetch_collection(collection_id).await;
+                let done = progress.fetch_add(1, Ordering::Relaxed) + 1;
                 status.emit(DownloadEvent::ResolveProgress {
                     id,
-                    current: (index as u32).saturating_add(1),
+                    current: done,
                     total,
                 });
                 (collection_id, result)
-            })
-            .buffered(RESOLVE_CONCURRENCY)
-            .collect()
-            .await;
+            }
+        })
+        .buffered(RESOLVE_CONCURRENCY)
+        .collect()
+        .await;
 
     let mut collection_names = Vec::with_capacity(fetch_results.len());
     let mut resolved_collections = Vec::with_capacity(fetch_results.len());
@@ -693,6 +703,74 @@ mod tests {
         let observed = events.lock().unwrap().clone();
         assert!(observed.contains(&(0, 2)), "initial progress emitted");
         assert!(observed.contains(&(2, 2)), "final progress emitted");
+    }
+
+    #[tokio::test]
+    async fn resolve_selective_progress_is_monotonic_under_concurrent_completion() {
+        use std::time::Duration;
+        use tokio::time::sleep;
+
+        struct DelayedService {
+            responses: Vec<(u32, Collection, Duration)>,
+        }
+
+        impl CollectionService for DelayedService {
+            async fn fetch_collection(&self, id: u32) -> utils::Result<Collection> {
+                let (_, ref c, delay) = *self
+                    .responses
+                    .iter()
+                    .find(|(cid, _, _)| *cid == id)
+                    .expect("known id");
+                sleep(delay).await;
+                Ok(c.clone())
+            }
+        }
+
+        // first-issued future finishes LAST, exercising out-of-order completion.
+        let service = DelayedService {
+            responses: vec![
+                (1, collection(1, "alpha", &[10]), Duration::from_millis(60)),
+                (2, collection(2, "beta", &[11]), Duration::from_millis(10)),
+                (3, collection(3, "gamma", &[12]), Duration::from_millis(30)),
+            ],
+        };
+        let requested = vec![
+            SelectiveDownloadCollection {
+                id: 1,
+                name: String::new(),
+                beatmapset_ids: vec![10],
+            },
+            SelectiveDownloadCollection {
+                id: 2,
+                name: String::new(),
+                beatmapset_ids: vec![11],
+            },
+            SelectiveDownloadCollection {
+                id: 3,
+                name: String::new(),
+                beatmapset_ids: vec![12],
+            },
+        ];
+        let events = Arc::new(Mutex::new(Vec::<u32>::new()));
+        let sink = {
+            let events = Arc::clone(&events);
+            StatusSink::from_fn(move |event| {
+                if let DownloadEvent::ResolveProgress { current, .. } = event {
+                    events.lock().unwrap().push(current);
+                }
+            })
+        };
+
+        resolve_selective_with(&service, &[1, 2, 3], requested, &[10, 11, 12], &sink, 7)
+            .await
+            .expect("resolve must succeed");
+
+        let observed = events.lock().unwrap().clone();
+        assert_eq!(
+            observed,
+            vec![0, 1, 2, 3],
+            "progress must be monotonic regardless of completion order"
+        );
     }
 
     #[tokio::test]

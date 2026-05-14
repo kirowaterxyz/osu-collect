@@ -515,6 +515,33 @@ fn resolving_stage_indeterminate_chunk_advances_with_tick() {
 }
 
 #[test]
+fn resolving_stage_progress_bar_renders_single_row() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
+    page.resolve_progress = Some((2, 5));
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let buf = render_buffer(&app, 100, 24);
+    let info = Color::Rgb(116, 199, 236);
+
+    let rows_with_info_fill: std::collections::BTreeSet<u16> = buf
+        .content
+        .iter()
+        .enumerate()
+        .filter(|(_, cell)| cell.symbol() == "█" && cell.style().fg == Some(info))
+        .map(|(i, _)| (i as u16) / buf.area.width)
+        .collect();
+
+    assert_eq!(
+        rows_with_info_fill.len(),
+        1,
+        "resolving bar must be exactly 1 row thick, got rows {rows_with_info_fill:?}"
+    );
+}
+
+#[test]
 fn rechecking_stage_uses_warning_color_on_gauge() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);

@@ -389,25 +389,38 @@ fn render_resolve_progress_gauge(
     let title_style = Style::default()
         .fg(components::INFO)
         .add_modifier(Modifier::BOLD);
-
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let bar_width = inner.width as usize;
     let ratio = if total == 0 {
         0.0
     } else {
         (current as f64 / total as f64).clamp(0.0, 1.0)
     };
+    let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
+    let empty = bar_width.saturating_sub(filled);
 
-    let gauge = Gauge::default()
-        .block(block)
-        .ratio(ratio)
-        .label(Span::raw(""))
-        .gauge_style(
-            Style::default()
-                .fg(components::INFO)
-                .bg(components::BG_RAISED),
-        );
-    frame.render_widget(gauge, area);
+    let bar = Line::from(vec![
+        Span::styled("█".repeat(filled), Style::default().fg(components::INFO)),
+        Span::styled(
+            "░".repeat(empty),
+            Style::default().fg(components::BG_RAISED),
+        ),
+    ]);
+    let bar_area = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: 1,
+    };
+    frame.render_widget(Paragraph::new(bar), bar_area);
 }
 
 fn render_indeterminate_block(frame: &mut Frame, area: Rect, title: &str, tick: u64) {
