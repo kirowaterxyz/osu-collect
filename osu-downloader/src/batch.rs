@@ -1,9 +1,9 @@
 //! Batch download orchestration
 
 use crate::{
-    download::{self, download_beatmapset},
+    download::{self, download_beatmapset, present_beatmapset_ids},
     mirrors::MirrorPool,
-    DownloadEvent, DownloadResult, DownloadSummary,
+    DownloadEvent, DownloadResult, DownloadSummary, SkipReason,
 };
 use std::{
     collections::HashSet,
@@ -32,6 +32,8 @@ pub async fn download_batch(
         total_beatmapsets: total,
     });
 
+    let present = present_beatmapset_ids(output_dir).await;
+
     let mut summary = DownloadSummary::new(total);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(config.concurrent_downloads));
     let mut join_set: JoinSet<(u32, Result<DownloadResult, crate::Error>)> = JoinSet::new();
@@ -47,6 +49,11 @@ pub async fn download_batch(
         }
 
         let beatmapset_id = ids_iter.next().unwrap();
+
+        if present.contains(&beatmapset_id) {
+            summary.skipped.push((beatmapset_id, SkipReason::AlreadyExists));
+            continue;
+        }
 
         let permit = semaphore
             .clone()

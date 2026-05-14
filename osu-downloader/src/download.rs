@@ -106,11 +106,37 @@ fn decode_quoted_string(s: &str) -> String {
 }
 
 fn matches_beatmapset_file_name(beatmapset_id: u32, name: &str) -> bool {
-    let Some(rest) = name.strip_prefix(&beatmapset_id.to_string()) else {
-        return false;
-    };
+    parse_beatmapset_id_from_filename(name) == Some(beatmapset_id)
+}
 
-    rest == ".osz" || rest.starts_with(' ') && rest.ends_with(".osz")
+/// Scan `dir` and return the set of beatmapset IDs that already have a file present.
+pub async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32> {
+    let mut ids = std::collections::HashSet::new();
+    let Ok(mut read_dir) = tokio::fs::read_dir(dir).await else {
+        return ids;
+    };
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if let Some(id) = parse_beatmapset_id_from_filename(&name) {
+            ids.insert(id);
+        }
+    }
+    ids
+}
+
+fn parse_beatmapset_id_from_filename(name: &str) -> Option<u32> {
+    let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let id: u32 = digits.parse().ok()?;
+    let rest = &name[digits.len()..];
+    if rest == ".osz" || (rest.starts_with(' ') && rest.ends_with(".osz")) {
+        Some(id)
+    } else {
+        None
+    }
 }
 
 /// Download a single beatmapset with mirror fallback.
