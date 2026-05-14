@@ -15,7 +15,6 @@ pub mod status {
     pub const STARTING_DOWNLOAD: &str = "Starting download";
     pub const DOWNLOADING: &str = "Downloading";
     pub const FETCHING: &str = "Fetching";
-    pub const VERIFYING_PREFIX: &str = "Verifying integrity for";
 }
 
 pub const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;

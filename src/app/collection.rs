@@ -15,7 +15,7 @@ pub struct DownloadStats {
     pub total_collection_bytes: Option<u64>,
     pub verified_bytes: u64,
     pub verify_total_count: u32,
-    pub verify_total_ms: u64,
+    pub verify_total_us: u64,
 }
 
 pub struct BeatmapRow {
@@ -69,14 +69,8 @@ impl ThreadStatusLine {
         message.trim().eq_ignore_ascii_case("idle")
     }
 
-    pub fn is_verifying_message(message: &str) -> bool {
-        message.starts_with(status::VERIFYING_PREFIX)
-    }
-
     pub fn should_display(&self) -> bool {
-        !(Self::is_idle_message(&self.message)
-            || Self::is_completion_message(&self.message)
-            || Self::is_verifying_message(&self.message))
+        !(Self::is_idle_message(&self.message) || Self::is_completion_message(&self.message))
     }
 }
 
@@ -309,11 +303,11 @@ impl CollectionPage {
             .saturating_add(self.stats.verified_bytes)
     }
 
-    pub fn avg_verify_ms(&self) -> Option<u64> {
+    pub fn avg_verify_us(&self) -> Option<u64> {
         if self.stats.verify_total_count == 0 {
             None
         } else {
-            Some(self.stats.verify_total_ms / self.stats.verify_total_count as u64)
+            Some(self.stats.verify_total_us / self.stats.verify_total_count as u64)
         }
     }
 }
