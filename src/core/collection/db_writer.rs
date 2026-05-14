@@ -6,16 +6,58 @@ use crate::{
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use std::{collections::HashSet, path::Path};
 
+pub(crate) struct CollectionDbEntry {
+    pub(crate) name: String,
+    pub(crate) beatmap_hashes: Vec<String>,
+}
+
 /// Persist collection metadata to osu!'s collection.db format.
 pub fn create_collection_db(
     collection: &Collection,
     collection_name: &str,
     output_dir: &Path,
 ) -> Result<()> {
-    let db_path = output_dir.join("collection.db");
+    create_collection_db_entries(
+        &[CollectionDbEntry {
+            name: collection_name.to_string(),
+            beatmap_hashes: collection_hashes(collection),
+        }],
+        output_dir,
+    )
+}
 
-    let mut seen: HashSet<String> = HashSet::new();
-    let beatmap_hashes: Vec<Option<String>> = collection
+pub(crate) fn create_collection_db_entries(
+    entries: &[CollectionDbEntry],
+    output_dir: &Path,
+) -> Result<()> {
+    let collections = entries
+        .iter()
+        .map(|entry| {
+            let mut seen = HashSet::new();
+            DbCollection {
+                name: Some(entry.name.clone()),
+                beatmap_hashes: entry
+                    .beatmap_hashes
+                    .iter()
+                    .filter(|hash| seen.insert((*hash).clone()))
+                    .cloned()
+                    .map(Some)
+                    .collect(),
+            }
+        })
+        .collect();
+
+    write_collection_files(
+        CollectionList {
+            version: OSU_DB_VERSION,
+            collections,
+        },
+        output_dir,
+    )
+}
+
+fn collection_hashes(collection: &Collection) -> Vec<String> {
+    collection
         .beatmapsets
         .iter()
         .flat_map(|beatmapset| {
@@ -24,27 +66,18 @@ pub fn create_collection_db(
                 .iter()
                 .map(|beatmap| beatmap.checksum.to_string())
         })
-        .filter(|hash| seen.insert(hash.clone()))
-        .map(Some)
-        .collect();
+        .collect()
+}
 
-    let db_collection = DbCollection {
-        name: Some(collection_name.to_string()),
-        beatmap_hashes,
-    };
-
-    let collection_list = CollectionList {
-        version: OSU_DB_VERSION,
-        collections: vec![db_collection],
-    };
-
+fn write_collection_files(collection_list: CollectionList, output_dir: &Path) -> Result<()> {
+    let db_path = output_dir.join("collection.db");
     collection_list.to_file(&db_path).map_err(|e| {
-        AppError::other_dynamic(format!("Failed to write collection.db: {e}").into_boxed_str())
+        AppError::other_dynamic(format!("failed to write collection.db: {e}").into_boxed_str())
     })?;
 
     let cfg_path = output_dir.join("osu!.name.cfg");
     std::fs::write(&cfg_path, "").map_err(|e| {
-        AppError::other_dynamic(format!("Failed to write osu!.name.cfg: {e}").into_boxed_str())
+        AppError::other_dynamic(format!("failed to write osu!.name.cfg: {e}").into_boxed_str())
     })?;
 
     Ok(())
@@ -132,5 +165,37 @@ mod tests {
             .collect();
 
         assert_eq!(hashes.len(), 2);
+    }
+
+    #[test]
+    fn multiple_collections_are_written() {
+        let dir = tempdir().unwrap();
+        let entries = [
+            CollectionDbEntry {
+                name: "renamed collection - 10".to_string(),
+                beatmap_hashes: vec!["hash1".to_string(), "hash2".to_string()],
+            },
+            CollectionDbEntry {
+                name: "other collection - 20".to_string(),
+                beatmap_hashes: vec!["hash2".to_string(), "hash3".to_string()],
+            },
+        ];
+
+        create_collection_db_entries(&entries, dir.path()).unwrap();
+
+        let db_path = dir.path().join("collection.db");
+        let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();
+        assert_eq!(list.collections.len(), 2);
+        assert_eq!(
+            list.collections[0].name.as_deref(),
+            Some("renamed collection - 10")
+        );
+        assert_eq!(
+            list.collections[1].name.as_deref(),
+            Some("other collection - 20")
+        );
+        assert_eq!(list.collections[0].beatmap_hashes.len(), 2);
+        assert_eq!(list.collections[1].beatmap_hashes.len(), 2);
+        assert!(dir.path().join("osu!.name.cfg").exists());
     }
 }

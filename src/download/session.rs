@@ -1,6 +1,6 @@
 use super::{
     BeatmapTracker, DownloadError, DownloadEvent, DownloadId, DownloadStage, DownloadSummary,
-    ShutdownToken,
+    SelectiveDownloadCollection, ShutdownToken,
     integrity::ExpectationIndex,
     lock::{ActiveDownloadRegistry, DownloadLockGuard},
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
@@ -49,6 +49,7 @@ pub(crate) struct PrepareSelectiveParams<'a> {
     pub(crate) shutdown: &'a ShutdownToken,
     pub(crate) directory: &'a str,
     pub(crate) collection_ids: &'a [u32],
+    pub(crate) collections: Vec<SelectiveDownloadCollection>,
     pub(crate) beatmapset_ids: &'a [u32],
     pub(crate) thread_count: usize,
     pub(crate) verify_zip_eocd: bool,
@@ -73,6 +74,7 @@ pub(crate) enum SessionTarget {
     Collection(Collection),
     Selective {
         collection: Collection,
+        collections: Vec<SelectiveDownloadCollection>,
         collection_names: Vec<String>,
     },
 }
@@ -108,6 +110,7 @@ impl SessionTarget {
             SessionTarget::Selective {
                 collection,
                 collection_names,
+                ..
             } => {
                 status.emit(DownloadEvent::CollectionReady {
                     id,
@@ -135,6 +138,13 @@ impl SessionTarget {
             SessionTarget::Collection(collection) | SessionTarget::Selective { collection, .. } => {
                 collection
             }
+        }
+    }
+
+    pub(crate) fn selective_collections(&self) -> Option<&[SelectiveDownloadCollection]> {
+        match self {
+            SessionTarget::Collection(_) => None,
+            SessionTarget::Selective { collections, .. } => Some(collections),
         }
     }
 }
@@ -182,8 +192,12 @@ impl DownloadSession {
     pub(crate) async fn prepare_selective(
         params: PrepareSelectiveParams<'_>,
     ) -> Result<Option<Self>, DownloadError> {
-        let (collection, collection_names) =
-            resolve_selective_collections(params.collection_ids, params.beatmapset_ids).await?;
+        let (collection, collections, collection_names) = resolve_selective_collections(
+            params.collection_ids,
+            params.collections,
+            params.beatmapset_ids,
+        )
+        .await?;
         let output =
             prepare_selective_output_directory(params.directory, params.collection_ids).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
@@ -192,6 +206,7 @@ impl DownloadSession {
         target_ids.dedup();
         let target = SessionTarget::Selective {
             collection,
+            collections,
             collection_names,
         };
         target.announce_ready(&params.status, params.id, &output, &target_ids);
@@ -398,12 +413,14 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
 
 pub(crate) async fn resolve_selective_collections(
     collection_ids: &[u32],
+    requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
-) -> Result<(Collection, Vec<String>), DownloadError> {
+) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
     let collection_service = HttpCollectionService::builder().build()?;
 
     let target_set: HashSet<u32> = beatmapset_ids.iter().copied().collect();
     let mut collection_names = Vec::new();
+    let mut resolved_collections = Vec::new();
     let mut selected_collection = Collection {
         id: collection_ids.first().copied().unwrap_or_default(),
         name: "updates".into(),
@@ -417,17 +434,42 @@ pub(crate) async fn resolve_selective_collections(
     for &collection_id in collection_ids {
         match collection_service.fetch_collection(collection_id).await {
             Ok(collection) => {
+                let requested_collection = requested_collections
+                    .iter()
+                    .find(|requested| requested.id == collection_id);
+                let collection_name = requested_collection
+                    .and_then(|requested| {
+                        (!requested.name.is_empty()).then(|| requested.name.clone())
+                    })
+                    .unwrap_or_else(|| format!("{}-{}", collection.name, collection.id));
+                let requested_ids: HashSet<u32> = requested_collection
+                    .map(|requested| requested.beatmapset_ids.iter().copied().collect())
+                    .unwrap_or_default();
+                let mut resolved_collection = SelectiveDownloadCollection {
+                    id: collection_id,
+                    name: collection_name.clone(),
+                    beatmapset_ids: Vec::new(),
+                };
+
                 collection_names.push(collection.name.to_string());
 
                 for beatmapset in collection.beatmapsets {
-                    if target_set.contains(&beatmapset.id)
-                        && !selected_collection
+                    if target_set.contains(&beatmapset.id) {
+                        if requested_ids.contains(&beatmapset.id) {
+                            resolved_collection.beatmapset_ids.push(beatmapset.id);
+                        }
+                        if !selected_collection
                             .beatmapsets
                             .iter()
                             .any(|selected| selected.id == beatmapset.id)
-                    {
-                        selected_collection.beatmapsets.push(beatmapset);
+                        {
+                            selected_collection.beatmapsets.push(beatmapset);
+                        }
                     }
+                }
+
+                if !resolved_collection.beatmapset_ids.is_empty() {
+                    resolved_collections.push(resolved_collection);
                 }
             }
             Err(err) => {
@@ -449,7 +491,7 @@ pub(crate) async fn resolve_selective_collections(
         "resolved selective collections"
     );
 
-    Ok((selected_collection, collection_names))
+    Ok((selected_collection, resolved_collections, collection_names))
 }
 
 fn selective_collection_name(collection_names: &[String]) -> Box<str> {

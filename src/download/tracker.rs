@@ -250,6 +250,14 @@ impl BeatmapTracker {
             .collect()
     }
 
+    pub fn verified_ids(&self) -> std::collections::HashSet<u32> {
+        self.inner
+            .iter()
+            .filter(|entry| entry.value().state == BeatmapState::Verified)
+            .map(|entry| *entry.key())
+            .collect()
+    }
+
     pub fn check_validation_cache(
         &self,
         path: &Path,

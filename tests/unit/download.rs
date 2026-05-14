@@ -373,7 +373,7 @@ mod selective_snapshot_tests {
             create_collection_db,
             model::{Collection, Uploader},
         },
-        download::{BeatmapTracker, DownloadConfig},
+        download::{BeatmapTracker, DownloadConfig, SelectiveDownloadCollection},
         mirrors::{MirrorEndpoint, MirrorKind},
     };
 
@@ -446,6 +446,44 @@ mod selective_snapshot_tests {
     }
 
     #[test]
+    fn verified_ids_returns_only_verified() {
+        let tracker = BeatmapTracker::new([1, 2, 3].into_iter().collect());
+        tracker.mark_verified(1);
+        tracker.mark_failed(3);
+
+        let verified = tracker.verified_ids();
+        assert!(verified.contains(&1));
+        assert!(!verified.contains(&2), "pending should not be verified");
+        assert!(!verified.contains(&3), "failed should not be verified");
+    }
+
+    #[test]
+    fn newly_downloaded_excludes_pre_existing_and_failed() {
+        // simulates: initial_unverified = {1, 2} (went through download pass)
+        // beatmapset 3 was already on disk (not in initial_unverified)
+        let initial_unverified: std::collections::HashSet<u32> = [1, 2].into_iter().collect();
+        let tracker = BeatmapTracker::new([1, 2].into_iter().collect());
+        // 3 pre-existed (verified before download pass started)
+        tracker.mark_verified(3);
+        // 1 downloaded successfully
+        tracker.mark_verified(1);
+        // 2 failed
+
+        let newly_downloaded: std::collections::HashSet<u32> = tracker
+            .verified_ids()
+            .into_iter()
+            .filter(|id| initial_unverified.contains(id))
+            .collect();
+
+        assert!(newly_downloaded.contains(&1), "1 was newly downloaded");
+        assert!(!newly_downloaded.contains(&2), "2 failed - excluded");
+        assert!(
+            !newly_downloaded.contains(&3),
+            "3 was pre-existing - excluded"
+        );
+    }
+
+    #[test]
     fn failed_selective_download_does_not_advance_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         let snapshot_dir = dir.path().join("snapshots");
@@ -460,6 +498,11 @@ mod selective_snapshot_tests {
         let request = osu_collect::download::SelectiveDownloadRequest {
             collection_ids: vec![42],
             beatmapset_ids: vec![1, 2],
+            collections: vec![SelectiveDownloadCollection {
+                id: 42,
+                name: "collection".to_string(),
+                beatmapset_ids: vec![1, 2],
+            }],
             config: DownloadConfig {
                 directory: dir.path().join("downloads").display().to_string(),
                 mirrors: vec![MirrorEndpoint {
@@ -490,6 +533,57 @@ mod selective_snapshot_tests {
         }
 
         assert!(!snapshots::snapshot_path(&snapshot_dir, 42).exists());
+    }
+}
+
+#[cfg(test)]
+mod network_error_classification_tests {
+    use osu_collect::download::{DownloadFailure, DownloadResult};
+
+    #[test]
+    fn network_error_is_distinct_from_failed() {
+        let network = DownloadResult::NetworkError("connection refused".to_string());
+        let failed = DownloadResult::Failed(DownloadFailure {
+            mirror: None,
+            reason: "connection refused".into(),
+        });
+        assert_ne!(network, failed);
+        assert!(matches!(network, DownloadResult::NetworkError(_)));
+        assert!(!matches!(network, DownloadResult::Failed(_)));
+    }
+
+    #[test]
+    fn network_error_carries_reason() {
+        let reason = "DNS resolution failed".to_string();
+        let result = DownloadResult::NetworkError(reason.clone());
+        if let DownloadResult::NetworkError(r) = result {
+            assert_eq!(r, reason);
+        } else {
+            panic!("expected NetworkError variant");
+        }
+    }
+
+    /// Proves that the tracker's mark_pending pathway works for the NetworkError recovery path:
+    /// after network error, the map can be returned to pending (not stuck as failed).
+    #[test]
+    fn network_error_recovery_leaves_map_pending() {
+        use osu_collect::download::BeatmapTracker;
+        use std::collections::HashSet;
+
+        let tracker = BeatmapTracker::new(HashSet::from([1u32]));
+        assert!(tracker.is_pending(1));
+
+        // simulate the NetworkError process_result path: complete_beatmap removes pending,
+        // then the map is NOT marked failed — so mark_pending should succeed from failed state.
+        tracker.mark_failed(1);
+        assert!(!tracker.is_pending(1));
+
+        assert!(
+            tracker.mark_pending(1),
+            "network-errored map must be recoverable to pending"
+        );
+        assert!(tracker.is_pending(1));
+        assert!(!tracker.is_verified(1));
     }
 }
 

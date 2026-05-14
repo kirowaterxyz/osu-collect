@@ -107,9 +107,17 @@ pub struct DownloadRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct SelectiveDownloadCollection {
+    pub id: u32,
+    pub name: String,
+    pub beatmapset_ids: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
 pub struct SelectiveDownloadRequest {
     pub collection_ids: Vec<u32>,
     pub beatmapset_ids: Vec<u32>,
+    pub collections: Vec<SelectiveDownloadCollection>,
     pub config: DownloadConfig,
     pub snapshot_dir: Option<std::path::PathBuf>,
     pub snapshots: Vec<crate::app::snapshots::CollectionSnapshotFile>,

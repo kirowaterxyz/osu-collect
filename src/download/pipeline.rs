@@ -12,7 +12,9 @@ use super::{
 use crate::{
     app::snapshots,
     config::constants::DEFAULT_PROGRESS_WATCHDOG_SECS,
-    core::collection::{create_collection_db, model::Collection},
+    core::collection::{
+        CollectionDbEntry, create_collection_db, create_collection_db_entries, model::Collection,
+    },
     mirrors::{MirrorEndpoint, MirrorPool},
     utils::{AppError, check_available_space, is_low_disk_space},
     worker::{DownloadContext, DownloadContextConfig, StatusSink},
@@ -301,11 +303,12 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         return Ok(());
     }
 
-    if failure_report.is_empty() {
+    if failure_report.is_empty() && target.selective_collections().is_none() {
         let collection = target.collection().clone();
         let output_dir = ctx.output_dir.as_ref().as_path().to_path_buf();
         let db_result = tokio::task::spawn_blocking(move || {
-            create_collection_database(&collection, &output_dir)
+            let db_collection_name = format!("{}-{}", collection.name, collection.id);
+            create_collection_db(&collection, &db_collection_name, &output_dir)
         })
         .await
         .map_err(|e| {
@@ -466,9 +469,45 @@ fn emit_failed_maps(status: &StatusSink, id: DownloadId, failures: &FailureRepor
     });
 }
 
-fn create_collection_database(collection: &Collection, output_dir: &Path) -> Result<(), AppError> {
-    let db_collection_name = format!("{}-{}", collection.name, collection.id);
-    create_collection_db(collection, &db_collection_name, output_dir)
+fn create_selective_collection_database(
+    collection: &Collection,
+    collections: &[super::SelectiveDownloadCollection],
+    newly_downloaded: &std::collections::HashSet<u32>,
+    output_dir: &Path,
+) -> Result<(), AppError> {
+    let entries = collections
+        .iter()
+        .filter_map(|selected_collection| {
+            let hashes: Vec<String> = collection
+                .beatmapsets
+                .iter()
+                .filter(|beatmapset| {
+                    selected_collection.beatmapset_ids.contains(&beatmapset.id)
+                        && newly_downloaded.contains(&beatmapset.id)
+                })
+                .flat_map(|beatmapset| {
+                    beatmapset
+                        .beatmaps
+                        .iter()
+                        .map(|beatmap| beatmap.checksum.to_string())
+                })
+                .collect();
+            if hashes.is_empty() {
+                None
+            } else {
+                Some(CollectionDbEntry {
+                    name: selected_collection.name.clone(),
+                    beatmap_hashes: hashes,
+                })
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    create_collection_db_entries(&entries, output_dir)
 }
 
 async fn run_download(
@@ -543,6 +582,7 @@ async fn run_selective_download(
     let SelectiveDownloadRequest {
         collection_ids,
         beatmapset_ids,
+        collections,
         config,
         snapshot_dir,
         snapshots: collection_snapshots,
@@ -577,6 +617,7 @@ async fn run_selective_download(
         shutdown: &shutdown,
         directory: &directory,
         collection_ids: &collection_ids,
+        collections,
         beatmapset_ids: &beatmapset_ids,
         thread_count,
         verify_zip_eocd,
@@ -590,6 +631,17 @@ async fn run_selective_download(
     };
 
     let tracker = session.tracker.clone();
+    let initial_unverified: std::collections::HashSet<u32> =
+        session.initial_unverified.iter().map(|id| *id).collect();
+    let selective_collections = session
+        .target
+        .selective_collections()
+        .map(<[_]>::to_vec)
+        .unwrap_or_default();
+    let collection = session.target.collection().clone();
+    let output_dir = session.output.output_dir.clone();
+    let status_for_db = session.status.clone();
+    let id_for_db = session.id;
     run_download_core(RunDownloadCoreParams {
         session,
         shutdown,
@@ -601,6 +653,42 @@ async fn run_selective_download(
         flavor,
     })
     .await?;
+
+    let newly_downloaded: std::collections::HashSet<u32> = tracker
+        .verified_ids()
+        .into_iter()
+        .filter(|id| initial_unverified.contains(id))
+        .collect();
+
+    if !newly_downloaded.is_empty() {
+        let db_result = tokio::task::spawn_blocking(move || {
+            create_selective_collection_database(
+                &collection,
+                &selective_collections,
+                &newly_downloaded,
+                &output_dir,
+            )
+        })
+        .await
+        .map_err(|e| DownloadError::internal(format!("spawn_blocking panicked: {e}")))
+        .and_then(|r| r.map_err(|e| DownloadError::internal(e.to_string())));
+        match db_result {
+            Ok(()) => {
+                log_status(
+                    &status_for_db,
+                    id_for_db,
+                    "collection.db created successfully",
+                );
+                info!("collection.db created successfully");
+            }
+            Err(e) => {
+                let message = format!("failed to create collection.db: {e}");
+                log_status(&status_for_db, id_for_db, message.clone());
+                error!(error = %e, "failed to create collection.db");
+                return Err(e);
+            }
+        }
+    }
 
     if beatmapset_ids.iter().all(|id| tracker.is_verified(*id))
         && let Some(snapshot_dir) = snapshot_dir
@@ -621,4 +709,220 @@ async fn run_selective_download(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::collection::model::{Beatmap, Beatmapset, Collection, Uploader};
+    use crate::download::SelectiveDownloadCollection;
+    use std::collections::HashSet;
+    use tempfile::tempdir;
+
+    fn make_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
+        Collection {
+            id,
+            name: format!("collection-{id}").into(),
+            uploader: Uploader {
+                id: 0,
+                username: "".into(),
+            },
+            beatmapsets,
+        }
+    }
+
+    fn make_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
+        Beatmapset {
+            id,
+            beatmaps: checksums
+                .iter()
+                .enumerate()
+                .map(|(i, &cs)| Beatmap {
+                    id: i as u32,
+                    checksum: cs.into(),
+                })
+                .collect(),
+        }
+    }
+
+    fn make_selective(
+        id: u32,
+        name: &str,
+        beatmapset_ids: Vec<u32>,
+    ) -> SelectiveDownloadCollection {
+        SelectiveDownloadCollection {
+            id,
+            name: name.to_string(),
+            beatmapset_ids,
+        }
+    }
+
+    #[test]
+    fn only_newly_downloaded_hashes_are_included() {
+        let dir = tempdir().unwrap();
+        let collection = make_collection(
+            1,
+            vec![
+                make_beatmapset(10, &["hash-a1", "hash-a2"]),
+                make_beatmapset(20, &["hash-b1"]),
+                make_beatmapset(30, &["hash-c1"]),
+            ],
+        );
+        let selective = vec![make_selective(1, "my collection", vec![10, 20, 30])];
+        // 10 newly downloaded; 20 requested but failed; 30 was pre-existing (not in newly_downloaded)
+        let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
+
+        create_selective_collection_database(
+            &collection,
+            &selective,
+            &newly_downloaded,
+            dir.path(),
+        )
+        .unwrap();
+
+        let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
+            .unwrap();
+        assert_eq!(list.collections.len(), 1);
+        let hashes: Vec<_> = list.collections[0]
+            .beatmap_hashes
+            .iter()
+            .flatten()
+            .collect();
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.iter().any(|h| h.as_str() == "hash-a1"));
+        assert!(hashes.iter().any(|h| h.as_str() == "hash-a2"));
+    }
+
+    #[test]
+    fn beatmapset_in_two_collections_appears_in_both() {
+        let dir = tempdir().unwrap();
+        let collection = make_collection(
+            1,
+            vec![
+                make_beatmapset(10, &["hash-x"]),
+                make_beatmapset(20, &["hash-y"]),
+            ],
+        );
+        let selective = vec![
+            make_selective(1, "collection-a", vec![10, 20]),
+            make_selective(2, "collection-b", vec![10]),
+        ];
+        let newly_downloaded: HashSet<u32> = [10, 20].into_iter().collect();
+
+        create_selective_collection_database(
+            &collection,
+            &selective,
+            &newly_downloaded,
+            dir.path(),
+        )
+        .unwrap();
+
+        let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
+            .unwrap();
+        assert_eq!(list.collections.len(), 2);
+        let hashes_a: Vec<_> = list.collections[0]
+            .beatmap_hashes
+            .iter()
+            .flatten()
+            .collect();
+        let hashes_b: Vec<_> = list.collections[1]
+            .beatmap_hashes
+            .iter()
+            .flatten()
+            .collect();
+        assert!(
+            hashes_a.iter().any(|h| h.as_str() == "hash-x"),
+            "beatmapset 10 should be in collection-a"
+        );
+        assert!(
+            hashes_b.iter().any(|h| h.as_str() == "hash-x"),
+            "beatmapset 10 should be in collection-b"
+        );
+        assert!(
+            hashes_a.iter().any(|h| h.as_str() == "hash-y"),
+            "beatmapset 20 should be in collection-a"
+        );
+        assert_eq!(hashes_b.len(), 1, "collection-b only has beatmapset 10");
+    }
+
+    #[test]
+    fn fallback_name_preserved_in_db() {
+        let dir = tempdir().unwrap();
+        let collection = make_collection(1, vec![make_beatmapset(10, &["hash-z"])]);
+        // empty snapshot name -> session.rs resolves fallback before calling here;
+        // verify the name passed in is written as-is
+        let selective = vec![make_selective(1, "my-api-name-123", vec![10])];
+        let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
+
+        create_selective_collection_database(
+            &collection,
+            &selective,
+            &newly_downloaded,
+            dir.path(),
+        )
+        .unwrap();
+
+        let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
+            .unwrap();
+        assert_eq!(list.collections[0].name.as_deref(), Some("my-api-name-123"));
+    }
+
+    #[test]
+    fn no_db_written_when_nothing_newly_downloaded() {
+        let dir = tempdir().unwrap();
+        let collection = make_collection(1, vec![make_beatmapset(10, &["hash-q"])]);
+        let selective = vec![make_selective(1, "some-collection", vec![10])];
+        let newly_downloaded: HashSet<u32> = HashSet::new();
+
+        create_selective_collection_database(
+            &collection,
+            &selective,
+            &newly_downloaded,
+            dir.path(),
+        )
+        .unwrap();
+
+        assert!(
+            !dir.path().join("collection.db").exists(),
+            "no db when nothing was newly downloaded"
+        );
+    }
+
+    #[test]
+    fn collections_with_no_newly_downloaded_are_omitted() {
+        let dir = tempdir().unwrap();
+        let collection = make_collection(
+            1,
+            vec![
+                make_beatmapset(10, &["hash-p"]),
+                make_beatmapset(20, &["hash-q"]),
+            ],
+        );
+        let selective = vec![
+            make_selective(1, "collection-with-downloads", vec![10]),
+            make_selective(2, "collection-all-failed", vec![20]),
+        ];
+        // only 10 downloaded; 20 failed
+        let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
+
+        create_selective_collection_database(
+            &collection,
+            &selective,
+            &newly_downloaded,
+            dir.path(),
+        )
+        .unwrap();
+
+        let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
+            .unwrap();
+        assert_eq!(
+            list.collections.len(),
+            1,
+            "only collections with successful downloads are emitted"
+        );
+        assert_eq!(
+            list.collections[0].name.as_deref(),
+            Some("collection-with-downloads")
+        );
+    }
 }

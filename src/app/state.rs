@@ -13,7 +13,7 @@ use crate::{
     },
     download::{
         DownloadConfig, DownloadEvent, DownloadId, DownloadRequest, DownloadStage,
-        SelectiveDownloadRequest,
+        SelectiveDownloadCollection, SelectiveDownloadRequest,
     },
     utils,
 };
@@ -301,14 +301,34 @@ impl App {
             &beatmapsets,
             |name| extract_collection_id_pub(name).and_then(|id| u32::try_from(id).ok()),
         );
-        let snapshots = collection_ids
+        let snapshots: Vec<_> = collection_ids
             .iter()
             .filter_map(|collection_id| current_snapshots.get(collection_id).cloned())
+            .collect();
+        let collections = collection_ids
+            .iter()
+            .map(|collection_id| SelectiveDownloadCollection {
+                id: *collection_id,
+                name: snapshots
+                    .iter()
+                    .find(|snapshot| snapshot.collection_id.parse::<u32>() == Ok(*collection_id))
+                    .map(|snapshot| snapshot.name.clone())
+                    .unwrap_or_default(),
+                beatmapset_ids: self
+                    .updates
+                    .selection
+                    .cached_missing_sets
+                    .iter()
+                    .filter(|beatmap| beatmap.selected && beatmap.collection_id == *collection_id)
+                    .map(|beatmap| beatmap.id)
+                    .collect(),
+            })
             .collect();
 
         let request = SelectiveDownloadRequest {
             collection_ids,
             beatmapset_ids,
+            collections,
             config,
             snapshot_dir: snapshots::snapshots_dir(),
             snapshots,
