@@ -200,7 +200,7 @@ pub enum DownloadEvent {
     },
     BeatmapVerified {
         id: DownloadId,
-        duration_ms: u64,
+        duration_us: u64,
     },
     Finished {
         id: DownloadId,

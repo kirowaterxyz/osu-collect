@@ -157,10 +157,10 @@ fn gauge_label_shows_avg_when_verified() {
     page.stats.downloaded = 3;
     page.stats.skipped = 2;
     page.stats.verify_total_count = 5;
-    page.stats.verify_total_ms = 5000;
+    page.stats.verify_total_us = 5_000_000;
 
-    let avg = page.avg_verify_ms();
-    assert_eq!(avg, Some(1000));
+    let avg = page.avg_verify_us();
+    assert_eq!(avg, Some(1_000_000));
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn gauge_label_none_when_no_verified() {
     use osu_collect::app::CollectionPage;
 
     let page = CollectionPage::new(1, "test".to_string(), 1);
-    assert_eq!(page.avg_verify_ms(), None);
+    assert_eq!(page.avg_verify_us(), None);
 }
 
 // ── config item order ─────────────────────────────────────────────────────────

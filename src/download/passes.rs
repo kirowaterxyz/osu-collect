@@ -15,11 +15,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{
-    sync::mpsc::UnboundedSender,
-    task::JoinHandle,
-    time::{Instant, sleep},
-};
+use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle, time::sleep};
 use tracing::{debug, info, trace, warn};
 
 type ResultMessage = (usize, u32, crate::utils::Result<DownloadResult>);
@@ -462,7 +458,8 @@ impl<'a> PassCoordinator<'a> {
         }
 
         while let Ok((slot, beatmapset_id, result)) = result_rx.try_recv() {
-            self.process_result(slot, beatmapset_id, result, &mut failures).await;
+            self.process_result(slot, beatmapset_id, result, &mut failures)
+                .await;
         }
         drop(result_rx);
         feed_handle.abort();
@@ -491,8 +488,6 @@ impl<'a> PassCoordinator<'a> {
         match result {
             Ok(DownloadResult::Success(file)) => {
                 self.context.mirror_pool.clear_penalty(file.mirror);
-                let verify_start = Instant::now();
-
                 trace!(
                     download_id = self.context.id,
                     beatmapset_id, "Download verification succeeded"
@@ -519,7 +514,7 @@ impl<'a> PassCoordinator<'a> {
                 });
                 self.context.emit(DownloadEvent::BeatmapVerified {
                     id: self.context.id,
-                    duration_ms: verify_start.elapsed().as_millis() as u64,
+                    duration_us: file.verify_duration_us,
                 });
                 self.context.emit(DownloadEvent::ThreadStatus {
                     id: self.context.id,

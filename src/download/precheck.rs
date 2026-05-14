@@ -83,7 +83,7 @@ pub(crate) async fn verify_existing_beatmapsets(
         file_size: u64,
         path: PathBuf,
         validation_error: Option<String>,
-        duration_ms: u64,
+        duration_us: u64,
     }
 
     let mut candidates = Vec::new();
@@ -166,13 +166,13 @@ pub(crate) async fn verify_existing_beatmapsets(
                     }
                 }
 
-                let duration_ms = verify_start.elapsed().as_millis() as u64;
+                let duration_us = verify_start.elapsed().as_micros() as u64;
                 Ok(Some(FileRecord {
                     beatmapset_id,
                     file_size,
                     path,
                     validation_error,
-                    duration_ms,
+                    duration_us,
                 }))
             }
         })
@@ -209,7 +209,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                         });
                         status.emit(DownloadEvent::BeatmapVerified {
                             id,
-                            duration_ms: record.duration_ms,
+                            duration_us: record.duration_us,
                         });
                     }
                     continue;
@@ -228,7 +228,7 @@ pub(crate) async fn verify_existing_beatmapsets(
                         });
                         status.emit(DownloadEvent::BeatmapVerified {
                             id,
-                            duration_ms: record.duration_ms,
+                            duration_us: record.duration_us,
                         });
                     }
                 }

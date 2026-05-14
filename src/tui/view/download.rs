@@ -250,13 +250,15 @@ fn format_bytes_progress(downloaded: u64, total: u64) -> String {
     format!("{downloaded_gb:.2}/{total_gb:.2} GB")
 }
 
-fn format_avg_verify(avg_ms: u64) -> String {
-    if avg_ms < 1000 {
-        format!("{avg_ms}ms")
-    } else if avg_ms < 60_000 {
-        format!("{:.1}s", avg_ms as f64 / 1000.0)
+fn format_avg_verify(avg_us: u64) -> String {
+    if avg_us < 1_000 {
+        format!("{avg_us}us")
+    } else if avg_us < 1_000_000 {
+        format!("{:.1}ms", avg_us as f64 / 1_000.0)
+    } else if avg_us < 60_000_000 {
+        format!("{:.1}s", avg_us as f64 / 1_000_000.0)
     } else {
-        format!("{:.1}m", avg_ms as f64 / 60_000.0)
+        format!("{:.1}m", avg_us as f64 / 60_000_000.0)
     }
 }
 
@@ -279,10 +281,10 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     }
 
     let downloaded_title = format!(" {downloaded} downloaded  {queue_remaining} queued ");
-    let verified_title = if let Some(avg_ms) = page.avg_verify_ms() {
+    let verified_title = if let Some(avg_us) = page.avg_verify_us() {
         format!(
             " {verified_display}/{total_collection} verified ({} avg. per map) ",
-            format_avg_verify(avg_ms)
+            format_avg_verify(avg_us)
         )
     } else {
         format!(" {verified_display}/{total_collection} verified ")
@@ -498,12 +500,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_avg_verify_ms_boundary() {
-        assert_eq!(format_avg_verify(0), "0ms");
-        assert_eq!(format_avg_verify(999), "999ms");
-        assert_eq!(format_avg_verify(1000), "1.0s");
-        assert_eq!(format_avg_verify(59_999), "60.0s");
-        assert_eq!(format_avg_verify(60_000), "1.0m");
-        assert_eq!(format_avg_verify(120_000), "2.0m");
+    fn format_avg_verify_us_boundary() {
+        assert_eq!(format_avg_verify(0), "0us");
+        assert_eq!(format_avg_verify(999), "999us");
+        assert_eq!(format_avg_verify(1_000), "1.0ms");
+        assert_eq!(format_avg_verify(999_999), "1000.0ms");
+        assert_eq!(format_avg_verify(1_000_000), "1.0s");
+        assert_eq!(format_avg_verify(59_999_999), "60.0s");
+        assert_eq!(format_avg_verify(60_000_000), "1.0m");
+        assert_eq!(format_avg_verify(120_000_000), "2.0m");
     }
 }

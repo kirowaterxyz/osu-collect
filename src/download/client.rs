@@ -15,7 +15,13 @@ use crate::{
     },
 };
 use std::path::Path;
-use std::{borrow::Cow, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    io::ErrorKind,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{fs, time::sleep};
 use tracing::trace;
 
@@ -78,6 +84,7 @@ pub struct CompletedDownload {
     pub filename: Box<str>,
     pub hash: Box<str>,
     pub mirror: MirrorKind,
+    pub verify_duration_us: u64,
 }
 
 #[inline]
@@ -490,6 +497,7 @@ async fn write_and_verify_archive(
         ));
     }
 
+    let verify_start = Instant::now();
     if let Err(err) = ensure_valid_archive(&stream.temp_path, context.verify_zip_eocd).await {
         let _ = fs::remove_file(&stream.temp_path).await;
         context.cleanup_tracker.mark_removed(&output_path);
@@ -503,6 +511,7 @@ async fn write_and_verify_archive(
             ),
         ));
     }
+    let verify_duration_us = verify_start.elapsed().as_micros() as u64;
 
     let hash = stream.hash.unwrap_or_else(|| "unknown".into());
 
@@ -520,6 +529,7 @@ async fn write_and_verify_archive(
         filename: sanitized_filename.into_boxed_str(),
         hash,
         mirror: mirror.kind,
+        verify_duration_us,
     }))
 }
 
