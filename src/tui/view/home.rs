@@ -1,8 +1,8 @@
-use crate::app::{AuthLoginState, HomeField, HomeTab};
+use crate::app::{HomeField, HomeTab};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{List, ListItem},
 };
@@ -10,10 +10,10 @@ use ratatui::{
 use super::{HomeView, components};
 
 pub fn render(frame: &mut Frame, area: Rect, view: HomeView) {
-    render_form(frame, area, view.form, view.login_state);
+    render_form(frame, area, view.form);
 }
 
-fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab, login_state: &AuthLoginState) {
+fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
     let items = vec![
         components::section_header("collection"),
         components::input_item(&form.collection, form.focus == HomeField::Collection),
@@ -27,7 +27,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab, login_state: &Auth
             "osu.direct",
             form.osu_direct,
             form.focus == HomeField::MirrorOsuDirect,
-            Some(login_status_span(login_state)),
+            None,
         ),
         mirror_toggle(
             "nerinyan",
@@ -153,24 +153,4 @@ fn mirror_toggle(
     }
 
     ListItem::new(Line::from(spans))
-}
-
-fn login_status_span(state: &AuthLoginState) -> Span<'static> {
-    match state {
-        AuthLoginState::LoggedOut => {
-            Span::styled("not logged in", Style::default().fg(components::TEXT_FAINT))
-        }
-        AuthLoginState::InProgress(step) => Span::styled(
-            step.to_string(),
-            Style::default()
-                .fg(components::WARNING)
-                .add_modifier(Modifier::ITALIC),
-        ),
-        AuthLoginState::LoggedIn => Span::styled(
-            "logged in",
-            Style::default()
-                .fg(components::SUCCESS)
-                .add_modifier(Modifier::BOLD),
-        ),
-    }
 }

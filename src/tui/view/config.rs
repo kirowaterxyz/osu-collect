@@ -219,7 +219,7 @@ fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {
     };
 
     ListItem::new(Line::from(vec![
-        components::focus_span(focused),
+        components::focus_span(focused && enabled),
         Span::styled("log out".to_string(), style),
     ]))
 }
