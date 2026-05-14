@@ -17,64 +17,87 @@ pub fn render(frame: &mut Frame, area: Rect, view: ConfigView) {
 }
 
 fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
-    // 0: section_header("download")
-    // 1: help_item
-    // 2: DownloadSkipExisting
-    // 3: DownloadThreads
-    // 4: DownloadNoVideo
-    // 5: DownloadVerifyZipEocd
-    // 6: spacer
-    // 7: section_header("mirrors")
-    // 8: help_item
-    // 9: MirrorNerinyan
-    // 10: MirrorCatboyCentral
-    // 11: MirrorCatboyUs
-    // 12: MirrorCatboyAsia
+    // 0:  section_header("osu! login")
+    // 1:  auth_status_item
+    // 2:  LoginEntry
+    // 3:  LogoutEntry
+    // 4:  spacer
+    // 5:  section_header("download")
+    // 6:  DownloadThreads
+    // 7:  help_item("defaults shared with home and updates")
+    // 8:  DownloadSkipExisting
+    // 9:  DownloadNoVideo
+    // 10: DownloadVerifyZipEocd
+    // 11: spacer
+    // 12: section_header("mirrors")
     // 13: MirrorOsuDirect
-    // 14: MirrorSayobot
-    // 15: MirrorNekoha
-    // 16: MirrorCustomUrl
-    // 17: spacer
-    // 18: section_header("logging")
-    // 19: LoggingEnabled
-    // 20: LoggingLevel
-    // 21: LoggingFormat
-    // 22: LoggingDirectory
-    // 23: spacer
-    // 24: section_header("osu! login")
-    // 25: auth_status_item
-    // 26: LoginEntry
-    // 27: LogoutEntry
+    // 14: MirrorNerinyan
+    // 15: MirrorSayobot
+    // 16: MirrorNekoha
+    // 17: MirrorCatboyCentral
+    // 18: MirrorCatboyUs
+    // 19: MirrorCatboyAsia
+    // 20: MirrorCustomUrl
+    // 21: help_item("must contain {id}")
+    // 22: spacer
+    // 23: section_header("logging")
+    // 24: LoggingEnabled
+    // 25: LoggingLevel
+    // 26: LoggingFormat
+    // 27: LoggingDirectory
     let items = vec![
+        components::disclosure_row("default settings and config options", "", false, false),
+        components::spacer(),
+        components::section_header("osu! login"),
+        auth_status_item(&form.login_state),
+        login_entry_item(form),
+        logout_entry_item(form),
+        components::spacer(),
         components::section_header("download"),
-        components::help_item("defaults used by home and updates downloads"),
+        components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
         components::row_item(
             "skip existing files",
-            Some("keep files already on disk"),
+            None,
             form.skip_existing,
             form.focus == ConfigField::DownloadSkipExisting,
         ),
-        components::input_item(&form.threads, form.focus == ConfigField::DownloadThreads),
         components::row_item(
             "skip videos",
-            Some("smaller downloads"),
+            None,
             form.no_video,
             form.focus == ConfigField::DownloadNoVideo,
         ),
         components::row_item(
             "verify .osz integrity",
-            Some("reject truncated archives"),
+            None,
             form.verify_zip_eocd,
             form.focus == ConfigField::DownloadVerifyZipEocd,
         ),
         components::spacer(),
         components::section_header("mirrors"),
-        components::help_item("space toggles mirrors; custom URL must contain {id}"),
+        components::row_item(
+            "osu!direct",
+            Some("osu.direct"),
+            form.osu_direct,
+            form.focus == ConfigField::MirrorOsuDirect,
+        ),
         components::row_item(
             "nerinyan",
             Some("api.nerinyan.moe"),
             form.nerinyan,
             form.focus == ConfigField::MirrorNerinyan,
+        ),
+        components::row_item(
+            "sayobot",
+            Some("dl.sayobot.cn"),
+            form.sayobot,
+            form.focus == ConfigField::MirrorSayobot,
+        ),
+        components::row_item(
+            "nekoha",
+            Some("mirror.nekoha.moe"),
+            form.nekoha,
+            form.focus == ConfigField::MirrorNekoha,
         ),
         components::row_item(
             "catboy central",
@@ -94,28 +117,11 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.catboy_asia,
             form.focus == ConfigField::MirrorCatboyAsia,
         ),
-        components::row_item(
-            "osu!direct",
-            Some("osu.direct"),
-            form.osu_direct,
-            form.focus == ConfigField::MirrorOsuDirect,
-        ),
-        components::row_item(
-            "sayobot",
-            Some("dl.sayobot.cn"),
-            form.sayobot,
-            form.focus == ConfigField::MirrorSayobot,
-        ),
-        components::row_item(
-            "nekoha",
-            Some("mirror.nekoha.moe"),
-            form.nekoha,
-            form.focus == ConfigField::MirrorNekoha,
-        ),
         components::input_item(
             &form.custom_mirror,
             form.focus == ConfigField::MirrorCustomUrl,
         ),
+        components::help_item("must contain {id}"),
         components::spacer(),
         components::section_header("logging"),
         components::toggle_item(
@@ -139,32 +145,27 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             &form.logging_dir,
             form.focus == ConfigField::LoggingDirectory,
         ),
-        components::spacer(),
-        components::section_header("osu! login"),
-        auth_status_item(&form.login_state),
-        login_entry_item(form),
-        logout_entry_item(form),
     ];
 
     let focused_index = match form.focus {
-        ConfigField::DownloadSkipExisting => 2,
-        ConfigField::DownloadThreads => 3,
-        ConfigField::DownloadNoVideo => 4,
-        ConfigField::DownloadVerifyZipEocd => 5,
-        ConfigField::MirrorNerinyan => 9,
-        ConfigField::MirrorCatboyCentral => 10,
-        ConfigField::MirrorCatboyUs => 11,
-        ConfigField::MirrorCatboyAsia => 12,
+        ConfigField::LoginEntry => 2,
+        ConfigField::LogoutEntry => 3,
+        ConfigField::DownloadThreads => 6,
+        ConfigField::DownloadSkipExisting => 8,
+        ConfigField::DownloadNoVideo => 9,
+        ConfigField::DownloadVerifyZipEocd => 10,
         ConfigField::MirrorOsuDirect => 13,
-        ConfigField::MirrorSayobot => 14,
-        ConfigField::MirrorNekoha => 15,
-        ConfigField::MirrorCustomUrl => 16,
-        ConfigField::LoggingEnabled => 19,
-        ConfigField::LoggingLevel => 20,
-        ConfigField::LoggingFormat => 21,
-        ConfigField::LoggingDirectory => 22,
-        ConfigField::LoginEntry => 26,
-        ConfigField::LogoutEntry => 27,
+        ConfigField::MirrorNerinyan => 15,
+        ConfigField::MirrorSayobot => 16,
+        ConfigField::MirrorNekoha => 17,
+        ConfigField::MirrorCatboyCentral => 18,
+        ConfigField::MirrorCatboyUs => 19,
+        ConfigField::MirrorCatboyAsia => 20,
+        ConfigField::MirrorCustomUrl => 21,
+        ConfigField::LoggingEnabled => 25,
+        ConfigField::LoggingLevel => 26,
+        ConfigField::LoggingFormat => 27,
+        ConfigField::LoggingDirectory => 28,
     };
 
     let inner_block = components::panel_block("config");
@@ -224,39 +225,30 @@ fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {
 }
 
 fn action_style(focused: bool) -> Style {
-    if focused {
-        Style::default()
-            .fg(components::TEXT_MUTED)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(components::TEXT_MUTED)
-    }
+    components::focused_label_style(focused)
 }
 
 fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {
-    let (prefix, text, style) = match state {
+    let (text, style) = match state {
         AuthLoginState::LoggedOut => (
-            components::FOCUS_PAD,
-            "> not logged in".to_string(),
+            "status: not logged in".to_string(),
             Style::default().fg(components::TEXT_FAINT),
         ),
         AuthLoginState::InProgress(step) => (
-            components::FOCUS_PAD,
-            format!("> {step}"),
+            format!("status: {step}"),
             Style::default()
                 .fg(components::WARNING)
                 .add_modifier(Modifier::ITALIC),
         ),
         AuthLoginState::LoggedIn => (
-            components::FOCUS_PAD,
-            "> logged in".to_string(),
+            "status: logged in".to_string(),
             Style::default()
-                .fg(components::ACCENT)
+                .fg(components::SUCCESS)
                 .add_modifier(Modifier::BOLD),
         ),
     };
     ListItem::new(Line::from(vec![
-        Span::raw(prefix),
+        Span::raw(components::FOCUS_PAD),
         Span::styled(text, style),
     ]))
 }

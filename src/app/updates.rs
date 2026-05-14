@@ -11,7 +11,6 @@ pub enum UpdatesField {
     OsuPath,
     Collections,
     BeatmapList,
-    RecheckFailedMaps,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,8 +171,7 @@ impl UpdatesTab {
             UpdatesField::ClientType => UpdatesField::OsuPath,
             UpdatesField::OsuPath => UpdatesField::Collections,
             UpdatesField::Collections => UpdatesField::BeatmapList,
-            UpdatesField::BeatmapList => UpdatesField::RecheckFailedMaps,
-            UpdatesField::RecheckFailedMaps => UpdatesField::ClientType,
+            UpdatesField::BeatmapList => UpdatesField::ClientType,
         };
     }
 
@@ -187,7 +185,6 @@ impl UpdatesTab {
             UpdatesField::OsuPath => UpdatesField::ClientType,
             UpdatesField::Collections => UpdatesField::OsuPath,
             UpdatesField::BeatmapList => UpdatesField::Collections,
-            UpdatesField::RecheckFailedMaps => UpdatesField::BeatmapList,
         };
     }
 
@@ -261,13 +258,6 @@ impl UpdatesTab {
                     self.selection.in_beatmap_list = true;
                 }
                 UpdatesAction::None
-            }
-            UpdatesField::RecheckFailedMaps => {
-                if self.can_recheck_failed_maps() {
-                    UpdatesAction::RecheckFailedMaps
-                } else {
-                    UpdatesAction::None
-                }
             }
             _ => UpdatesAction::None,
         }

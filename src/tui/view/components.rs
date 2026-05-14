@@ -30,7 +30,7 @@ pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
 #[allow(dead_code)]
 pub const BG_SUNKEN: Color = Color::Rgb(17, 17, 27);
 
-pub const FOCUS_MARK: &str = "▎ ";
+pub const FOCUS_MARK: &str = "❯ ";
 pub const FOCUS_PAD: &str = "  ";
 pub const CHECK_ON: &str = "◉";
 pub const CHECK_OFF: &str = "○";
@@ -153,6 +153,7 @@ pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
     );
 
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.titles().len() * 3);
+    spans.push(Span::styled("  ", Style::default().fg(LINE)));
     for (index, title) in tabs.titles().iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
@@ -237,7 +238,7 @@ pub fn section_header(label: &str) -> ListItem<'static> {
 
 pub fn help_item(text: impl Into<String>) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
-        Span::raw("  "),
+        Span::styled("  └ ", Style::default().fg(LINE)),
         Span::styled(text.into(), Style::default().fg(TEXT_FAINT)),
     ]))
 }
@@ -249,10 +250,10 @@ pub fn disclosure_row(
     focused: bool,
 ) -> ListItem<'static> {
     let marker = if expanded { EXPANDED } else { COLLAPSED };
-    let label_style = if focused || expanded {
+    let label_style = if expanded {
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(TEXT_MUTED)
+        focused_label_style(focused)
     };
     ListItem::new(Line::from(vec![
         focus_span(focused && !expanded),
@@ -275,15 +276,10 @@ pub fn row_item(
     focused: bool,
 ) -> ListItem<'static> {
     let (marker, marker_style) = check_marker(state);
-    let label_style = if focused {
-        Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(TEXT_MUTED)
-    };
     let mut spans = vec![
         focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}"), label_style),
+        Span::styled(format!(" {label}"), focused_label_style(focused)),
     ];
     if let Some(detail) = detail {
         spans.push(Span::styled(
@@ -320,7 +316,7 @@ pub fn spacer() -> ListItem<'static> {
 
 pub fn focus_span(focused: bool) -> Span<'static> {
     if focused {
-        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT))
+        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT).bold())
     } else {
         Span::raw(FOCUS_PAD)
     }
@@ -398,12 +394,16 @@ pub fn thread_item(index: usize, status: &ThreadStatusLine, width: u16) -> ListI
     ListItem::new(Line::from(spans))
 }
 
-fn field_label_style(focused: bool) -> Style {
+pub fn focused_label_style(focused: bool) -> Style {
     if focused {
-        Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD)
+        Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(TEXT_DIM)
+        Style::default().fg(TEXT_MUTED)
     }
+}
+
+fn field_label_style(focused: bool) -> Style {
+    focused_label_style(focused)
 }
 
 fn thread_style_for(message: &str, rate_limited: bool) -> Style {

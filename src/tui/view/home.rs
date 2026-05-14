@@ -1,8 +1,8 @@
-use crate::app::{HomeField, HomeTab};
+use crate::app::{AuthLoginState, HomeField, HomeTab};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem},
 };
@@ -10,59 +10,66 @@ use ratatui::{
 use super::{HomeView, components};
 
 pub fn render(frame: &mut Frame, area: Rect, view: HomeView) {
-    render_form(frame, area, view.form);
+    render_form(frame, area, view.form, view.login_state);
 }
 
-fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
+fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab, login_state: &AuthLoginState) {
     let items = vec![
         components::section_header("collection"),
         components::input_item(&form.collection, form.focus == HomeField::Collection),
         components::input_item(&form.directory, form.focus == HomeField::Directory),
         components::spacer(),
         components::section_header("mirrors"),
-        components::help_item("space toggles mirrors; custom URL must contain {id}"),
         components::input_item(&form.custom_mirror, form.focus == HomeField::CustomMirror),
-        mirror_toggle(
-            "nerinyan",
-            "api.nerinyan.moe",
-            form.nerinyan,
-            form.focus == HomeField::MirrorNerinyan,
-        ),
+        components::help_item("must contain {id}"),
         mirror_toggle(
             "osu!direct",
             "osu.direct",
             form.osu_direct,
             form.focus == HomeField::MirrorOsuDirect,
+            Some(login_status_span(login_state)),
+        ),
+        mirror_toggle(
+            "nerinyan",
+            "api.nerinyan.moe",
+            form.nerinyan,
+            form.focus == HomeField::MirrorNerinyan,
+            None,
         ),
         mirror_toggle(
             "sayobot",
             "dl.sayobot.cn",
             form.sayobot,
             form.focus == HomeField::MirrorSayobot,
+            None,
         ),
         mirror_toggle(
             "nekoha",
             "mirror.nekoha.moe",
             form.nekoha,
             form.focus == HomeField::MirrorNekoha,
+            None,
         ),
         mirror_toggle(
             "catboy central",
             "catboy.best",
             form.catboy_central,
             form.focus == HomeField::MirrorCatboyCentral,
+            None,
         ),
         mirror_toggle(
             "catboy us",
             "us.catboy.best",
             form.catboy_us,
             form.focus == HomeField::MirrorCatboyUs,
+            None,
         ),
         mirror_toggle(
             "catboy asia",
             "sg.catboy.best",
             form.catboy_asia,
             form.focus == HomeField::MirrorCatboyAsia,
+            None,
         ),
         components::spacer(),
         components::section_header("download"),
@@ -95,18 +102,18 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
     let focused_index = match form.focus {
         HomeField::Collection => 1,
         HomeField::Directory => 2,
-        HomeField::CustomMirror => 6,
-        HomeField::MirrorNerinyan => 7,
-        HomeField::MirrorOsuDirect => 8,
+        HomeField::CustomMirror => 5,
+        HomeField::MirrorOsuDirect => 7,
+        HomeField::MirrorNerinyan => 8,
         HomeField::MirrorSayobot => 9,
         HomeField::MirrorNekoha => 10,
         HomeField::MirrorCatboyCentral => 11,
         HomeField::MirrorCatboyUs => 12,
         HomeField::MirrorCatboyAsia => 13,
-        HomeField::Threads => 17,
-        HomeField::SkipExisting => 18,
-        HomeField::AutoOverwrite => 19,
-        HomeField::NoVideo => 20,
+        HomeField::Threads => 16,
+        HomeField::SkipExisting => 17,
+        HomeField::AutoOverwrite => 18,
+        HomeField::NoVideo => 19,
     };
 
     let inner_block = components::panel_block("home");
@@ -119,24 +126,51 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
     frame.render_widget(list, inner);
 }
 
-fn mirror_toggle(label: &str, url: &str, value: bool, focused: bool) -> ListItem<'static> {
+fn mirror_toggle(
+    label: &str,
+    url: &str,
+    value: bool,
+    focused: bool,
+    suffix: Option<Span<'static>>,
+) -> ListItem<'static> {
     let (marker, marker_style) = components::check_marker(value);
-    let label_style = if focused {
-        Style::default()
-            .fg(components::TEXT)
-            .add_modifier(ratatui::style::Modifier::BOLD)
-    } else {
-        Style::default().fg(components::TEXT_MUTED)
-    };
-    let spans = vec![
+    let mut spans = vec![
         components::focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}"), label_style),
+        Span::styled(
+            format!(" {label}"),
+            components::focused_label_style(focused),
+        ),
         Span::styled(
             format!("  {url}"),
             Style::default().fg(components::TEXT_FAINT),
         ),
     ];
 
+    if let Some(suffix) = suffix {
+        spans.push(Span::raw("  "));
+        spans.push(suffix);
+    }
+
     ListItem::new(Line::from(spans))
+}
+
+fn login_status_span(state: &AuthLoginState) -> Span<'static> {
+    match state {
+        AuthLoginState::LoggedOut => {
+            Span::styled("not logged in", Style::default().fg(components::TEXT_FAINT))
+        }
+        AuthLoginState::InProgress(step) => Span::styled(
+            step.to_string(),
+            Style::default()
+                .fg(components::WARNING)
+                .add_modifier(Modifier::ITALIC),
+        ),
+        AuthLoginState::LoggedIn => Span::styled(
+            "logged in",
+            Style::default()
+                .fg(components::SUCCESS)
+                .add_modifier(Modifier::BOLD),
+        ),
+    }
 }

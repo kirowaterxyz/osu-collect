@@ -2,6 +2,7 @@ use crate::app::{
     UpdatesField, UpdatesTab,
     updates::{BeatmapDisplayItem, ScanStatus},
 };
+use crate::osu_db::OsuClient;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -21,7 +22,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let built = build_view(form, inner.height);
+    let built = build_view(form);
     let visible_height = inner.height as usize;
     let (start, end) = components::scroll_window(&built.items, built.focused_index, visible_height);
     let visible_items = built.items[start..end].to_vec();
@@ -35,24 +36,24 @@ struct BuiltView {
     focused_index: usize,
 }
 
-fn build_view(form: &UpdatesTab, area_height: u16) -> BuiltView {
+fn build_view(form: &UpdatesTab) -> BuiltView {
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut focused_index: usize = 0;
     let focus = form.selection.focus;
+    let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
 
     // SOURCE
     items.push(components::section_header("source"));
-    if focus == UpdatesField::ClientType
-        && !form.selection.in_collection_list
-        && !form.selection.in_beatmap_list
-    {
+    if focus == UpdatesField::ClientType && !in_list {
         focused_index = items.len();
     }
-    items.push(client_toggle(form));
-    if focus == UpdatesField::OsuPath
-        && !form.selection.in_collection_list
-        && !form.selection.in_beatmap_list
-    {
+    items.push(components::cycle_item(
+        "client",
+        &["lazer", "stable"],
+        client_label(form.path.client_type),
+        focus == UpdatesField::ClientType && !in_list,
+    ));
+    if focus == UpdatesField::OsuPath && !in_list {
         focused_index = items.len();
     }
     items.push(osu_path_item(form));
@@ -60,23 +61,14 @@ fn build_view(form: &UpdatesTab, area_height: u16) -> BuiltView {
 
     // COLLECTIONS
     items.push(components::section_header("collections"));
-    if focus == UpdatesField::Collections && !form.selection.in_collection_list {
+    if focus == UpdatesField::Collections && !in_list {
         focused_index = items.len();
     }
     items.push(collections_header(form));
     if form.selection.in_collection_list {
         let selected_idx = form.selection.collections_state.selected().unwrap_or(0);
-        let (start, end) = components::scroll_window(
-            &form.selection.local_collections,
-            selected_idx,
-            area_height.saturating_sub(10) as usize,
-        );
-        for (i, collection) in form.selection.local_collections[start..end]
-            .iter()
-            .enumerate()
-        {
-            let actual = start + i;
-            let is_sel = actual == selected_idx;
+        for (i, collection) in form.selection.local_collections.iter().enumerate() {
+            let is_sel = i == selected_idx;
             if is_sel && focus == UpdatesField::Collections {
                 focused_index = items.len();
             }
@@ -87,20 +79,14 @@ fn build_view(form: &UpdatesTab, area_height: u16) -> BuiltView {
 
     // MISSING BEATMAPS
     items.push(components::section_header("missing beatmaps"));
-    if focus == UpdatesField::BeatmapList && !form.selection.in_beatmap_list {
+    if focus == UpdatesField::BeatmapList && !in_list {
         focused_index = items.len();
     }
     items.push(beatmaps_header(form));
     if form.selection.in_beatmap_list {
         let selected_idx = form.selection.beatmaps_state.selected().unwrap_or(0);
-        let (start, end) = components::scroll_window(
-            &form.selection.display_items,
-            selected_idx,
-            area_height.saturating_sub(10) as usize,
-        );
-        for (i, item) in form.selection.display_items[start..end].iter().enumerate() {
-            let actual = start + i;
-            let is_sel = actual == selected_idx;
+        for (i, item) in form.selection.display_items.iter().enumerate() {
+            let is_sel = i == selected_idx;
             if is_sel && focus == UpdatesField::BeatmapList {
                 focused_index = items.len();
             }
@@ -206,45 +192,11 @@ fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
     }
 }
 
-fn client_toggle(form: &UpdatesTab) -> ListItem<'static> {
-    let focused = form.selection.focus == UpdatesField::ClientType
-        && !form.selection.in_collection_list
-        && !form.selection.in_beatmap_list;
-
-    let active_style = Style::default().fg(components::ACCENT);
-    let inactive_style = Style::default().fg(components::TEXT_FAINT);
-    let lazer_active = form.path.client_type == crate::osu_db::OsuClient::Lazer;
-    let stable_active = form.path.client_type == crate::osu_db::OsuClient::Stable;
-
-    ListItem::new(Line::from(vec![
-        components::focus_span(focused),
-        Span::styled("client: ", Style::default().fg(components::TEXT_DIM)),
-        Span::styled(
-            if lazer_active { "◉ " } else { "○ " },
-            marker_style(lazer_active),
-        ),
-        Span::styled(
-            "lazer",
-            if lazer_active {
-                active_style
-            } else {
-                inactive_style
-            },
-        ),
-        Span::styled("  ", Style::default()),
-        Span::styled(
-            if stable_active { "◉ " } else { "○ " },
-            marker_style(stable_active),
-        ),
-        Span::styled(
-            "stable",
-            if stable_active {
-                active_style
-            } else {
-                inactive_style
-            },
-        ),
-    ]))
+fn client_label(client: OsuClient) -> &'static str {
+    match client {
+        OsuClient::Lazer => "lazer",
+        OsuClient::Stable => "stable",
+    }
 }
 
 fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
@@ -271,7 +223,7 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
         components::focus_span(focused),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
-            Style::default().fg(components::TEXT_DIM),
+            components::focused_label_style(focused),
         ),
         value,
     ]))
@@ -373,12 +325,4 @@ fn is_scanning(form: &UpdatesTab) -> bool {
             | ScanStatus::FetchingCollection
             | ScanStatus::CheckingFailedMaps
     )
-}
-
-fn marker_style(active: bool) -> Style {
-    if active {
-        Style::default().fg(components::ACCENT)
-    } else {
-        Style::default().fg(components::TEXT_FAINT)
-    }
 }

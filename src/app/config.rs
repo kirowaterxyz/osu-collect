@@ -96,7 +96,7 @@ impl ConfigTab {
                     .concurrent
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
-                placeholder: format!("leave blank (default {})", default_threads()),
+                placeholder: format!("{}", default_threads()),
             },
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
@@ -108,54 +108,54 @@ impl ConfigTab {
                 value: config.logging.file_dir.as_deref().unwrap_or("").to_string(),
                 placeholder: "~/.local/share/osu-collect/logs".to_string(),
             },
-            focus: ConfigField::DownloadSkipExisting,
+            focus: ConfigField::LoginEntry,
             message: None,
         }
     }
 
     pub fn next_field(&mut self) {
         self.focus = match self.focus {
-            ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
-            ConfigField::DownloadThreads => ConfigField::DownloadNoVideo,
+            ConfigField::LoginEntry => ConfigField::LogoutEntry,
+            ConfigField::LogoutEntry => ConfigField::DownloadThreads,
+            ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
+            ConfigField::DownloadSkipExisting => ConfigField::DownloadNoVideo,
             ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::DownloadVerifyZipEocd => ConfigField::MirrorNerinyan,
-            ConfigField::MirrorNerinyan => ConfigField::MirrorCatboyCentral,
+            ConfigField::DownloadVerifyZipEocd => ConfigField::MirrorOsuDirect,
+            ConfigField::MirrorOsuDirect => ConfigField::MirrorNerinyan,
+            ConfigField::MirrorNerinyan => ConfigField::MirrorSayobot,
+            ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
+            ConfigField::MirrorNekoha => ConfigField::MirrorCatboyCentral,
             ConfigField::MirrorCatboyCentral => ConfigField::MirrorCatboyUs,
             ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyAsia,
-            ConfigField::MirrorCatboyAsia => ConfigField::MirrorOsuDirect,
-            ConfigField::MirrorOsuDirect => ConfigField::MirrorSayobot,
-            ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
-            ConfigField::MirrorNekoha => ConfigField::MirrorCustomUrl,
+            ConfigField::MirrorCatboyAsia => ConfigField::MirrorCustomUrl,
             ConfigField::MirrorCustomUrl => ConfigField::LoggingEnabled,
             ConfigField::LoggingEnabled => ConfigField::LoggingLevel,
             ConfigField::LoggingLevel => ConfigField::LoggingFormat,
             ConfigField::LoggingFormat => ConfigField::LoggingDirectory,
             ConfigField::LoggingDirectory => ConfigField::LoginEntry,
-            ConfigField::LoginEntry => ConfigField::LogoutEntry,
-            ConfigField::LogoutEntry => ConfigField::DownloadSkipExisting,
         };
     }
 
     pub fn prev_field(&mut self) {
         self.focus = match self.focus {
-            ConfigField::DownloadSkipExisting => ConfigField::LogoutEntry,
-            ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadThreads,
+            ConfigField::LoginEntry => ConfigField::LoggingDirectory,
+            ConfigField::LogoutEntry => ConfigField::LoginEntry,
+            ConfigField::DownloadThreads => ConfigField::LogoutEntry,
+            ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
+            ConfigField::DownloadNoVideo => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
-            ConfigField::MirrorNerinyan => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::MirrorCatboyCentral => ConfigField::MirrorNerinyan,
+            ConfigField::MirrorOsuDirect => ConfigField::DownloadVerifyZipEocd,
+            ConfigField::MirrorNerinyan => ConfigField::MirrorOsuDirect,
+            ConfigField::MirrorSayobot => ConfigField::MirrorNerinyan,
+            ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
+            ConfigField::MirrorCatboyCentral => ConfigField::MirrorNekoha,
             ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyCentral,
             ConfigField::MirrorCatboyAsia => ConfigField::MirrorCatboyUs,
-            ConfigField::MirrorOsuDirect => ConfigField::MirrorCatboyAsia,
-            ConfigField::MirrorSayobot => ConfigField::MirrorOsuDirect,
-            ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
-            ConfigField::MirrorCustomUrl => ConfigField::MirrorNekoha,
+            ConfigField::MirrorCustomUrl => ConfigField::MirrorCatboyAsia,
             ConfigField::LoggingEnabled => ConfigField::MirrorCustomUrl,
             ConfigField::LoggingLevel => ConfigField::LoggingEnabled,
             ConfigField::LoggingFormat => ConfigField::LoggingLevel,
             ConfigField::LoggingDirectory => ConfigField::LoggingFormat,
-            ConfigField::LoginEntry => ConfigField::LoggingDirectory,
-            ConfigField::LogoutEntry => ConfigField::LoginEntry,
         };
     }
 
@@ -434,25 +434,25 @@ mod tests {
     #[test]
     fn next_field_cycles_through_login_entries() {
         let mut tab = ConfigTab::new(&Config::default());
-        tab.focus = ConfigField::MirrorCustomUrl;
+        tab.focus = ConfigField::LoggingDirectory;
         tab.next_field();
         assert_eq!(tab.focus, ConfigField::LoginEntry);
         tab.next_field();
         assert_eq!(tab.focus, ConfigField::LogoutEntry);
         tab.next_field();
-        assert_eq!(tab.focus, ConfigField::DownloadSkipExisting);
+        assert_eq!(tab.focus, ConfigField::DownloadThreads);
     }
 
     #[test]
     fn prev_field_cycles_through_login_entries() {
         let mut tab = ConfigTab::new(&Config::default());
-        tab.focus = ConfigField::DownloadSkipExisting;
+        tab.focus = ConfigField::DownloadThreads;
         tab.prev_field();
         assert_eq!(tab.focus, ConfigField::LogoutEntry);
         tab.prev_field();
         assert_eq!(tab.focus, ConfigField::LoginEntry);
         tab.prev_field();
-        assert_eq!(tab.focus, ConfigField::MirrorCustomUrl);
+        assert_eq!(tab.focus, ConfigField::LoggingDirectory);
     }
 
     #[test]

@@ -5,7 +5,7 @@ mod footer;
 mod home;
 mod updates;
 
-use crate::app::{App, CollectionPage, ConfigTab, HomeTab, UpdatesTab};
+use crate::app::{App, AuthLoginState, CollectionPage, ConfigTab, HomeTab, UpdatesTab};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
@@ -81,12 +81,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 #[derive(Clone, Copy)]
 pub struct HomeView<'a> {
     pub form: &'a HomeTab,
-}
-
-impl<'a> From<&'a HomeTab> for HomeView<'a> {
-    fn from(form: &'a HomeTab) -> Self {
-        Self { form }
-    }
+    pub login_state: &'a AuthLoginState,
 }
 
 #[derive(Clone, Copy)]
@@ -157,7 +152,10 @@ impl<'a> From<&'a App> for AppView<'a> {
         });
 
         Self {
-            home: HomeView::from(&app.home),
+            home: HomeView {
+                form: &app.home,
+                login_state: &app.config.login_state,
+            },
             updates: UpdatesView::from(&app.updates),
             config: ConfigView::new(&app.config, app.home.quit_prompt),
             download,
