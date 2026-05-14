@@ -53,6 +53,8 @@ pub enum DownloadResult {
     Success(CompletedDownload),
     Skipped(Box<str>),
     Failed(DownloadFailure),
+    /// All mirrors failed with transient network errors only — not a logical failure.
+    NetworkError(String),
     Aborted,
 }
 
@@ -106,6 +108,8 @@ pub async fn download_beatmap(
     let mut not_found_count: usize = 0;
     let total_mirrors = mirrors.len();
     let mut pending: Vec<MirrorEndpoint> = mirrors.to_vec();
+    let mut all_transient = true;
+    let mut last_transient_reason = String::new();
 
     while !pending.is_empty() {
         let mut deferred_rate_limited: Vec<MirrorEndpoint> = Vec::new();
@@ -128,22 +132,30 @@ pub async fn download_beatmap(
                         return Ok(result);
                     }
                     DownloadResult::Aborted => return Ok(DownloadResult::Aborted),
-                    DownloadResult::Failed(_) => {
+                    DownloadResult::Failed(_) | DownloadResult::NetworkError(_) => {
+                        all_transient = false;
                         last_error = Some(result);
                     }
                 },
                 MirrorAttempt::NotFound => {
+                    all_transient = false;
                     not_found_count += 1;
                     last_error = Some(DownloadResult::failed(Some(mirror.kind), "Not found (404)"));
                 }
                 MirrorAttempt::RateLimited => {
+                    all_transient = false;
                     deferred_rate_limited.push(mirror.clone());
                     last_error = Some(DownloadResult::failed(
                         Some(mirror.kind),
                         status::RATE_LIMITED,
                     ));
                 }
-                MirrorAttempt::Transient(reason) | MirrorAttempt::Definitive(reason) => {
+                MirrorAttempt::Transient(reason) => {
+                    last_transient_reason = reason.clone();
+                    last_error = Some(DownloadResult::failed(Some(mirror.kind), reason));
+                }
+                MirrorAttempt::Definitive(reason) => {
+                    all_transient = false;
                     last_error = Some(DownloadResult::failed(Some(mirror.kind), reason));
                 }
             }
@@ -185,6 +197,10 @@ pub async fn download_beatmap(
             None,
             "Unavailable on all mirrors (404)",
         ));
+    }
+
+    if all_transient && !last_transient_reason.is_empty() {
+        return Ok(DownloadResult::NetworkError(last_transient_reason));
     }
 
     Ok(last_error.unwrap_or_else(|| DownloadResult::failed(None, "All mirrors failed")))

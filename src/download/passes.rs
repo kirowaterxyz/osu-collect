@@ -3,6 +3,7 @@ use super::{
     StatusReporter, download_beatmap, status,
 };
 use crate::{
+    config::constants::NETWORK_RETRY_CAP,
     mirrors::MirrorKind,
     utils::AppError,
     worker::{DownloadContext, StatusSink},
@@ -76,6 +77,7 @@ async fn download_single_target(
 
     let mirror_pool = context.mirror_pool.clone();
     let shutdown_inner = context.shutdown.clone();
+    let mut network_retries: u32 = 0;
 
     loop {
         if shutdown_inner.is_cancelled() {
@@ -160,8 +162,35 @@ async fn download_single_target(
             status_reporter.clone(),
             Some(mirror_pool.clone()),
         )
-        .await;
-        break result;
+        .await?;
+
+        match result {
+            DownloadResult::NetworkError(ref reason) => {
+                network_retries = network_retries.saturating_add(1);
+                if network_retries >= NETWORK_RETRY_CAP {
+                    warn!(
+                        download_id = context.id,
+                        beatmapset_id,
+                        network_retries,
+                        reason = %reason,
+                        "network retry cap reached, skipping silently"
+                    );
+                    break Ok(result);
+                }
+                debug!(
+                    download_id = context.id,
+                    beatmapset_id,
+                    network_retries,
+                    reason = %reason,
+                    "network error, retrying"
+                );
+                if cancellable_sleep(Duration::from_secs(5), &shutdown_inner).await {
+                    break Ok(DownloadResult::Aborted);
+                }
+                continue;
+            }
+            other => break Ok(other),
+        }
     }
 }
 
@@ -562,6 +591,28 @@ impl<'a> PassCoordinator<'a> {
                     id: self.context.id,
                     thread_index: slot,
                     message: format!("Failed #{} ({})", beatmapset_id, reason_text),
+                    rate_limited: false,
+                    beatmapset_id: Some(beatmapset_id),
+                });
+                false
+            }
+            Ok(DownloadResult::NetworkError(reason)) => {
+                warn!(
+                    download_id = self.context.id,
+                    beatmapset_id,
+                    error = %reason,
+                    "network retry cap reached"
+                );
+                let _ = complete_beatmap(
+                    &self.context.tracker,
+                    &self.context.status,
+                    self.context.id,
+                    beatmapset_id,
+                );
+                self.context.emit(DownloadEvent::ThreadStatus {
+                    id: self.context.id,
+                    thread_index: slot,
+                    message: format!("network error #{} ({})", beatmapset_id, reason),
                     rate_limited: false,
                     beatmapset_id: Some(beatmapset_id),
                 });
