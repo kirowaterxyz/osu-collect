@@ -69,6 +69,7 @@ pub struct ConfigTab {
 
 impl ConfigTab {
     pub fn new(config: &Config) -> Self {
+        let auth_loaded = crate::auth::load().is_some();
         Self {
             nerinyan: config.mirror.nerinyan,
             catboy_central: config.mirror.catboy_central,
@@ -77,37 +78,17 @@ impl ConfigTab {
             osu_direct: config.mirror.osu_direct,
             sayobot: config.mirror.sayobot,
             nekoha: config.mirror.nekoha,
-            custom_mirror: InputField {
-                label: "Custom mirror URL",
-                value: config.mirror.custom_template().unwrap_or("").to_string(),
-                placeholder: "https://example.com/d/{id}".to_string(),
-            },
-            auth_loaded: crate::auth::load().is_some(),
-            login_state: if crate::auth::load().is_some() {
-                AuthLoginState::LoggedIn
-            } else {
-                AuthLoginState::LoggedOut
-            },
+            custom_mirror: custom_mirror_field(&config.mirror),
+            auth_loaded,
+            login_state: login_state(auth_loaded),
             skip_existing: config.download.skip_existing,
-            threads: InputField {
-                label: "Default thread count",
-                value: config
-                    .download
-                    .concurrent
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-                placeholder: format!("{}", default_threads()),
-            },
+            threads: threads_field(&config.download),
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
-            logging_dir: InputField {
-                label: "Logs directory",
-                value: config.logging.file_dir.as_deref().unwrap_or("").to_string(),
-                placeholder: "~/.local/share/osu-collect/logs".to_string(),
-            },
+            logging_dir: logging_dir_field(&config.logging),
             focus: ConfigField::LoginEntry,
             message: None,
         }
@@ -350,6 +331,41 @@ impl ConfigTab {
         } else {
             Some(trimmed.to_string())
         }
+    }
+}
+
+fn custom_mirror_field(mirror: &MirrorConfig) -> InputField {
+    InputField {
+        label: "Custom mirror URL",
+        value: mirror.custom_template().unwrap_or("").to_string(),
+        placeholder: "https://example.com/d/{id}".to_string(),
+    }
+}
+
+fn login_state(auth_loaded: bool) -> AuthLoginState {
+    if auth_loaded {
+        AuthLoginState::LoggedIn
+    } else {
+        AuthLoginState::LoggedOut
+    }
+}
+
+fn threads_field(download: &DownloadConfig) -> InputField {
+    InputField {
+        label: "Default thread count",
+        value: download
+            .concurrent
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        placeholder: default_threads().to_string(),
+    }
+}
+
+fn logging_dir_field(logging: &LoggingConfig) -> InputField {
+    InputField {
+        label: "Logs directory",
+        value: logging.file_dir.as_deref().unwrap_or("").to_string(),
+        placeholder: "~/.local/share/osu-collect/logs".to_string(),
     }
 }
 
