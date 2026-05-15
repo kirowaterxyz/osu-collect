@@ -372,10 +372,7 @@ impl FailureReport {
     }
 
     pub(crate) fn record_error(&mut self, beatmapset_id: u32, reason: String) {
-        if self.seen.insert(beatmapset_id) {
-            self.beatmaps.push((beatmapset_id, reason.clone()));
-        }
-        self.mirror_failures.record(None, &reason);
+        self.record(beatmapset_id, reason, None);
     }
 
     pub fn beatmaps(&self) -> &[(u32, String)] {
@@ -513,6 +510,25 @@ impl<'a> PassCoordinator<'a> {
         PassOutcome { failures, aborted }
     }
 
+    fn emit_beatmap_status(&self, beatmapset_id: u32, stage: BeatmapStage, message: String) {
+        self.context.emit(DownloadEvent::BeatmapStatus {
+            id: self.context.id,
+            beatmapset_id,
+            stage,
+            message,
+        });
+    }
+
+    fn emit_thread_done(&self, slot: usize, beatmapset_id: u32, message: String) {
+        self.context.emit(DownloadEvent::ThreadStatus {
+            id: self.context.id,
+            thread_index: slot,
+            message,
+            rate_limited: false,
+            beatmapset_id: Some(beatmapset_id),
+        });
+    }
+
     async fn process_result(
         &mut self,
         slot: usize,
@@ -541,23 +557,12 @@ impl<'a> PassCoordinator<'a> {
                     "{} (md5: {}) via {}",
                     file.filename, file.hash, mirror_label
                 );
-                self.context.emit(DownloadEvent::BeatmapStatus {
-                    id: self.context.id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Success,
-                    message: success_message,
-                });
+                self.emit_beatmap_status(beatmapset_id, BeatmapStage::Success, success_message);
                 self.context.emit(DownloadEvent::BeatmapVerified {
                     id: self.context.id,
                     duration_us: file.verify_duration_us,
                 });
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("Done #{}", beatmapset_id),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                self.emit_thread_done(slot, beatmapset_id, format!("Done #{}", beatmapset_id));
                 false
             }
             Ok(DownloadResult::Skipped(filename)) => {
@@ -566,25 +571,18 @@ impl<'a> PassCoordinator<'a> {
                     download_id = self.context.id,
                     beatmapset_id, "Skipped beatmap download"
                 );
-                self.context.emit(DownloadEvent::BeatmapStatus {
-                    id: self.context.id,
+                self.emit_beatmap_status(
                     beatmapset_id,
-                    stage: BeatmapStage::Skipped,
-                    message: format!("Skipped: {}", filename),
-                });
+                    BeatmapStage::Skipped,
+                    format!("Skipped: {}", filename),
+                );
                 let _ = complete_beatmap(
                     &self.context.tracker,
                     &self.context.status,
                     self.context.id,
                     beatmapset_id,
                 );
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("Skipped #{}", beatmapset_id),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                self.emit_thread_done(slot, beatmapset_id, format!("Skipped #{}", beatmapset_id));
                 clear_unverified_flag(&self.context, self.totals, beatmapset_id);
                 false
             }
@@ -599,12 +597,7 @@ impl<'a> PassCoordinator<'a> {
                     error = %reason_text,
                     "Download failed"
                 );
-                self.context.emit(DownloadEvent::BeatmapStatus {
-                    id: self.context.id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Failed,
-                    message: reason_text.clone(),
-                });
+                self.emit_beatmap_status(beatmapset_id, BeatmapStage::Failed, reason_text.clone());
                 let _ = complete_beatmap(
                     &self.context.tracker,
                     &self.context.status,
@@ -612,13 +605,11 @@ impl<'a> PassCoordinator<'a> {
                     beatmapset_id,
                 );
                 self.context.tracker.mark_failed(beatmapset_id);
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("Failed #{} ({})", beatmapset_id, reason_text),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                self.emit_thread_done(
+                    slot,
+                    beatmapset_id,
+                    format!("Failed #{} ({})", beatmapset_id, reason_text),
+                );
                 false
             }
             Ok(DownloadResult::NetworkError(reason)) => {
@@ -634,13 +625,11 @@ impl<'a> PassCoordinator<'a> {
                     self.context.id,
                     beatmapset_id,
                 );
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("network error #{} ({})", beatmapset_id, reason),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                self.emit_thread_done(
+                    slot,
+                    beatmapset_id,
+                    format!("network error #{} ({})", beatmapset_id, reason),
+                );
                 false
             }
             Ok(DownloadResult::Aborted) => {
@@ -657,12 +646,11 @@ impl<'a> PassCoordinator<'a> {
                     self.context.id,
                     beatmapset_id,
                 );
-                self.context.emit(DownloadEvent::BeatmapStatus {
-                    id: self.context.id,
+                self.emit_beatmap_status(
                     beatmapset_id,
-                    stage: BeatmapStage::Aborted,
-                    message: status::ABORTED.to_string(),
-                });
+                    BeatmapStage::Aborted,
+                    status::ABORTED.to_string(),
+                );
                 true
             }
             Err(err) => {
@@ -675,12 +663,7 @@ impl<'a> PassCoordinator<'a> {
                     error = %message,
                     "Download errored"
                 );
-                self.context.emit(DownloadEvent::BeatmapStatus {
-                    id: self.context.id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Failed,
-                    message: message.clone(),
-                });
+                self.emit_beatmap_status(beatmapset_id, BeatmapStage::Failed, message.clone());
                 let _ = complete_beatmap(
                     &self.context.tracker,
                     &self.context.status,
@@ -688,13 +671,11 @@ impl<'a> PassCoordinator<'a> {
                     beatmapset_id,
                 );
                 self.context.tracker.mark_failed(beatmapset_id);
-                self.context.emit(DownloadEvent::ThreadStatus {
-                    id: self.context.id,
-                    thread_index: slot,
-                    message: format!("Failed #{} ({})", beatmapset_id, message),
-                    rate_limited: false,
-                    beatmapset_id: Some(beatmapset_id),
-                });
+                self.emit_thread_done(
+                    slot,
+                    beatmapset_id,
+                    format!("Failed #{} ({})", beatmapset_id, message),
+                );
                 false
             }
         }
