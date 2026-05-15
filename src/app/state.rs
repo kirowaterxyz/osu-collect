@@ -162,10 +162,10 @@ impl App {
 
         let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
             self.config
-                .set_error("login unavailable — build without credentials");
+                .set_error("login unavailable - build without credentials");
             return None;
         };
-        self.config.set_loading("opening browser...");
+        self.config.set_login_in_progress();
         Some(AppCommand::Login {
             client_id: client_id.to_string(),
             client_secret: client_secret.to_string(),

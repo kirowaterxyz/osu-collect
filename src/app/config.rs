@@ -115,7 +115,8 @@ impl ConfigTab {
 
     pub fn next_field(&mut self) {
         self.focus = match self.focus {
-            ConfigField::LoginEntry => ConfigField::LogoutEntry,
+            ConfigField::LoginEntry if self.logout_selectable() => ConfigField::LogoutEntry,
+            ConfigField::LoginEntry => ConfigField::DownloadThreads,
             ConfigField::LogoutEntry => ConfigField::DownloadThreads,
             ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadNoVideo,
@@ -140,7 +141,8 @@ impl ConfigTab {
         self.focus = match self.focus {
             ConfigField::LoginEntry => ConfigField::LoggingDirectory,
             ConfigField::LogoutEntry => ConfigField::LoginEntry,
-            ConfigField::DownloadThreads => ConfigField::LogoutEntry,
+            ConfigField::DownloadThreads if self.logout_selectable() => ConfigField::LogoutEntry,
+            ConfigField::DownloadThreads => ConfigField::LoginEntry,
             ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
             ConfigField::DownloadNoVideo => ConfigField::DownloadSkipExisting,
             ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
@@ -271,6 +273,12 @@ impl ConfigTab {
         let text = message.into();
         self.login_state = AuthLoginState::InProgress(text.clone());
         self.message = Some(AppMessage::loading(text));
+        self.evacuate_logout_focus();
+    }
+
+    pub fn set_login_in_progress(&mut self) {
+        self.login_state = AuthLoginState::InProgress(String::new());
+        self.evacuate_logout_focus();
     }
 
     pub fn set_login_complete(&mut self) {
@@ -281,11 +289,23 @@ impl ConfigTab {
     pub fn set_login_failed(&mut self) {
         self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
+        self.evacuate_logout_focus();
     }
 
     pub fn set_logged_out(&mut self) {
         self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
+        self.evacuate_logout_focus();
+    }
+
+    pub fn logout_selectable(&self) -> bool {
+        matches!(self.login_state, AuthLoginState::LoggedIn)
+    }
+
+    fn evacuate_logout_focus(&mut self) {
+        if self.focus == ConfigField::LogoutEntry && !self.logout_selectable() {
+            self.focus = ConfigField::LoginEntry;
+        }
     }
 
     pub fn clear_message(&mut self) {
@@ -375,31 +395,18 @@ mod tests {
     }
 
     #[test]
-    fn login_flow_opening_browser() {
+    fn login_flow_marks_in_progress_without_message() {
         let mut tab = tab_logged_out();
-        tab.set_loading("opening browser...");
-        assert_eq!(
-            tab.login_state,
-            AuthLoginState::InProgress("opening browser...".to_string())
-        );
+        tab.set_login_in_progress();
+        assert_eq!(tab.login_state, AuthLoginState::InProgress(String::new()));
+        assert!(tab.message.is_none());
         assert!(!tab.auth_loaded);
-    }
-
-    #[test]
-    fn login_flow_awaiting_callback() {
-        let mut tab = tab_logged_out();
-        tab.set_loading("opening browser...");
-        tab.set_loading("waiting for callback...");
-        assert_eq!(
-            tab.login_state,
-            AuthLoginState::InProgress("waiting for callback...".to_string())
-        );
     }
 
     #[test]
     fn login_flow_success() {
         let mut tab = tab_logged_out();
-        tab.set_loading("opening browser...");
+        tab.set_login_in_progress();
         tab.set_login_complete();
         assert_eq!(tab.login_state, AuthLoginState::LoggedIn);
         assert!(tab.auth_loaded);
@@ -408,7 +415,7 @@ mod tests {
     #[test]
     fn login_flow_error_returns_to_logged_out() {
         let mut tab = tab_logged_out();
-        tab.set_loading("opening browser...");
+        tab.set_login_in_progress();
         tab.set_login_failed();
         assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
         assert!(!tab.auth_loaded);
@@ -423,16 +430,16 @@ mod tests {
     }
 
     #[test]
-    fn in_progress_message_does_not_expire() {
-        let mut tab = tab_logged_out();
-        tab.set_loading("opening browser...");
+    fn logout_loading_message_does_not_expire() {
+        let mut tab = tab_logged_in();
+        tab.set_loading("logging out...");
         let msg = tab.message.as_ref().unwrap();
         assert!(!msg.is_expired());
     }
 
     #[test]
     fn next_field_cycles_through_login_entries() {
-        let mut tab = ConfigTab::new(&Config::default());
+        let mut tab = tab_logged_in();
         tab.focus = ConfigField::LoggingDirectory;
         tab.next_field();
         assert_eq!(tab.focus, ConfigField::LoginEntry);
@@ -444,7 +451,7 @@ mod tests {
 
     #[test]
     fn prev_field_cycles_through_login_entries() {
-        let mut tab = ConfigTab::new(&Config::default());
+        let mut tab = tab_logged_in();
         tab.focus = ConfigField::DownloadThreads;
         tab.prev_field();
         assert_eq!(tab.focus, ConfigField::LogoutEntry);
@@ -455,8 +462,32 @@ mod tests {
     }
 
     #[test]
+    fn next_field_skips_logout_when_logged_out() {
+        let mut tab = tab_logged_out();
+        tab.focus = ConfigField::LoginEntry;
+        tab.next_field();
+        assert_eq!(tab.focus, ConfigField::DownloadThreads);
+    }
+
+    #[test]
+    fn prev_field_skips_logout_when_logged_out() {
+        let mut tab = tab_logged_out();
+        tab.focus = ConfigField::DownloadThreads;
+        tab.prev_field();
+        assert_eq!(tab.focus, ConfigField::LoginEntry);
+    }
+
+    #[test]
+    fn logout_evacuates_focus_when_logging_out() {
+        let mut tab = tab_logged_in();
+        tab.focus = ConfigField::LogoutEntry;
+        tab.set_logged_out();
+        assert_eq!(tab.focus, ConfigField::LoginEntry);
+    }
+
+    #[test]
     fn all_fields_form_complete_cycle() {
-        let mut tab = ConfigTab::new(&Config::default());
+        let mut tab = tab_logged_in();
         let start = tab.focus;
         let total = 18;
         for _ in 0..total {

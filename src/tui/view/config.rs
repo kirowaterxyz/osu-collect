@@ -17,39 +17,10 @@ pub fn render(frame: &mut Frame, area: Rect, view: ConfigView) {
 }
 
 fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
-    // 0:  section_header("osu! login")
-    // 1:  auth_status_item
-    // 2:  LoginEntry
-    // 3:  LogoutEntry
-    // 4:  spacer
-    // 5:  section_header("download")
-    // 6:  DownloadThreads
-    // 7:  help_item("defaults shared with home and updates")
-    // 8:  DownloadSkipExisting
-    // 9:  DownloadNoVideo
-    // 10: DownloadVerifyZipEocd
-    // 11: spacer
-    // 12: section_header("mirrors")
-    // 13: MirrorOsuDirect
-    // 14: MirrorNerinyan
-    // 15: MirrorSayobot
-    // 16: MirrorNekoha
-    // 17: MirrorCatboyCentral
-    // 18: MirrorCatboyUs
-    // 19: MirrorCatboyAsia
-    // 20: MirrorCustomUrl
-    // 21: help_item("must contain {id}")
-    // 22: spacer
-    // 23: section_header("logging")
-    // 24: LoggingEnabled
-    // 25: LoggingLevel
-    // 26: LoggingFormat
-    // 27: LoggingDirectory
     let items = vec![
         components::disclosure_row("default settings and config options", "", false, false),
         components::spacer(),
-        components::section_header("osu! login"),
-        auth_status_item(&form.login_state),
+        login_section_header(&form.login_state),
         login_entry_item(form),
         logout_entry_item(form),
         components::spacer(),
@@ -228,29 +199,43 @@ fn action_style(focused: bool) -> Style {
     components::focused_label_style(focused)
 }
 
-fn auth_status_item(state: &AuthLoginState) -> ListItem<'static> {
-    let (text, style) = match state {
-        AuthLoginState::LoggedOut => (
-            "status: not logged in".to_string(),
+fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
+    let status = match state {
+        AuthLoginState::LoggedOut => Some((
+            "not logged in".to_string(),
             Style::default().fg(components::TEXT_FAINT),
-        ),
-        AuthLoginState::InProgress(step) => (
-            format!("status: {step}"),
+        )),
+        AuthLoginState::InProgress(step) if !step.is_empty() => Some((
+            step.clone(),
             Style::default()
                 .fg(components::WARNING)
                 .add_modifier(Modifier::ITALIC),
-        ),
-        AuthLoginState::LoggedIn => (
-            "status: logged in".to_string(),
+        )),
+        AuthLoginState::InProgress(_) => None,
+        AuthLoginState::LoggedIn => Some((
+            "logged in".to_string(),
             Style::default()
                 .fg(components::SUCCESS)
                 .add_modifier(Modifier::BOLD),
-        ),
+        )),
     };
-    ListItem::new(Line::from(vec![
-        Span::raw(components::FOCUS_PAD),
-        Span::styled(text, style),
-    ]))
+
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(
+            "OSU! LOGIN",
+            Style::default()
+                .fg(components::ACCENT_ALT)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if let Some((text, style)) = status {
+        let paren_style = Style::default().fg(components::TEXT_FAINT);
+        spans.push(Span::styled(" (", paren_style));
+        spans.push(Span::styled(text, style));
+        spans.push(Span::styled(")", paren_style));
+    }
+    ListItem::new(Line::from(spans))
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {
