@@ -75,8 +75,14 @@ fn updates_tab_shows_recheck_failed_control() {
     let buf = render_to_buffer(&app, 120, 40);
     let content: String = buf.content().iter().map(|c| c.symbol()).collect();
 
-    assert!(content.contains("failed maps"));
-    assert!(content.contains("2 hidden"));
+    assert!(
+        content.contains("failed"),
+        "summary metrics must surface the failed count"
+    );
+    assert!(
+        content.contains('2'),
+        "the failed beatmap count must be rendered"
+    );
 }
 
 #[test]

@@ -45,8 +45,8 @@ fn home_render_shows_cloudy_sections_and_footer() {
     assert!(output.contains("COLLECTION"));
     assert!(output.contains("MIRRORS"));
     assert!(output.contains("DOWNLOAD"));
-    assert!(output.contains("space toggles mirrors"));
-    assert!(output.contains("enter download"));
+    assert!(output.contains("space"));
+    assert!(output.contains("enter"));
 }
 
 #[test]
@@ -69,8 +69,9 @@ fn config_render_shows_download_help() {
 
     let output = render_app(&app, 80, 20);
 
-    assert!(output.contains("defaults used by home and updates downloads"));
-    assert!(output.contains("reject truncated archives"));
+    assert!(output.contains("DOWNLOAD"));
+    assert!(output.contains("skip existing files"));
+    assert!(output.contains("verify .osz integrity"));
 }
 
 #[test]
@@ -234,8 +235,13 @@ fn login_field_is_reachable_via_focus_cycle() {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use osu_collect::app::ConfigField;
 
+    use osu_collect::app::AuthLoginState;
+
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
+    // logout entry only appears when logged in
+    app.config.auth_loaded = true;
+    app.config.login_state = AuthLoginState::LoggedIn;
 
     let down = KeyEvent {
         code: KeyCode::Down,

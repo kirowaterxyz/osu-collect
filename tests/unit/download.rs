@@ -70,14 +70,15 @@ mod tracker_tests {
     }
 
     #[test]
-    fn test_mark_verified_unknown_id_adds_it() {
+    fn test_mark_verified_unknown_id_is_rejected() {
         let pending: HashSet<u32> = [1].into_iter().collect();
         let tracker = BeatmapTracker::new(pending);
 
-        tracker.mark_verified(999);
+        let result = tracker.mark_verified(999);
+        assert!(!result, "mark_verified must reject unregistered IDs");
         assert!(
-            tracker.is_verified(999),
-            "mark_verified should add unknown ID as verified"
+            !tracker.is_verified(999),
+            "unregistered IDs must not appear as verified"
         );
     }
 
