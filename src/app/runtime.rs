@@ -5,8 +5,7 @@ use crate::{
     config::{Config, constants::CONCURRENT_REQUESTS},
     core::collection::{Collection, api_client},
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
-    osu_db::common::BeatmapReader,
-    osu_db::{LazerReader, LocalBeatmapset, LocalCollection, OsuClient, StableReader},
+    osu_db::{BeatmapReader, LazerReader, LocalBeatmapset, LocalCollection, OsuClient, StableReader},
     tui::draw,
     tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
 };

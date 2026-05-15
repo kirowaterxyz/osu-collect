@@ -1,4 +1,4 @@
-use super::common::{BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection};
+use super::{BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection};
 use osu_db::{collection::CollectionList, listing::Listing};
 use std::{collections::HashMap, path::PathBuf};
 

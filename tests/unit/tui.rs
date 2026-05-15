@@ -100,7 +100,7 @@ fn config_render_shows_official_login_status() {
     let output = render_app(&app, 80, 24);
 
     assert!(output.contains("osu! login") || output.contains("OSU! LOGIN"));
-    assert!(output.contains("not logged in") || output.contains("logged in"));
+    assert!(output.contains("logged out") || output.contains("logged in"));
     assert!(!output.contains("client id:"));
     assert!(!output.contains("client secret:"));
 }
