@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex},
 };
@@ -141,26 +140,8 @@ pub fn save(snapshot: &CollectionSnapshotFile, path: &Path) {
         }
     };
 
-    if let Some(parent) = path.parent()
-        && let Err(err) = fs::create_dir_all(parent)
-    {
-        warn!(path = %parent.display(), error = %err, "failed to create snapshot directory");
-        return;
-    }
-
-    let tmp = path.with_extension("json.tmp");
-    let write_result = (|| {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(contents.as_bytes())?;
-        file.flush()?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok::<_, std::io::Error>(())
-    })();
-
-    if let Err(err) = write_result {
+    if let Err(err) = super::write_atomic(path, "json.tmp", &contents) {
         warn!(path = %path.display(), error = %err, "failed to save collection snapshot");
-        let _ = fs::remove_file(&tmp);
     } else {
         debug!(path = %path.display(), "saved collection snapshot");
     }
