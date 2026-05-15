@@ -1,4 +1,11 @@
-use super::{home::InputField, messages::AppMessage, next_field, prev_field};
+use super::{
+    home::InputField,
+    messages::{
+        AppMessage, clear_app_message, clear_expired_app_message, set_error_message,
+        set_info_message, set_loading_message,
+    },
+    next_field, prev_field,
+};
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
@@ -439,25 +446,23 @@ impl UpdatesTab {
 
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.scan.scan_status = ScanStatus::Error;
-        self.message = Some(AppMessage::error(message));
+        set_error_message(&mut self.message, message);
     }
 
     pub fn set_info(&mut self, message: impl Into<String>) {
-        self.message = Some(AppMessage::info(message));
+        set_info_message(&mut self.message, message);
     }
 
     pub fn set_loading(&mut self, message: impl Into<String>) {
-        self.message = Some(AppMessage::loading(message));
+        set_loading_message(&mut self.message, message);
     }
 
     pub fn clear_message(&mut self) {
-        self.message = None;
+        clear_app_message(&mut self.message);
     }
 
     pub fn clear_expired_message(&mut self) {
-        if self.message.as_ref().is_some_and(AppMessage::is_expired) {
-            self.message = None;
-        }
+        clear_expired_app_message(&mut self.message);
     }
 
     pub fn is_path_auto_detected(&self) -> bool {

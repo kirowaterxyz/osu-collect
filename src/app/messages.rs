@@ -41,6 +41,28 @@ impl AppMessage {
     }
 }
 
+pub(crate) fn set_error_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
+    *slot = Some(AppMessage::error(message));
+}
+
+pub(crate) fn set_info_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
+    *slot = Some(AppMessage::info(message));
+}
+
+pub(crate) fn set_loading_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
+    *slot = Some(AppMessage::loading(message));
+}
+
+pub(crate) fn clear_app_message(slot: &mut Option<AppMessage>) {
+    *slot = None;
+}
+
+pub(crate) fn clear_expired_app_message(slot: &mut Option<AppMessage>) {
+    if slot.as_ref().is_some_and(AppMessage::is_expired) {
+        *slot = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
