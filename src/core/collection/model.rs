@@ -26,3 +26,31 @@ pub struct Beatmap {
     pub id: u32,
     pub checksum: Box<str>,
 }
+
+#[cfg(test)]
+pub(crate) fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
+    Collection {
+        id,
+        name: format!("collection-{id}").into(),
+        uploader: Uploader {
+            id: 0,
+            username: "".into(),
+        },
+        beatmapsets,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
+    Beatmapset {
+        id,
+        beatmaps: checksums
+            .iter()
+            .enumerate()
+            .map(|(i, &checksum)| Beatmap {
+                id: i as u32,
+                checksum: checksum.into(),
+            })
+            .collect(),
+    }
+}

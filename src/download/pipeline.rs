@@ -707,36 +707,10 @@ async fn run_selective_download(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::collection::model::{Beatmap, Beatmapset, Collection, Uploader};
+    use crate::core::collection::model::{test_beatmapset, test_collection};
     use crate::download::SelectiveDownloadCollection;
     use std::collections::HashSet;
     use tempfile::tempdir;
-
-    fn make_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
-        Collection {
-            id,
-            name: format!("collection-{id}").into(),
-            uploader: Uploader {
-                id: 0,
-                username: "".into(),
-            },
-            beatmapsets,
-        }
-    }
-
-    fn make_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
-        Beatmapset {
-            id,
-            beatmaps: checksums
-                .iter()
-                .enumerate()
-                .map(|(i, &cs)| Beatmap {
-                    id: i as u32,
-                    checksum: cs.into(),
-                })
-                .collect(),
-        }
-    }
 
     fn make_selective(
         id: u32,
@@ -753,12 +727,12 @@ mod tests {
     #[test]
     fn only_newly_downloaded_hashes_are_included() {
         let dir = tempdir().unwrap();
-        let collection = make_collection(
+        let collection = test_collection(
             1,
             vec![
-                make_beatmapset(10, &["hash-a1", "hash-a2"]),
-                make_beatmapset(20, &["hash-b1"]),
-                make_beatmapset(30, &["hash-c1"]),
+                test_beatmapset(10, &["hash-a1", "hash-a2"]),
+                test_beatmapset(20, &["hash-b1"]),
+                test_beatmapset(30, &["hash-c1"]),
             ],
         );
         let selective = vec![make_selective(1, "my collection", vec![10, 20, 30])];
@@ -789,11 +763,11 @@ mod tests {
     #[test]
     fn beatmapset_in_two_collections_appears_in_both() {
         let dir = tempdir().unwrap();
-        let collection = make_collection(
+        let collection = test_collection(
             1,
             vec![
-                make_beatmapset(10, &["hash-x"]),
-                make_beatmapset(20, &["hash-y"]),
+                test_beatmapset(10, &["hash-x"]),
+                test_beatmapset(20, &["hash-y"]),
             ],
         );
         let selective = vec![
@@ -841,7 +815,7 @@ mod tests {
     #[test]
     fn fallback_name_preserved_in_db() {
         let dir = tempdir().unwrap();
-        let collection = make_collection(1, vec![make_beatmapset(10, &["hash-z"])]);
+        let collection = test_collection(1, vec![test_beatmapset(10, &["hash-z"])]);
         // empty snapshot name -> session.rs resolves fallback before calling here;
         // verify the name passed in is written as-is
         let selective = vec![make_selective(1, "my-api-name-123", vec![10])];
@@ -863,7 +837,7 @@ mod tests {
     #[test]
     fn no_db_written_when_nothing_newly_downloaded() {
         let dir = tempdir().unwrap();
-        let collection = make_collection(1, vec![make_beatmapset(10, &["hash-q"])]);
+        let collection = test_collection(1, vec![test_beatmapset(10, &["hash-q"])]);
         let selective = vec![make_selective(1, "some-collection", vec![10])];
         let newly_downloaded: HashSet<u32> = HashSet::new();
 
@@ -894,11 +868,11 @@ mod tests {
     #[test]
     fn collections_with_no_newly_downloaded_are_omitted() {
         let dir = tempdir().unwrap();
-        let collection = make_collection(
+        let collection = test_collection(
             1,
             vec![
-                make_beatmapset(10, &["hash-p"]),
-                make_beatmapset(20, &["hash-q"]),
+                test_beatmapset(10, &["hash-p"]),
+                test_beatmapset(20, &["hash-q"]),
             ],
         );
         let selective = vec![

@@ -92,43 +92,19 @@ pub fn generate_collection_folder_name(collection: &Collection) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::collection::model::{Beatmap, Beatmapset, Collection};
+    use crate::core::collection::model::{test_beatmapset, test_collection};
     use tempfile::tempdir;
-
-    fn make_collection(beatmapsets: Vec<Beatmapset>) -> Collection {
-        use crate::core::collection::model::Uploader;
-        Collection {
-            id: 1,
-            name: "test".into(),
-            uploader: Uploader {
-                id: 0,
-                username: "".into(),
-            },
-            beatmapsets,
-        }
-    }
-
-    fn make_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
-        Beatmapset {
-            id,
-            beatmaps: checksums
-                .iter()
-                .enumerate()
-                .map(|(i, &cs)| Beatmap {
-                    id: i as u32,
-                    checksum: cs.into(),
-                })
-                .collect(),
-        }
-    }
 
     #[test]
     fn duplicate_hashes_written_once() {
         let shared_hash = "aabbccdd";
-        let collection = make_collection(vec![
-            make_beatmapset(1, &[shared_hash, "unique1"]),
-            make_beatmapset(2, &[shared_hash, "unique2"]),
-        ]);
+        let collection = test_collection(
+            1,
+            vec![
+                test_beatmapset(1, &[shared_hash, "unique1"]),
+                test_beatmapset(2, &[shared_hash, "unique2"]),
+            ],
+        );
 
         let dir = tempdir().unwrap();
         create_collection_db(&collection, "test", dir.path()).unwrap();
@@ -148,10 +124,13 @@ mod tests {
 
     #[test]
     fn no_duplicates_collection_unchanged() {
-        let collection = make_collection(vec![
-            make_beatmapset(1, &["hash1"]),
-            make_beatmapset(2, &["hash2"]),
-        ]);
+        let collection = test_collection(
+            1,
+            vec![
+                test_beatmapset(1, &["hash1"]),
+                test_beatmapset(2, &["hash2"]),
+            ],
+        );
 
         let dir = tempdir().unwrap();
         create_collection_db(&collection, "test", dir.path()).unwrap();
