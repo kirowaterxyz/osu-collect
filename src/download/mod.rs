@@ -12,7 +12,7 @@ mod tracker;
 pub use cleanup::CleanupTracker;
 pub use client::DownloadFailure;
 use client::download_beatmap;
-pub use client::{DownloadResult, StatusReporter, create_download_client};
+pub use client::{DownloadResult, create_download_client};
 pub use error::DownloadError;
 pub use lock::ActiveDownloadRegistry;
 pub use pipeline::{spawn_download, spawn_selective_download};

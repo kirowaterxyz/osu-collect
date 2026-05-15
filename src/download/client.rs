@@ -25,32 +25,11 @@ use std::{
 use tokio::{fs, time::sleep};
 use tracing::trace;
 
-type StatusCallback = Arc<dyn Fn(&str) + Send + Sync>;
+pub type StatusCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
-#[derive(Clone, Default)]
-pub struct StatusReporter {
-    callback: Option<StatusCallback>,
-}
-
-impl StatusReporter {
-    pub fn new(callback: Option<StatusCallback>) -> Self {
-        Self { callback }
-    }
-
-    pub fn emit_with<F>(&self, build: F)
-    where
-        F: FnOnce() -> String,
-    {
-        if let Some(callback) = &self.callback {
-            let message = build();
-            callback(&message);
-        }
-    }
-}
-
-impl From<Option<StatusCallback>> for StatusReporter {
-    fn from(callback: Option<StatusCallback>) -> Self {
-        StatusReporter::new(callback)
+fn emit_status(reporter: &Option<StatusCallback>, build: impl FnOnce() -> String) {
+    if let Some(cb) = reporter {
+        cb(&build());
     }
 }
 
@@ -107,7 +86,7 @@ pub async fn download_beatmap(
     mirrors: &[Mirror],
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    status_reporter: StatusReporter,
+    status_reporter: Option<StatusCallback>,
     rate_limiter: Option<MirrorPool>,
 ) -> Result<DownloadResult> {
     check_shutdown!(context.shutdown);
@@ -219,7 +198,7 @@ async fn try_mirror_with_transient_retry(
     mirror: &Mirror,
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    status_reporter: &StatusReporter,
+    status_reporter: &Option<StatusCallback>,
     rate_limiter: Option<&MirrorPool>,
 ) -> Result<MirrorAttempt> {
     let mut attempt: u8 = 0;
@@ -250,7 +229,7 @@ async fn try_mirror_with_transient_retry(
                     reason = %reason,
                     "retrying mirror after transient error"
                 );
-                status_reporter.emit_with(|| {
+                emit_status(status_reporter, || {
                     format!(
                         "retrying {} after {} (attempt {}/{})",
                         mirror.display_name(),
@@ -288,16 +267,11 @@ async fn try_mirror_once(
     mirror: &Mirror,
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    status_reporter: &StatusReporter,
+    status_reporter: &Option<StatusCallback>,
     rate_limiter: Option<&MirrorPool>,
 ) -> Result<MirrorAttempt> {
-    status_reporter.emit_with(|| {
-        format!(
-            "{} #{} from {}",
-            status::FETCHING,
-            beatmapset_id,
-            mirror.display_name()
-        )
+    emit_status(status_reporter, || {
+        format!("{} #{} from {}", status::FETCHING, beatmapset_id, mirror.display_name())
     });
 
     let url = mirror.url_for(beatmapset_id);
@@ -345,13 +319,8 @@ async fn try_mirror_once(
         return Ok(MirrorAttempt::Definitive(format!("HTTP {}", status)));
     }
 
-    status_reporter.emit_with(|| {
-        format!(
-            "{} #{} from {}",
-            status::DOWNLOADING,
-            beatmapset_id,
-            mirror.display_name()
-        )
+    emit_status(status_reporter, || {
+        format!("{} #{} from {}", status::DOWNLOADING, beatmapset_id, mirror.display_name())
     });
 
     let result =

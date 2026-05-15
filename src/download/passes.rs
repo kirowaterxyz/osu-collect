@@ -1,6 +1,6 @@
 use super::{
     BeatmapStage, BeatmapTracker, DownloadEvent, DownloadId, DownloadResult, DownloadSummary,
-    StatusReporter, download_beatmap, status,
+    client::StatusCallback, download_beatmap, status,
 };
 use crate::{
     config::constants::NETWORK_RETRY_CAP,
@@ -28,7 +28,7 @@ async fn download_single_target(
     emit_download_start(context, beatmapset_id);
 
     let progress_callback = progress_callback(context, slot, beatmapset_id);
-    let status_reporter = status_reporter(context, slot, beatmapset_id);
+    let status_reporter: Option<StatusCallback> = Some(make_status_reporter(context, slot, beatmapset_id));
     let mirror_pool = context.mirror_pool.clone();
     let shutdown = context.shutdown.clone();
     let mut network_retries: u32 = 0;
@@ -109,10 +109,10 @@ fn progress_callback(
     })
 }
 
-fn status_reporter(context: &DownloadContext, slot: usize, beatmapset_id: u32) -> StatusReporter {
+fn make_status_reporter(context: &DownloadContext, slot: usize, beatmapset_id: u32) -> StatusCallback {
     let sender = context.status_sink();
     let download_id = context.id;
-    let callback: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |msg: &str| {
+    Arc::new(move |msg: &str| {
         if msg.starts_with(status::CONTACTING_PREFIX) {
             return;
         }
@@ -125,8 +125,7 @@ fn status_reporter(context: &DownloadContext, slot: usize, beatmapset_id: u32) -
             rate_limited,
             beatmapset_id: Some(beatmapset_id),
         });
-    });
-    StatusReporter::from(Some(callback))
+    })
 }
 
 enum MirrorReadiness {
