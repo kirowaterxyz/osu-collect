@@ -1,11 +1,5 @@
 use crate::app::{HomeField, HomeTab};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::Style,
-    text::{Line, Span},
-    widgets::{List, ListItem},
-};
+use ratatui::{Frame, layout::Rect};
 
 use super::{HomeView, components};
 
@@ -22,54 +16,47 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         components::section_header("mirrors"),
         components::input_item(&form.custom_mirror, form.focus == HomeField::CustomMirror),
         components::help_item("must contain {id}"),
-        mirror_toggle(
+        components::mirror_item(
             "osu!direct",
             "osu.direct",
             form.osu_direct,
             form.focus == HomeField::MirrorOsuDirect,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "nerinyan",
             "api.nerinyan.moe",
             form.nerinyan,
             form.focus == HomeField::MirrorNerinyan,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "sayobot",
             "dl.sayobot.cn",
             form.sayobot,
             form.focus == HomeField::MirrorSayobot,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "nekoha",
             "mirror.nekoha.moe",
             form.nekoha,
             form.focus == HomeField::MirrorNekoha,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "catboy central",
             "catboy.best",
             form.catboy_central,
             form.focus == HomeField::MirrorCatboyCentral,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "catboy us",
             "us.catboy.best",
             form.catboy_us,
             form.focus == HomeField::MirrorCatboyUs,
-            None,
         ),
-        mirror_toggle(
+        components::mirror_item(
             "catboy asia",
             "sg.catboy.best",
             form.catboy_asia,
             form.focus == HomeField::MirrorCatboyAsia,
-            None,
         ),
         components::spacer(),
         components::section_header("download"),
@@ -116,41 +103,5 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::NoVideo => 19,
     };
 
-    let inner_block = components::panel_block("home");
-    let inner = inner_block.inner(area);
-    frame.render_widget(inner_block, area);
-
-    let visible_height = inner.height as usize;
-    let (start, end) = components::scroll_window(&items, focused_index, visible_height);
-    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
-    frame.render_widget(list, inner);
-}
-
-fn mirror_toggle(
-    label: &str,
-    url: &str,
-    value: bool,
-    focused: bool,
-    suffix: Option<Span<'static>>,
-) -> ListItem<'static> {
-    let (marker, marker_style) = components::check_marker(value);
-    let mut spans = vec![
-        components::focus_span(focused),
-        Span::styled(marker, marker_style),
-        Span::styled(
-            format!(" {label}"),
-            components::focused_label_style(focused),
-        ),
-        Span::styled(
-            format!("  {url}"),
-            Style::default().fg(components::TEXT_FAINT),
-        ),
-    ];
-
-    if let Some(suffix) = suffix {
-        spans.push(Span::raw("  "));
-        spans.push(suffix);
-    }
-
-    ListItem::new(Line::from(spans))
+    components::render_scrollable_panel(frame, area, "home", &items, focused_index);
 }

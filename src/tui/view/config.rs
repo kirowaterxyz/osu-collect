@@ -7,7 +7,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem},
+    widgets::ListItem,
 };
 
 use super::{ConfigView, components};
@@ -139,16 +139,7 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::LoggingDirectory => 28,
     };
 
-    let inner_block = components::panel_block("config");
-    let inner = inner_block.inner(area);
-    frame.render_widget(inner_block, area);
-
-    let visible_height = inner.height as usize;
-    let (start, end) = components::scroll_window(&items, focused_index, visible_height);
-    let visible_items = items[start..end].to_vec();
-
-    let list = List::new(visible_items).highlight_symbol("");
-    frame.render_widget(list, inner);
+    components::render_scrollable_panel(frame, area, "config", &items, focused_index);
 }
 
 fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {

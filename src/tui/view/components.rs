@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, ListItem, Padding, Paragraph},
+    widgets::{Block, BorderType, Borders, List, ListItem, Padding, Paragraph},
 };
 
 use super::TabsView;
@@ -100,6 +100,24 @@ pub fn scroll_window<T>(
     }
 
     (start, (start + visible_height).min(items.len()))
+}
+
+pub fn render_scrollable_panel(
+    frame: &mut Frame,
+    area: Rect,
+    title: &'static str,
+    items: &[ListItem<'static>],
+    focused_index: usize,
+) {
+    let block = panel_block(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let (start, end) = scroll_window(items, focused_index, inner.height as usize);
+    frame.render_widget(
+        List::new(items[start..end].to_vec()).highlight_symbol(""),
+        inner,
+    );
 }
 
 pub fn panel_block(title: &'static str) -> Block<'static> {
@@ -288,6 +306,10 @@ pub fn row_item(
         ));
     }
     ListItem::new(Line::from(spans))
+}
+
+pub fn mirror_item(label: &str, url: &str, state: bool, focused: bool) -> ListItem<'static> {
+    row_item(label, Some(url), state, focused)
 }
 
 pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
