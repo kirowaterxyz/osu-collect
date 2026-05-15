@@ -4,9 +4,6 @@ use super::{
     lock::ActiveDownloadRegistry,
     passes::{FailureReport, PassCoordinator},
     session::{DownloadSession, PipelineFlavor, PrepareCollectionParams, PrepareSelectiveParams},
-    status_helpers::{
-        fail_status, finished_status, log_status, low_disk_space_status, stage_status,
-    },
 };
 use crate::{
     app::snapshots,
@@ -60,7 +57,7 @@ where
                 Err(err) => {
                     shutdown_worker.mark_completed();
                     error!(error = %err, "Download task failed");
-                    fail_status(&failure_status, id, err.to_string());
+                    failure_status.fail(id, err.to_string());
                 }
             }
         }
@@ -245,7 +242,7 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     } = session;
     let _session_lock = _lock_guard;
 
-    log_status(&status, id, "Fetching collection size from Nekoha...");
+    status.log(id, "Fetching collection size from Nekoha...");
     let api_client = osu_downloader::http::create_api_client().map_err(|e| {
         DownloadError::internal(format!("failed to create API client: {e}"))
     })?;
@@ -256,14 +253,7 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         total_bytes: size_result.total_bytes,
     });
     if size_result.missing_count > 0 {
-        log_status(
-            &status,
-            id,
-            format!(
-                "Size info unavailable for {} beatmapsets",
-                size_result.missing_count
-            ),
-        );
+        status.log(id, format!("Size info unavailable for {} beatmapsets", size_result.missing_count));
     }
 
     check_and_warn_low_disk_space(&status, id, &output.output_dir);
@@ -320,12 +310,12 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         .and_then(|r| r);
         match db_result {
             Ok(()) => {
-                log_status(&status, id, "collection.db created successfully");
+                status.log(id, "collection.db created successfully");
                 info!("collection.db created successfully");
             }
             Err(e) => {
                 let message = format!("failed to create collection.db: {e}");
-                log_status(&status, id, message.clone());
+                status.log(id, message.clone());
                 error!(error = %e, "failed to create collection.db");
                 return Err(DownloadError::internal(message));
             }
@@ -334,8 +324,8 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
 
     summarize_failed_maps(&status, id, &failure_report, flavor.failure_summary);
 
-    finished_status(&status, id, &totals);
-    stage_status(&status, id, DownloadStage::Completed);
+    status.finished(id, &totals);
+    status.stage(id, DownloadStage::Completed);
     info!("{}", flavor.completion_log);
     Ok(())
 }
@@ -361,9 +351,9 @@ async fn abort_if_shutdown(
     )
     .await;
     if let Some(message) = log_message {
-        log_status(status, id, message);
+        status.log(id, message);
     }
-    fail_status(status, id, "Download aborted by user");
+    status.fail(id, "Download aborted by user");
     true
 }
 
@@ -395,32 +385,17 @@ async fn handle_shutdown_cleanup(
             removed = cleanup_outcome.removed,
             "Removed incomplete beatmap archives"
         );
-        log_status(
-            status,
-            id,
-            format!(
-                "Cleaned up {} incomplete beatmap archives",
-                cleanup_outcome.removed
-            ),
-        );
+        status.log(id, format!("Cleaned up {} incomplete beatmap archives", cleanup_outcome.removed));
     }
     for (path, message) in &cleanup_outcome.failures {
         warn!(target = %path.display(), error = %message, "Failed to cleanup file");
-        log_status(
-            status,
-            id,
-            format!("Cleanup warning for {}: {}", path.display(), message),
-        );
+        status.log(id, format!("Cleanup warning for {}: {}", path.display(), message));
     }
 
     match try_remove_empty_output_dir(output_dir).await {
         Ok(()) => {
             info!(dir = %output_dir.display(), "Removed empty output directory");
-            log_status(
-                status,
-                id,
-                format!("Removed empty directory {}", output_dir.display()),
-            );
+            status.log(id, format!("Removed empty directory {}", output_dir.display()));
         }
         Err(DownloadError::DirectoryNotEmpty) => {}
         Err(err) => {
@@ -460,7 +435,7 @@ fn check_and_warn_low_disk_space(status: &StatusSink, id: DownloadId, output_dir
             output_dir = %output_dir.display(),
             "Low disk space detected"
         );
-        low_disk_space_status(status, id, available);
+        status.low_disk_space(id, available);
     }
 }
 
@@ -545,7 +520,7 @@ async fn run_download(
         "Running download pipeline"
     );
 
-    stage_status(&status, id, DownloadStage::Resolving);
+    status.stage(id, DownloadStage::Resolving);
     let flavor = PipelineFlavor::collection();
     let thread_count = concurrent.max(1) as usize;
 
@@ -613,7 +588,7 @@ async fn run_selective_download(
         return Err(DownloadError::NoBeatmapsets);
     }
 
-    stage_status(&status, id, DownloadStage::Resolving);
+    status.stage(id, DownloadStage::Resolving);
     let flavor = PipelineFlavor::selective();
     let thread_count = concurrent.max(1) as usize;
 
@@ -680,16 +655,12 @@ async fn run_selective_download(
         .and_then(|r| r.map_err(|e| DownloadError::internal(e.to_string())));
         match db_result {
             Ok(()) => {
-                log_status(
-                    &status_for_db,
-                    id_for_db,
-                    "collection.db created successfully",
-                );
+                status_for_db.log(id_for_db, "collection.db created successfully");
                 info!("collection.db created successfully");
             }
             Err(e) => {
                 let message = format!("failed to create collection.db: {e}");
-                log_status(&status_for_db, id_for_db, message.clone());
+                status_for_db.log(id_for_db, message.clone());
                 error!(error = %e, "failed to create collection.db");
                 return Err(e);
             }

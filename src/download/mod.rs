@@ -8,7 +8,6 @@ mod pipeline;
 mod precheck;
 pub(crate) mod session;
 pub mod size_fetcher;
-pub(crate) mod status_helpers;
 mod tracker;
 
 pub use cleanup::CleanupTracker;

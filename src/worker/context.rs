@@ -52,6 +52,44 @@ impl StatusSink {
     pub fn emit(&self, event: DownloadEvent) {
         (self.inner)(event);
     }
+
+    pub fn log(&self, id: DownloadId, message: impl Into<String>) {
+        self.emit(DownloadEvent::Log { id, message: message.into() });
+    }
+
+    pub fn stage(&self, id: DownloadId, stage: crate::download::DownloadStage) {
+        self.emit(DownloadEvent::StageChanged { id, stage });
+    }
+
+    pub fn fail(&self, id: DownloadId, message: impl Into<String>) {
+        self.emit(DownloadEvent::Failed { id, message: message.into() });
+    }
+
+    pub fn finished(&self, id: DownloadId, summary: &crate::download::DownloadSummary) {
+        self.emit(DownloadEvent::Finished { id, summary: summary.clone() });
+    }
+
+    pub fn target(&self, id: DownloadId, remaining: usize) {
+        self.emit(DownloadEvent::DownloadTarget { id, remaining });
+    }
+
+    pub fn progress(&self, id: DownloadId, summary: &crate::download::DownloadSummary) {
+        self.emit(DownloadEvent::OverallProgress {
+            id,
+            downloaded: summary.downloaded,
+            skipped: summary.skipped,
+            failed: summary.failed,
+            unverified: summary.unverified,
+        });
+    }
+
+    pub fn verified_sizes(&self, id: DownloadId, total_bytes: u64) {
+        self.emit(DownloadEvent::VerifiedMapSizes { id, total_bytes });
+    }
+
+    pub fn low_disk_space(&self, id: DownloadId, available_bytes: u64) {
+        self.emit(DownloadEvent::LowDiskSpace { id, available_bytes });
+    }
 }
 
 impl Default for StatusSink {

@@ -4,10 +4,6 @@ use super::{
     integrity::ExpectationIndex,
     lock::{ActiveDownloadRegistry, DownloadLockGuard},
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
-    status_helpers::{
-        fail_status, log_status, progress_status, stage_status, target_status,
-        verified_sizes_status,
-    },
 };
 use crate::{
     core::collection::{
@@ -109,7 +105,7 @@ impl SessionTarget {
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                log_status(status, id, format!("downloading to {}", output.display));
+                status.log(id, format!("downloading to {}", output.display));
             }
             SessionTarget::Selective {
                 collection,
@@ -123,11 +119,7 @@ impl SessionTarget {
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                log_status(
-                    status,
-                    id,
-                    format!("downloading updates to {}", output.display),
-                );
+                status.log(id, format!("downloading updates to {}", output.display));
             }
         }
 
@@ -246,17 +238,13 @@ impl DownloadSession {
         .await?;
 
         if precheck.aborted {
-            log_status(&params.status, params.id, params.flavor.precheck_abort_log);
-            fail_status(&params.status, params.id, "Download aborted by user");
+            params.status.log(params.id, params.flavor.precheck_abort_log);
+            params.status.fail(params.id, "Download aborted by user");
             return Ok(None);
         }
 
         if precheck.files_changed {
-            log_status(
-                &params.status,
-                params.id,
-                "Files changed during precheck; rescheduling affected beatmapsets",
-            );
+            params.status.log(params.id, "Files changed during precheck; rescheduling affected beatmapsets");
         }
 
         let PrecheckReport {
@@ -274,7 +262,7 @@ impl DownloadSession {
         }
 
         if verified_bytes > 0 {
-            verified_sizes_status(&params.status, params.id, verified_bytes);
+            params.status.verified_sizes(params.id, verified_bytes);
         }
 
         let pending_ids: HashSet<u32> = params
@@ -285,7 +273,7 @@ impl DownloadSession {
             .collect();
         let tracker = BeatmapTracker::with_verified(pending_ids.clone(), satisfied);
 
-        target_status(&params.status, params.id, pending_ids.len());
+        params.status.target(params.id, pending_ids.len());
 
         let totals = DownloadSummary {
             downloaded: 0,
@@ -295,12 +283,8 @@ impl DownloadSession {
         };
 
         if totals.skipped > 0 {
-            log_status(
-                &params.status,
-                params.id,
-                format!("{} beatmapsets already verified locally", totals.skipped),
-            );
-            progress_status(&params.status, params.id, &totals);
+            params.status.log(params.id, format!("{} beatmapsets already verified locally", totals.skipped));
+            params.status.progress(params.id, &totals);
         }
 
         Ok(Some(DownloadSession {
@@ -586,8 +570,8 @@ async fn perform_initial_precheck(
     verify_zip_eocd: bool,
     shutdown: &ShutdownToken,
 ) -> Result<PrecheckReport, DownloadError> {
-    log_status(status, id, "Verifying existing beatmapsets on disk");
-    stage_status(status, id, DownloadStage::Rechecking);
+    status.log(id, "Verifying existing beatmapsets on disk");
+    status.stage(id, DownloadStage::Rechecking);
     info!("Starting disk precheck before downloads");
     let options = PrecheckOptions {
         verify_integrity: true,
@@ -613,7 +597,7 @@ async fn perform_initial_precheck(
             "Finished initial disk precheck"
         );
     }
-    stage_status(status, id, DownloadStage::Downloading);
+    status.stage(id, DownloadStage::Downloading);
     Ok(report)
 }
 
