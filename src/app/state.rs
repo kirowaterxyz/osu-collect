@@ -631,6 +631,9 @@ impl App {
             }
             DownloadEvent::StageChanged { id, stage } => {
                 if let Some(page) = self.page_mut(id) {
+                    if page.stage != stage {
+                        page.indeterminate_anim_start.set(None);
+                    }
                     page.stage = stage;
                 }
             }

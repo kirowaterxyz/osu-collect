@@ -1,7 +1,7 @@
 use osu_collect::{
     app::{App, CollectionPage, ConfigField},
     config::{Config, constants::CONFIG_TAB_INDEX},
-    download::{DownloadStage, DownloadSummary},
+    download::{DownloadEvent, DownloadStage, DownloadSummary},
     tui,
 };
 use ratatui::{Terminal, backend::TestBackend, style::Color};
@@ -29,6 +29,19 @@ fn render_app(app: &App, width: u16, height: u16) -> String {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>()
+}
+
+fn progress_fill_positions(buf: &ratatui::buffer::Buffer, color: Color) -> Vec<(u16, u16)> {
+    buf.content
+        .iter()
+        .enumerate()
+        .filter(|(_, cell)| cell.symbol() == "█" && cell.style().fg == Some(color))
+        .map(|(i, _)| {
+            let x = (i as u16) % buf.area.width;
+            let y = (i as u16) / buf.area.width;
+            (x, y)
+        })
+        .collect()
 }
 
 #[test]
@@ -490,6 +503,27 @@ fn resolving_stage_with_progress_shows_count_in_title_and_threads() {
 }
 
 #[test]
+fn resolving_stage_indeterminate_chunk_starts_at_one_third() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
+    app.downloads.push(page);
+    app.active_tab = 3;
+    app.tick_count = 47;
+
+    let buf = render_buffer(&app, 100, 24);
+    let cyan = Color::Rgb(116, 199, 236);
+    let positions = progress_fill_positions(&buf, cyan);
+    let start_x = positions
+        .iter()
+        .map(|(x, _)| *x)
+        .min()
+        .expect("indeterminate chunk must render");
+
+    assert_eq!(start_x, 33, "indeterminate chunk must start at 1/3");
+}
+
+#[test]
 fn resolving_stage_indeterminate_chunk_advances_with_tick() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
@@ -502,25 +536,46 @@ fn resolving_stage_indeterminate_chunk_advances_with_tick() {
     let buf1 = render_buffer(&app, 100, 24);
 
     let cyan = Color::Rgb(116, 199, 236);
-    let count_cyan = |buf: &ratatui::buffer::Buffer| -> usize {
-        buf.content
-            .iter()
-            .filter(|cell| cell.symbol() == "█" && cell.style().fg == Some(cyan))
-            .count()
-    };
-    let positions = |buf: &ratatui::buffer::Buffer| -> Vec<usize> {
-        buf.content
-            .iter()
-            .enumerate()
-            .filter(|(_, cell)| cell.symbol() == "█" && cell.style().fg == Some(cyan))
-            .map(|(i, _)| i)
-            .collect()
-    };
-    assert!(count_cyan(&buf0) > 0, "indeterminate chunk must render");
+    let positions0 = progress_fill_positions(&buf0, cyan);
+    let positions1 = progress_fill_positions(&buf1, cyan);
+
+    assert!(!positions0.is_empty(), "indeterminate chunk must render");
     assert_ne!(
-        positions(&buf0),
-        positions(&buf1),
+        positions0, positions1,
         "indeterminate chunk must move with tick_count"
+    );
+}
+
+#[test]
+fn stage_change_resets_indeterminate_chunk_start() {
+    let mut app = App::new(Config::default());
+    let page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    app.downloads.push(page);
+    app.active_tab = 3;
+    app.tick_count = 7;
+    app.handle_download_event(DownloadEvent::StageChanged {
+        id: 1,
+        stage: DownloadStage::Resolving,
+    });
+    let first = render_buffer(&app, 100, 24);
+
+    app.tick_count = 19;
+    app.handle_download_event(DownloadEvent::StageChanged {
+        id: 1,
+        stage: DownloadStage::Downloading,
+    });
+    app.handle_download_event(DownloadEvent::StageChanged {
+        id: 1,
+        stage: DownloadStage::Resolving,
+    });
+    let second = render_buffer(&app, 100, 24);
+
+    let cyan = Color::Rgb(116, 199, 236);
+
+    assert_eq!(
+        progress_fill_positions(&first, cyan),
+        progress_fill_positions(&second, cyan),
+        "resolving animation must restart after leaving the stage"
     );
 }
 

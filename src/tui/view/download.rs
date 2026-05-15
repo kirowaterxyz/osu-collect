@@ -274,7 +274,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         {
             render_resolve_progress_gauge(frame, area, current, total, tick);
         } else {
-            render_indeterminate_gauge(frame, area, page.stage, tick);
+            render_indeterminate_gauge(frame, area, page, page.stage, tick);
         }
         return;
     }
@@ -366,7 +366,13 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     }
 }
 
-fn render_indeterminate_gauge(frame: &mut Frame, area: Rect, stage: DownloadStage, tick: u64) {
+fn render_indeterminate_gauge(
+    frame: &mut Frame,
+    area: Rect,
+    page: &CollectionPage,
+    stage: DownloadStage,
+    tick: u64,
+) {
     let spinner = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
     let label = match stage {
         DownloadStage::Pending => "preparing",
@@ -374,7 +380,7 @@ fn render_indeterminate_gauge(frame: &mut Frame, area: Rect, stage: DownloadStag
     };
     let title = format!(" {spinner} {label} ");
 
-    render_indeterminate_block(frame, area, &title, tick);
+    render_indeterminate_block(frame, area, &title, page, tick);
 }
 
 fn render_resolve_progress_gauge(
@@ -423,7 +429,13 @@ fn render_resolve_progress_gauge(
     frame.render_widget(Paragraph::new(bar), bar_area);
 }
 
-fn render_indeterminate_block(frame: &mut Frame, area: Rect, title: &str, tick: u64) {
+fn render_indeterminate_block(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    page: &CollectionPage,
+    tick: u64,
+) {
     let title_style = Style::default()
         .fg(components::INFO)
         .add_modifier(Modifier::BOLD);
@@ -440,7 +452,16 @@ fn render_indeterminate_block(frame: &mut Frame, area: Rect, title: &str, tick: 
     let bar_width = inner.width as usize;
     let chunk_width = (bar_width / 5).clamp(3, bar_width);
     let span = bar_width.saturating_sub(chunk_width).max(1);
-    let phase = (tick as usize) % (2 * span);
+    let start_tick = match page.indeterminate_anim_start.get() {
+        Some(start_tick) => start_tick,
+        None => {
+            page.indeterminate_anim_start.set(Some(tick));
+            tick
+        }
+    };
+    let elapsed = tick.saturating_sub(start_tick) as usize;
+    let start_offset = (bar_width / 3).min(span);
+    let phase = (start_offset + elapsed) % (2 * span);
     let chunk_start = if phase <= span {
         phase
     } else {
