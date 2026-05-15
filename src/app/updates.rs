@@ -293,31 +293,33 @@ impl UpdatesTab {
 
     pub fn scroll_up(&mut self) {
         if self.selection.in_collection_list {
-            let i = self.selection.collections_state.selected().unwrap_or(0);
-            if i > 0 {
-                self.selection.collections_state.select(Some(i - 1));
-            }
+            scroll_list(
+                &mut self.selection.collections_state,
+                self.selection.local_collections.len(),
+                -1,
+            );
         } else if self.selection.in_beatmap_list {
-            let i = self.selection.beatmaps_state.selected().unwrap_or(0);
-            if i > 0 {
-                self.selection.beatmaps_state.select(Some(i - 1));
-            }
+            scroll_list(
+                &mut self.selection.beatmaps_state,
+                self.selection.display_items.len(),
+                -1,
+            );
         }
     }
 
     pub fn scroll_down(&mut self) {
         if self.selection.in_collection_list {
-            let max = self.selection.local_collections.len().saturating_sub(1);
-            let i = self.selection.collections_state.selected().unwrap_or(0);
-            if i < max {
-                self.selection.collections_state.select(Some(i + 1));
-            }
+            scroll_list(
+                &mut self.selection.collections_state,
+                self.selection.local_collections.len(),
+                1,
+            );
         } else if self.selection.in_beatmap_list {
-            let max = self.selection.display_items.len().saturating_sub(1);
-            let i = self.selection.beatmaps_state.selected().unwrap_or(0);
-            if i < max {
-                self.selection.beatmaps_state.select(Some(i + 1));
-            }
+            scroll_list(
+                &mut self.selection.beatmaps_state,
+                self.selection.display_items.len(),
+                1,
+            );
         }
     }
 
@@ -376,28 +378,22 @@ impl UpdatesTab {
     }
 
     pub fn select_all(&mut self) {
-        if self.selection.in_collection_list {
-            for collection in &mut self.selection.local_collections {
-                collection.selected = true;
-            }
-        } else if self.selection.in_beatmap_list {
-            for &cache_idx in &self.selection.visible_missing {
-                if let Some(beatmap) = self.selection.cached_missing_sets.get_mut(cache_idx) {
-                    beatmap.selected = true;
-                }
-            }
-        }
+        self.set_all_selected(true);
     }
 
     pub fn deselect_all(&mut self) {
+        self.set_all_selected(false);
+    }
+
+    fn set_all_selected(&mut self, value: bool) {
         if self.selection.in_collection_list {
             for collection in &mut self.selection.local_collections {
-                collection.selected = false;
+                collection.selected = value;
             }
         } else if self.selection.in_beatmap_list {
             for &cache_idx in &self.selection.visible_missing {
                 if let Some(beatmap) = self.selection.cached_missing_sets.get_mut(cache_idx) {
-                    beatmap.selected = false;
+                    beatmap.selected = value;
                 }
             }
         }
@@ -553,13 +549,16 @@ impl UpdatesTab {
         self.filter_missing_from_cache();
     }
 
-    pub fn filter_missing_from_cache(&mut self) {
-        let selected_ids: HashSet<u64> = self
-            .selection
+    fn selected_collection_id_set(&self) -> HashSet<u64> {
+        self.selection
             .local_collections
             .iter()
             .filter_map(|c| if c.selected { c.collection_id } else { None })
-            .collect();
+            .collect()
+    }
+
+    pub fn filter_missing_from_cache(&mut self) {
+        let selected_ids = self.selected_collection_id_set();
 
         self.selection.visible_missing = self
             .selection
@@ -620,6 +619,12 @@ impl UpdatesTab {
             })
             .collect()
     }
+}
+
+fn scroll_list(state: &mut ListState, len: usize, delta: i64) {
+    let i = state.selected().unwrap_or(0) as i64;
+    let next = (i + delta).clamp(0, len.saturating_sub(1) as i64) as usize;
+    state.select(Some(next));
 }
 
 fn collection_id_patterns() -> &'static [regex_lite::Regex; 4] {
