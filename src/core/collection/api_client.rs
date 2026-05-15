@@ -1,7 +1,6 @@
 use super::model::Collection;
 use crate::{
     config::constants::API_MAX_RETRIES,
-    download::http_client,
     utils::{AppError, Result},
 };
 use std::time::Duration;
@@ -49,7 +48,9 @@ impl HttpCollectionServiceBuilder {
     }
 
     pub fn build(self) -> Result<HttpCollectionService> {
-        let client = http_client::api_client()?;
+        let client = osu_downloader::http::create_api_client().map_err(|e| {
+            AppError::other_dynamic(format!("failed to create API client: {e}").into_boxed_str())
+        })?;
         Ok(HttpCollectionService::new(client))
     }
 }

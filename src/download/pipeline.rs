@@ -1,7 +1,6 @@
 use super::{
     CleanupTracker, DownloadConfig, DownloadError, DownloadEvent, DownloadHandle, DownloadId,
     DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadRequest, ShutdownToken,
-    http_client,
     lock::ActiveDownloadRegistry,
     passes::{FailureReport, PassCoordinator},
     session::{DownloadSession, PipelineFlavor, PrepareCollectionParams, PrepareSelectiveParams},
@@ -247,7 +246,9 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     let _session_lock = _lock_guard;
 
     log_status(&status, id, "Fetching collection size from Nekoha...");
-    let api_client = http_client::api_client()?;
+    let api_client = osu_downloader::http::create_api_client().map_err(|e| {
+        DownloadError::internal(format!("failed to create API client: {e}"))
+    })?;
     let size_result =
         super::size_fetcher::fetch_beatmapset_sizes(&api_client, &beatmapset_ids).await;
     status.emit(DownloadEvent::CollectionSizeResolved {
@@ -267,7 +268,9 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
 
     check_and_warn_low_disk_space(&status, id, &output.output_dir);
 
-    let download_client = http_client::download_client()?;
+    let download_client = osu_downloader::http::create_download_client(None).map_err(|e| {
+        DownloadError::internal(format!("failed to create download client: {e}"))
+    })?;
     let thread_count = concurrent.max(1) as usize;
     let ctx = build_download_context(BuildContextParams {
         id,

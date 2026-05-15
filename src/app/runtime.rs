@@ -841,7 +841,7 @@ pub async fn fetch_and_compare_with_progress(
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
     settings: FetchCompareSettings,
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
-    let client = crate::download::http_client::api_client().map_err(|e| e.to_string())?;
+    let client = osu_downloader::http::create_api_client().map_err(|e| e.to_string())?;
     let mut candidates_to_check: Vec<(CollectionBeatmapset, u32, String)> = Vec::new();
     let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
 

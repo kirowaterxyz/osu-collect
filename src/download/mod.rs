@@ -1,7 +1,6 @@
 mod cleanup;
 pub(crate) mod client;
 pub mod error;
-pub mod http_client;
 mod integrity;
 pub mod lock;
 pub mod passes;

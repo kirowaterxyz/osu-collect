@@ -1,7 +1,7 @@
 use crate::{
     check_shutdown,
     config::constants::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
-    download::{http_client, status},
+    download::status,
     mirrors::{Mirror, MirrorKind, MirrorPool},
     utils::{
         AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename_safe,
@@ -87,9 +87,10 @@ pub struct CompletedDownload {
     pub verify_duration_us: u64,
 }
 
-#[inline]
 pub fn create_download_client() -> Result<reqwest::Client> {
-    http_client::download_client()
+    osu_downloader::http::create_download_client(None).map_err(|e| {
+        AppError::other_dynamic(format!("failed to create download client: {e}").into_boxed_str())
+    })
 }
 
 /// Per-mirror attempt outcome used inside `download_beatmap`.
