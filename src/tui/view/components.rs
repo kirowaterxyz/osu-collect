@@ -46,34 +46,26 @@ pub struct Metric<'a> {
 #[allow(dead_code)]
 impl<'a> Metric<'a> {
     pub fn muted(label: &'a str, value: impl Into<String>) -> Self {
-        Self {
-            label,
-            value: value.into(),
-            style: Style::default().fg(TEXT_MUTED),
-        }
+        Self::colored(label, value, TEXT_MUTED)
     }
 
     pub fn accent(label: &'a str, value: impl Into<String>) -> Self {
-        Self {
-            label,
-            value: value.into(),
-            style: Style::default().fg(ACCENT),
-        }
+        Self::colored(label, value, ACCENT)
     }
 
     pub fn success(label: &'a str, value: impl Into<String>) -> Self {
-        Self {
-            label,
-            value: value.into(),
-            style: Style::default().fg(SUCCESS),
-        }
+        Self::colored(label, value, SUCCESS)
     }
 
     pub fn danger(label: &'a str, value: impl Into<String>) -> Self {
+        Self::colored(label, value, DANGER)
+    }
+
+    fn colored(label: &'a str, value: impl Into<String>, color: Color) -> Self {
         Self {
             label,
             value: value.into(),
-            style: Style::default().fg(DANGER),
+            style: Style::default().fg(color),
         }
     }
 }
@@ -210,7 +202,7 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
         focus_span(focused),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
-            field_label_style(focused),
+            focused_label_style(focused),
         ),
         value,
     ]))
@@ -228,7 +220,7 @@ pub fn cycle_item(
 ) -> ListItem<'static> {
     let mut spans = vec![
         focus_span(focused),
-        Span::styled(format!("{label}: "), field_label_style(focused)),
+        Span::styled(format!("{label}: "), focused_label_style(focused)),
     ];
     for (index, &option) in options.iter().enumerate() {
         if index > 0 {
@@ -422,10 +414,6 @@ pub fn focused_label_style(focused: bool) -> Style {
     } else {
         Style::default().fg(TEXT_MUTED)
     }
-}
-
-fn field_label_style(focused: bool) -> Style {
-    focused_label_style(focused)
 }
 
 fn thread_style_for(message: &str, rate_limited: bool) -> Style {
