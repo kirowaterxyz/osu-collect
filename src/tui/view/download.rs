@@ -570,6 +570,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
+    let eyebrow = components::eyebrow_style().add_modifier(Modifier::DIM);
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
     let failed_style = if summary.failed > 0 {
         Style::default().fg(components::DANGER)
@@ -578,21 +579,21 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     };
     let mut spans = vec![
         Span::raw("  "),
-        Span::styled("DOWNLOADED", eyebrow_style()),
+        Span::styled("DOWNLOADED", eyebrow),
         Span::raw(" "),
         Span::styled(
             summary.downloaded.to_string(),
             Style::default().fg(components::ACCENT),
         ),
         Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
-        Span::styled("SKIPPED", eyebrow_style()),
+        Span::styled("SKIPPED", eyebrow),
         Span::raw(" "),
         Span::styled(
             displayed_skipped.to_string(),
             Style::default().fg(components::TEXT_MUTED),
         ),
         Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
-        Span::styled("FAILED", eyebrow_style()),
+        Span::styled("FAILED", eyebrow),
         Span::raw(" "),
         Span::styled(summary.failed.to_string(), failed_style),
     ];
@@ -601,7 +602,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             "  │  ",
             Style::default().fg(components::LINE_SOFT),
         ));
-        spans.push(Span::styled("UNVERIFIED", eyebrow_style()));
+        spans.push(Span::styled("UNVERIFIED", eyebrow));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
             summary.unverified.to_string(),
@@ -633,12 +634,6 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         .block(components::panel_block("results"))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
-}
-
-fn eyebrow_style() -> Style {
-    Style::default()
-        .fg(components::TEXT_FAINT)
-        .add_modifier(Modifier::BOLD | Modifier::DIM)
 }
 
 fn summarize_failure(reason: &str) -> String {
