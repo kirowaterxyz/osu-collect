@@ -1,7 +1,6 @@
 use super::{
     BeatmapTracker, DownloadError, DownloadEvent, DownloadId, DownloadStage, DownloadSummary,
     SelectiveDownloadCollection, ShutdownToken,
-    integrity::ExpectationIndex,
     lock::{ActiveDownloadRegistry, DownloadLockGuard},
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
 };
@@ -80,12 +79,14 @@ pub(crate) enum SessionTarget {
 }
 
 impl SessionTarget {
-    pub(crate) fn expectation_index(&self, beatmapset_ids: &[u32]) -> Arc<ExpectationIndex> {
+    pub(crate) fn expectation_index(&self, beatmapset_ids: &[u32]) -> Arc<HashSet<u32>> {
         match self {
             SessionTarget::Collection(collection) => {
-                Arc::new(ExpectationIndex::new(&collection.beatmapsets))
+                Arc::new(collection.beatmapsets.iter().map(|s| s.id).collect())
             }
-            SessionTarget::Selective { .. } => Arc::new(ExpectationIndex::from_ids(beatmapset_ids)),
+            SessionTarget::Selective { .. } => {
+                Arc::new(beatmapset_ids.iter().copied().collect())
+            }
         }
     }
 
@@ -565,7 +566,7 @@ async fn perform_initial_precheck(
     status: &StatusSink,
     id: DownloadId,
     output_dir: &Path,
-    expectations: Arc<ExpectationIndex>,
+    expectations: Arc<HashSet<u32>>,
     thread_count: usize,
     verify_zip_eocd: bool,
     shutdown: &ShutdownToken,

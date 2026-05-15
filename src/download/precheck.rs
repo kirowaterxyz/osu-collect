@@ -1,7 +1,4 @@
-use super::{
-    BeatmapStage, DownloadError, DownloadEvent, DownloadId, ShutdownToken,
-    integrity::{ExpectationData, ExpectationIndex},
-};
+use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId, ShutdownToken};
 use crate::worker::{
     StatusSink,
     io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive},
@@ -36,7 +33,7 @@ pub(crate) struct PrecheckOptions {
 pub(crate) async fn verify_existing_beatmapsets(
     id: DownloadId,
     output_dir: &Path,
-    expectations: Arc<ExpectationIndex>,
+    expectations: Arc<HashSet<u32>>,
     parallelism: usize,
     options: PrecheckOptions,
     shutdown: &ShutdownToken,
@@ -66,12 +63,11 @@ pub(crate) async fn verify_existing_beatmapsets(
     let initial_snapshot = capture_osz_snapshot(output_dir).await?;
 
     let mut state = PrecheckState::default();
-    let expectation_data = expectations.data();
     let CandidateScan {
         candidates,
         orphan_temp_count,
         aborted,
-    } = scan_candidates(output_dir, &expectation_data, shutdown).await?;
+    } = scan_candidates(output_dir, &expectations, shutdown).await?;
     if aborted {
         return Ok(state.aborted_report());
     }
@@ -322,7 +318,7 @@ struct FileRecord {
 
 async fn scan_candidates(
     output_dir: &Path,
-    expectations: &ExpectationData,
+    expectations: &HashSet<u32>,
     shutdown: &ShutdownToken,
 ) -> Result<CandidateScan, DownloadError> {
     let mut dir = fs::read_dir(output_dir).await?;
@@ -353,7 +349,7 @@ async fn scan_candidates(
             continue;
         };
 
-        if expectations.by_set.contains(&beatmapset_id) {
+        if expectations.contains(&beatmapset_id) {
             candidates.push(Candidate {
                 path,
                 beatmapset_id,
@@ -640,8 +636,8 @@ mod tests {
         std::fs::write(&orphan, b"orphan").expect("write orphan temp");
         std::fs::write(&note, b"note").expect("write note");
 
-        let expectations = ExpectationIndex::from_ids(&[123]);
-        let scan = scan_candidates(dir.path(), &expectations.data(), &ShutdownToken::new())
+        let expectations: HashSet<u32> = [123].into_iter().collect();
+        let scan = scan_candidates(dir.path(), &expectations, &ShutdownToken::new())
             .await
             .expect("scan candidates");
 
