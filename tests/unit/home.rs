@@ -57,15 +57,3 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
     let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind).collect();
     assert_eq!(request_kinds, standalone_kinds);
 }
-
-#[test]
-fn build_mirror_list_never_includes_official() {
-    let mut config = Config::default();
-    config.mirror.official = true;
-    let home = home_all_off(&config);
-
-    let mirrors = home.build_mirror_list();
-
-    assert!(mirrors.is_empty());
-    assert!(!mirrors.iter().any(|m| m.kind == MirrorKind::Official));
-}

@@ -1,5 +1,4 @@
 use osu_collect::auth::{StoredAuth, build_authorize_url};
-use osu_collect::config::Config;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
@@ -100,12 +99,4 @@ fn state_mismatch_rejected_by_caller() {
         expected_state,
         "mismatched state must be detected"
     );
-}
-
-#[test]
-fn config_validation_ignores_legacy_official_mirror_flag() {
-    let mut config = Config::default();
-    config.mirror.official = true;
-
-    assert!(config.validate().is_ok());
 }

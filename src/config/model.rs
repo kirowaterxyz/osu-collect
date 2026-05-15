@@ -30,8 +30,6 @@ pub struct MirrorConfig {
     #[serde(default)]
     pub catboy_asia: bool,
     #[serde(default)]
-    pub official: bool,
-    #[serde(default)]
     pub url: Option<Box<str>>,
 }
 
@@ -96,7 +94,6 @@ impl Default for MirrorConfig {
             catboy_central: false,
             catboy_us: false,
             catboy_asia: false,
-            official: false,
             url: None,
         }
     }

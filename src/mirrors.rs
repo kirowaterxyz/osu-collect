@@ -45,9 +45,6 @@ impl MirrorEndpoint {
             MirrorKind::Custom => {
                 Mirror::custom(self.template.as_ref()).expect("template already validated")
             }
-            MirrorKind::Official => {
-                Mirror::builtin(MirrorKind::Official, false).expect("official has template")
-            }
             _ => Mirror::builtin(
                 self.kind,
                 self.template.contains("?nv=1") || self.template.ends_with('n'),
