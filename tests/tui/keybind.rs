@@ -145,9 +145,10 @@ fn space_on_mirror_field_toggles_state() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     // navigate to nerinyan mirror field
-    // home: Collection(0) → Directory(1) → CustomMirror(2) → MirrorNerinyan(3)
+    // home: Collection → Directory → CustomMirror → MirrorOsuDirect → MirrorNerinyan
     app.handle_key(press(KeyCode::Down)); // → Directory
     app.handle_key(press(KeyCode::Down)); // → CustomMirror
+    app.handle_key(press(KeyCode::Down)); // → MirrorOsuDirect
     app.handle_key(press(KeyCode::Down)); // → MirrorNerinyan
     assert_eq!(app.home.focus, HomeField::MirrorNerinyan);
 
@@ -188,4 +189,59 @@ fn enter_without_collection_input_produces_error() {
     app.handle_key(press(KeyCode::Enter));
     // no command issued (error path), message should be set
     assert!(app.home.message.is_some());
+}
+
+// ── config tab key bindings ───────────────────────────────────────────────────
+
+#[test]
+fn enter_on_config_login_does_nothing() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.handle_key(press(KeyCode::Right));
+    app.handle_key(press(KeyCode::Right));
+    assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
+    app.config.focus = ConfigField::LoginEntry;
+
+    let cmd = app.handle_key(press(KeyCode::Enter));
+    assert!(cmd.is_none(), "enter on config must not issue any command");
+}
+
+#[test]
+fn space_on_config_login_triggers_login_attempt() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.handle_key(press(KeyCode::Right));
+    app.handle_key(press(KeyCode::Right));
+    assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
+    app.config.focus = ConfigField::LoginEntry;
+
+    // space must reach the login request path (command depends on bundled creds)
+    let cmd = app.handle_key(press(KeyCode::Char(' ')));
+    let credentials_available = osu_collect::auth::bundled_credentials().is_some();
+    if credentials_available {
+        assert!(matches!(cmd, Some(AppCommand::Login { .. })));
+    } else {
+        assert!(cmd.is_none());
+        assert!(app.config.message.is_some());
+    }
+}
+
+// ── updates tab: enter does not exit lists ────────────────────────────────────
+
+#[test]
+fn enter_inside_collection_list_is_no_op() {
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.selection.in_collection_list = true;
+
+    let cmd = app.handle_key(press(KeyCode::Enter));
+    assert!(cmd.is_none());
+    assert!(
+        app.updates.selection.in_collection_list,
+        "enter must not close the collection list"
+    );
 }

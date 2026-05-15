@@ -418,10 +418,9 @@ impl App {
                     return Some(AppCommand::StartDownload { id, request });
                 }
                 if self.active_tab() == UPDATES_TAB_INDEX {
-                    // Don't allow download while scan is in progress
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
-                    if !in_list && !self.updates.is_scan_ready() {
+                    if in_list || !self.updates.is_scan_ready() {
                         return None;
                     }
                     match self.updates.handle_enter() {
@@ -434,13 +433,6 @@ impl App {
                             return Some(AppCommand::RecheckFailedMaps);
                         }
                         UpdatesAction::None | UpdatesAction::RefreshAll => {}
-                    }
-                }
-                if self.active_tab() == CONFIG_TAB_INDEX {
-                    match self.config.focus {
-                        ConfigField::LoginEntry => return self.request_login(),
-                        ConfigField::LogoutEntry => return self.request_logout(),
-                        _ => {}
                     }
                 }
             }
@@ -469,13 +461,12 @@ impl App {
                     UpdatesAction::RecheckFailedMaps => return Some(AppCommand::RecheckFailedMaps),
                     UpdatesAction::None | UpdatesAction::Download => {}
                 },
-                CONFIG_TAB_INDEX => {
-                    if self.config.focus.is_text_input() {
-                        self.config.handle_char(' ');
-                    } else {
-                        self.config.toggle_current();
-                    }
-                }
+                CONFIG_TAB_INDEX => match self.config.focus {
+                    ConfigField::LoginEntry => return self.request_login(),
+                    ConfigField::LogoutEntry => return self.request_logout(),
+                    field if field.is_text_input() => self.config.handle_char(' '),
+                    _ => self.config.toggle_current(),
+                },
                 _ => {}
             },
             KeyCode::Char(ch) => match self.active_tab() {

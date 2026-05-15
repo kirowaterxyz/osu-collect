@@ -264,19 +264,6 @@ impl UpdatesTab {
     }
 
     pub fn handle_enter(&mut self) -> UpdatesAction {
-        if self.selection.in_collection_list {
-            self.selection.in_collection_list = false;
-            // Filter cached beatmaps based on newly selected collections
-            self.filter_missing_from_cache();
-            return UpdatesAction::None;
-        }
-
-        if self.selection.in_beatmap_list {
-            self.selection.in_beatmap_list = false;
-            return UpdatesAction::None;
-        }
-
-        // Pressing Enter anywhere (except exiting lists) triggers download
         if self.selected_beatmap_count() == 0 {
             UpdatesAction::None
         } else {

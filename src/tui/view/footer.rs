@@ -39,7 +39,7 @@ impl<'a> FooterView<'a> {
             CONFIG_TAB_INDEX => {
                 let hint = match view.config.form.focus {
                     ConfigField::LoginEntry | ConfigField::LogoutEntry => {
-                        "↑↓ move  ·  enter confirm  ·  s save"
+                        "↑↓ move  ·  space confirm  ·  s save"
                     }
                     _ => "↑↓ move  ·  space change  ·  s save",
                 };
