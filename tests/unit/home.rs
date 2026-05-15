@@ -20,7 +20,7 @@ fn build_mirror_list_returns_selected_mirrors() {
 
     let mirrors = home.build_mirror_list();
     assert_eq!(mirrors.len(), 1);
-    assert_eq!(mirrors[0].kind, MirrorKind::Nerinyan);
+    assert_eq!(mirrors[0].kind(), MirrorKind::Nerinyan);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn build_mirror_list_includes_custom_mirror() {
 
     let mirrors = home.build_mirror_list();
     assert_eq!(mirrors.len(), 1);
-    assert_eq!(mirrors[0].kind, MirrorKind::Custom);
+    assert_eq!(mirrors[0].kind(), MirrorKind::Custom);
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
 
     let standalone = home.build_mirrors();
     let request = home.build_request().unwrap();
-    let request_kinds: Vec<_> = request.config.mirrors.iter().map(|m| m.kind).collect();
-    let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind).collect();
+    let request_kinds: Vec<_> = request.config.mirrors.iter().map(|m| m.kind()).collect();
+    let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind()).collect();
     assert_eq!(request_kinds, standalone_kinds);
 }

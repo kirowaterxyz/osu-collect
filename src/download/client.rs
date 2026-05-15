@@ -2,7 +2,7 @@ use crate::{
     check_shutdown,
     config::constants::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
     download::{http_client, status},
-    mirrors::{MirrorEndpoint, MirrorKind, MirrorPool},
+    mirrors::{Mirror, MirrorKind, MirrorPool},
     utils::{
         AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename_safe,
     },
@@ -103,7 +103,7 @@ enum MirrorAttempt {
 
 pub async fn download_beatmap(
     beatmapset_id: u32,
-    mirrors: &[MirrorEndpoint],
+    mirrors: &[Mirror],
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     status_reporter: StatusReporter,
@@ -114,12 +114,12 @@ pub async fn download_beatmap(
     let mut last_error: Option<DownloadResult> = None;
     let mut not_found_count: usize = 0;
     let total_mirrors = mirrors.len();
-    let mut pending: Vec<MirrorEndpoint> = mirrors.to_vec();
+    let mut pending: Vec<Mirror> = mirrors.to_vec();
     let mut all_transient = true;
     let mut last_transient_reason = String::new();
 
     while !pending.is_empty() {
-        let mut deferred_rate_limited: Vec<MirrorEndpoint> = Vec::new();
+        let mut deferred_rate_limited: Vec<Mirror> = Vec::new();
 
         for mirror in pending.iter() {
             check_shutdown!(context.shutdown);
@@ -147,23 +147,23 @@ pub async fn download_beatmap(
                 MirrorAttempt::NotFound => {
                     all_transient = false;
                     not_found_count += 1;
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind), "Not found (404)"));
+                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), "Not found (404)"));
                 }
                 MirrorAttempt::RateLimited => {
                     all_transient = false;
                     deferred_rate_limited.push(mirror.clone());
                     last_error = Some(DownloadResult::failed(
-                        Some(mirror.kind),
+                        Some(mirror.kind()),
                         status::RATE_LIMITED,
                     ));
                 }
                 MirrorAttempt::Transient(reason) => {
                     last_transient_reason = reason.clone();
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind), reason));
+                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), reason));
                 }
                 MirrorAttempt::Definitive(reason) => {
                     all_transient = false;
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind), reason));
+                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), reason));
                 }
             }
         }
@@ -178,7 +178,7 @@ pub async fn download_beatmap(
 
         let wait_duration = deferred_rate_limited
             .iter()
-            .filter_map(|mirror| limiter.penalty_remaining(mirror.kind))
+            .filter_map(|mirror| limiter.penalty_remaining(mirror.kind()))
             .min()
             .unwrap_or(Duration::from_secs(0));
 
@@ -215,7 +215,7 @@ pub async fn download_beatmap(
 
 async fn try_mirror_with_transient_retry(
     beatmapset_id: u32,
-    mirror: &MirrorEndpoint,
+    mirror: &Mirror,
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     status_reporter: &StatusReporter,
@@ -284,7 +284,7 @@ async fn cancellable_sleep(duration: Duration, context: &DownloadContext) -> boo
 
 async fn try_mirror_once(
     beatmapset_id: u32,
-    mirror: &MirrorEndpoint,
+    mirror: &Mirror,
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     status_reporter: &StatusReporter,
@@ -301,7 +301,7 @@ async fn try_mirror_once(
 
     let url = mirror.url_for(beatmapset_id);
     let mut req = context.client.get(&url);
-    if let Some(ref extra_headers) = mirror.headers {
+    if let Some(extra_headers) = mirror.headers() {
         req = req.headers(extra_headers.clone());
     }
     let response = match req.send().await {
@@ -323,11 +323,11 @@ async fn try_mirror_once(
     let status = response.status();
 
     let catboy_rate_limited =
-        matches!(mirror.kind, MirrorKind::Catboy(_)) && status == reqwest::StatusCode::FORBIDDEN;
+        matches!(mirror.kind(), MirrorKind::Catboy(_)) && status == reqwest::StatusCode::FORBIDDEN;
 
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS || catboy_rate_limited {
         if let Some(limiter) = rate_limiter {
-            limiter.mark_rate_limited(mirror.kind);
+            limiter.mark_rate_limited(mirror.kind());
         }
         return Ok(MirrorAttempt::RateLimited);
     }
@@ -371,7 +371,7 @@ async fn try_mirror_once(
 }
 
 async fn process_mirror_response(
-    mirror: &MirrorEndpoint,
+    mirror: &Mirror,
     response: reqwest::Response,
     beatmapset_id: u32,
     context: &DownloadContext,
@@ -388,7 +388,7 @@ async fn process_mirror_response(
         && !is_archive_content_type(ct)
     {
         return Ok(DownloadResult::failed(
-            Some(mirror.kind),
+            Some(mirror.kind()),
             format!(
                 "Unexpected content type '{}' from {}",
                 ct,
@@ -445,7 +445,7 @@ async fn process_mirror_response(
 }
 
 async fn write_and_verify_archive(
-    mirror: &MirrorEndpoint,
+    mirror: &Mirror,
     response: reqwest::Response,
     context: &DownloadContext,
     output_path: PathBuf,
@@ -487,7 +487,7 @@ async fn write_and_verify_archive(
         context.cleanup_tracker.mark_removed(&output_path);
         context.cleanup_tracker.mark_removed(&stream.temp_path);
         return Ok(DownloadResult::failed(
-            Some(mirror.kind),
+            Some(mirror.kind()),
             format!(
                 "download incomplete from {} (received {} of {} bytes)",
                 mirror.display_name(),
@@ -503,7 +503,7 @@ async fn write_and_verify_archive(
         context.cleanup_tracker.mark_removed(&output_path);
         context.cleanup_tracker.mark_removed(&stream.temp_path);
         return Ok(DownloadResult::failed(
-            Some(mirror.kind),
+            Some(mirror.kind()),
             format!(
                 "{} returned an invalid archive: {}",
                 mirror.display_name(),
@@ -528,7 +528,7 @@ async fn write_and_verify_archive(
     Ok(DownloadResult::Success(CompletedDownload {
         filename: sanitized_filename.into_boxed_str(),
         hash,
-        mirror: mirror.kind,
+        mirror: mirror.kind(),
         verify_duration_us,
     }))
 }

@@ -147,7 +147,7 @@ impl Config {
         }
 
         if let Some(custom) = self.mirror.custom_template() {
-            mirrors::validate_template(custom)?;
+            mirrors::validate_mirror_template(custom)?;
         }
 
         if let Some(concurrent) = self.download.concurrent {

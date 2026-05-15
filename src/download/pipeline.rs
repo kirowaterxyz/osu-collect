@@ -15,7 +15,7 @@ use crate::{
     core::collection::{
         CollectionDbEntry, create_collection_db, create_collection_db_entries, model::Collection,
     },
-    mirrors::{MirrorEndpoint, MirrorPool},
+    mirrors::{Mirror, MirrorPool},
     utils::{AppError, check_available_space, is_low_disk_space},
     worker::{DownloadContext, DownloadContextConfig, StatusSink},
 };
@@ -135,7 +135,7 @@ pub fn spawn_selective_download(
 struct RunDownloadCoreParams {
     session: DownloadSession,
     shutdown: ShutdownToken,
-    mirrors: Vec<MirrorEndpoint>,
+    mirrors: Vec<Mirror>,
     concurrent: u8,
     skip_existing: bool,
     auto_overwrite: bool,
@@ -151,7 +151,7 @@ struct BuildContextParams {
     verify_zip_eocd: bool,
     client: reqwest::Client,
     shutdown: ShutdownToken,
-    mirrors: Vec<MirrorEndpoint>,
+    mirrors: Vec<Mirror>,
     tracker: super::BeatmapTracker,
     output_dir: PathBuf,
     initial_unverified: Arc<DashSet<u32>>,
@@ -170,7 +170,7 @@ fn build_download_context(params: BuildContextParams) -> Result<DownloadContext,
         verify_zip_eocd: params.verify_zip_eocd,
         shutdown: params.shutdown,
         client: params.client,
-        mirror_pool: MirrorPool::new(params.mirrors.into_iter().map(|m| m.to_mirror()).collect()),
+        mirror_pool: MirrorPool::new(params.mirrors),
         output_dir: params.output_dir,
         tracker: params.tracker,
         initial_unverified: params.initial_unverified,
@@ -440,7 +440,7 @@ async fn try_remove_empty_output_dir(output_dir: &Path) -> Result<(), DownloadEr
     Ok(())
 }
 
-fn validate_mirrors(mirrors: &[MirrorEndpoint]) -> Result<(), DownloadError> {
+fn validate_mirrors(mirrors: &[Mirror]) -> Result<(), DownloadError> {
     if mirrors.is_empty() {
         warn!("Download request did not include any mirrors");
         return Err(DownloadError::NoMirrors);

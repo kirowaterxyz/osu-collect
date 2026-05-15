@@ -130,7 +130,7 @@ fn status_reporter(context: &DownloadContext, slot: usize, beatmapset_id: u32) -
 }
 
 enum MirrorReadiness {
-    Ready(Vec<crate::mirrors::MirrorEndpoint>),
+    Ready(Vec<crate::mirrors::Mirror>),
     Retry,
     Aborted,
 }
@@ -167,12 +167,7 @@ async fn wait_for_ready_mirrors(
         return MirrorReadiness::Retry;
     }
 
-    let mirror_plan: Vec<crate::mirrors::MirrorEndpoint> = context
-        .mirror_pool
-        .plan()
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let mirror_plan = context.mirror_pool.plan();
     if !mirror_plan.is_empty() {
         return MirrorReadiness::Ready(mirror_plan);
     }
@@ -191,7 +186,7 @@ async fn wait_for_ready_mirrors(
     MirrorReadiness::Retry
 }
 
-fn first_mirror_label(mirror_plan: &[crate::mirrors::MirrorEndpoint]) -> &'static str {
+fn first_mirror_label(mirror_plan: &[crate::mirrors::Mirror]) -> &'static str {
     mirror_plan
         .first()
         .map(|mirror| mirror.display_name())

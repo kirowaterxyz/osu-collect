@@ -24,7 +24,7 @@ pub use tracker::BeatmapTracker;
 
 pub use crate::config::constants::status;
 
-use crate::mirrors::MirrorEndpoint;
+use crate::mirrors::Mirror;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -100,7 +100,7 @@ impl DownloadHandle {
 #[derive(Debug, Clone)]
 pub struct DownloadConfig {
     pub directory: String,
-    pub mirrors: Vec<MirrorEndpoint>,
+    pub mirrors: Vec<Mirror>,
     pub concurrent: u8,
     pub verify_zip_eocd: bool,
 }

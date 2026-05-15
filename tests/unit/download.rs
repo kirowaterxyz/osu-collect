@@ -375,7 +375,7 @@ mod selective_snapshot_tests {
             model::{Collection, Uploader},
         },
         download::{BeatmapTracker, DownloadConfig, SelectiveDownloadCollection},
-        mirrors::{MirrorEndpoint, MirrorKind},
+        mirrors::Mirror,
     };
 
     fn snapshot_should_save_after_selective_download(
@@ -506,11 +506,7 @@ mod selective_snapshot_tests {
             }],
             config: DownloadConfig {
                 directory: dir.path().join("downloads").display().to_string(),
-                mirrors: vec![MirrorEndpoint {
-                    kind: MirrorKind::Custom,
-                    template: "http://127.0.0.1:9/{id}".into(),
-                    headers: None,
-                }],
+                mirrors: vec![Mirror::custom("http://127.0.0.1:9/{id}").expect("valid template")],
                 concurrent: 1,
                 verify_zip_eocd: false,
             },

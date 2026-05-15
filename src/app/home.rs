@@ -2,7 +2,7 @@ use super::messages::AppMessage;
 use crate::{
     config::Config,
     download::{DownloadConfig, DownloadRequest},
-    mirrors::{CatboyRegion, MirrorEndpoint, MirrorKind},
+    mirrors::{CatboyRegion, Mirror, MirrorKind},
 };
 use std::{env, str::FromStr};
 
@@ -288,36 +288,29 @@ impl HomeTab {
         }
     }
 
-    pub fn build_mirror_list(&self) -> Vec<MirrorEndpoint> {
+    pub fn build_mirror_list(&self) -> Vec<Mirror> {
         let builtin_checks: &[(bool, MirrorKind)] = &[
             (self.nerinyan, MirrorKind::Nerinyan),
             (self.osu_direct, MirrorKind::OsuDirect),
             (self.sayobot, MirrorKind::Sayobot),
             (self.nekoha, MirrorKind::Nekoha),
-            (
-                self.catboy_central,
-                MirrorKind::Catboy(CatboyRegion::Central),
-            ),
+            (self.catboy_central, MirrorKind::Catboy(CatboyRegion::Central)),
             (self.catboy_us, MirrorKind::Catboy(CatboyRegion::Us)),
             (self.catboy_asia, MirrorKind::Catboy(CatboyRegion::Asia)),
         ];
 
-        let mut mirrors: Vec<MirrorEndpoint> = builtin_checks
+        let mut mirrors: Vec<Mirror> = builtin_checks
             .iter()
             .filter_map(|&(enabled, kind)| {
-                if enabled {
-                    MirrorEndpoint::builtin(kind, self.no_video)
-                } else {
-                    None
-                }
+                if enabled { Mirror::builtin(kind, self.no_video) } else { None }
             })
             .collect();
 
         let trimmed_custom = self.custom_mirror.value.trim();
         if !trimmed_custom.is_empty()
-            && let Ok(custom_endpoint) = MirrorEndpoint::custom(trimmed_custom)
+            && let Ok(custom) = Mirror::custom(trimmed_custom)
         {
-            mirrors.push(custom_endpoint);
+            mirrors.push(custom);
         }
 
         mirrors
@@ -365,7 +358,7 @@ impl HomeTab {
         })
     }
 
-    pub fn build_mirrors(&self) -> Vec<MirrorEndpoint> {
+    pub fn build_mirrors(&self) -> Vec<Mirror> {
         self.build_mirror_list()
     }
 
