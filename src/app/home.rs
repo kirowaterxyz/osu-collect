@@ -41,6 +41,18 @@ pub enum HomeField {
     NoVideo,
 }
 
+impl HomeField {
+    pub fn is_text_input(self) -> bool {
+        matches!(
+            self,
+            HomeField::Collection
+                | HomeField::Directory
+                | HomeField::CustomMirror
+                | HomeField::Threads
+        )
+    }
+}
+
 pub struct HomeTab {
     pub collection: InputField,
     pub directory: InputField,

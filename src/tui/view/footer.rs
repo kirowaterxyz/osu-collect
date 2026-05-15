@@ -1,5 +1,7 @@
 use super::{AppView, components};
-use crate::app::{ConfigField, MessageKind, messages::AppMessage};
+use crate::app::{
+    ConfigField, HomeTab, MessageKind, UpdatesField, UpdatesTab, messages::AppMessage,
+};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use ratatui::{
     Frame,
@@ -15,7 +17,7 @@ const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '�
 pub struct FooterView<'a> {
     pub message: Option<&'a AppMessage>,
     pub quit_prompt: bool,
-    pub hint: &'static str,
+    pub hint: String,
     /// monotonically increasing tick count for spinner animation
     pub tick: u64,
 }
@@ -27,37 +29,85 @@ impl<'a> FooterView<'a> {
             HOME_TAB_INDEX => Self {
                 message: view.home.form.message.as_ref(),
                 quit_prompt: view.home.form.quit_prompt,
-                hint: "↑↓ move  ·  space toggle  ·  enter download  ·  tab next  ·  q quit",
+                hint: home_hint(view.home.form),
                 tick,
             },
             UPDATES_TAB_INDEX => Self {
                 message: view.updates.form.message.as_ref(),
                 quit_prompt: false,
-                hint: "↑↓ move  ·  space open/toggle  ·  r recheck failed  ·  enter download",
+                hint: updates_hint(view.updates.form),
                 tick,
             },
-            CONFIG_TAB_INDEX => {
-                let hint = match view.config.form.focus {
-                    ConfigField::LoginEntry | ConfigField::LogoutEntry => {
-                        "↑↓ move  ·  space confirm  ·  s save"
-                    }
-                    _ => "↑↓ move  ·  space change  ·  s save",
-                };
-                Self {
-                    message: view.config.form.message.as_ref(),
-                    quit_prompt: view.config.quit_prompt,
-                    hint,
-                    tick,
-                }
-            }
+            CONFIG_TAB_INDEX => Self {
+                message: view.config.form.message.as_ref(),
+                quit_prompt: view.config.quit_prompt,
+                hint: config_hint(view.config.form.focus),
+                tick,
+            },
             _ => Self {
                 message: None,
                 quit_prompt: false,
-                hint: "↑↓ scroll threads  ·  q quit/cancel",
+                hint: "↑↓ scroll threads  ·  q quit/cancel".to_string(),
                 tick,
             },
         }
     }
+}
+
+fn join_hint(segments: &[&str]) -> String {
+    segments.join("  ·  ")
+}
+
+fn home_hint(form: &HomeTab) -> String {
+    let mut segments: Vec<&str> = vec!["↑↓ move"];
+    if !form.focus.is_text_input() {
+        segments.push("space toggle");
+    }
+    segments.push("enter download");
+    segments.push("tab next");
+    segments.push("q quit");
+    join_hint(&segments)
+}
+
+fn updates_hint(form: &UpdatesTab) -> String {
+    let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
+    let mut segments: Vec<&str> = Vec::new();
+
+    if in_list {
+        segments.push("↑↓ scroll");
+        segments.push("space toggle");
+        segments.push("a all");
+        segments.push("d none");
+        segments.push("esc back");
+        return join_hint(&segments);
+    }
+
+    segments.push("↑↓ move");
+    match form.selection.focus {
+        UpdatesField::ClientType => segments.push("space switch"),
+        UpdatesField::Collections | UpdatesField::BeatmapList => segments.push("space open"),
+        UpdatesField::OsuPath => {}
+    }
+    if form.can_recheck_failed_maps() {
+        segments.push("r recheck failed");
+    }
+    if form.selected_beatmap_count() > 0 {
+        segments.push("enter download");
+    }
+    segments.push("q quit");
+    join_hint(&segments)
+}
+
+fn config_hint(focus: ConfigField) -> String {
+    let mut segments: Vec<&str> = vec!["↑↓ move"];
+    match focus {
+        ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push("space confirm"),
+        field if field.is_text_input() => {}
+        _ => segments.push("space change"),
+    }
+    segments.push("s save");
+    segments.push("q quit");
+    join_hint(&segments)
 }
 
 pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
@@ -85,7 +135,7 @@ pub fn render(frame: &mut Frame, area: Rect, view: FooterView) {
         return;
     }
 
-    frame.render_widget(Paragraph::new(build_hint_line(view.hint)), area);
+    frame.render_widget(Paragraph::new(build_hint_line(&view.hint)), area);
 }
 
 fn build_message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
@@ -126,7 +176,7 @@ fn build_message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     }
 }
 
-fn build_hint_line(hint: &'static str) -> Line<'static> {
+fn build_hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(components::TEXT_FAINT);
     let key_style = Style::default()

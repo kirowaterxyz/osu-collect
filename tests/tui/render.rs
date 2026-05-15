@@ -152,6 +152,74 @@ fn footer_shows_hint_line() {
     assert!(content.contains("move") || content.contains("quit") || content.contains("↑↓"));
 }
 
+#[test]
+fn home_footer_hides_space_on_text_input_focus() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::Collection;
+    let buf = render_to_buffer(&app, 120, 24);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(
+        !content.contains("space toggle"),
+        "space toggle hint must be hidden while a text field is focused"
+    );
+}
+
+#[test]
+fn home_footer_shows_space_on_toggle_focus() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::SkipExisting;
+    let buf = render_to_buffer(&app, 120, 24);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(content.contains("space toggle"));
+}
+
+#[test]
+fn updates_footer_hides_recheck_without_failed_maps() {
+    let mut app = make_app();
+    app.next_tab();
+    let buf = render_to_buffer(&app, 120, 24);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(!content.contains("recheck"));
+}
+
+#[test]
+fn updates_footer_in_list_shows_scroll_and_back() {
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.selection.in_collection_list = true;
+    let buf = render_to_buffer(&app, 120, 24);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(content.contains("scroll"));
+    assert!(content.contains("esc"));
+}
+
+#[test]
+fn config_footer_omits_space_on_text_input() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.handle_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Right,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    app.handle_key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Right,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
+    app.config.focus = ConfigField::MirrorCustomUrl;
+
+    let buf = render_to_buffer(&app, 120, 24);
+    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    assert!(!content.contains("space change"));
+    assert!(!content.contains("space confirm"));
+}
+
 // ── gauge label ──────────────────────────────────────────────────────────────
 
 #[test]

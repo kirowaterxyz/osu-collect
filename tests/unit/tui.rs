@@ -33,7 +33,11 @@ fn render_app(app: &App, width: u16, height: u16) -> String {
 
 #[test]
 fn home_render_shows_cloudy_sections_and_footer() {
-    let app = App::new(Config::default());
+    use osu_collect::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    // focus a mirror toggle so the footer hint exposes the space shortcut
+    app.home.focus = HomeField::MirrorNerinyan;
 
     let output = render_app(&app, 80, 24);
 
