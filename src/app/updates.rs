@@ -1,4 +1,4 @@
-use super::{home::InputField, messages::AppMessage};
+use super::{home::InputField, messages::AppMessage, next_field, prev_field};
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +12,13 @@ pub enum UpdatesField {
     Collections,
     BeatmapList,
 }
+
+const UPDATE_FIELDS: &[UpdatesField] = &[
+    UpdatesField::ClientType,
+    UpdatesField::OsuPath,
+    UpdatesField::Collections,
+    UpdatesField::BeatmapList,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdatesAction {
@@ -167,12 +174,7 @@ impl UpdatesTab {
             return;
         }
 
-        self.selection.focus = match self.selection.focus {
-            UpdatesField::ClientType => UpdatesField::OsuPath,
-            UpdatesField::OsuPath => UpdatesField::Collections,
-            UpdatesField::Collections => UpdatesField::BeatmapList,
-            UpdatesField::BeatmapList => UpdatesField::ClientType,
-        };
+        self.selection.focus = next_field(UPDATE_FIELDS, self.selection.focus);
     }
 
     pub fn prev_field(&mut self) {
@@ -180,12 +182,7 @@ impl UpdatesTab {
             return;
         }
 
-        self.selection.focus = match self.selection.focus {
-            UpdatesField::ClientType => UpdatesField::BeatmapList,
-            UpdatesField::OsuPath => UpdatesField::ClientType,
-            UpdatesField::Collections => UpdatesField::OsuPath,
-            UpdatesField::BeatmapList => UpdatesField::Collections,
-        };
+        self.selection.focus = prev_field(UPDATE_FIELDS, self.selection.focus);
     }
 
     pub fn handle_char(&mut self, ch: char) {

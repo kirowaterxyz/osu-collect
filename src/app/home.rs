@@ -1,4 +1,4 @@
-use super::messages::AppMessage;
+use super::{messages::AppMessage, next_field, prev_field};
 use crate::{
     config::Config,
     download::{DownloadConfig, DownloadRequest},
@@ -40,6 +40,23 @@ pub enum HomeField {
     AutoOverwrite,
     NoVideo,
 }
+
+const HOME_FIELDS: &[HomeField] = &[
+    HomeField::Collection,
+    HomeField::Directory,
+    HomeField::CustomMirror,
+    HomeField::MirrorOsuDirect,
+    HomeField::MirrorNerinyan,
+    HomeField::MirrorSayobot,
+    HomeField::MirrorNekoha,
+    HomeField::MirrorCatboyCentral,
+    HomeField::MirrorCatboyUs,
+    HomeField::MirrorCatboyAsia,
+    HomeField::Threads,
+    HomeField::SkipExisting,
+    HomeField::AutoOverwrite,
+    HomeField::NoVideo,
+];
 
 impl HomeField {
     pub fn is_text_input(self) -> bool {
@@ -153,41 +170,11 @@ impl HomeTab {
     }
 
     pub fn next_field(&mut self) {
-        self.focus = match self.focus {
-            HomeField::Collection => HomeField::Directory,
-            HomeField::Directory => HomeField::CustomMirror,
-            HomeField::CustomMirror => HomeField::MirrorOsuDirect,
-            HomeField::MirrorOsuDirect => HomeField::MirrorNerinyan,
-            HomeField::MirrorNerinyan => HomeField::MirrorSayobot,
-            HomeField::MirrorSayobot => HomeField::MirrorNekoha,
-            HomeField::MirrorNekoha => HomeField::MirrorCatboyCentral,
-            HomeField::MirrorCatboyCentral => HomeField::MirrorCatboyUs,
-            HomeField::MirrorCatboyUs => HomeField::MirrorCatboyAsia,
-            HomeField::MirrorCatboyAsia => HomeField::Threads,
-            HomeField::Threads => HomeField::SkipExisting,
-            HomeField::SkipExisting => HomeField::AutoOverwrite,
-            HomeField::AutoOverwrite => HomeField::NoVideo,
-            HomeField::NoVideo => HomeField::Collection,
-        };
+        self.focus = next_field(HOME_FIELDS, self.focus);
     }
 
     pub fn prev_field(&mut self) {
-        self.focus = match self.focus {
-            HomeField::Collection => HomeField::NoVideo,
-            HomeField::Directory => HomeField::Collection,
-            HomeField::CustomMirror => HomeField::Directory,
-            HomeField::MirrorOsuDirect => HomeField::CustomMirror,
-            HomeField::MirrorNerinyan => HomeField::MirrorOsuDirect,
-            HomeField::MirrorSayobot => HomeField::MirrorNerinyan,
-            HomeField::MirrorNekoha => HomeField::MirrorSayobot,
-            HomeField::MirrorCatboyCentral => HomeField::MirrorNekoha,
-            HomeField::MirrorCatboyUs => HomeField::MirrorCatboyCentral,
-            HomeField::MirrorCatboyAsia => HomeField::MirrorCatboyUs,
-            HomeField::Threads => HomeField::MirrorCatboyAsia,
-            HomeField::SkipExisting => HomeField::Threads,
-            HomeField::AutoOverwrite => HomeField::SkipExisting,
-            HomeField::NoVideo => HomeField::AutoOverwrite,
-        };
+        self.focus = prev_field(HOME_FIELDS, self.focus);
     }
 
     pub fn handle_char(&mut self, ch: char) {

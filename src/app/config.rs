@@ -1,4 +1,4 @@
-use super::{home::InputField, messages::AppMessage};
+use super::{home::InputField, messages::AppMessage, next_field, prev_field};
 use crate::config::{
     Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
     constants::{LOG_FORMATS, LOG_LEVELS, default_threads},
@@ -32,6 +32,47 @@ pub enum ConfigField {
     LoggingFormat,
     LoggingDirectory,
 }
+
+const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
+    ConfigField::LoginEntry,
+    ConfigField::LogoutEntry,
+    ConfigField::DownloadThreads,
+    ConfigField::DownloadSkipExisting,
+    ConfigField::DownloadNoVideo,
+    ConfigField::DownloadVerifyZipEocd,
+    ConfigField::MirrorOsuDirect,
+    ConfigField::MirrorNerinyan,
+    ConfigField::MirrorSayobot,
+    ConfigField::MirrorNekoha,
+    ConfigField::MirrorCatboyCentral,
+    ConfigField::MirrorCatboyUs,
+    ConfigField::MirrorCatboyAsia,
+    ConfigField::MirrorCustomUrl,
+    ConfigField::LoggingEnabled,
+    ConfigField::LoggingLevel,
+    ConfigField::LoggingFormat,
+    ConfigField::LoggingDirectory,
+];
+
+const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
+    ConfigField::LoginEntry,
+    ConfigField::DownloadThreads,
+    ConfigField::DownloadSkipExisting,
+    ConfigField::DownloadNoVideo,
+    ConfigField::DownloadVerifyZipEocd,
+    ConfigField::MirrorOsuDirect,
+    ConfigField::MirrorNerinyan,
+    ConfigField::MirrorSayobot,
+    ConfigField::MirrorNekoha,
+    ConfigField::MirrorCatboyCentral,
+    ConfigField::MirrorCatboyUs,
+    ConfigField::MirrorCatboyAsia,
+    ConfigField::MirrorCustomUrl,
+    ConfigField::LoggingEnabled,
+    ConfigField::LoggingLevel,
+    ConfigField::LoggingFormat,
+    ConfigField::LoggingDirectory,
+];
 
 impl ConfigField {
     pub fn is_text_input(self) -> bool {
@@ -95,51 +136,13 @@ impl ConfigTab {
     }
 
     pub fn next_field(&mut self) {
-        self.focus = match self.focus {
-            ConfigField::LoginEntry if self.logout_selectable() => ConfigField::LogoutEntry,
-            ConfigField::LoginEntry => ConfigField::DownloadThreads,
-            ConfigField::LogoutEntry => ConfigField::DownloadThreads,
-            ConfigField::DownloadThreads => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadSkipExisting => ConfigField::DownloadNoVideo,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::DownloadVerifyZipEocd => ConfigField::MirrorOsuDirect,
-            ConfigField::MirrorOsuDirect => ConfigField::MirrorNerinyan,
-            ConfigField::MirrorNerinyan => ConfigField::MirrorSayobot,
-            ConfigField::MirrorSayobot => ConfigField::MirrorNekoha,
-            ConfigField::MirrorNekoha => ConfigField::MirrorCatboyCentral,
-            ConfigField::MirrorCatboyCentral => ConfigField::MirrorCatboyUs,
-            ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyAsia,
-            ConfigField::MirrorCatboyAsia => ConfigField::MirrorCustomUrl,
-            ConfigField::MirrorCustomUrl => ConfigField::LoggingEnabled,
-            ConfigField::LoggingEnabled => ConfigField::LoggingLevel,
-            ConfigField::LoggingLevel => ConfigField::LoggingFormat,
-            ConfigField::LoggingFormat => ConfigField::LoggingDirectory,
-            ConfigField::LoggingDirectory => ConfigField::LoginEntry,
-        };
+        let fields = self.fields();
+        self.focus = next_field(fields, self.focus);
     }
 
     pub fn prev_field(&mut self) {
-        self.focus = match self.focus {
-            ConfigField::LoginEntry => ConfigField::LoggingDirectory,
-            ConfigField::LogoutEntry => ConfigField::LoginEntry,
-            ConfigField::DownloadThreads if self.logout_selectable() => ConfigField::LogoutEntry,
-            ConfigField::DownloadThreads => ConfigField::LoginEntry,
-            ConfigField::DownloadSkipExisting => ConfigField::DownloadThreads,
-            ConfigField::DownloadNoVideo => ConfigField::DownloadSkipExisting,
-            ConfigField::DownloadVerifyZipEocd => ConfigField::DownloadNoVideo,
-            ConfigField::MirrorOsuDirect => ConfigField::DownloadVerifyZipEocd,
-            ConfigField::MirrorNerinyan => ConfigField::MirrorOsuDirect,
-            ConfigField::MirrorSayobot => ConfigField::MirrorNerinyan,
-            ConfigField::MirrorNekoha => ConfigField::MirrorSayobot,
-            ConfigField::MirrorCatboyCentral => ConfigField::MirrorNekoha,
-            ConfigField::MirrorCatboyUs => ConfigField::MirrorCatboyCentral,
-            ConfigField::MirrorCatboyAsia => ConfigField::MirrorCatboyUs,
-            ConfigField::MirrorCustomUrl => ConfigField::MirrorCatboyAsia,
-            ConfigField::LoggingEnabled => ConfigField::MirrorCustomUrl,
-            ConfigField::LoggingLevel => ConfigField::LoggingEnabled,
-            ConfigField::LoggingFormat => ConfigField::LoggingLevel,
-            ConfigField::LoggingDirectory => ConfigField::LoggingFormat,
-        };
+        let fields = self.fields();
+        self.focus = prev_field(fields, self.focus);
     }
 
     pub fn handle_char(&mut self, ch: char) {
@@ -281,6 +284,14 @@ impl ConfigTab {
 
     pub fn logout_selectable(&self) -> bool {
         matches!(self.login_state, AuthLoginState::LoggedIn)
+    }
+
+    fn fields(&self) -> &'static [ConfigField] {
+        if self.logout_selectable() {
+            LOGGED_IN_CONFIG_FIELDS
+        } else {
+            LOGGED_OUT_CONFIG_FIELDS
+        }
     }
 
     fn evacuate_logout_focus(&mut self) {
