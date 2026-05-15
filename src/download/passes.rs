@@ -25,58 +25,16 @@ async fn download_single_target(
     slot: usize,
     beatmapset_id: u32,
 ) -> crate::utils::Result<DownloadResult> {
-    let download_id = context.id;
-    let status_sender = context.status_sink();
-    let start_label = status::STARTING_DOWNLOAD;
-    status_sender.emit(DownloadEvent::BeatmapStatus {
-        id: download_id,
-        beatmapset_id,
-        stage: BeatmapStage::Downloading,
-        message: format!("{} {}", start_label, beatmapset_id),
-    });
+    emit_download_start(context, beatmapset_id);
 
-    let progress_callback = {
-        let progress_sink = context.status_sink();
-        let progress_id = download_id;
-        Arc::new(move |downloaded: u64, total: u64| {
-            progress_sink.emit(DownloadEvent::BeatmapProgress {
-                id: progress_id,
-                beatmapset_id,
-                thread_index: slot,
-                downloaded,
-                total,
-            });
-        })
-    };
-
-    let thread_status_sender = context.status_sink();
-    let status_reporter = {
-        let sender = thread_status_sender.clone();
-        let slot_index = slot;
-        let active_beatmapset = beatmapset_id;
-        let callback: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |msg: &str| {
-            if msg.starts_with(status::CONTACTING_PREFIX) {
-                return;
-            }
-            let message = msg.to_string();
-            let rate_limited = message.starts_with(status::RATE_LIMITED);
-            sender.emit(DownloadEvent::ThreadStatus {
-                id: download_id,
-                thread_index: slot_index,
-                message,
-                rate_limited,
-                beatmapset_id: Some(active_beatmapset),
-            });
-        });
-        StatusReporter::from(Some(callback))
-    };
-
+    let progress_callback = progress_callback(context, slot, beatmapset_id);
+    let status_reporter = status_reporter(context, slot, beatmapset_id);
     let mirror_pool = context.mirror_pool.clone();
-    let shutdown_inner = context.shutdown.clone();
+    let shutdown = context.shutdown.clone();
     let mut network_retries: u32 = 0;
 
     loop {
-        if shutdown_inner.is_cancelled() {
+        if shutdown.is_cancelled() {
             warn!(
                 download_id = context.id,
                 beatmapset_id, "Download task aborted due to shutdown signal"
@@ -84,58 +42,18 @@ async fn download_single_target(
             break Ok(DownloadResult::Aborted);
         }
 
-        if let Some((mirror_info, wait_for)) = mirror_pool.single_mirror_cooldown()
-            && !wait_for.is_zero()
-        {
-            let wait_secs = wait_for.as_secs().max(1);
-            let wait_message = format!(
-                "{} on {}, waiting {}s before retry",
-                status::RATE_LIMITED,
-                mirror_info.display_name(),
-                wait_secs
-            );
-            context.emit(DownloadEvent::ThreadStatus {
-                id: context.id,
-                thread_index: slot,
-                message: wait_message.clone(),
-                rate_limited: true,
-                beatmapset_id: Some(beatmapset_id),
-            });
-            if cancellable_sleep(wait_for, &shutdown_inner).await {
-                warn!(
-                    download_id = context.id,
-                    beatmapset_id, "Download task aborted during mirror cooldown"
-                );
-                break Ok(DownloadResult::Aborted);
-            }
-            continue;
-        }
-
-        let mirror_plan: Vec<_> = mirror_pool.plan().into_iter().map(Into::into).collect();
-        if mirror_plan.is_empty() {
-            warn!(
-                download_id = context.id,
-                beatmapset_id, "all mirrors penalized, waiting 5s"
-            );
-            if cancellable_sleep(Duration::from_secs(5), &shutdown_inner).await {
-                warn!(
-                    download_id = context.id,
-                    beatmapset_id, "Download task aborted while all mirrors were penalized"
-                );
-                break Ok(DownloadResult::Aborted);
-            }
-            continue;
-        }
-        let first_mirror = mirror_plan
-            .first()
-            .map(|mirror: &crate::mirrors::MirrorEndpoint| mirror.display_name())
-            .unwrap_or("selected mirror");
+        let mirror_plan =
+            match wait_for_ready_mirrors(context, slot, beatmapset_id, &shutdown).await {
+                MirrorReadiness::Ready(plan) => plan,
+                MirrorReadiness::Retry => continue,
+                MirrorReadiness::Aborted => break Ok(DownloadResult::Aborted),
+            };
 
         trace!(
             download_id = context.id,
             beatmapset_id,
             slot,
-            mirror = first_mirror,
+            mirror = first_mirror_label(&mirror_plan),
             "Starting mirror download"
         );
 
@@ -151,32 +69,161 @@ async fn download_single_target(
 
         match result {
             DownloadResult::NetworkError(ref reason) => {
-                network_retries = network_retries.saturating_add(1);
-                if network_retries >= NETWORK_RETRY_CAP {
-                    warn!(
-                        download_id = context.id,
-                        beatmapset_id,
-                        network_retries,
-                        reason = %reason,
-                        "network retry cap reached, skipping silently"
-                    );
-                    break Ok(result);
+                if retry_network_error(context, beatmapset_id, reason, &mut network_retries) {
+                    if cancellable_sleep(Duration::from_secs(5), &shutdown).await {
+                        break Ok(DownloadResult::Aborted);
+                    }
+                    continue;
                 }
-                debug!(
-                    download_id = context.id,
-                    beatmapset_id,
-                    network_retries,
-                    reason = %reason,
-                    "network error, retrying"
-                );
-                if cancellable_sleep(Duration::from_secs(5), &shutdown_inner).await {
-                    break Ok(DownloadResult::Aborted);
-                }
-                continue;
+                break Ok(result);
             }
             other => break Ok(other),
         }
     }
+}
+
+fn emit_download_start(context: &DownloadContext, beatmapset_id: u32) {
+    context.emit(DownloadEvent::BeatmapStatus {
+        id: context.id,
+        beatmapset_id,
+        stage: BeatmapStage::Downloading,
+        message: format!("{} {}", status::STARTING_DOWNLOAD, beatmapset_id),
+    });
+}
+
+fn progress_callback(
+    context: &DownloadContext,
+    slot: usize,
+    beatmapset_id: u32,
+) -> Arc<dyn Fn(u64, u64) + Send + Sync> {
+    let progress_sink = context.status_sink();
+    let download_id = context.id;
+    Arc::new(move |downloaded: u64, total: u64| {
+        progress_sink.emit(DownloadEvent::BeatmapProgress {
+            id: download_id,
+            beatmapset_id,
+            thread_index: slot,
+            downloaded,
+            total,
+        });
+    })
+}
+
+fn status_reporter(context: &DownloadContext, slot: usize, beatmapset_id: u32) -> StatusReporter {
+    let sender = context.status_sink();
+    let download_id = context.id;
+    let callback: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |msg: &str| {
+        if msg.starts_with(status::CONTACTING_PREFIX) {
+            return;
+        }
+        let message = msg.to_string();
+        let rate_limited = message.starts_with(status::RATE_LIMITED);
+        sender.emit(DownloadEvent::ThreadStatus {
+            id: download_id,
+            thread_index: slot,
+            message,
+            rate_limited,
+            beatmapset_id: Some(beatmapset_id),
+        });
+    });
+    StatusReporter::from(Some(callback))
+}
+
+enum MirrorReadiness {
+    Ready(Vec<crate::mirrors::MirrorEndpoint>),
+    Retry,
+    Aborted,
+}
+
+async fn wait_for_ready_mirrors(
+    context: &DownloadContext,
+    slot: usize,
+    beatmapset_id: u32,
+    shutdown: &super::ShutdownToken,
+) -> MirrorReadiness {
+    if let Some((mirror_info, wait_for)) = context.mirror_pool.single_mirror_cooldown()
+        && !wait_for.is_zero()
+    {
+        let wait_secs = wait_for.as_secs().max(1);
+        context.emit(DownloadEvent::ThreadStatus {
+            id: context.id,
+            thread_index: slot,
+            message: format!(
+                "{} on {}, waiting {}s before retry",
+                status::RATE_LIMITED,
+                mirror_info.display_name(),
+                wait_secs
+            ),
+            rate_limited: true,
+            beatmapset_id: Some(beatmapset_id),
+        });
+        if cancellable_sleep(wait_for, shutdown).await {
+            warn!(
+                download_id = context.id,
+                beatmapset_id, "Download task aborted during mirror cooldown"
+            );
+            return MirrorReadiness::Aborted;
+        }
+        return MirrorReadiness::Retry;
+    }
+
+    let mirror_plan: Vec<crate::mirrors::MirrorEndpoint> = context
+        .mirror_pool
+        .plan()
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    if !mirror_plan.is_empty() {
+        return MirrorReadiness::Ready(mirror_plan);
+    }
+
+    warn!(
+        download_id = context.id,
+        beatmapset_id, "all mirrors penalized, waiting 5s"
+    );
+    if cancellable_sleep(Duration::from_secs(5), shutdown).await {
+        warn!(
+            download_id = context.id,
+            beatmapset_id, "Download task aborted while all mirrors were penalized"
+        );
+        return MirrorReadiness::Aborted;
+    }
+    MirrorReadiness::Retry
+}
+
+fn first_mirror_label(mirror_plan: &[crate::mirrors::MirrorEndpoint]) -> &'static str {
+    mirror_plan
+        .first()
+        .map(|mirror| mirror.display_name())
+        .unwrap_or("selected mirror")
+}
+
+fn retry_network_error(
+    context: &DownloadContext,
+    beatmapset_id: u32,
+    reason: &str,
+    network_retries: &mut u32,
+) -> bool {
+    *network_retries = network_retries.saturating_add(1);
+    if *network_retries >= NETWORK_RETRY_CAP {
+        warn!(
+            download_id = context.id,
+            beatmapset_id,
+            network_retries,
+            reason = %reason,
+            "network retry cap reached, skipping silently"
+        );
+        return false;
+    }
+
+    debug!(
+        download_id = context.id,
+        beatmapset_id,
+        network_retries,
+        reason = %reason,
+        "network error, retrying"
+    );
+    true
 }
 
 async fn cancellable_sleep(duration: Duration, shutdown: &super::ShutdownToken) -> bool {
