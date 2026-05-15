@@ -127,7 +127,10 @@ pub async fn download_beatmap(
                 MirrorAttempt::NotFound => {
                     all_transient = false;
                     not_found_count += 1;
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), "Not found (404)"));
+                    last_error = Some(DownloadResult::failed(
+                        Some(mirror.kind()),
+                        "Not found (404)",
+                    ));
                 }
                 MirrorAttempt::RateLimited => {
                     all_transient = false;
@@ -271,7 +274,12 @@ async fn try_mirror_once(
     rate_limiter: Option<&MirrorPool>,
 ) -> Result<MirrorAttempt> {
     emit_status(status_reporter, || {
-        format!("{} #{} from {}", status::FETCHING, beatmapset_id, mirror.display_name())
+        format!(
+            "{} #{} from {}",
+            status::FETCHING,
+            beatmapset_id,
+            mirror.display_name()
+        )
     });
 
     let url = mirror.url_for(beatmapset_id);
@@ -320,7 +328,12 @@ async fn try_mirror_once(
     }
 
     emit_status(status_reporter, || {
-        format!("{} #{} from {}", status::DOWNLOADING, beatmapset_id, mirror.display_name())
+        format!(
+            "{} #{} from {}",
+            status::DOWNLOADING,
+            beatmapset_id,
+            mirror.display_name()
+        )
     });
 
     let result =
@@ -520,39 +533,26 @@ fn extract_filename_from_response(
     response: &reqwest::Response,
     beatmapset_id: u32,
 ) -> Result<String> {
-    let filename = if let Some(content_disposition) =
-        response.headers().get(reqwest::header::CONTENT_DISPOSITION)
-        && let Ok(value) = content_disposition.to_str()
-        && let Some(name) = parse_content_disposition(value)
-    {
-        name
-    } else {
-        format!("{}.osz", beatmapset_id)
-    };
+    let filename = response
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|header| {
+            header.split(';').find_map(|part| {
+                let part = part.trim();
+                part.strip_prefix("filename*=UTF-8''")
+                    .or_else(|| part.strip_prefix("filename="))
+                    .map(|s| s.trim_matches('"').to_string())
+            })
+        })
+        .unwrap_or_else(|| format!("{}.osz", beatmapset_id));
 
-    let has_osz_extension = Path::new(&filename)
+    if Path::new(&filename)
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("osz"));
-
-    if has_osz_extension {
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("osz"))
+    {
         Ok(filename)
     } else {
         Ok(format!("{}.osz", filename))
     }
-}
-
-fn parse_content_disposition(value: &str) -> Option<String> {
-    for part in value.split(';') {
-        let part = part.trim();
-
-        if let Some(filename) = part.strip_prefix("filename*=UTF-8''") {
-            return Some(filename.trim_matches('\"').to_string());
-        }
-
-        if let Some(filename) = part.strip_prefix("filename=") {
-            return Some(filename.trim_matches('\"').to_string());
-        }
-    }
-
-    None
 }

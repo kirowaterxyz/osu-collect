@@ -8,8 +8,9 @@ use super::{
 };
 use crate::{
     config::{
-        Config, save_config,
+        Config,
         constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, UPDATES_TAB_INDEX},
+        save_config,
     },
     download::{
         DownloadConfig, DownloadEvent, DownloadId, DownloadRequest, DownloadStage,

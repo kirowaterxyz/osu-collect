@@ -84,9 +84,7 @@ impl SessionTarget {
             SessionTarget::Collection(collection) => {
                 Arc::new(collection.beatmapsets.iter().map(|s| s.id).collect())
             }
-            SessionTarget::Selective { .. } => {
-                Arc::new(beatmapset_ids.iter().copied().collect())
-            }
+            SessionTarget::Selective { .. } => Arc::new(beatmapset_ids.iter().copied().collect()),
         }
     }
 
@@ -239,13 +237,18 @@ impl DownloadSession {
         .await?;
 
         if precheck.aborted {
-            params.status.log(params.id, params.flavor.precheck_abort_log);
+            params
+                .status
+                .log(params.id, params.flavor.precheck_abort_log);
             params.status.fail(params.id, "Download aborted by user");
             return Ok(None);
         }
 
         if precheck.files_changed {
-            params.status.log(params.id, "Files changed during precheck; rescheduling affected beatmapsets");
+            params.status.log(
+                params.id,
+                "Files changed during precheck; rescheduling affected beatmapsets",
+            );
         }
 
         let PrecheckReport {
@@ -284,7 +287,10 @@ impl DownloadSession {
         };
 
         if totals.skipped > 0 {
-            params.status.log(params.id, format!("{} beatmapsets already verified locally", totals.skipped));
+            params.status.log(
+                params.id,
+                format!("{} beatmapsets already verified locally", totals.skipped),
+            );
             params.status.progress(params.id, &totals);
         }
 

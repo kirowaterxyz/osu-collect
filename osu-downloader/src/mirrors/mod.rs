@@ -112,7 +112,12 @@ impl MirrorKind {
         match self {
             MirrorKind::Catboy(_) => Duration::from_secs(30),
             MirrorKind::Custom => Duration::from_secs(60),
-            other => Duration::from_secs(other.meta().expect("non-catboy/custom has meta").backoff_secs),
+            other => Duration::from_secs(
+                other
+                    .meta()
+                    .expect("non-catboy/custom has meta")
+                    .backoff_secs,
+            ),
         }
     }
 
@@ -125,7 +130,14 @@ impl MirrorKind {
             MirrorKind::Custom => None,
             other => {
                 let meta = other.meta().expect("non-catboy/custom has meta");
-                Some(if no_video { meta.template_no_video } else { meta.template }.to_string())
+                Some(
+                    if no_video {
+                        meta.template_no_video
+                    } else {
+                        meta.template
+                    }
+                    .to_string(),
+                )
             }
         }
     }

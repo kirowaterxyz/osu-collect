@@ -21,8 +21,8 @@ pub fn config_path() -> Option<PathBuf> {
 }
 
 pub fn load_config() -> Result<Config> {
-    let path = config_path()
-        .ok_or_else(|| AppError::config("Unable to determine config directory"))?;
+    let path =
+        config_path().ok_or_else(|| AppError::config("Unable to determine config directory"))?;
     load_config_from(&path)
 }
 
@@ -47,8 +47,7 @@ pub fn load_config_from(path: impl AsRef<Path>) -> Result<Config> {
 }
 
 pub fn save_config(config: &Config) -> Result<PathBuf> {
-    let path = config_path()
-        .ok_or_else(|| AppError::config("Unable to find config directory"))?;
+    let path = config_path().ok_or_else(|| AppError::config("Unable to find config directory"))?;
 
     if let Some(parent) = path.parent()
         && !parent.exists()
@@ -56,9 +55,8 @@ pub fn save_config(config: &Config) -> Result<PathBuf> {
         fs::create_dir_all(parent)?;
     }
 
-    let contents = toml::to_string_pretty(config).map_err(|err| {
-        AppError::config_dynamic(format!("failed to serialize config: {}", err))
-    })?;
+    let contents = toml::to_string_pretty(config)
+        .map_err(|err| AppError::config_dynamic(format!("failed to serialize config: {}", err)))?;
 
     let tmp_path = path.with_extension("toml.tmp");
     {

@@ -54,7 +54,10 @@ impl StatusSink {
     }
 
     pub fn log(&self, id: DownloadId, message: impl Into<String>) {
-        self.emit(DownloadEvent::Log { id, message: message.into() });
+        self.emit(DownloadEvent::Log {
+            id,
+            message: message.into(),
+        });
     }
 
     pub fn stage(&self, id: DownloadId, stage: crate::download::DownloadStage) {
@@ -62,11 +65,17 @@ impl StatusSink {
     }
 
     pub fn fail(&self, id: DownloadId, message: impl Into<String>) {
-        self.emit(DownloadEvent::Failed { id, message: message.into() });
+        self.emit(DownloadEvent::Failed {
+            id,
+            message: message.into(),
+        });
     }
 
     pub fn finished(&self, id: DownloadId, summary: &crate::download::DownloadSummary) {
-        self.emit(DownloadEvent::Finished { id, summary: summary.clone() });
+        self.emit(DownloadEvent::Finished {
+            id,
+            summary: summary.clone(),
+        });
     }
 
     pub fn target(&self, id: DownloadId, remaining: usize) {
@@ -88,7 +97,10 @@ impl StatusSink {
     }
 
     pub fn low_disk_space(&self, id: DownloadId, available_bytes: u64) {
-        self.emit(DownloadEvent::LowDiskSpace { id, available_bytes });
+        self.emit(DownloadEvent::LowDiskSpace {
+            id,
+            available_bytes,
+        });
     }
 }
 

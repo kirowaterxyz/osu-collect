@@ -243,9 +243,8 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
     let _session_lock = _lock_guard;
 
     status.log(id, "Fetching collection size from Nekoha...");
-    let api_client = osu_downloader::http::create_api_client().map_err(|e| {
-        DownloadError::internal(format!("failed to create API client: {e}"))
-    })?;
+    let api_client = osu_downloader::http::create_api_client()
+        .map_err(|e| DownloadError::internal(format!("failed to create API client: {e}")))?;
     let size_result =
         super::size_fetcher::fetch_beatmapset_sizes(&api_client, &beatmapset_ids).await;
     status.emit(DownloadEvent::CollectionSizeResolved {
@@ -253,14 +252,19 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         total_bytes: size_result.total_bytes,
     });
     if size_result.missing_count > 0 {
-        status.log(id, format!("Size info unavailable for {} beatmapsets", size_result.missing_count));
+        status.log(
+            id,
+            format!(
+                "Size info unavailable for {} beatmapsets",
+                size_result.missing_count
+            ),
+        );
     }
 
     check_and_warn_low_disk_space(&status, id, &output.output_dir);
 
-    let download_client = osu_downloader::http::create_download_client(None).map_err(|e| {
-        DownloadError::internal(format!("failed to create download client: {e}"))
-    })?;
+    let download_client = osu_downloader::http::create_download_client(None)
+        .map_err(|e| DownloadError::internal(format!("failed to create download client: {e}")))?;
     let thread_count = concurrent.max(1) as usize;
     let ctx = build_download_context(BuildContextParams {
         id,
@@ -385,17 +389,29 @@ async fn handle_shutdown_cleanup(
             removed = cleanup_outcome.removed,
             "Removed incomplete beatmap archives"
         );
-        status.log(id, format!("Cleaned up {} incomplete beatmap archives", cleanup_outcome.removed));
+        status.log(
+            id,
+            format!(
+                "Cleaned up {} incomplete beatmap archives",
+                cleanup_outcome.removed
+            ),
+        );
     }
     for (path, message) in &cleanup_outcome.failures {
         warn!(target = %path.display(), error = %message, "Failed to cleanup file");
-        status.log(id, format!("Cleanup warning for {}: {}", path.display(), message));
+        status.log(
+            id,
+            format!("Cleanup warning for {}: {}", path.display(), message),
+        );
     }
 
     match try_remove_empty_output_dir(output_dir).await {
         Ok(()) => {
             info!(dir = %output_dir.display(), "Removed empty output directory");
-            status.log(id, format!("Removed empty directory {}", output_dir.display()));
+            status.log(
+                id,
+                format!("Removed empty directory {}", output_dir.display()),
+            );
         }
         Err(DownloadError::DirectoryNotEmpty) => {}
         Err(err) => {

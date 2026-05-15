@@ -294,7 +294,10 @@ impl HomeTab {
             (self.osu_direct, MirrorKind::OsuDirect),
             (self.sayobot, MirrorKind::Sayobot),
             (self.nekoha, MirrorKind::Nekoha),
-            (self.catboy_central, MirrorKind::Catboy(CatboyRegion::Central)),
+            (
+                self.catboy_central,
+                MirrorKind::Catboy(CatboyRegion::Central),
+            ),
             (self.catboy_us, MirrorKind::Catboy(CatboyRegion::Us)),
             (self.catboy_asia, MirrorKind::Catboy(CatboyRegion::Asia)),
         ];
@@ -302,7 +305,11 @@ impl HomeTab {
         let mut mirrors: Vec<Mirror> = builtin_checks
             .iter()
             .filter_map(|&(enabled, kind)| {
-                if enabled { Mirror::builtin(kind, self.no_video) } else { None }
+                if enabled {
+                    Mirror::builtin(kind, self.no_video)
+                } else {
+                    None
+                }
             })
             .collect();
 

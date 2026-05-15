@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
 };
 use tokio::fs;
-use tracing::warn;
 
 #[derive(Clone, Default)]
 pub struct CleanupTracker {
