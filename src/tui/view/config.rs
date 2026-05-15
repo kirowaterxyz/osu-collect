@@ -205,7 +205,7 @@ fn action_style(focused: bool) -> Style {
 fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
     let status = match state {
         AuthLoginState::LoggedOut => Some((
-            "not logged in".to_string(),
+            "logged out".to_string(),
             Style::default().fg(components::TEXT_FAINT),
         )),
         AuthLoginState::InProgress(step) if !step.is_empty() => Some((
@@ -233,10 +233,8 @@ fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
         ),
     ];
     if let Some((text, style)) = status {
-        let paren_style = Style::default().fg(components::TEXT_FAINT);
-        spans.push(Span::styled(" (", paren_style));
+        spans.push(" ".into());
         spans.push(Span::styled(text, style));
-        spans.push(Span::styled(")", paren_style));
     }
     ListItem::new(Line::from(spans))
 }
