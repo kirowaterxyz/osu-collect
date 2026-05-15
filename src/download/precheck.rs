@@ -1,6 +1,6 @@
 use super::{
     BeatmapStage, DownloadError, DownloadEvent, DownloadId, ShutdownToken,
-    integrity::ExpectationIndex,
+    integrity::{ExpectationData, ExpectationIndex},
 };
 use crate::worker::{
     StatusSink,
@@ -65,122 +65,23 @@ pub(crate) async fn verify_existing_beatmapsets(
     // Capture initial snapshot for change detection
     let initial_snapshot = capture_osz_snapshot(output_dir).await?;
 
-    let mut satisfied = HashSet::new();
-    let mut skipped: u32 = 0;
-    let mut verified_bytes: u64 = 0;
-    let mut satisfied_sizes: HashMap<u32, u64> = HashMap::new();
-    let mut unverified_maps: HashSet<u32> = HashSet::new();
-
+    let mut state = PrecheckState::default();
     let expectation_data = expectations.data();
-
-    let mut dir = fs::read_dir(output_dir).await?;
+    let CandidateScan {
+        candidates,
+        orphan_temp_count,
+        aborted,
+    } = scan_candidates(output_dir, &expectation_data, shutdown).await?;
+    if aborted {
+        return Ok(state.aborted_report());
+    }
 
     let worker_count = parallelism.max(1);
-
-    #[derive(Debug)]
-    struct FileRecord {
-        beatmapset_id: u32,
-        file_size: u64,
-        path: PathBuf,
-        validation_error: Option<String>,
-        duration_us: u64,
-    }
-
-    let mut candidates = Vec::new();
-    let mut orphan_temp_count: usize = 0;
-    while let Some(entry) = dir.next_entry().await? {
-        if shutdown.is_cancelled() {
-            return Ok(PrecheckReport {
-                satisfied,
-                skipped,
-                unverified: Vec::new(),
-                verified_bytes,
-                aborted: true,
-                files_changed: false,
-            });
-        }
-
-        let file_name = entry.file_name();
-        if is_orphan_temp_name(&file_name) {
-            let path = entry.path();
-            match fs::remove_file(&path).await {
-                Ok(()) => {
-                    orphan_temp_count = orphan_temp_count.saturating_add(1);
-                    debug!(file = %path.display(), "Removed orphaned temp download file");
-                }
-                Err(err) => {
-                    warn!(file = %path.display(), error = %err, "Failed to remove orphaned temp download file");
-                }
-            }
-            continue;
-        }
-        if !is_osz_name(&file_name) {
-            continue;
-        }
-
-        let path = entry.path();
-
-        let Some(beatmapset_id) = extract_beatmapset_id_from_filename(&path) else {
-            debug!(file = %path.display(), "Could not extract beatmapset ID from filename");
-            continue;
-        };
-
-        if !expectation_data.by_set.contains(&beatmapset_id) {
-            continue;
-        }
-
-        candidates.push((path, beatmapset_id));
-    }
-
     let mut tasks = stream::iter(candidates)
-        .map(|(path, beatmapset_id)| {
-            let opts = ArchiveValidationOptions {
-                verify_zip_eocd: options.verify_zip_eocd,
-                remove_on_invalid: true,
-            };
-            let shutdown_inner = shutdown.clone();
-            async move {
-                if shutdown_inner.is_cancelled() {
-                    return Ok(None);
-                }
-
-                let verify_start = Instant::now();
-                let mut validation_error = None;
-                let mut file_size = 0u64;
-
-                match validate_archive(&path, opts).await {
-                    Ok(ArchiveValidationResult::Valid) => {
-                        if let Ok(meta) = fs::metadata(&path).await {
-                            file_size = meta.len();
-                        }
-                    }
-                    Ok(ArchiveValidationResult::NotFound) => {
-                        return Ok(None);
-                    }
-                    Ok(ArchiveValidationResult::Invalid(reason))
-                    | Ok(ArchiveValidationResult::Removed(reason)) => {
-                        validation_error = Some(reason);
-                    }
-                    Err(e) => {
-                        return Err((path.clone(), e.to_string()));
-                    }
-                }
-
-                let duration_us = verify_start.elapsed().as_micros() as u64;
-                Ok(Some(FileRecord {
-                    beatmapset_id,
-                    file_size,
-                    path,
-                    validation_error,
-                    duration_us,
-                }))
-            }
-        })
+        .map(|candidate| validate_existing_candidate(candidate, options, shutdown.clone()))
         .buffer_unordered(worker_count);
 
-    let mut unverified_list = Vec::new();
     let mut aborted = false;
-
     while let Some(result) = tasks.next().await {
         if shutdown.is_cancelled() {
             aborted = true;
@@ -188,65 +89,7 @@ pub(crate) async fn verify_existing_beatmapsets(
         }
 
         match result {
-            Ok(Some(record)) => {
-                if let Some(error) = record.validation_error {
-                    if unverified_maps.insert(record.beatmapset_id) {
-                        unverified_list.push(record.beatmapset_id);
-                    }
-                    warn!(
-                        download_id = id,
-                        beatmapset_id = record.beatmapset_id,
-                        file = %record.path.display(),
-                        error = %error,
-                        "Existing archive failed validation"
-                    );
-                    if options.notify_verified {
-                        status.emit(DownloadEvent::BeatmapStatus {
-                            id,
-                            beatmapset_id: record.beatmapset_id,
-                            stage: BeatmapStage::Failed,
-                            message: format!("Existing file failed validation: {}", error),
-                        });
-                        status.emit(DownloadEvent::BeatmapVerified {
-                            id,
-                            duration_us: record.duration_us,
-                        });
-                        status.emit(DownloadEvent::OverallProgress {
-                            id,
-                            downloaded: 0,
-                            skipped,
-                            failed: 0,
-                            unverified: unverified_list.len() as u32,
-                        });
-                    }
-                    continue;
-                }
-
-                if satisfied.insert(record.beatmapset_id) {
-                    skipped = skipped.saturating_add(1);
-                    verified_bytes += record.file_size;
-                    satisfied_sizes.insert(record.beatmapset_id, record.file_size);
-                    if options.notify_verified {
-                        status.emit(DownloadEvent::BeatmapStatus {
-                            id,
-                            beatmapset_id: record.beatmapset_id,
-                            stage: BeatmapStage::Skipped,
-                            message: "Already present".to_string(),
-                        });
-                        status.emit(DownloadEvent::BeatmapVerified {
-                            id,
-                            duration_us: record.duration_us,
-                        });
-                        status.emit(DownloadEvent::OverallProgress {
-                            id,
-                            downloaded: 0,
-                            skipped,
-                            failed: 0,
-                            unverified: unverified_list.len() as u32,
-                        });
-                    }
-                }
-            }
+            Ok(Some(record)) => state.record(id, record, options, status),
             Ok(None) => {}
             Err((path, error)) => {
                 warn!(file = %path.display(), error = %error, "Failed to process existing file");
@@ -257,15 +100,15 @@ pub(crate) async fn verify_existing_beatmapsets(
     if aborted {
         info!(
             download_id = id,
-            verified = satisfied.len(),
+            verified = state.satisfied.len(),
             "Existing file verification aborted by shutdown"
         );
     } else {
         info!(
             download_id = id,
-            verified = satisfied.len(),
-            skipped,
-            unverified = unverified_list.len(),
+            verified = state.satisfied.len(),
+            skipped = state.skipped,
+            unverified = state.unverified.len(),
             orphan_temp = orphan_temp_count,
             "Existing file verification complete"
         );
@@ -314,34 +157,280 @@ pub(crate) async fn verify_existing_beatmapsets(
             "Revalidating beatmapsets altered during precheck"
         );
         for beatmapset_id in changed_ids {
-            if satisfied.remove(&beatmapset_id) {
-                skipped = skipped.saturating_sub(1);
-                if let Some(size) = satisfied_sizes.remove(&beatmapset_id) {
-                    verified_bytes = verified_bytes.saturating_sub(size);
-                }
-            }
-            if unverified_maps.insert(beatmapset_id) {
-                unverified_list.push(beatmapset_id);
-            }
-            if options.notify_verified {
-                status.emit(DownloadEvent::BeatmapStatus {
-                    id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Pending,
-                    message: "File changed during precheck; re-downloading".to_string(),
-                });
-            }
+            state.record_changed(id, beatmapset_id, options, status);
         }
     }
 
     Ok(PrecheckReport {
-        satisfied,
-        skipped,
-        unverified: unverified_list,
-        verified_bytes,
+        satisfied: state.satisfied,
+        skipped: state.skipped,
+        unverified: state.unverified,
+        verified_bytes: state.verified_bytes,
         aborted,
         files_changed,
     })
+}
+
+#[derive(Default)]
+struct PrecheckState {
+    satisfied: HashSet<u32>,
+    skipped: u32,
+    unverified: Vec<u32>,
+    verified_bytes: u64,
+    satisfied_sizes: HashMap<u32, u64>,
+    unverified_maps: HashSet<u32>,
+}
+
+impl PrecheckState {
+    fn aborted_report(&self) -> PrecheckReport {
+        PrecheckReport {
+            satisfied: self.satisfied.clone(),
+            skipped: self.skipped,
+            unverified: Vec::new(),
+            verified_bytes: self.verified_bytes,
+            aborted: true,
+            files_changed: false,
+        }
+    }
+
+    fn record(
+        &mut self,
+        id: DownloadId,
+        mut record: FileRecord,
+        options: PrecheckOptions,
+        status: &StatusSink,
+    ) {
+        if let Some(error) = record.validation_error.take() {
+            self.record_invalid(id, record, error, options, status);
+            return;
+        }
+
+        if !self.satisfied.insert(record.beatmapset_id) {
+            return;
+        }
+
+        self.skipped = self.skipped.saturating_add(1);
+        self.verified_bytes += record.file_size;
+        self.satisfied_sizes
+            .insert(record.beatmapset_id, record.file_size);
+
+        if options.notify_verified {
+            status.emit(DownloadEvent::BeatmapStatus {
+                id,
+                beatmapset_id: record.beatmapset_id,
+                stage: BeatmapStage::Skipped,
+                message: "Already present".to_string(),
+            });
+            status.emit(DownloadEvent::BeatmapVerified {
+                id,
+                duration_us: record.duration_us,
+            });
+            self.emit_progress(id, status);
+        }
+    }
+
+    fn record_invalid(
+        &mut self,
+        id: DownloadId,
+        record: FileRecord,
+        error: String,
+        options: PrecheckOptions,
+        status: &StatusSink,
+    ) {
+        if self.unverified_maps.insert(record.beatmapset_id) {
+            self.unverified.push(record.beatmapset_id);
+        }
+        warn!(
+            download_id = id,
+            beatmapset_id = record.beatmapset_id,
+            file = %record.path.display(),
+            error = %error,
+            "Existing archive failed validation"
+        );
+        if options.notify_verified {
+            status.emit(DownloadEvent::BeatmapStatus {
+                id,
+                beatmapset_id: record.beatmapset_id,
+                stage: BeatmapStage::Failed,
+                message: format!("Existing file failed validation: {error}"),
+            });
+            status.emit(DownloadEvent::BeatmapVerified {
+                id,
+                duration_us: record.duration_us,
+            });
+            self.emit_progress(id, status);
+        }
+    }
+
+    fn record_changed(
+        &mut self,
+        id: DownloadId,
+        beatmapset_id: u32,
+        options: PrecheckOptions,
+        status: &StatusSink,
+    ) {
+        if self.satisfied.remove(&beatmapset_id) {
+            self.skipped = self.skipped.saturating_sub(1);
+            if let Some(size) = self.satisfied_sizes.remove(&beatmapset_id) {
+                self.verified_bytes = self.verified_bytes.saturating_sub(size);
+            }
+        }
+        if self.unverified_maps.insert(beatmapset_id) {
+            self.unverified.push(beatmapset_id);
+        }
+        if options.notify_verified {
+            status.emit(DownloadEvent::BeatmapStatus {
+                id,
+                beatmapset_id,
+                stage: BeatmapStage::Pending,
+                message: "File changed during precheck; re-downloading".to_string(),
+            });
+        }
+    }
+
+    fn emit_progress(&self, id: DownloadId, status: &StatusSink) {
+        status.emit(DownloadEvent::OverallProgress {
+            id,
+            downloaded: 0,
+            skipped: self.skipped,
+            failed: 0,
+            unverified: self.unverified.len() as u32,
+        });
+    }
+}
+
+#[derive(Clone)]
+struct Candidate {
+    path: PathBuf,
+    beatmapset_id: u32,
+}
+
+struct CandidateScan {
+    candidates: Vec<Candidate>,
+    orphan_temp_count: usize,
+    aborted: bool,
+}
+
+#[derive(Debug)]
+struct FileRecord {
+    beatmapset_id: u32,
+    file_size: u64,
+    path: PathBuf,
+    validation_error: Option<String>,
+    duration_us: u64,
+}
+
+async fn scan_candidates(
+    output_dir: &Path,
+    expectations: &ExpectationData,
+    shutdown: &ShutdownToken,
+) -> Result<CandidateScan, DownloadError> {
+    let mut dir = fs::read_dir(output_dir).await?;
+    let mut candidates = Vec::new();
+    let mut orphan_temp_count = 0usize;
+
+    while let Some(entry) = dir.next_entry().await? {
+        if shutdown.is_cancelled() {
+            return Ok(CandidateScan {
+                candidates: Vec::new(),
+                orphan_temp_count,
+                aborted: true,
+            });
+        }
+
+        let file_name = entry.file_name();
+        if is_orphan_temp_name(&file_name) {
+            orphan_temp_count += remove_orphan_temp(entry.path()).await as usize;
+            continue;
+        }
+        if !is_osz_name(&file_name) {
+            continue;
+        }
+
+        let path = entry.path();
+        let Some(beatmapset_id) = extract_beatmapset_id_from_filename(&path) else {
+            debug!(file = %path.display(), "Could not extract beatmapset ID from filename");
+            continue;
+        };
+
+        if expectations.by_set.contains(&beatmapset_id) {
+            candidates.push(Candidate {
+                path,
+                beatmapset_id,
+            });
+        }
+    }
+
+    if shutdown.is_cancelled() {
+        return Ok(CandidateScan {
+            candidates: Vec::new(),
+            orphan_temp_count,
+            aborted: true,
+        });
+    }
+
+    Ok(CandidateScan {
+        candidates,
+        orphan_temp_count,
+        aborted: false,
+    })
+}
+
+async fn remove_orphan_temp(path: PathBuf) -> bool {
+    match fs::remove_file(&path).await {
+        Ok(()) => {
+            debug!(file = %path.display(), "Removed orphaned temp download file");
+            true
+        }
+        Err(err) => {
+            warn!(file = %path.display(), error = %err, "Failed to remove orphaned temp download file");
+            false
+        }
+    }
+}
+
+async fn validate_existing_candidate(
+    candidate: Candidate,
+    options: PrecheckOptions,
+    shutdown: ShutdownToken,
+) -> Result<Option<FileRecord>, (PathBuf, String)> {
+    if shutdown.is_cancelled() {
+        return Ok(None);
+    }
+
+    let verify_start = Instant::now();
+    let opts = ArchiveValidationOptions {
+        verify_zip_eocd: options.verify_zip_eocd,
+        remove_on_invalid: true,
+    };
+    let mut validation_error = None;
+    let mut file_size = 0u64;
+
+    match validate_archive(&candidate.path, opts).await {
+        Ok(ArchiveValidationResult::Valid) => {
+            if let Ok(meta) = fs::metadata(&candidate.path).await {
+                file_size = meta.len();
+            }
+        }
+        Ok(ArchiveValidationResult::NotFound) => {
+            return Ok(None);
+        }
+        Ok(ArchiveValidationResult::Invalid(reason))
+        | Ok(ArchiveValidationResult::Removed(reason)) => {
+            validation_error = Some(reason);
+        }
+        Err(e) => {
+            return Err((candidate.path.clone(), e.to_string()));
+        }
+    }
+
+    Ok(Some(FileRecord {
+        beatmapset_id: candidate.beatmapset_id,
+        file_size,
+        path: candidate.path,
+        validation_error,
+        duration_us: verify_start.elapsed().as_micros() as u64,
+    }))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -536,5 +625,31 @@ mod tests {
             extract_beatmapset_id_from_filename(Path::new("123abc.osz")),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn scans_expected_osz_candidates_and_removes_orphan_temps() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let expected = dir.path().join("123 artist.osz");
+        let unexpected = dir.path().join("456 artist.osz");
+        let orphan = dir.path().join("789 artist.osz.part-1-2");
+        let note = dir.path().join("note.txt");
+
+        std::fs::write(&expected, b"expected").expect("write expected osz");
+        std::fs::write(&unexpected, b"unexpected").expect("write unexpected osz");
+        std::fs::write(&orphan, b"orphan").expect("write orphan temp");
+        std::fs::write(&note, b"note").expect("write note");
+
+        let expectations = ExpectationIndex::from_ids(&[123]);
+        let scan = scan_candidates(dir.path(), &expectations.data(), &ShutdownToken::new())
+            .await
+            .expect("scan candidates");
+
+        assert!(!scan.aborted);
+        assert_eq!(scan.orphan_temp_count, 1);
+        assert_eq!(scan.candidates.len(), 1);
+        assert_eq!(scan.candidates[0].beatmapset_id, 123);
+        assert_eq!(scan.candidates[0].path, expected);
+        assert!(!orphan.exists());
     }
 }
