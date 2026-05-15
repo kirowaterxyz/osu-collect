@@ -155,28 +155,31 @@ fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {
     let focused = form.focus == ConfigField::LoginEntry;
     let available = crate::auth::bundled_credentials().is_some();
 
-    let (label, style) = if !available {
-        (
-            "login unavailable (no credentials in build)".to_string(),
+    let mut spans = vec![components::focus_span(focused)];
+    if !available {
+        spans.push(Span::styled(
+            "login unavailable (no credentials in build)",
             Style::default().fg(components::TEXT_FAINT),
-        )
+        ));
     } else {
         match &form.login_state {
-            AuthLoginState::LoggedOut => ("log in".to_string(), action_style(focused)),
-            AuthLoginState::InProgress(_) => (
-                "logging in…".to_string(),
-                Style::default()
-                    .fg(components::WARNING)
-                    .add_modifier(Modifier::ITALIC),
-            ),
-            AuthLoginState::LoggedIn => ("re-login".to_string(), action_style(focused)),
+            AuthLoginState::LoggedOut => {
+                spans.push(Span::styled("log in", action_style(focused)));
+            }
+            AuthLoginState::InProgress(_) => {
+                spans.push(Span::styled(
+                    "logging in...",
+                    Style::default().fg(components::WARNING),
+                ));
+                spans.push(Span::styled(" (cancel?)", action_style(focused)));
+            }
+            AuthLoginState::LoggedIn => {
+                spans.push(Span::styled("re-login", action_style(focused)));
+            }
         }
-    };
+    }
 
-    ListItem::new(Line::from(vec![
-        components::focus_span(focused),
-        Span::styled(label, style),
-    ]))
+    ListItem::new(Line::from(spans))
 }
 
 fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {

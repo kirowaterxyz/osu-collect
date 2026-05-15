@@ -422,6 +422,23 @@ mod tests {
     }
 
     #[test]
+    fn cancel_login_returns_to_logged_out_with_info_message() {
+        use crate::app::messages::MessageKind;
+
+        let mut tab = tab_logged_out();
+        tab.set_login_in_progress();
+        assert!(matches!(tab.login_state, AuthLoginState::InProgress(_)));
+
+        tab.set_login_failed();
+        tab.set_info("login cancelled");
+
+        assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
+        let msg = tab.message.as_ref().expect("info message preserved");
+        assert_eq!(msg.kind, MessageKind::Info);
+        assert_eq!(msg.text, "login cancelled");
+    }
+
+    #[test]
     fn logout_clears_state() {
         let mut tab = tab_logged_in();
         tab.set_logged_out();

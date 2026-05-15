@@ -52,6 +52,7 @@ pub enum AppCommand {
         client_id: String,
         client_secret: String,
     },
+    CancelLogin,
     Logout,
     ScanLocalDatabase,
     RecheckFailedMaps,
@@ -157,7 +158,9 @@ impl App {
 
     fn request_login(&mut self) -> Option<AppCommand> {
         if matches!(self.config.login_state, AuthLoginState::InProgress(_)) {
-            return None;
+            self.config.set_login_failed();
+            self.config.set_info("login cancelled");
+            return Some(AppCommand::CancelLogin);
         }
 
         let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {

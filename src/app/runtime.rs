@@ -1,4 +1,4 @@
-use super::{App, AppCommand, collection_state, failed_maps, snapshots};
+use super::{App, AppCommand, AuthLoginState, collection_state, failed_maps, snapshots};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id_pub},
     auth,
@@ -89,6 +89,7 @@ pub async fn run(
 
     let mut should_quit = false;
     let mut active_downloads: HashMap<DownloadId, DownloadHandle> = HashMap::new();
+    let mut login_task: Option<tokio::task::JoinHandle<()>> = None;
 
     while !should_quit {
         terminal.draw(|f| draw(f, &app))?;
@@ -113,14 +114,29 @@ pub async fn run(
             }
             Some(event) = auth_rx.recv() => {
                 trace!(?event, "Received auth event");
+                if matches!(event, AuthEvent::LoginComplete(_)) {
+                    login_task = None;
+                }
                 handle_auth_event(event, &mut app);
             }
             Some(input) = input_rx.recv() => {
                 trace!(?input, "Processing input event");
-                should_quit = handle_input(input, &mut app, &download_tx, &updates_tx, &auth_tx, &mut active_downloads);
+                should_quit = handle_input(
+                    input,
+                    &mut app,
+                    &download_tx,
+                    &updates_tx,
+                    &auth_tx,
+                    &mut active_downloads,
+                    &mut login_task,
+                );
             }
             else => break,
         }
+    }
+
+    if let Some(handle) = login_task.take() {
+        handle.abort();
     }
 
     app.home.quit_prompt = false;
@@ -149,11 +165,18 @@ fn handle_input(
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
     auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
+    login_task: &mut Option<tokio::task::JoinHandle<()>>,
 ) -> bool {
     match input {
-        InputEvent::Key(key) => {
-            handle_key_event(key, app, download_tx, updates_tx, auth_tx, downloads)
-        }
+        InputEvent::Key(key) => handle_key_event(
+            key,
+            app,
+            download_tx,
+            updates_tx,
+            auth_tx,
+            downloads,
+            login_task,
+        ),
         InputEvent::Resize => false,
         InputEvent::Tick => {
             app.clear_expired_messages();
@@ -169,6 +192,7 @@ fn handle_key_event(
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
     auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
+    login_task: &mut Option<tokio::task::JoinHandle<()>>,
 ) -> bool {
     trace!(?key, "Handling key event");
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -208,7 +232,16 @@ fn handle_key_event(
             client_id,
             client_secret,
         }) => {
-            spawn_login_task(client_id, client_secret, auth_tx.clone());
+            if let Some(prev) = login_task.take() {
+                prev.abort();
+            }
+            *login_task = Some(spawn_login_task(client_id, client_secret, auth_tx.clone()));
+        }
+        Some(AppCommand::CancelLogin) => {
+            if let Some(handle) = login_task.take() {
+                handle.abort();
+                info!("Login cancelled by user");
+            }
         }
         Some(AppCommand::Logout) => {
             spawn_logout_task(auth_tx.clone());
@@ -236,6 +269,11 @@ fn handle_key_event(
 
 fn handle_auth_event(event: AuthEvent, app: &mut App) {
     match event {
+        AuthEvent::LoginComplete(_)
+            if !matches!(app.config.login_state, AuthLoginState::InProgress(_)) =>
+        {
+            debug!("Discarding stale login event (user cancelled or already settled)");
+        }
         AuthEvent::LoginComplete(Ok(())) => {
             app.config.set_login_complete();
             app.config.set_info("login successful");
@@ -259,7 +297,7 @@ fn spawn_login_task(
     client_id: String,
     client_secret: String,
     tx: mpsc::UnboundedSender<AuthEvent>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         let result = auth::run_login_flow(&client, &client_id, &client_secret)
@@ -267,7 +305,7 @@ fn spawn_login_task(
             .map(|_| ())
             .map_err(|err| err.to_string());
         let _ = tx.send(AuthEvent::LoginComplete(result));
-    });
+    })
 }
 
 fn spawn_logout_task(tx: mpsc::UnboundedSender<AuthEvent>) {
