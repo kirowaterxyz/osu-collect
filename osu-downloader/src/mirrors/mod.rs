@@ -54,67 +54,79 @@ pub enum MirrorKind {
     Custom,
 }
 
+struct ProviderMeta {
+    label: &'static str,
+    backoff_secs: u64,
+    template: &'static str,
+    template_no_video: &'static str,
+}
+
 impl MirrorKind {
+    fn meta(&self) -> Option<ProviderMeta> {
+        match self {
+            MirrorKind::Nerinyan => Some(ProviderMeta {
+                label: "Nerinyan",
+                backoff_secs: 45,
+                template: "https://api.nerinyan.moe/d/{id}",
+                template_no_video: "https://api.nerinyan.moe/d/{id}?nv=1",
+            }),
+            MirrorKind::OsuDirect => Some(ProviderMeta {
+                label: "osu.direct",
+                backoff_secs: 75,
+                template: "https://osu.direct/d/{id}",
+                template_no_video: "https://osu.direct/d/{id}n",
+            }),
+            MirrorKind::Sayobot => Some(ProviderMeta {
+                label: "Sayobot",
+                backoff_secs: 60,
+                template: "https://dl.sayobot.cn/beatmaps/download/full/{id}",
+                template_no_video: "https://dl.sayobot.cn/beatmaps/download/novideo/{id}",
+            }),
+            MirrorKind::Nekoha => Some(ProviderMeta {
+                label: "Nekoha",
+                backoff_secs: 45,
+                template: "https://mirror.nekoha.moe/api4/download/{id}",
+                template_no_video: "https://mirror.nekoha.moe/api4/download/{id}",
+            }),
+            MirrorKind::Official => Some(ProviderMeta {
+                label: "osu! API",
+                backoff_secs: 60,
+                template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
+                template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
+            }),
+            MirrorKind::Catboy(_) | MirrorKind::Custom => None,
+        }
+    }
+
     /// Get the display label for this mirror
     #[inline]
     pub fn label(&self) -> &'static str {
         match self {
-            MirrorKind::Nerinyan => "Nerinyan",
             MirrorKind::Catboy(region) => region.label(),
-            MirrorKind::OsuDirect => "osu.direct",
-            MirrorKind::Sayobot => "Sayobot",
-            MirrorKind::Nekoha => "Nekoha",
-            MirrorKind::Official => "osu! API",
             MirrorKind::Custom => "Custom",
+            other => other.meta().expect("non-catboy/custom has meta").label,
         }
     }
 
     pub(crate) fn rate_limit_backoff(&self) -> Duration {
         match self {
-            MirrorKind::Nerinyan => Duration::from_secs(45),
             MirrorKind::Catboy(_) => Duration::from_secs(30),
-            MirrorKind::OsuDirect => Duration::from_secs(75),
-            MirrorKind::Sayobot => Duration::from_secs(60),
-            MirrorKind::Nekoha => Duration::from_secs(45),
-            MirrorKind::Official => Duration::from_secs(60),
             MirrorKind::Custom => Duration::from_secs(60),
+            other => Duration::from_secs(other.meta().expect("non-catboy/custom has meta").backoff_secs),
         }
     }
 
     pub(crate) fn download_template(&self, no_video: bool) -> Option<String> {
         match self {
-            MirrorKind::Nerinyan => {
-                let template = if no_video {
-                    "https://api.nerinyan.moe/d/{id}?nv=1"
-                } else {
-                    "https://api.nerinyan.moe/d/{id}"
-                };
-                Some(template.to_string())
-            }
             MirrorKind::Catboy(region) => {
                 let suffix = if no_video { "n" } else { "" };
                 Some(format!("{}/d/{{id}}{}", region.base_url(), suffix))
             }
-            MirrorKind::OsuDirect => {
-                let suffix = if no_video { "n" } else { "" };
-                Some(format!("https://osu.direct/d/{{id}}{}", suffix))
-            }
-            MirrorKind::Sayobot => {
-                let template = if no_video {
-                    "https://dl.sayobot.cn/beatmaps/download/novideo/{id}"
-                } else {
-                    "https://dl.sayobot.cn/beatmaps/download/full/{id}"
-                };
-                Some(template.to_string())
-            }
-            MirrorKind::Nekoha => {
-                // Nekoha doesn't support no-video downloads
-                Some("https://mirror.nekoha.moe/api4/download/{id}".to_string())
-            }
-            MirrorKind::Official => {
-                Some("https://osu.ppy.sh/api/v2/beatmapsets/{id}/download".to_string())
-            }
             MirrorKind::Custom => None,
+            other => {
+                let meta = other.meta().expect("non-catboy/custom has meta");
+                Some(if no_video { meta.template_no_video } else { meta.template }.to_string())
+            }
         }
     }
 }
