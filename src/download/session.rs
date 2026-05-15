@@ -390,7 +390,7 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
     let collection_id = utils::parse_collection_id(collection_input)?;
     debug!(collection_input = %collection_input, collection_id, "Parsed collection identifier");
 
-    let collection_service = HttpCollectionService::builder().build()?;
+    let collection_service = HttpCollectionService::create()?;
     let collection = collection_service.fetch_collection(collection_id).await?;
 
     info!(
@@ -417,7 +417,7 @@ pub(crate) async fn resolve_selective_collections(
     status: &StatusSink,
     id: DownloadId,
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
-    let service = HttpCollectionService::builder().build()?;
+    let service = HttpCollectionService::create()?;
     resolve_selective_with(
         &service,
         collection_ids,

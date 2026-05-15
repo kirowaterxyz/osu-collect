@@ -23,35 +23,17 @@ impl HttpCollectionService {
         Self { client }
     }
 
-    pub fn builder() -> HttpCollectionServiceBuilder {
-        HttpCollectionServiceBuilder::new()
+    pub fn create() -> Result<Self> {
+        let client = osu_downloader::http::create_api_client().map_err(|e| {
+            AppError::other_dynamic(format!("failed to create API client: {e}").into_boxed_str())
+        })?;
+        Ok(Self::new(client))
     }
 }
 
 impl CollectionService for HttpCollectionService {
     async fn fetch_collection(&self, collection_id: u32) -> Result<Collection> {
         fetch_collection(&self.client, collection_id).await
-    }
-}
-
-pub struct HttpCollectionServiceBuilder;
-
-impl Default for HttpCollectionServiceBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HttpCollectionServiceBuilder {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn build(self) -> Result<HttpCollectionService> {
-        let client = osu_downloader::http::create_api_client().map_err(|e| {
-            AppError::other_dynamic(format!("failed to create API client: {e}").into_boxed_str())
-        })?;
-        Ok(HttpCollectionService::new(client))
     }
 }
 
