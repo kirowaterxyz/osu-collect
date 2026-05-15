@@ -599,11 +599,7 @@ impl UpdatesTab {
     }
 
     pub fn selected_collection_ids(&self) -> Vec<u64> {
-        self.selection
-            .local_collections
-            .iter()
-            .filter_map(|c| if c.selected { c.collection_id } else { None })
-            .collect()
+        self.selected_collection_id_set().into_iter().collect()
     }
 
     pub fn selected_beatmapset_ids(&self) -> Vec<u32> {
