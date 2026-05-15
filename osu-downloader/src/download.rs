@@ -65,7 +65,7 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
 ///
 /// Handles `filename*=UTF-8''...` (RFC 5987) and `filename="..."` (RFC 2616).
 /// Backslash escapes inside quoted strings are decoded per RFC 2616 §2.2.
-fn extract_filename_from_header(header_value: &str) -> Option<String> {
+pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String> {
     for part in header_value.split(';') {
         let part = part.trim();
 

@@ -14,7 +14,6 @@ use crate::{
         },
     },
 };
-use std::path::Path;
 use std::{
     borrow::Cow,
     io::ErrorKind,
@@ -536,23 +535,16 @@ fn extract_filename_from_response(
     let filename = response
         .headers()
         .get(reqwest::header::CONTENT_DISPOSITION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|header| {
-            header.split(';').find_map(|part| {
-                let part = part.trim();
-                part.strip_prefix("filename*=UTF-8''")
-                    .or_else(|| part.strip_prefix("filename="))
-                    .map(|s| s.trim_matches('"').to_string())
-            })
-        })
-        .unwrap_or_else(|| format!("{}.osz", beatmapset_id));
+        .and_then(|value| value.to_str().ok())
+        .and_then(osu_downloader::filename_from_content_disposition)
+        .unwrap_or_else(|| format!("{beatmapset_id}.osz"));
 
-    if Path::new(&filename)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("osz"))
+    if filename
+        .rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("osz"))
     {
         Ok(filename)
     } else {
-        Ok(format!("{}.osz", filename))
+        Ok(format!("{filename}.osz"))
     }
 }

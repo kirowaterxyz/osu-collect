@@ -58,3 +58,8 @@ pub use downloader::{DownloadSession, Downloader, DownloaderBuilder};
 pub use error::{DownloadError, Error, Result};
 pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};
 pub use mirrors::{CatboyRegion, Mirror, MirrorKind, MirrorPool};
+
+/// Extracts a filename from a Content-Disposition header.
+pub fn filename_from_content_disposition(header_value: &str) -> Option<String> {
+    download::extract_filename_from_header(header_value)
+}
