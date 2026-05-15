@@ -1,4 +1,6 @@
-use super::{BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection};
+use super::{
+    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, find_installation, require_db,
+};
 use osu_db::{collection::CollectionList, listing::Listing};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -11,22 +13,18 @@ impl StableReader {
         Self { path }
     }
 
-    fn osu_db_path(&self) -> PathBuf {
-        self.path.join("osu!.db")
+    fn osu_db_path(&self) -> Result<PathBuf, String> {
+        require_db(&self.path, "osu!.db")
     }
 
-    fn collection_db_path(&self) -> PathBuf {
-        self.path.join("collection.db")
+    fn collection_db_path(&self) -> Result<PathBuf, String> {
+        require_db(&self.path, "collection.db")
     }
 }
 
 impl BeatmapReader for StableReader {
     fn list_beatmapsets(&self) -> Result<Vec<LocalBeatmapset>, String> {
-        let db_path = self.osu_db_path();
-        if !db_path.exists() {
-            return Err(format!("osu!.db not found at {}", db_path.display()));
-        }
-
+        let db_path = self.osu_db_path()?;
         let metadata = std::fs::metadata(&db_path).map_err(|e| e.to_string())?;
         if metadata.len() < 20 {
             return Ok(Vec::new());
@@ -70,11 +68,7 @@ impl BeatmapReader for StableReader {
     }
 
     fn list_collections(&self) -> Result<Vec<LocalCollection>, String> {
-        let db_path = self.collection_db_path();
-        if !db_path.exists() {
-            return Err(format!("collection.db not found at {}", db_path.display()));
-        }
-
+        let db_path = self.collection_db_path()?;
         let metadata = std::fs::metadata(&db_path).map_err(|e| e.to_string())?;
         if metadata.len() < 8 {
             return Ok(Vec::new());
@@ -111,8 +105,7 @@ impl BeatmapReader for StableReader {
 
 impl StableReader {
     fn find_installation() -> Option<PathBuf> {
-        let candidates = Self::candidate_paths();
-        candidates.into_iter().find(|p| p.join("osu!.db").exists())
+        find_installation(Self::candidate_paths(), "osu!.db")
     }
 
     fn candidate_paths() -> Vec<PathBuf> {

@@ -1,7 +1,9 @@
-use super::{BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection};
+use super::{
+    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, find_installation, require_db,
+};
 use crate::realm_bridge::ffi;
 use std::path::PathBuf;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 pub struct LazerReader {
     path: PathBuf,
@@ -12,18 +14,14 @@ impl LazerReader {
         Self { path }
     }
 
-    fn realm_path(&self) -> PathBuf {
-        self.path.join("client.realm")
+    fn realm_path(&self) -> Result<PathBuf, String> {
+        require_db(&self.path, "client.realm")
     }
 }
 
 impl BeatmapReader for LazerReader {
     fn list_beatmapsets(&self) -> Result<Vec<LocalBeatmapset>, String> {
-        let db_path = self.realm_path();
-        if !db_path.exists() {
-            return Err(format!("client.realm not found at {}", db_path.display()));
-        }
-
+        let db_path = self.realm_path()?;
         let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
 
         let realm =
@@ -49,13 +47,8 @@ impl BeatmapReader for LazerReader {
     }
 
     fn list_collections(&self) -> Result<Vec<LocalCollection>, String> {
-        let db_path = self.realm_path();
+        let db_path = self.realm_path()?;
         info!(path = %db_path.display(), "Reading collections from Realm database");
-
-        if !db_path.exists() {
-            warn!(path = %db_path.display(), "client.realm not found");
-            return Err(format!("client.realm not found at {}", db_path.display()));
-        }
 
         let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
 
@@ -97,10 +90,7 @@ impl BeatmapReader for LazerReader {
 
 impl LazerReader {
     fn find_installation() -> Option<PathBuf> {
-        let candidates = Self::candidate_paths();
-        candidates
-            .into_iter()
-            .find(|p| p.join("client.realm").exists())
+        find_installation(Self::candidate_paths(), "client.realm")
     }
 
     fn candidate_paths() -> Vec<PathBuf> {
@@ -138,11 +128,7 @@ impl LazerReader {
     }
 
     pub fn list_all_checksums(&self) -> Result<Vec<String>, String> {
-        let db_path = self.realm_path();
-        if !db_path.exists() {
-            return Err(format!("client.realm not found at {}", db_path.display()));
-        }
-
+        let db_path = self.realm_path()?;
         let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
 
         let realm =
@@ -155,12 +141,8 @@ impl LazerReader {
     pub fn read_all(
         &self,
     ) -> Result<(Vec<LocalCollection>, Vec<LocalBeatmapset>, Vec<String>), String> {
-        let db_path = self.realm_path();
+        let db_path = self.realm_path()?;
         info!(path = %db_path.display(), "Reading all data from Realm database");
-
-        if !db_path.exists() {
-            return Err(format!("client.realm not found at {}", db_path.display()));
-        }
 
         let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
 

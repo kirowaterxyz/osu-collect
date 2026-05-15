@@ -4,7 +4,7 @@ pub mod stable;
 pub use lazer::LazerReader;
 pub use stable::StableReader;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OsuClient {
@@ -43,4 +43,22 @@ pub trait BeatmapReader {
     fn list_beatmapsets(&self) -> Result<Vec<LocalBeatmapset>, String>;
     fn list_collections(&self) -> Result<Vec<LocalCollection>, String>;
     fn default_path() -> Option<PathBuf>;
+}
+
+fn find_installation(
+    candidates: impl IntoIterator<Item = PathBuf>,
+    db_file: &str,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|path| path.join(db_file).exists())
+}
+
+fn require_db(path: &Path, db_file: &str) -> Result<PathBuf, String> {
+    let db_path = path.join(db_file);
+    if db_path.exists() {
+        Ok(db_path)
+    } else {
+        Err(format!("{db_file} not found at {}", db_path.display()))
+    }
 }
