@@ -7,9 +7,6 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Default number of retries for API requests
-const API_MAX_RETRIES: u32 = 3;
-
 /// osu! database version for collection.db files
 const OSU_DB_VERSION: u32 = 20210528;
 
@@ -171,7 +168,17 @@ impl CollectionClient {
     /// # }
     /// ```
     pub async fn fetch(&self, collection_id: u32) -> Result<Collection> {
-        fetch_collection(&self.client, collection_id).await
+        let url = format!("https://osucollector.com/api/collections/{collection_id}");
+        let response = self.client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            return Err(Error::collection(format!(
+                "API returned status {}",
+                response.status()
+            )));
+        }
+
+        Ok(response.json().await?)
     }
 
     /// Fetch a collection by URL
@@ -181,44 +188,6 @@ impl CollectionClient {
         let collection_id = parse_collection_id_from_url(url)?;
         self.fetch(collection_id).await
     }
-}
-
-/// Fetch a collection from osucollector.com with retries
-async fn fetch_collection(client: &reqwest::Client, collection_id: u32) -> Result<Collection> {
-    let url = format!("https://osucollector.com/api/collections/{}", collection_id);
-    let mut last_error = None;
-
-    for attempt in 1..=API_MAX_RETRIES {
-        match try_fetch_collection(client, &url).await {
-            Ok(collection) => return Ok(collection),
-            Err(err) => {
-                if attempt < API_MAX_RETRIES {
-                    let delay_secs = 2_u64.pow(attempt - 1);
-                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-                    last_error = Some(err);
-                } else {
-                    return Err(err);
-                }
-            }
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| Error::collection("All retry attempts failed")))
-}
-
-/// Single attempt to fetch a collection
-async fn try_fetch_collection(client: &reqwest::Client, url: &str) -> Result<Collection> {
-    let response = client.get(url).send().await?;
-
-    if !response.status().is_success() {
-        return Err(Error::collection(format!(
-            "API returned status {}",
-            response.status()
-        )));
-    }
-
-    let collection: Collection = response.json().await?;
-    Ok(collection)
 }
 
 /// Parse collection ID from osucollector.com URL
