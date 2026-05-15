@@ -1,7 +1,7 @@
 use osu_collect::app::run_app;
 use osu_collect::auto_update::spawn_background_update;
 use osu_collect::cli;
-use osu_collect::config::{ConfigService, LogLevel, LoggingConfig};
+use osu_collect::config::{LogLevel, LoggingConfig, load_config_or_default};
 use osu_collect::realm_bridge::ffi::set_realm_debug_logging;
 use osu_collect::utils;
 #[cfg(windows)]
@@ -22,8 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let config_service = ConfigService::new();
-    let config = config_service.load_or_default();
+    let config = load_config_or_default();
 
     match cmd {
         Some(cli::CliCommand::UpdateCollections(args)) => {

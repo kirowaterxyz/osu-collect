@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     config::{
-        Config, ConfigService,
+        Config, save_config,
         constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, UPDATES_TAB_INDEX},
     },
     download::{
@@ -32,7 +32,6 @@ pub struct App {
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
     next_download_id: DownloadId,
-    config_service: ConfigService,
 }
 
 #[derive(Debug)]
@@ -77,7 +76,6 @@ impl App {
             scan_handle: None,
             tick_count: 0,
             next_download_id: 1,
-            config_service: ConfigService::new(),
         }
     }
 
@@ -141,7 +139,7 @@ impl App {
                     return;
                 }
 
-                match self.config_service.save(&new_config) {
+                match save_config(&new_config) {
                     Ok(path) => {
                         let message = format!(
                             "Config saved to {} (applies on next launch)",
