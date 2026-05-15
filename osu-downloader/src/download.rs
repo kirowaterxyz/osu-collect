@@ -66,25 +66,73 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
 /// Handles `filename*=UTF-8''...` (RFC 5987) and `filename="..."` (RFC 2616).
 /// Backslash escapes inside quoted strings are decoded per RFC 2616 §2.2.
 pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String> {
-    for part in header_value.split(';') {
-        let part = part.trim();
+    let mut filename = None;
+    let mut extended_filename = None;
 
-        if let Some(utf8_name) = part.strip_prefix("filename*=UTF-8''") {
-            if let Ok(decoded) = urlencoding::decode(utf8_name) {
-                return Some(decoded.into_owned());
-            }
-        }
+    for part in split_content_disposition(header_value) {
+        let Some((name, value)) = part.split_once('=') else {
+            continue;
+        };
 
-        if let Some(raw) = part.strip_prefix("filename=") {
-            let name = if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
-                decode_quoted_string(&raw[1..raw.len() - 1])
-            } else {
-                raw.to_string()
-            };
-            return Some(name);
+        let name = name.trim();
+        let value = value.trim();
+
+        if name.eq_ignore_ascii_case("filename*") {
+            extended_filename = decode_extended_filename(value);
+        } else if name.eq_ignore_ascii_case("filename") && filename.is_none() {
+            filename = Some(decode_filename_value(value));
         }
     }
-    None
+
+    extended_filename.or(filename)
+}
+
+fn split_content_disposition(header_value: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+
+    for (index, ch) in header_value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            ';' if !quoted => {
+                parts.push(header_value[start..index].trim());
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+
+    parts.push(header_value[start..].trim());
+    parts
+}
+
+fn decode_extended_filename(value: &str) -> Option<String> {
+    let (charset, rest) = value.split_once('\'')?;
+    let (_, encoded) = rest.split_once('\'')?;
+
+    if !charset.eq_ignore_ascii_case("utf-8") {
+        return None;
+    }
+
+    urlencoding::decode(encoded)
+        .ok()
+        .map(|decoded| decoded.into_owned())
+}
+
+fn decode_filename_value(raw: &str) -> String {
+    if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+        decode_quoted_string(&raw[1..raw.len() - 1])
+    } else {
+        raw.to_string()
+    }
 }
 
 /// Decode backslash-escaped characters inside a quoted-string value (RFC 2616 §2.2).
@@ -447,13 +495,20 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
 }
 
 async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool> {
-    match tokio::fs::rename(temp_path, output_path).await {
-        Ok(()) => return Ok(true),
+    match tokio::fs::hard_link(temp_path, output_path).await {
+        Ok(()) => {
+            let _ = tokio::fs::remove_file(temp_path).await;
+            return Ok(true);
+        }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             let _ = tokio::fs::remove_file(temp_path).await;
             return Ok(false);
         }
-        Err(err) if err.kind() == std::io::ErrorKind::CrossesDevices => {}
+        Err(err)
+            if matches!(
+                err.kind(),
+                std::io::ErrorKind::CrossesDevices | std::io::ErrorKind::Unsupported
+            ) => {}
         Err(err) => {
             let _ = tokio::fs::remove_file(temp_path).await;
             return Err(DownloadError::io(err.to_string()).into());
@@ -541,22 +596,43 @@ mod tests {
             Some("test file.osz".to_string())
         );
 
-        // Backslash-escaped quote inside quoted-string (RFC 2616 §2.2)
         assert_eq!(
             extract_filename_from_header(r#"attachment; filename="foo\"bar.osz""#),
             Some(r#"foo"bar.osz"#.to_string())
         );
 
-        // Escaped backslash
         assert_eq!(
             extract_filename_from_header(r#"attachment; filename="foo\\bar.osz""#),
             Some(r#"foo\bar.osz"#.to_string())
         );
 
-        // Non-quoted form (no outer quotes)
         assert_eq!(
             extract_filename_from_header("attachment; filename=plain.osz"),
             Some("plain.osz".to_string())
+        );
+
+        assert_eq!(
+            extract_filename_from_header(r#"attachment; filename="artist - title; diff.osz""#),
+            Some("artist - title; diff.osz".to_string())
+        );
+
+        assert_eq!(
+            extract_filename_from_header(
+                "attachment; filename=plain.osz; filename*=utf-8''encoded%20name.osz"
+            ),
+            Some("encoded name.osz".to_string())
+        );
+
+        assert_eq!(
+            extract_filename_from_header(
+                "attachment; filename=fallback.osz; filename*=iso-8859-1''ignored.osz"
+            ),
+            Some("fallback.osz".to_string())
+        );
+
+        assert_eq!(
+            extract_filename_from_header("attachment; FILENAME=upper.osz"),
+            Some("upper.osz".to_string())
         );
     }
 
