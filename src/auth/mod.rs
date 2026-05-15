@@ -357,7 +357,6 @@ pub async fn run_login_flow(
         .map_err(|e| AppError::other_dynamic(format!("read request: {e}").into_boxed_str()))?
         .unwrap_or_default();
 
-    // parse GET /oauth/callback?code=...&state=... HTTP/1.1
     let (code, returned_state) = parse_callback_query(&request_line)?;
 
     let response_body = if returned_state != state {
@@ -556,9 +555,12 @@ mod tests {
 
     #[test]
     fn state_mismatch_detected() {
-        let expected = "correct_state";
-        let received = "wrong_state";
-        assert_ne!(expected, received, "state mismatch must be caught");
+        let expected = "correct_state_abc123";
+        let line = "GET /oauth/callback?code=THECODE&state=tampered_state HTTP/1.1";
+
+        let (code, returned_state) = parse_callback_query(line).unwrap();
+        assert_eq!(code, "THECODE");
+        assert_ne!(returned_state, expected);
     }
 
     #[test]

@@ -74,29 +74,3 @@ fn token_persistence_roundtrip() {
     assert!(loaded.scopes.contains(&"identify".to_string()));
     assert!(!loaded.scopes.contains(&"lazer".to_string()));
 }
-
-#[test]
-fn state_mismatch_rejected_by_caller() {
-    // Simulate the state comparison that run_login_flow performs after parse_callback_query.
-    // Confirms that a differing returned_state triggers the error branch.
-    let expected_state = "correct_state_abc123";
-    let line = "GET /oauth/callback?code=THECODE&state=tampered_state HTTP/1.1";
-
-    let path = line.split_whitespace().nth(1).unwrap_or("");
-    let query = path.split_once('?').map(|x| x.1).unwrap_or("");
-    let mut code: Option<String> = None;
-    let mut returned_state: Option<String> = None;
-    for part in query.split('&') {
-        if let Some(v) = part.strip_prefix("code=") {
-            code = Some(v.to_string());
-        } else if let Some(v) = part.strip_prefix("state=") {
-            returned_state = Some(v.to_string());
-        }
-    }
-    assert!(code.is_some(), "code must be present");
-    assert_ne!(
-        returned_state.as_deref().unwrap_or(""),
-        expected_state,
-        "mismatched state must be detected"
-    );
-}
