@@ -149,23 +149,14 @@ mod cleanup_tracker_tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_track_and_mark_complete() {
+    fn test_track_and_forget() {
         let tracker = CleanupTracker::new();
         let path = PathBuf::from("/tmp/test.osz");
 
         tracker.track(&path);
-        tracker.mark_complete(&path);
-        // No panic = success
-    }
-
-    #[test]
-    fn test_mark_removed() {
-        let tracker = CleanupTracker::new();
-        let path = PathBuf::from("/tmp/test.osz");
-
-        tracker.track(&path);
-        tracker.mark_removed(&path);
-        // No panic = success
+        tracker.forget(&path);
+        // No panic = success; forget on untracked path is also a no-op
+        tracker.forget(&path);
     }
 }
 

@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::warn;
 
 #[derive(Clone, Default)]
 pub struct CleanupTracker {
@@ -25,19 +25,10 @@ impl CleanupTracker {
     }
 
     pub fn track(&self, path: &Path) {
-        let path_buf = path.to_path_buf();
-        if !self.pending.insert(path_buf) {
-            info!(path = %path.display(), "CleanupTracker: path already tracked");
-        }
+        self.pending.insert(path.to_path_buf());
     }
 
-    pub fn mark_complete(&self, path: &Path) {
-        if self.pending.remove(path).is_none() {
-            warn!(path = %path.display(), "CleanupTracker: mark_complete called for untracked path");
-        }
-    }
-
-    pub fn mark_removed(&self, path: &Path) {
+    pub fn forget(&self, path: &Path) {
         self.pending.remove(path);
     }
 
