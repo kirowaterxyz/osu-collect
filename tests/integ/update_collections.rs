@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use osu_collect::{
-        app::{runtime, updates::extract_collection_id_pub},
+        app::{runtime, updates::extract_collection_id},
         osu_db::{BeatmapReader, LocalBeatmapset, OsuClient, StableReader},
     };
     use std::{
@@ -61,7 +61,7 @@ mod tests {
         }
     }
 
-    /// Verify extract_collection_id_pub correctly parses collection names.
+    /// Verify extract_collection_id correctly parses collection names.
     #[test]
     fn test_extract_collection_id_from_stable_collections() {
         let Some(path) = testing_db_path() else {
@@ -80,7 +80,7 @@ mod tests {
 
         let with_ids: Vec<_> = collections
             .iter()
-            .filter_map(|c| extract_collection_id_pub(&c.name).map(|id| (c.name.as_str(), id)))
+            .filter_map(|c| extract_collection_id(&c.name).map(|id| (c.name.as_str(), id)))
             .collect();
 
         println!(
@@ -132,9 +132,7 @@ mod tests {
 
         let collection_ids: Vec<u32> = collections
             .iter()
-            .filter_map(|c| {
-                extract_collection_id_pub(&c.name).and_then(|id| u32::try_from(id).ok())
-            })
+            .filter_map(|c| extract_collection_id(&c.name).and_then(|id| u32::try_from(id).ok()))
             .collect();
 
         if collection_ids.is_empty() {

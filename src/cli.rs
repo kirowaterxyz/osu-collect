@@ -1,5 +1,5 @@
 use crate::{
-    app::{collection_state, failed_maps, runtime, snapshots, updates::extract_collection_id_pub},
+    app::{collection_state, failed_maps, runtime, snapshots, updates::extract_collection_id},
     osu_db::{BeatmapReader, LazerReader, LocalBeatmapset, OsuClient, StableReader},
 };
 use std::{
@@ -137,7 +137,7 @@ pub async fn run_update_collections(
     // Extract collection IDs from names (same logic as UpdatesTab::set_collections)
     let collection_ids: Vec<u32> = collections
         .iter()
-        .filter_map(|c| extract_collection_id_pub(&c.name).and_then(|id| u32::try_from(id).ok()))
+        .filter_map(|c| extract_collection_id(&c.name).and_then(|id| u32::try_from(id).ok()))
         .collect();
 
     if collection_ids.is_empty() {
@@ -150,7 +150,7 @@ pub async fn run_update_collections(
 
     let current_snapshots =
         snapshots::current_snapshots(args.client, &collections, &beatmapsets, |name| {
-            extract_collection_id_pub(name).and_then(|id| u32::try_from(id).ok())
+            extract_collection_id(name).and_then(|id| u32::try_from(id).ok())
         });
 
     // Build local beatmapset index

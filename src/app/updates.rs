@@ -635,7 +635,7 @@ fn collection_id_patterns() -> &'static [regex_lite::Regex; 4] {
     })
 }
 
-fn extract_collection_id(name: &str) -> Option<u64> {
+pub fn extract_collection_id(name: &str) -> Option<u64> {
     for pattern in collection_id_patterns() {
         if let Some(caps) = pattern.captures(name)
             && let Some(m) = caps.get(1)
@@ -646,10 +646,6 @@ fn extract_collection_id(name: &str) -> Option<u64> {
     }
 
     None
-}
-
-pub fn extract_collection_id_pub(name: &str) -> Option<u64> {
-    extract_collection_id(name)
 }
 
 impl Default for UpdatesTab {

@@ -4,7 +4,7 @@ use super::{
     config::{AuthLoginState, ConfigField, ConfigTab},
     home::{HomeField, HomeTab},
     snapshots,
-    updates::{UpdatesAction, UpdatesTab, extract_collection_id_pub},
+    updates::{UpdatesAction, UpdatesTab, extract_collection_id},
 };
 use crate::{
     config::{
@@ -301,7 +301,7 @@ impl App {
             self.updates.path.client_type,
             &self.updates.scan.local_collections_raw,
             &beatmapsets,
-            |name| extract_collection_id_pub(name).and_then(|id| u32::try_from(id).ok()),
+            |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
         );
         let snapshots: Vec<_> = collection_ids
             .iter()

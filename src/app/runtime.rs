@@ -1,6 +1,6 @@
 use super::{App, AppCommand, AuthLoginState, collection_state, failed_maps, snapshots};
 use crate::{
-    app::updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id_pub},
+    app::updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id},
     auth,
     config::{Config, constants::CONCURRENT_REQUESTS},
     core::collection::{Collection, api_client},
@@ -729,7 +729,7 @@ fn spawn_fetch_and_compare_task(
         client_type,
         &app.updates.scan.local_collections_raw,
         &beatmapsets,
-        |name| extract_collection_id_pub(name).and_then(|id| u32::try_from(id).ok()),
+        |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
     );
     let snapshot_dir = snapshots::snapshots_dir();
     let snapshot_diffs = snapshot_dir
