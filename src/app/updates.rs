@@ -599,7 +599,11 @@ impl UpdatesTab {
     }
 
     pub fn selected_collection_ids(&self) -> Vec<u64> {
-        self.selected_collection_id_set().into_iter().collect()
+        self.selection
+            .local_collections
+            .iter()
+            .filter_map(|c| if c.selected { c.collection_id } else { None })
+            .collect()
     }
 
     pub fn selected_beatmapset_ids(&self) -> Vec<u32> {
@@ -618,6 +622,9 @@ impl UpdatesTab {
 }
 
 fn scroll_list(state: &mut ListState, len: usize, delta: i64) {
+    if len == 0 {
+        return;
+    }
     let i = state.selected().unwrap_or(0) as i64;
     let next = (i + delta).clamp(0, len.saturating_sub(1) as i64) as usize;
     state.select(Some(next));
