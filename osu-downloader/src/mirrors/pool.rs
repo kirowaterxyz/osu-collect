@@ -21,11 +21,6 @@ impl MirrorPool {
         }
     }
 
-    /// Check if only a single mirror is configured
-    pub fn is_single_mirror(&self) -> bool {
-        self.mirrors.len() == 1
-    }
-
     /// Get a prioritized list of mirrors for attempting downloads.
     pub fn plan(&self) -> Vec<Mirror> {
         let now = Instant::now();
@@ -56,6 +51,11 @@ impl MirrorPool {
             .filter_map(|mirror| penalties.get(&mirror.kind()).copied())
             .filter_map(|until| (until > now).then_some(until - now))
             .min()
+    }
+
+    /// Check if only a single mirror is configured
+    pub fn is_single_mirror(&self) -> bool {
+        self.mirrors.len() == 1
     }
 
     /// Get cooldown info if using a single mirror and it's rate limited

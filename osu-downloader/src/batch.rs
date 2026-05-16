@@ -15,8 +15,7 @@ use std::{
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
 
-/// Orchestrate batch downloads with concurrent workers
-pub async fn download_batch(
+pub(crate) async fn download_batch(
     beatmapset_ids: Vec<u32>,
     output_dir: &Path,
     client: reqwest::Client,
@@ -268,17 +267,12 @@ async fn download_one(
     result
 }
 
-/// Configuration for batch downloads
 #[derive(Debug, Clone)]
-pub struct BatchConfig {
-    /// Number of concurrent downloads
-    pub concurrent_downloads: usize,
-    /// Whether to verify archives
-    pub verify_archives: bool,
-    /// Progress timeout
-    pub progress_timeout: Duration,
-    /// maximum retry attempts per mirror for transient failures
-    pub max_retries: u32,
+pub(crate) struct BatchConfig {
+    pub(crate) concurrent_downloads: usize,
+    pub(crate) verify_archives: bool,
+    pub(crate) progress_timeout: Duration,
+    pub(crate) max_retries: u32,
 }
 
 #[cfg(test)]

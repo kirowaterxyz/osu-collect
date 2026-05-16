@@ -21,25 +21,13 @@ const MIN_PROGRESS_DELTA: u64 = 131_072; // 128 KB
 /// Minimum interval between progress updates
 const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
-/// Result of a streaming download operation
-pub struct DownloadStreamResult {
-    /// Whether the download was cancelled
-    pub cancelled: bool,
-    /// MD5 hash of the downloaded file (if computed)
-    pub hash: Option<String>,
-    /// Total bytes written
-    pub bytes_written: u64,
+pub(crate) struct DownloadStreamResult {
+    pub(crate) cancelled: bool,
+    pub(crate) hash: Option<String>,
+    pub(crate) bytes_written: u64,
 }
 
-/// Download a response stream to a file with progress tracking
-///
-/// This function:
-/// - Streams the response body to disk
-/// - Computes MD5 hash in the background
-/// - Calls progress callback periodically
-/// - Handles cancellation and timeouts
-/// - Cleans up on error
-pub async fn stream_download(
+pub(crate) async fn stream_download(
     response: reqwest::Response,
     output_path: &Path,
     content_length: Option<u64>,

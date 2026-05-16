@@ -2,19 +2,13 @@
 
 use std::time::Duration;
 
-/// Internal configuration for the downloader
 #[derive(Debug, Clone)]
 pub(crate) struct DownloadConfig {
-    /// Number of concurrent downloads
-    pub concurrent_downloads: usize,
-    /// Whether to verify ZIP archives
-    pub verify_archives: bool,
-    /// Timeout for download progress (if no bytes received)
-    pub progress_timeout: Duration,
-    /// User agent string
-    pub user_agent: String,
-    /// maximum retry attempts per mirror for transient failures
-    pub max_retries: u32,
+    pub(crate) concurrent_downloads: usize,
+    pub(crate) verify_archives: bool,
+    pub(crate) progress_timeout: Duration,
+    pub(crate) user_agent: String,
+    pub(crate) max_retries: u32,
 }
 
 impl Default for DownloadConfig {

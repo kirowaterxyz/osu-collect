@@ -19,17 +19,16 @@ use tracing::{debug, warn};
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Parameters for downloading a beatmapset
 pub(crate) struct DownloadParams<'a> {
-    pub beatmapset_id: u32,
-    pub output_dir: &'a Path,
-    pub client: &'a reqwest::Client,
-    pub mirror_pool: &'a MirrorPool,
-    pub verify_archive: bool,
-    pub progress_timeout: Duration,
-    pub max_retries: u32,
-    pub progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    pub cancel_rx: tokio::sync::watch::Receiver<bool>,
+    pub(crate) beatmapset_id: u32,
+    pub(crate) output_dir: &'a Path,
+    pub(crate) client: &'a reqwest::Client,
+    pub(crate) mirror_pool: &'a MirrorPool,
+    pub(crate) verify_archive: bool,
+    pub(crate) progress_timeout: Duration,
+    pub(crate) max_retries: u32,
+    pub(crate) progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 /// Sanitize a filename from Content-Disposition header or generate default
@@ -158,7 +157,7 @@ fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
 }
 
 /// Scan `dir` and return the set of beatmapset IDs that already have a file present.
-pub async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32> {
+pub(crate) async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32> {
     let mut ids = std::collections::HashSet::new();
     let Ok(mut read_dir) = tokio::fs::read_dir(dir).await else {
         return ids;
@@ -190,7 +189,7 @@ fn parse_beatmapset_id(name: &str) -> Option<u32> {
 /// Download a single beatmapset with mirror fallback.
 ///
 /// Returns the download result and the number of retry attempts made.
-pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
+pub(crate) async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
     if let Err(err) = tokio::fs::create_dir_all(params.output_dir).await {
         return (Err(DownloadError::io(err.to_string()).into()), 0);
     }

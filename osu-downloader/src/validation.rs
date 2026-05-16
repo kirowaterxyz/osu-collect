@@ -20,13 +20,7 @@ const EOCD_CD_OFFSET_FIELD: usize = 16;
 /// Maximum bytes to search for EOCD signature
 const MAX_EOCD_SEARCH_BYTES: u64 = 65536;
 
-/// Validate that a file is a valid ZIP archive.
-///
-/// Checks:
-/// 1. Local file header `PK\x03\x04` at offset 0.
-/// 2. ZIP End of Central Directory (EOCD) `PK\x05\x06` present in the tail.
-/// 3. Central directory offset stored in the EOCD is less than the file size.
-pub async fn validate_zip_archive(path: &Path) -> Result<()> {
+pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
     let mut file = fs::File::open(path).await?;
     let file_size = file.metadata().await?.len();
 
