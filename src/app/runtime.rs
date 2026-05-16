@@ -695,27 +695,27 @@ fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<Update
     );
 
     let handle = tokio::spawn(async move {
-        let client = match download::create_download_client() {
-            Ok(client) => client,
+        let fetcher = match osu_downloader::size::SizeFetcher::with_default_client() {
+            Ok(f) => f,
             Err(err) => {
                 let _ = tx.send(UpdatesEvent::Error(err.to_string()));
                 return;
             }
         };
         let progress_tx = tx.clone();
-        let result = download::check_mirror_availability(
-            &client,
-            &ids,
-            crate::config::constants::MIRROR_CHECK_URLS,
-            |checked, total| {
-                let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
-                    generation,
-                    checked,
-                    total,
-                });
-            },
-        )
-        .await;
+        let result = fetcher
+            .check_availability(
+                &ids,
+                crate::config::constants::MIRROR_CHECK_URLS,
+                |checked, total| {
+                    let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
+                        generation,
+                        checked,
+                        total,
+                    });
+                },
+            )
+            .await;
         failed_maps::remove_available(&path, &result.available);
         let _ = tx.send(UpdatesEvent::FailedMapRecheckComplete {
             generation,

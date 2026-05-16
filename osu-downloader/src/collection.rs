@@ -51,26 +51,26 @@ impl Collection {
     ///
     /// ```no_run
     /// # use osu_downloader::{Downloader, collection::CollectionClient};
+    /// # use futures_util::StreamExt;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let downloader = Downloader::builder().default_mirrors().build()?;
     /// let client = CollectionClient::new()?;
     /// let collection = client.fetch(12345).await?;
     ///
-    /// let mut session = collection.download(&downloader, "./downloads").await;
-    /// while let Some(event) = session.next_event().await {
-    ///     // Handle download events
+    /// let mut session = collection.download(&downloader, "./downloads");
+    /// let mut events = session.events();
+    /// while let Some(_event) = events.next().await {
+    ///     // handle event
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn download(
+    pub fn download(
         &self,
         downloader: &crate::Downloader,
         output_dir: impl AsRef<Path>,
     ) -> crate::DownloadSession {
-        downloader
-            .download_many(self.beatmapset_ids(), output_dir)
-            .await
+        downloader.download_many(self.beatmapset_ids(), output_dir)
     }
 
     /// Write this collection to an osu! collection.db file

@@ -1,96 +1,37 @@
-mod cleanup;
-pub(crate) mod client;
 pub mod error;
 pub mod lock;
-pub mod passes;
 mod pipeline;
 mod precheck;
-pub(crate) mod session;
-pub mod size_fetcher;
-mod tracker;
+mod session;
 
-pub use cleanup::CleanupTracker;
-pub use client::DownloadFailure;
-use client::download_beatmap;
-pub use client::{DownloadResult, create_download_client};
 pub use error::DownloadError;
 pub use lock::ActiveDownloadRegistry;
 pub use pipeline::{spawn_download, spawn_selective_download};
-pub use size_fetcher::check_mirror_availability;
-pub use tracker::BeatmapTracker;
 
 pub use crate::config::constants::status;
 
 use crate::mirrors::Mirror;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
-use tokio::{sync::Notify, task::JoinHandle};
-use tracing::warn;
-
-#[derive(Clone, Debug, Default)]
-pub struct ShutdownToken {
-    cancelled: Arc<AtomicBool>,
-    completed: Arc<AtomicBool>,
-    notify: Arc<Notify>,
-}
-
-impl ShutdownToken {
-    pub fn new() -> Self {
-        Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
-            completed: Arc::new(AtomicBool::new(false)),
-            notify: Arc::new(Notify::new()),
-        }
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-    }
-
-    pub fn cancelled(&self) -> impl std::future::Future<Output = ()> + '_ {
-        self.notify.notified()
-    }
-
-    pub fn cancel(&self) {
-        if self.completed.load(Ordering::Acquire) {
-            warn!("ShutdownToken: cancel called after completion");
-        }
-        if self.cancelled.swap(true, Ordering::SeqCst) {
-            warn!("ShutdownToken: cancel called multiple times");
-        }
-        self.notify.notify_waiters();
-    }
-
-    pub fn mark_completed(&self) {
-        self.completed.store(true, Ordering::Release);
-    }
-}
-
-#[macro_export]
-macro_rules! check_shutdown {
-    ($token:expr) => {
-        if ($token).is_cancelled() {
-            return Ok($crate::download::DownloadResult::Aborted);
-        }
-    };
-}
+use tokio::{sync::watch, task::JoinHandle};
 
 pub type DownloadId = u64;
 
+/// Handle to a running download task.
 pub struct DownloadHandle {
-    shutdown: ShutdownToken,
-    join_handle: JoinHandle<()>,
+    cancel: watch::Sender<bool>,
+    join: JoinHandle<()>,
 }
 
 impl DownloadHandle {
+    pub(crate) fn new(cancel: watch::Sender<bool>, join: JoinHandle<()>) -> Self {
+        Self { cancel, join }
+    }
+
     pub fn request_shutdown(&self) {
-        self.shutdown.cancel();
+        let _ = self.cancel.send(true);
     }
 
     pub async fn wait(self) {
-        let _ = self.join_handle.await;
+        let _ = self.join.await;
     }
 }
 
@@ -160,7 +101,6 @@ pub enum DownloadEvent {
     BeatmapProgress {
         id: DownloadId,
         beatmapset_id: u32,
-        thread_index: usize,
         downloaded: u64,
         total: u64,
     },
@@ -173,6 +113,7 @@ pub enum DownloadEvent {
         beatmapset_id: u32,
         stage: BeatmapStage,
         message: String,
+        rate_limited: bool,
     },
     OverallProgress {
         id: DownloadId,
@@ -184,13 +125,6 @@ pub enum DownloadEvent {
     Log {
         id: DownloadId,
         message: String,
-    },
-    ThreadStatus {
-        id: DownloadId,
-        thread_index: usize,
-        message: String,
-        rate_limited: bool,
-        beatmapset_id: Option<u32>,
     },
     StageChanged {
         id: DownloadId,

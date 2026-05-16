@@ -1,16 +1,13 @@
 use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, status};
 use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    collections::VecDeque,
+    cell::Cell,
+    collections::{HashMap, VecDeque},
     time::{Duration, Instant},
 };
 
 use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
-
-const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
@@ -37,36 +34,30 @@ pub struct FailedBeatmap {
     pub reason: String,
 }
 
+/// One line in the "active downloads" panel. Keyed by `beatmapset_id`.
 #[derive(Debug, Clone)]
-pub struct ThreadStatusLine {
+pub struct ActiveDownloadLine {
+    pub beatmapset_id: u32,
     pub message: String,
     pub rate_limited: bool,
-    bytes_downloaded: u64,
+    pub downloaded: u64,
+    pub total: u64,
+    bytes_for_speed: u64,
     last_update: Option<Instant>,
     speed_bytes_per_sec: f64,
-    active_beatmap: Option<u32>,
-    current_downloaded: u64,
-    current_total: u64,
-    displayed_message: RefCell<String>,
-    displayed_rate_limited: Cell<bool>,
-    status_changed_at: Cell<Option<Instant>>,
 }
 
-impl ThreadStatusLine {
-    fn new(message: impl Into<String>) -> Self {
-        let initial = message.into();
+impl ActiveDownloadLine {
+    fn new(beatmapset_id: u32) -> Self {
         Self {
-            message: initial.clone(),
+            beatmapset_id,
+            message: String::new(),
             rate_limited: false,
-            bytes_downloaded: 0,
+            downloaded: 0,
+            total: 0,
+            bytes_for_speed: 0,
             last_update: None,
             speed_bytes_per_sec: 0.0,
-            active_beatmap: None,
-            current_downloaded: 0,
-            current_total: 0,
-            displayed_message: RefCell::new(initial),
-            displayed_rate_limited: Cell::new(false),
-            status_changed_at: Cell::new(None),
         }
     }
 
@@ -83,44 +74,15 @@ impl ThreadStatusLine {
             .any(|prefix| message.starts_with(prefix))
     }
 
-    pub fn is_idle_message(message: &str) -> bool {
-        message.trim().eq_ignore_ascii_case("idle")
-    }
-
-    fn resolve_display(&self) {
-        if let Some(changed_at) = self.status_changed_at.get()
-            && changed_at.elapsed() >= STATUS_DEBOUNCE
-        {
-            *self.displayed_message.borrow_mut() = self.message.clone();
-            self.displayed_rate_limited.set(self.rate_limited);
-            self.status_changed_at.set(None);
-        }
-    }
-
-    pub fn displayed_message(&self) -> String {
-        self.resolve_display();
-        self.displayed_message.borrow().clone()
-    }
-
-    pub fn displayed_rate_limited(&self) -> bool {
-        self.resolve_display();
-        self.displayed_rate_limited.get()
-    }
-
-    pub fn should_display(&self) -> bool {
-        let message = self.displayed_message();
-        !(Self::is_idle_message(&message) || Self::is_completion_message(&message))
-    }
-
     pub fn should_show_bar(&self) -> bool {
-        self.displayed_message().starts_with(status::DOWNLOADING)
+        self.message.starts_with(status::DOWNLOADING) && self.total > 0
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
-        if self.current_total == 0 {
+        if self.total == 0 {
             return None;
         }
-        let ratio = self.current_downloaded as f32 / self.current_total as f32;
+        let ratio = self.downloaded as f32 / self.total as f32;
         Some(ratio.clamp(0.0, 1.0))
     }
 }
@@ -135,7 +97,8 @@ pub struct CollectionPage {
     pub output_dir: Option<String>,
     pub uploader: Option<String>,
     pub beatmaps: Vec<BeatmapRow>,
-    pub thread_statuses: Vec<ThreadStatusLine>,
+    pub active_downloads: Vec<ActiveDownloadLine>,
+    pub concurrent: usize,
     index: HashMap<u32, usize>,
     pub logs: VecDeque<String>,
     pub summary: Option<DownloadSummary>,
@@ -164,9 +127,8 @@ impl CollectionPage {
             output_dir: None,
             uploader: None,
             beatmaps: Vec::new(),
-            thread_statuses: (0..concurrent)
-                .map(|_| ThreadStatusLine::new("Idle"))
-                .collect(),
+            active_downloads: Vec::new(),
+            concurrent,
             index: HashMap::new(),
             logs: VecDeque::new(),
             summary: None,
@@ -184,12 +146,9 @@ impl CollectionPage {
         }
     }
 
-    pub fn all_threads_rate_limited(&self) -> bool {
-        !self.thread_statuses.is_empty()
-            && self
-                .thread_statuses
-                .iter()
-                .all(|status| status.rate_limited)
+    pub fn all_active_rate_limited(&self) -> bool {
+        !self.active_downloads.is_empty()
+            && self.active_downloads.iter().all(|line| line.rate_limited)
     }
 
     pub fn register_beatmaps(&mut self, ids: &[u32]) {
@@ -200,13 +159,13 @@ impl CollectionPage {
             self.index.insert(beatmapset_id, idx);
             self.beatmaps.push(BeatmapRow {
                 stage: BeatmapStage::Pending,
-                message: String::from("Waiting"),
+                message: String::from("waiting"),
                 progress: None,
             });
         }
     }
 
-    pub fn update_progress(&mut self, beatmapset_id: u32, downloaded: u64, _total: u64) {
+    pub fn update_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
         if let Some(idx) = self.index.get(&beatmapset_id).copied()
             && let Some(row) = self.beatmaps.get_mut(idx)
         {
@@ -216,7 +175,7 @@ impl CollectionPage {
             } else {
                 self.stats.bytes_downloaded += downloaded;
             }
-            row.progress = Some((downloaded, _total));
+            row.progress = Some((downloaded, total));
         }
     }
 
@@ -245,94 +204,68 @@ impl CollectionPage {
         }
     }
 
-    pub fn update_thread_status(
+    pub fn update_active_status(
         &mut self,
-        thread_index: usize,
+        beatmapset_id: u32,
+        stage: BeatmapStage,
         message: &str,
         rate_limited: bool,
-        beatmapset_id: Option<u32>,
     ) {
-        if let Some(status) = self.thread_statuses.get_mut(thread_index) {
-            let is_assignment = message.starts_with(status::DOWNLOADING)
-                || message.starts_with(status::FETCHING)
-                || message.starts_with(status::RECHECKING_PREFIX);
-            let is_completion = ThreadStatusLine::is_completion_message(message);
+        let terminal = matches!(
+            stage,
+            BeatmapStage::Success
+                | BeatmapStage::Skipped
+                | BeatmapStage::Failed
+                | BeatmapStage::Aborted
+        );
 
-            if let Some(job_id) = beatmapset_id {
-                if !is_assignment {
-                    if let Some(current) = status.active_beatmap {
-                        if current != job_id {
-                            return;
-                        }
-                    } else if is_completion {
-                        return;
-                    }
-                }
-                if status.active_beatmap != Some(job_id) {
-                    status.current_downloaded = 0;
-                    status.current_total = 0;
-                }
-                status.active_beatmap = Some(job_id);
-            } else if is_completion {
-                return;
-            }
-
-            status.message = message.to_string();
-            status.rate_limited = rate_limited;
-
-            if (beatmapset_id.is_some() && is_completion)
-                || ThreadStatusLine::is_idle_message(message)
-            {
-                status.active_beatmap = None;
-                status.current_downloaded = 0;
-                status.current_total = 0;
-            }
-
-            let matches_displayed = *status.displayed_message.borrow() == status.message
-                && status.displayed_rate_limited.get() == status.rate_limited;
-            if matches_displayed {
-                status.status_changed_at.set(None);
-            } else if status.message.starts_with(status::DOWNLOADING) {
-                *status.displayed_message.borrow_mut() = status.message.clone();
-                status.displayed_rate_limited.set(status.rate_limited);
-                status.status_changed_at.set(None);
-            } else {
-                status.status_changed_at.set(Some(Instant::now()));
-            }
+        if terminal {
+            self.active_downloads
+                .retain(|line| line.beatmapset_id != beatmapset_id);
+            return;
         }
+
+        let line = self.active_or_insert(beatmapset_id);
+        line.message = message.to_string();
+        line.rate_limited = rate_limited;
     }
 
-    pub fn update_thread_progress(&mut self, thread_index: usize, downloaded: u64, total: u64) {
-        if let Some(status) = self.thread_statuses.get_mut(thread_index) {
-            status.current_downloaded = downloaded;
-            if total > 0 {
-                status.current_total = total;
-            }
-            let now = Instant::now();
-            if let Some(last_update) = status.last_update {
-                let elapsed = now.duration_since(last_update);
+    pub fn update_active_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
+        let line = self.active_or_insert(beatmapset_id);
+        line.downloaded = downloaded;
+        if total > 0 {
+            line.total = total;
+        }
+        let now = Instant::now();
+        match line.last_update {
+            Some(last) => {
+                let elapsed = now.duration_since(last);
                 if elapsed > SPEED_UPDATE_INTERVAL {
-                    let bytes_delta = downloaded.saturating_sub(status.bytes_downloaded);
-                    let speed = bytes_delta as f64 / elapsed.as_secs_f64();
-                    status.speed_bytes_per_sec = status.speed_bytes_per_sec * 0.7 + speed * 0.3;
-                    status.bytes_downloaded = downloaded;
-                    status.last_update = Some(now);
+                    let delta = downloaded.saturating_sub(line.bytes_for_speed);
+                    let speed = delta as f64 / elapsed.as_secs_f64();
+                    line.speed_bytes_per_sec = line.speed_bytes_per_sec * 0.7 + speed * 0.3;
+                    line.bytes_for_speed = downloaded;
+                    line.last_update = Some(now);
                 }
-            } else {
-                status.bytes_downloaded = downloaded;
-                status.last_update = Some(now);
+            }
+            None => {
+                line.bytes_for_speed = downloaded;
+                line.last_update = Some(now);
             }
         }
     }
 
-    pub fn reset_thread_speed(&mut self, thread_index: usize) {
-        if let Some(status) = self.thread_statuses.get_mut(thread_index) {
-            status.bytes_downloaded = 0;
-            status.last_update = None;
-            status.speed_bytes_per_sec = 0.0;
-            status.current_downloaded = 0;
-            status.current_total = 0;
+    fn active_or_insert(&mut self, beatmapset_id: u32) -> &mut ActiveDownloadLine {
+        if let Some(idx) = self
+            .active_downloads
+            .iter()
+            .position(|line| line.beatmapset_id == beatmapset_id)
+        {
+            return &mut self.active_downloads[idx];
         }
+        self.active_downloads
+            .push(ActiveDownloadLine::new(beatmapset_id));
+        self.active_downloads.last_mut().unwrap()
     }
 
     pub fn cumulative_speed(&self) -> f64 {
@@ -344,9 +277,9 @@ impl CollectionPage {
 
         if should_update {
             let new_speed: f64 = self
-                .thread_statuses
+                .active_downloads
                 .iter()
-                .map(|s| s.speed_bytes_per_sec())
+                .map(|line| line.speed_bytes_per_sec())
                 .sum();
             self.cached_cumulative_speed.set(new_speed);
             self.last_speed_update.set(Some(now));
@@ -391,3 +324,6 @@ impl CollectionPage {
         }
     }
 }
+
+#[allow(dead_code)]
+const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);

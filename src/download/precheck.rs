@@ -1,8 +1,5 @@
-use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId, ShutdownToken};
-use crate::worker::{
-    StatusSink,
-    io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive},
-};
+use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
+use crate::worker::io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive};
 use futures_util::{StreamExt, stream};
 use std::{
     collections::{HashMap, HashSet},
@@ -11,7 +8,7 @@ use std::{
     sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::fs;
+use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
 
 pub(crate) struct PrecheckReport {
@@ -20,11 +17,13 @@ pub(crate) struct PrecheckReport {
     pub(crate) unverified: Vec<u32>,
     pub(crate) verified_bytes: u64,
     pub(crate) aborted: bool,
+    #[allow(dead_code)]
     pub(crate) files_changed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PrecheckOptions {
+    #[allow(dead_code)]
     pub(crate) verify_integrity: bool,
     pub(crate) notify_verified: bool,
     pub(crate) verify_zip_eocd: bool,
@@ -36,19 +35,16 @@ pub(crate) async fn verify_existing_beatmapsets(
     expectations: Arc<HashSet<u32>>,
     parallelism: usize,
     options: PrecheckOptions,
-    shutdown: &ShutdownToken,
-    status: &StatusSink,
+    cancel_rx: &watch::Receiver<bool>,
+    emit: impl Fn(DownloadEvent) + Send + Sync,
 ) -> Result<PrecheckReport, DownloadError> {
     info!(
         download_id = id,
         directory = %output_dir.display(),
-        notify_verified = options.notify_verified,
-        verify_integrity = options.verify_integrity,
-        verify_zip_eocd = options.verify_zip_eocd,
-        "Starting existing file verification"
+        "starting existing file verification"
     );
 
-    if shutdown.is_cancelled() {
+    if *cancel_rx.borrow() {
         return Ok(PrecheckReport {
             satisfied: HashSet::new(),
             skipped: 0,
@@ -59,7 +55,6 @@ pub(crate) async fn verify_existing_beatmapsets(
         });
     }
 
-    // Capture initial snapshot for change detection
     let initial_snapshot = capture_osz_snapshot(output_dir).await?;
 
     let mut state = PrecheckState::default();
@@ -67,28 +62,27 @@ pub(crate) async fn verify_existing_beatmapsets(
         candidates,
         orphan_temp_count,
         aborted,
-    } = scan_candidates(output_dir, &expectations, shutdown).await?;
+    } = scan_candidates(output_dir, &expectations, cancel_rx).await?;
     if aborted {
         return Ok(state.aborted_report());
     }
 
     let worker_count = parallelism.max(1);
     let mut tasks = stream::iter(candidates)
-        .map(|candidate| validate_existing_candidate(candidate, options, shutdown.clone()))
+        .map(|candidate| validate_existing_candidate(candidate, options, cancel_rx.clone()))
         .buffer_unordered(worker_count);
 
     let mut aborted = false;
     while let Some(result) = tasks.next().await {
-        if shutdown.is_cancelled() {
+        if *cancel_rx.borrow() {
             aborted = true;
             break;
         }
-
         match result {
-            Ok(Some(record)) => state.record(id, record, options, status),
+            Ok(Some(record)) => state.record(id, record, options, &emit),
             Ok(None) => {}
             Err((path, error)) => {
-                warn!(file = %path.display(), error = %error, "Failed to process existing file");
+                warn!(file = %path.display(), error = %error, "failed to process existing file");
             }
         }
     }
@@ -97,7 +91,7 @@ pub(crate) async fn verify_existing_beatmapsets(
         info!(
             download_id = id,
             verified = state.satisfied.len(),
-            "Existing file verification aborted by shutdown"
+            "existing file verification aborted by shutdown"
         );
     } else {
         info!(
@@ -106,20 +100,16 @@ pub(crate) async fn verify_existing_beatmapsets(
             skipped = state.skipped,
             unverified = state.unverified.len(),
             orphan_temp = orphan_temp_count,
-            "Existing file verification complete"
+            "existing file verification complete"
         );
         if orphan_temp_count > 0 {
-            status.emit(DownloadEvent::Log {
+            emit(DownloadEvent::Log {
                 id,
-                message: format!(
-                    "removed {} orphaned temp download file(s)",
-                    orphan_temp_count
-                ),
+                message: format!("removed {orphan_temp_count} orphaned temp download file(s)"),
             });
         }
     }
 
-    // Check if files changed during precheck
     let mut changed_ids: HashSet<u32> = HashSet::new();
     let files_changed = match capture_osz_snapshot(output_dir).await {
         Ok(final_snapshot) => {
@@ -128,33 +118,20 @@ pub(crate) async fn verify_existing_beatmapsets(
                 changed_ids = detect_changed_beatmapsets(&initial_snapshot, &final_snapshot);
                 info!(
                     download_id = id,
-                    initial = initial_snapshot.len(),
-                    final_count = final_snapshot.len(),
                     changed = changed_ids.len(),
-                    "Files changed during precheck"
+                    "files changed during precheck"
                 );
             }
             changed
         }
         Err(err) => {
-            warn!(
-                download_id = id,
-                error = %err,
-                "Failed to capture final snapshot after precheck"
-            );
+            warn!(download_id = id, error = %err, "failed to capture final snapshot after precheck");
             false
         }
     };
 
-    if !changed_ids.is_empty() {
-        info!(
-            download_id = id,
-            changed = changed_ids.len(),
-            "Revalidating beatmapsets altered during precheck"
-        );
-        for beatmapset_id in changed_ids {
-            state.record_changed(id, beatmapset_id, options, status);
-        }
+    for beatmapset_id in changed_ids {
+        state.record_changed(id, beatmapset_id, options, &emit);
     }
 
     Ok(PrecheckReport {
@@ -194,10 +171,10 @@ impl PrecheckState {
         id: DownloadId,
         mut record: FileRecord,
         options: PrecheckOptions,
-        status: &StatusSink,
+        emit: &impl Fn(DownloadEvent),
     ) {
         if let Some(error) = record.validation_error.take() {
-            self.record_invalid(id, record, error, options, status);
+            self.record_invalid(id, record, error, options, emit);
             return;
         }
 
@@ -211,17 +188,18 @@ impl PrecheckState {
             .insert(record.beatmapset_id, record.file_size);
 
         if options.notify_verified {
-            status.emit(DownloadEvent::BeatmapStatus {
+            emit(DownloadEvent::BeatmapStatus {
                 id,
                 beatmapset_id: record.beatmapset_id,
                 stage: BeatmapStage::Skipped,
-                message: "Already present".to_string(),
+                message: "already present".to_string(),
+                rate_limited: false,
             });
-            status.emit(DownloadEvent::BeatmapVerified {
+            emit(DownloadEvent::BeatmapVerified {
                 id,
                 duration_us: record.duration_us,
             });
-            self.emit_progress(id, status);
+            self.emit_progress(id, emit);
         }
     }
 
@@ -231,7 +209,7 @@ impl PrecheckState {
         record: FileRecord,
         error: String,
         options: PrecheckOptions,
-        status: &StatusSink,
+        emit: &impl Fn(DownloadEvent),
     ) {
         if self.unverified_maps.insert(record.beatmapset_id) {
             self.unverified.push(record.beatmapset_id);
@@ -241,20 +219,21 @@ impl PrecheckState {
             beatmapset_id = record.beatmapset_id,
             file = %record.path.display(),
             error = %error,
-            "Existing archive failed validation"
+            "existing archive failed validation"
         );
         if options.notify_verified {
-            status.emit(DownloadEvent::BeatmapStatus {
+            emit(DownloadEvent::BeatmapStatus {
                 id,
                 beatmapset_id: record.beatmapset_id,
                 stage: BeatmapStage::Failed,
-                message: format!("Existing file failed validation: {error}"),
+                message: format!("existing file failed validation: {error}"),
+                rate_limited: false,
             });
-            status.emit(DownloadEvent::BeatmapVerified {
+            emit(DownloadEvent::BeatmapVerified {
                 id,
                 duration_us: record.duration_us,
             });
-            self.emit_progress(id, status);
+            self.emit_progress(id, emit);
         }
     }
 
@@ -263,7 +242,7 @@ impl PrecheckState {
         id: DownloadId,
         beatmapset_id: u32,
         options: PrecheckOptions,
-        status: &StatusSink,
+        emit: &impl Fn(DownloadEvent),
     ) {
         if self.satisfied.remove(&beatmapset_id) {
             self.skipped = self.skipped.saturating_sub(1);
@@ -275,17 +254,18 @@ impl PrecheckState {
             self.unverified.push(beatmapset_id);
         }
         if options.notify_verified {
-            status.emit(DownloadEvent::BeatmapStatus {
+            emit(DownloadEvent::BeatmapStatus {
                 id,
                 beatmapset_id,
                 stage: BeatmapStage::Pending,
-                message: "File changed during precheck; re-downloading".to_string(),
+                message: "file changed during precheck; re-downloading".to_string(),
+                rate_limited: false,
             });
         }
     }
 
-    fn emit_progress(&self, id: DownloadId, status: &StatusSink) {
-        status.emit(DownloadEvent::OverallProgress {
+    fn emit_progress(&self, id: DownloadId, emit: &impl Fn(DownloadEvent)) {
+        emit(DownloadEvent::OverallProgress {
             id,
             downloaded: 0,
             skipped: self.skipped,
@@ -319,14 +299,14 @@ struct FileRecord {
 async fn scan_candidates(
     output_dir: &Path,
     expectations: &HashSet<u32>,
-    shutdown: &ShutdownToken,
+    cancel_rx: &watch::Receiver<bool>,
 ) -> Result<CandidateScan, DownloadError> {
     let mut dir = fs::read_dir(output_dir).await?;
     let mut candidates = Vec::new();
     let mut orphan_temp_count = 0usize;
 
     while let Some(entry) = dir.next_entry().await? {
-        if shutdown.is_cancelled() {
+        if *cancel_rx.borrow() {
             return Ok(CandidateScan {
                 candidates: Vec::new(),
                 orphan_temp_count,
@@ -345,7 +325,7 @@ async fn scan_candidates(
 
         let path = entry.path();
         let Some(beatmapset_id) = extract_beatmapset_id(&path) else {
-            debug!(file = %path.display(), "Could not extract beatmapset ID from filename");
+            debug!(file = %path.display(), "could not extract beatmapset id from filename");
             continue;
         };
 
@@ -357,7 +337,7 @@ async fn scan_candidates(
         }
     }
 
-    if shutdown.is_cancelled() {
+    if *cancel_rx.borrow() {
         return Ok(CandidateScan {
             candidates: Vec::new(),
             orphan_temp_count,
@@ -375,11 +355,11 @@ async fn scan_candidates(
 async fn remove_orphan_temp(path: PathBuf) -> bool {
     match fs::remove_file(&path).await {
         Ok(()) => {
-            debug!(file = %path.display(), "Removed orphaned temp download file");
+            debug!(file = %path.display(), "removed orphaned temp download file");
             true
         }
         Err(err) => {
-            warn!(file = %path.display(), error = %err, "Failed to remove orphaned temp download file");
+            warn!(file = %path.display(), error = %err, "failed to remove orphaned temp download file");
             false
         }
     }
@@ -388,9 +368,9 @@ async fn remove_orphan_temp(path: PathBuf) -> bool {
 async fn validate_existing_candidate(
     candidate: Candidate,
     options: PrecheckOptions,
-    shutdown: ShutdownToken,
+    cancel_rx: watch::Receiver<bool>,
 ) -> Result<Option<FileRecord>, (PathBuf, String)> {
-    if shutdown.is_cancelled() {
+    if *cancel_rx.borrow() {
         return Ok(None);
     }
 
@@ -530,7 +510,7 @@ fn is_osz_extension(ext: &OsStr) -> bool {
 fn is_orphan_temp_name(name: &OsStr) -> bool {
     name.to_str()
         .map(|s| {
-            // matches temp files produced by `temp_path_for` in worker::io:
+            // matches temp files produced by `temp_path_for` in osu-downloader::worker:
             // `<original_name>.part-<pid>-<counter>`
             if let Some(idx) = s.find(".part-") {
                 let tail = &s[idx + ".part-".len()..];
@@ -590,15 +570,13 @@ mod tests {
         for name in yes {
             assert!(
                 is_orphan_temp_name(OsStr::new(name)),
-                "expected match: {}",
-                name
+                "expected match: {name}"
             );
         }
         for name in no {
             assert!(
                 !is_orphan_temp_name(OsStr::new(name)),
-                "expected no match: {}",
-                name
+                "expected no match: {name}"
             );
         }
     }
@@ -620,15 +598,13 @@ mod tests {
         let expected = dir.path().join("123 artist.osz");
         let unexpected = dir.path().join("456 artist.osz");
         let orphan = dir.path().join("789 artist.osz.part-1-2");
-        let note = dir.path().join("note.txt");
-
-        std::fs::write(&expected, b"expected").expect("write expected osz");
-        std::fs::write(&unexpected, b"unexpected").expect("write unexpected osz");
-        std::fs::write(&orphan, b"orphan").expect("write orphan temp");
-        std::fs::write(&note, b"note").expect("write note");
+        std::fs::write(&expected, b"expected").unwrap();
+        std::fs::write(&unexpected, b"unexpected").unwrap();
+        std::fs::write(&orphan, b"orphan").unwrap();
 
         let expectations: HashSet<u32> = [123].into_iter().collect();
-        let scan = scan_candidates(dir.path(), &expectations, &ShutdownToken::new())
+        let (_tx, rx) = watch::channel(false);
+        let scan = scan_candidates(dir.path(), &expectations, &rx)
             .await
             .expect("scan candidates");
 

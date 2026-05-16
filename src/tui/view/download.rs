@@ -70,7 +70,7 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let status =
-        if matches!(page.stage, DownloadStage::Downloading) && page.all_threads_rate_limited() {
+        if matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited() {
             "rate limited"
         } else {
             stage_label(page.stage)
@@ -130,7 +130,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         Line::from(vec![
             Span::styled("settings: ", key_style),
             Span::styled(
-                format!("{} threads", page.thread_statuses.len()),
+                format!("{} threads", page.concurrent),
                 Style::default().fg(components::ACCENT),
             ),
         ]),
@@ -493,17 +493,15 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         return;
     }
 
-    let block = components::panel_block("threads");
+    let block = components::panel_block("active");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let row_width = inner.width;
     let mut items: Vec<ListItem> = Vec::new();
 
-    for (index, status) in page.thread_statuses.iter().enumerate() {
-        if status.should_display() {
-            items.push(components::thread_item(index, status, row_width));
-        }
+    for line in page.active_downloads.iter() {
+        items.push(components::active_download_item(line, row_width));
     }
 
     if items.is_empty() && page.failed_maps.is_empty() {

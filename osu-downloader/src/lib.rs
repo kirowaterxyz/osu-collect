@@ -1,21 +1,12 @@
 //! # osu-downloader
 //!
-//! A lightweight, reusable library for downloading osu! beatmaps from multiple mirrors.
+//! Library for downloading osu! beatmapsets from multiple mirrors.
 //!
-//! ## Features
-//!
-//! - Download single or multiple beatmapsets concurrently
-//! - Multiple mirror support with automatic fallback
-//! - Rate limit handling with automatic backoff
-//! - Progress tracking via channel-based events
-//! - MD5 hash computation and archive validation
-//! - Optional collection support (feature: `collection`)
-//! - Optional size fetching (feature: `size-fetch`)
-//!
-//! ## Quick Start
+//! ## Quick start
 //!
 //! ```rust,no_run
-//! use osu_downloader::{Downloader, Mirror};
+//! use osu_downloader::{Downloader, DownloadItem, Mirror};
+//! use futures_util::StreamExt;
 //!
 //! # async fn example() -> Result<(), osu_downloader::Error> {
 //! let downloader = Downloader::builder()
@@ -24,19 +15,23 @@
 //!     .concurrent_downloads(8)
 //!     .build()?;
 //!
-//! let mut session = downloader
-//!     .download_many(vec![123456, 789012], "./downloads")
-//!     .await;
-//!
-//! while let Some(event) = session.next_event().await {
-//!     // Handle download events
+//! let items = [123456u32, 789012].map(DownloadItem::skip_if_present);
+//! let mut session = downloader.download_many(items, "./downloads");
+//! let mut events = session.events();
+//! while let Some(_event) = events.next().await {
+//!     // handle event
 //! }
-//!
 //! let summary = session.wait().await?;
-//! println!("Downloaded {} beatmapsets", summary.downloaded.len());
+//! println!("downloaded {} beatmapsets", summary.downloaded.len());
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Features
+//!
+//! - `collection` — osucollector.com client and `collection.db` writer
+//! - `size-fetch` — Nekoha-backed beatmapset size and availability probes
+//! - `test-helpers` — internal helpers for downstream integration tests
 
 #![deny(missing_docs)]
 
@@ -54,9 +49,12 @@ pub(crate) mod worker;
 #[cfg(feature = "collection")]
 pub mod collection;
 
+#[cfg(feature = "size-fetch")]
+pub mod size;
+
 pub use downloader::{
-    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
-    BeatmapsetStatusEvent, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy,
+    BeatmapsetStatusEvent, DownloadItem, DownloadSession, Downloader, DownloaderBuilder,
+    FileExistsPolicy,
 };
 pub use error::{DownloadError, Error, Result};
 pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};

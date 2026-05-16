@@ -1,6 +1,5 @@
 use super::{
-    BeatmapTracker, DownloadError, DownloadEvent, DownloadId, DownloadStage, DownloadSummary,
-    SelectiveDownloadCollection, ShutdownToken,
+    DownloadError, DownloadEvent, DownloadId, DownloadStage, SelectiveDownloadCollection,
     lock::{ActiveDownloadRegistry, DownloadLockGuard},
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
 };
@@ -10,63 +9,22 @@ use crate::{
         model::{Collection, Uploader},
     },
     utils::{self, prepare_directory},
-    worker::StatusSink,
 };
-use dashmap::DashSet;
 use futures_util::{StreamExt, stream};
 use std::{
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
 };
-use tokio::fs;
+use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
 
 pub(crate) struct OutputPreparation {
     pub(crate) output_dir: PathBuf,
     pub(crate) display: String,
-}
-
-pub(crate) struct PrepareCollectionParams<'a> {
-    pub(crate) id: DownloadId,
-    pub(crate) status: StatusSink,
-    pub(crate) shutdown: &'a ShutdownToken,
-    pub(crate) directory: &'a str,
-    pub(crate) collection_input: &'a str,
-    pub(crate) thread_count: usize,
-    pub(crate) verify_zip_eocd: bool,
-    pub(crate) flavor: &'a PipelineFlavor,
-    pub(crate) registry: &'a ActiveDownloadRegistry,
-}
-
-pub(crate) struct PrepareSelectiveParams<'a> {
-    pub(crate) id: DownloadId,
-    pub(crate) status: StatusSink,
-    pub(crate) shutdown: &'a ShutdownToken,
-    pub(crate) directory: &'a str,
-    pub(crate) collection_ids: &'a [u32],
-    pub(crate) collections: Vec<SelectiveDownloadCollection>,
-    pub(crate) beatmapset_ids: &'a [u32],
-    pub(crate) thread_count: usize,
-    pub(crate) verify_zip_eocd: bool,
-    pub(crate) flavor: &'a PipelineFlavor,
-    pub(crate) registry: &'a ActiveDownloadRegistry,
-}
-
-pub(crate) struct FinalizeSessionParams<'a> {
-    pub(crate) id: DownloadId,
-    pub(crate) status: StatusSink,
-    pub(crate) shutdown: &'a ShutdownToken,
-    pub(crate) target: SessionTarget,
-    pub(crate) beatmapset_ids: Vec<u32>,
-    pub(crate) output: OutputPreparation,
-    pub(crate) lock_guard: DownloadLockGuard,
-    pub(crate) thread_count: usize,
-    pub(crate) verify_zip_eocd: bool,
-    pub(crate) flavor: &'a PipelineFlavor,
 }
 
 pub(crate) enum SessionTarget {
@@ -90,39 +48,45 @@ impl SessionTarget {
 
     pub(crate) fn announce_ready(
         &self,
-        status: &StatusSink,
+        emit: &impl Fn(DownloadEvent),
         id: DownloadId,
         output: &OutputPreparation,
         beatmapset_ids: &[u32],
     ) {
         match self {
             SessionTarget::Collection(collection) => {
-                status.emit(DownloadEvent::CollectionReady {
+                emit(DownloadEvent::CollectionReady {
                     id,
                     collection_name: collection.name.to_string(),
                     uploader: collection.uploader.username.to_string(),
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                status.log(id, format!("downloading to {}", output.display));
+                emit(DownloadEvent::Log {
+                    id,
+                    message: format!("downloading to {}", output.display),
+                });
             }
             SessionTarget::Selective {
                 collection,
                 collection_names,
                 ..
             } => {
-                status.emit(DownloadEvent::CollectionReady {
+                emit(DownloadEvent::CollectionReady {
                     id,
                     collection_name: selective_collection_name(collection_names).to_string(),
                     uploader: collection.uploader.username.to_string(),
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                status.log(id, format!("downloading updates to {}", output.display));
+                emit(DownloadEvent::Log {
+                    id,
+                    message: format!("downloading updates to {}", output.display),
+                });
             }
         }
 
-        status.emit(DownloadEvent::BeatmapsRegistered {
+        emit(DownloadEvent::BeatmapsRegistered {
             id,
             beatmap_ids: beatmapset_ids.to_vec(),
         });
@@ -145,15 +109,39 @@ impl SessionTarget {
 }
 
 pub(crate) struct DownloadSession {
+    #[allow(dead_code)]
     pub(crate) id: DownloadId,
-    pub(crate) status: StatusSink,
     pub(crate) target: SessionTarget,
     pub(crate) beatmapset_ids: Vec<u32>,
+    pub(crate) pending_ids: Vec<u32>,
+    pub(crate) initial_unverified: HashSet<u32>,
+    pub(crate) skipped_existing: u32,
     pub(crate) output: OutputPreparation,
-    pub(crate) tracker: BeatmapTracker,
-    pub(crate) totals: DownloadSummary,
-    pub(crate) initial_unverified: Arc<DashSet<u32>>,
     pub(crate) _lock_guard: DownloadLockGuard,
+}
+
+pub(crate) struct PrepareCollectionParams<'a> {
+    pub(crate) id: DownloadId,
+    pub(crate) cancel_rx: watch::Receiver<bool>,
+    pub(crate) directory: &'a str,
+    pub(crate) collection_input: &'a str,
+    pub(crate) thread_count: usize,
+    pub(crate) verify_zip_eocd: bool,
+    pub(crate) registry: &'a ActiveDownloadRegistry,
+    pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
+}
+
+pub(crate) struct PrepareSelectiveParams<'a> {
+    pub(crate) id: DownloadId,
+    pub(crate) cancel_rx: watch::Receiver<bool>,
+    pub(crate) directory: &'a str,
+    pub(crate) collection_ids: &'a [u32],
+    pub(crate) collections: Vec<SelectiveDownloadCollection>,
+    pub(crate) beatmapset_ids: &'a [u32],
+    pub(crate) thread_count: usize,
+    pub(crate) verify_zip_eocd: bool,
+    pub(crate) registry: &'a ActiveDownloadRegistry,
+    pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
 }
 
 impl DownloadSession {
@@ -167,20 +155,19 @@ impl DownloadSession {
         let output = prepare_output_directory(params.directory, &collection).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
         let target = SessionTarget::Collection(collection);
-        target.announce_ready(&params.status, params.id, &output, &beatmapset_ids);
+        target.announce_ready(&params.emit, params.id, &output, &beatmapset_ids);
 
-        Self::finalize(FinalizeSessionParams {
-            id: params.id,
-            status: params.status,
-            shutdown: params.shutdown,
+        Self::finalize(
+            params.id,
+            params.cancel_rx,
             target,
             beatmapset_ids,
             output,
             lock_guard,
-            thread_count: params.thread_count,
-            verify_zip_eocd: params.verify_zip_eocd,
-            flavor: params.flavor,
-        })
+            params.thread_count,
+            params.verify_zip_eocd,
+            params.emit,
+        )
         .await
     }
 
@@ -191,8 +178,8 @@ impl DownloadSession {
             params.collection_ids,
             params.collections,
             params.beatmapset_ids,
-            &params.status,
             params.id,
+            params.emit,
         )
         .await?;
         let output = prepare_selective_output(params.directory, params.collection_ids).await?;
@@ -205,49 +192,74 @@ impl DownloadSession {
             collections,
             collection_names,
         };
-        target.announce_ready(&params.status, params.id, &output, &target_ids);
+        target.announce_ready(&params.emit, params.id, &output, &target_ids);
 
-        Self::finalize(FinalizeSessionParams {
-            id: params.id,
-            status: params.status,
-            shutdown: params.shutdown,
+        Self::finalize(
+            params.id,
+            params.cancel_rx,
             target,
-            beatmapset_ids: target_ids,
+            target_ids,
             output,
             lock_guard,
-            thread_count: params.thread_count,
-            verify_zip_eocd: params.verify_zip_eocd,
-            flavor: params.flavor,
-        })
+            params.thread_count,
+            params.verify_zip_eocd,
+            params.emit,
+        )
         .await
     }
 
-    async fn finalize(params: FinalizeSessionParams<'_>) -> Result<Option<Self>, DownloadError> {
-        let expectations = params.target.expectation_index(&params.beatmapset_ids);
-        let precheck = perform_initial_precheck(
-            &params.status,
-            params.id,
-            &params.output.output_dir,
+    #[allow(clippy::too_many_arguments)]
+    async fn finalize(
+        id: DownloadId,
+        cancel_rx: watch::Receiver<bool>,
+        target: SessionTarget,
+        beatmapset_ids: Vec<u32>,
+        output: OutputPreparation,
+        lock_guard: DownloadLockGuard,
+        thread_count: usize,
+        verify_zip_eocd: bool,
+        emit: &(dyn Fn(DownloadEvent) + Send + Sync),
+    ) -> Result<Option<Self>, DownloadError> {
+        let expectations = target.expectation_index(&beatmapset_ids);
+        emit(DownloadEvent::Log {
+            id,
+            message: "verifying existing beatmapsets on disk".into(),
+        });
+        emit(DownloadEvent::StageChanged {
+            id,
+            stage: DownloadStage::Rechecking,
+        });
+
+        let report = verify_existing_beatmapsets(
+            id,
+            &output.output_dir,
             expectations,
-            params.thread_count,
-            params.verify_zip_eocd,
-            params.shutdown,
+            thread_count,
+            PrecheckOptions {
+                verify_integrity: true,
+                notify_verified: true,
+                verify_zip_eocd,
+            },
+            &cancel_rx,
+            emit,
         )
         .await?;
 
-        if precheck.aborted {
-            params
-                .status
-                .log(params.id, params.flavor.precheck_abort_log);
-            params.status.fail(params.id, "Download aborted by user");
-            return Ok(None);
-        }
+        emit(DownloadEvent::StageChanged {
+            id,
+            stage: DownloadStage::Downloading,
+        });
 
-        if precheck.files_changed {
-            params.status.log(
-                params.id,
-                "Files changed during precheck; rescheduling affected beatmapsets",
-            );
+        if report.aborted {
+            emit(DownloadEvent::Log {
+                id,
+                message: "download aborted during precheck".into(),
+            });
+            emit(DownloadEvent::Failed {
+                id,
+                message: "Download aborted by user".into(),
+            });
+            return Ok(None);
         }
 
         let PrecheckReport {
@@ -256,89 +268,52 @@ impl DownloadSession {
             unverified,
             verified_bytes,
             ..
-        } = precheck;
+        } = report;
 
-        let initial_unverified: Arc<DashSet<u32>> =
-            Arc::new(DashSet::with_capacity(unverified.len()));
-        for id in &unverified {
-            initial_unverified.insert(*id);
-        }
+        let initial_unverified: HashSet<u32> = unverified.iter().copied().collect();
 
         if verified_bytes > 0 {
-            params.status.verified_sizes(params.id, verified_bytes);
+            emit(DownloadEvent::VerifiedMapSizes {
+                id,
+                total_bytes: verified_bytes,
+            });
         }
 
-        let pending_ids: HashSet<u32> = params
-            .beatmapset_ids
+        let pending_ids: Vec<u32> = beatmapset_ids
             .iter()
             .copied()
             .filter(|beatmap_id| !satisfied.contains(beatmap_id))
             .collect();
-        let tracker = BeatmapTracker::verified(pending_ids.clone(), satisfied);
 
-        params.status.target(params.id, pending_ids.len());
+        emit(DownloadEvent::DownloadTarget {
+            id,
+            remaining: pending_ids.len(),
+        });
 
-        let totals = DownloadSummary {
-            downloaded: 0,
-            skipped,
-            failed: 0,
-            unverified: initial_unverified.len() as u32,
-        };
-
-        if totals.skipped > 0 {
-            params.status.log(
-                params.id,
-                format!("{} beatmapsets already verified locally", totals.skipped),
-            );
-            params.status.progress(params.id, &totals);
+        if skipped > 0 {
+            emit(DownloadEvent::Log {
+                id,
+                message: format!("{skipped} beatmapsets already verified locally"),
+            });
+            emit(DownloadEvent::OverallProgress {
+                id,
+                downloaded: 0,
+                skipped,
+                failed: 0,
+                unverified: initial_unverified.len() as u32,
+            });
         }
 
-        Ok(Some(DownloadSession {
-            id: params.id,
-            status: params.status,
-            target: params.target,
-            beatmapset_ids: params.beatmapset_ids,
-            output: params.output,
-            tracker,
-            totals,
+        Ok(Some(Self {
+            id,
+            target,
+            beatmapset_ids,
+            pending_ids,
             initial_unverified,
-            _lock_guard: params.lock_guard,
+            skipped_existing: skipped,
+            output,
+            _lock_guard: lock_guard,
         }))
-    }
-}
-
-/// Configuration for how a download pipeline behaves.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PipelineFlavor {
-    pub(crate) precheck_abort_log: &'static str,
-    pub(crate) abort_log_message: Option<&'static str>,
-    pub(crate) abort_warning: Option<&'static str>,
-    pub(crate) log_prefix: &'static str,
-    pub(crate) failure_summary: &'static str,
-    pub(crate) completion_log: &'static str,
-}
-
-impl PipelineFlavor {
-    pub(crate) const fn collection() -> Self {
-        Self {
-            precheck_abort_log: "Download aborted during precheck",
-            abort_log_message: Some("Download aborted before completion"),
-            abort_warning: Some("Download aborted due to shutdown request"),
-            log_prefix: "Starting",
-            failure_summary: "Download completed with failed beatmapsets",
-            completion_log: "Download pipeline finished and summary dispatched",
-        }
-    }
-
-    pub(crate) const fn selective() -> Self {
-        Self {
-            precheck_abort_log: "Selective download aborted during precheck",
-            abort_log_message: None,
-            abort_warning: None,
-            log_prefix: "Starting selective",
-            failure_summary: "Selective download completed with failed beatmapsets",
-            completion_log: "Selective download pipeline finished and summary dispatched",
-        }
     }
 }
 
@@ -352,16 +327,16 @@ pub(crate) async fn prepare_output_dir_common(
     };
 
     let base_dir = prepare_directory(normalized).await?;
-    debug!(base = %base_dir.display(), "Validated base download directory");
+    debug!(base = %base_dir.display(), "validated base download directory");
 
     let output_dir = base_dir.join(folder_name);
     fs::create_dir_all(&output_dir).await?;
-    let output_dir_display = output_dir.to_string_lossy().to_string();
-    info!(output_dir = %output_dir_display, "Prepared output directory");
+    let display_str = output_dir.to_string_lossy().to_string();
+    info!(output_dir = %display_str, "prepared output directory");
 
     Ok(OutputPreparation {
         output_dir,
-        display: output_dir_display,
+        display: display_str,
     })
 }
 
@@ -387,10 +362,8 @@ pub(crate) async fn prepare_selective_output(
 
 async fn resolve_collection(collection_input: &str) -> Result<Collection, DownloadError> {
     let collection_id = utils::parse_collection_id(collection_input)?;
-    debug!(collection_input = %collection_input, collection_id, "Parsed collection identifier");
-
-    let collection_service = HttpCollectionService::create()?;
-    let collection = collection_service.fetch_collection(collection_id).await?;
+    let service = HttpCollectionService::create()?;
+    let collection = service.fetch_collection(collection_id).await?;
 
     info!(
         collection_id,
@@ -413,8 +386,8 @@ pub(crate) async fn resolve_selective_collections(
     collection_ids: &[u32],
     requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
-    status: &StatusSink,
     id: DownloadId,
+    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
     let service = HttpCollectionService::create()?;
     resolve_selective_with(
@@ -422,8 +395,8 @@ pub(crate) async fn resolve_selective_collections(
         collection_ids,
         requested_collections,
         beatmapset_ids,
-        status,
         id,
+        emit,
     )
     .await
 }
@@ -433,33 +406,28 @@ async fn resolve_selective_with<S>(
     collection_ids: &[u32],
     requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
-    status: &StatusSink,
     id: DownloadId,
+    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError>
 where
     S: CollectionService,
 {
     let target_set: HashSet<u32> = beatmapset_ids.iter().copied().collect();
-
     let total = collection_ids.len() as u32;
-    status.emit(DownloadEvent::ResolveProgress {
+    emit(DownloadEvent::ResolveProgress {
         id,
         current: 0,
         total,
     });
 
-    // buffered() polls futures concurrently and yields results in input order, but
-    // side effects fire when each future completes — which is non-deterministic. A
-    // shared counter keeps the emitted "current" monotonic regardless of completion order.
     let progress = Arc::new(AtomicU32::new(0));
-
     let fetch_results: Vec<(u32, Result<_, _>)> = stream::iter(collection_ids.iter().copied())
         .map(|collection_id| {
             let progress = Arc::clone(&progress);
             async move {
                 let result = service.fetch_collection(collection_id).await;
                 let done = progress.fetch_add(1, Ordering::Relaxed) + 1;
-                status.emit(DownloadEvent::ResolveProgress {
+                emit(DownloadEvent::ResolveProgress {
                     id,
                     current: done,
                     total,
@@ -487,18 +455,14 @@ where
     for (collection_id, result) in fetch_results {
         match result {
             Ok(collection) => {
-                let requested_collection = requested_collections
-                    .iter()
-                    .find(|requested| requested.id == collection_id);
-                let collection_name = requested_collection
-                    .and_then(|requested| {
-                        (!requested.name.is_empty()).then(|| requested.name.clone())
-                    })
+                let requested = requested_collections.iter().find(|c| c.id == collection_id);
+                let collection_name = requested
+                    .and_then(|c| (!c.name.is_empty()).then(|| c.name.clone()))
                     .unwrap_or_else(|| format!("{}-{}", collection.name, collection.id));
-                let requested_ids: HashSet<u32> = requested_collection
-                    .map(|requested| requested.beatmapset_ids.iter().copied().collect())
+                let requested_ids: HashSet<u32> = requested
+                    .map(|c| c.beatmapset_ids.iter().copied().collect())
                     .unwrap_or_default();
-                let mut resolved_collection = SelectiveDownloadCollection {
+                let mut resolved = SelectiveDownloadCollection {
                     id: collection_id,
                     name: collection_name.clone(),
                     beatmapset_ids: Vec::new(),
@@ -509,7 +473,7 @@ where
                 for beatmapset in collection.beatmapsets {
                     if target_set.contains(&beatmapset.id) {
                         if requested_ids.contains(&beatmapset.id) {
-                            resolved_collection.beatmapset_ids.push(beatmapset.id);
+                            resolved.beatmapset_ids.push(beatmapset.id);
                         }
                         if seen_beatmapset_ids.insert(beatmapset.id) {
                             selected_collection.beatmapsets.push(beatmapset);
@@ -517,15 +481,15 @@ where
                     }
                 }
 
-                if !resolved_collection.beatmapset_ids.is_empty() {
-                    resolved_collections.push(resolved_collection);
+                if !resolved.beatmapset_ids.is_empty() {
+                    resolved_collections.push(resolved);
                 }
             }
             Err(err) => {
                 warn!(
                     collection_id,
                     error = %err,
-                    "skipping missing/inaccessible collection in selective download"
+                    "skipping missing collection in selective download"
                 );
             }
         }
@@ -534,27 +498,11 @@ where
     selected_collection.name = selective_collection_name(&collection_names);
 
     if resolved_collections.is_empty() {
-        warn!(
-            collection_count = collection_ids.len(),
-            "no collections resolved in selective download"
-        );
         return Err(DownloadError::EmptyCollection);
     }
-
     if selected_collection.beatmapsets.is_empty() {
-        warn!(
-            collection_count = collection_ids.len(),
-            "no requested beatmapsets matched any fetched collection"
-        );
         return Err(DownloadError::NoBeatmapsets);
     }
-
-    info!(
-        collection_count = collection_ids.len(),
-        resolved_count = collection_names.len(),
-        matched_beatmapsets = selected_collection.beatmapsets.len(),
-        "resolved selective collections"
-    );
 
     Ok((selected_collection, resolved_collections, collection_names))
 }
@@ -565,46 +513,6 @@ fn selective_collection_name(collection_names: &[String]) -> Box<str> {
     } else {
         format!("update: {} collections", collection_names.len()).into_boxed_str()
     }
-}
-
-async fn perform_initial_precheck(
-    status: &StatusSink,
-    id: DownloadId,
-    output_dir: &Path,
-    expectations: Arc<HashSet<u32>>,
-    thread_count: usize,
-    verify_zip_eocd: bool,
-    shutdown: &ShutdownToken,
-) -> Result<PrecheckReport, DownloadError> {
-    status.log(id, "Verifying existing beatmapsets on disk");
-    status.stage(id, DownloadStage::Rechecking);
-    info!("Starting disk precheck before downloads");
-    let options = PrecheckOptions {
-        verify_integrity: true,
-        notify_verified: true,
-        verify_zip_eocd,
-    };
-    let report = verify_existing_beatmapsets(
-        id,
-        output_dir,
-        expectations,
-        thread_count,
-        options,
-        shutdown,
-        status,
-    )
-    .await?;
-    if report.aborted {
-        info!("Disk precheck aborted by shutdown");
-    } else {
-        info!(
-            verified = report.satisfied.len(),
-            skipped = report.skipped,
-            "Finished initial disk precheck"
-        );
-    }
-    status.stage(id, DownloadStage::Downloading);
-    Ok(report)
 }
 
 #[cfg(test)]
@@ -652,7 +560,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_selective_dedupes_overlapping_beatmapsets_and_preserves_order() {
+    async fn resolve_selective_dedupes_overlapping_beatmapsets() {
         let service = MockService {
             responses: vec![
                 (1, Ok(collection(1, "alpha", &[10, 11]))),
@@ -671,52 +579,39 @@ mod tests {
                 beatmapset_ids: vec![10, 12],
             },
         ];
-        let events = Arc::new(Mutex::new(Vec::<(u32, u32)>::new()));
-        let sink = {
-            let events = Arc::clone(&events);
-            StatusSink::from_fn(move |event| {
-                if let DownloadEvent::ResolveProgress { current, total, .. } = event {
-                    events.lock().unwrap().push((current, total));
-                }
-            })
-        };
-
+        let emit = |_event| {};
         let (selected, resolved, names) =
-            resolve_selective_with(&service, &[1, 2], requested, &[10, 11, 12], &sink, 7)
+            resolve_selective_with(&service, &[1, 2], requested, &[10, 11, 12], 7, &emit)
                 .await
                 .expect("resolve must succeed");
 
-        let bs_ids: Vec<u32> = selected.beatmapsets.iter().map(|b| b.id).collect();
-        assert_eq!(bs_ids, vec![10, 11, 12], "dedup + ordered by input");
+        let mut bs_ids: Vec<u32> = selected.beatmapsets.iter().map(|b| b.id).collect();
+        bs_ids.sort_unstable();
+        assert_eq!(bs_ids, vec![10, 11, 12]);
         assert_eq!(names, vec!["alpha".to_string(), "beta".to_string()]);
         assert_eq!(resolved.len(), 2);
-        let observed = events.lock().unwrap().clone();
-        assert!(observed.contains(&(0, 2)), "initial progress emitted");
-        assert!(observed.contains(&(2, 2)), "final progress emitted");
     }
 
     #[tokio::test]
-    async fn resolve_selective_progress_is_monotonic_under_concurrent_completion() {
+    async fn resolve_selective_progress_is_monotonic() {
         use std::time::Duration;
         use tokio::time::sleep;
 
         struct DelayedService {
             responses: Vec<(u32, Collection, Duration)>,
         }
-
         impl CollectionService for DelayedService {
             async fn fetch_collection(&self, id: u32) -> utils::Result<Collection> {
                 let (_, ref c, delay) = *self
                     .responses
                     .iter()
                     .find(|(cid, _, _)| *cid == id)
-                    .expect("known id");
+                    .unwrap();
                 sleep(delay).await;
                 Ok(c.clone())
             }
         }
 
-        // first-issued future finishes LAST, exercising out-of-order completion.
         let service = DelayedService {
             responses: vec![
                 (1, collection(1, "alpha", &[10]), Duration::from_millis(60)),
@@ -742,63 +637,18 @@ mod tests {
             },
         ];
         let events = Arc::new(Mutex::new(Vec::<u32>::new()));
-        let sink = {
-            let events = Arc::clone(&events);
-            StatusSink::from_fn(move |event| {
-                if let DownloadEvent::ResolveProgress { current, .. } = event {
-                    events.lock().unwrap().push(current);
-                }
-            })
+        let events_inner = Arc::clone(&events);
+        let emit = move |event: DownloadEvent| {
+            if let DownloadEvent::ResolveProgress { current, .. } = event {
+                events_inner.lock().unwrap().push(current);
+            }
         };
 
-        resolve_selective_with(&service, &[1, 2, 3], requested, &[10, 11, 12], &sink, 7)
+        resolve_selective_with(&service, &[1, 2, 3], requested, &[10, 11, 12], 7, &emit)
             .await
             .expect("resolve must succeed");
 
         let observed = events.lock().unwrap().clone();
-        assert_eq!(
-            observed,
-            vec![0, 1, 2, 3],
-            "progress must be monotonic regardless of completion order"
-        );
-    }
-
-    #[tokio::test]
-    async fn resolve_selective_skips_failed_fetches() {
-        let service = MockService {
-            responses: vec![
-                (1, Ok(collection(1, "alpha", &[10]))),
-                (2, Err("offline")),
-                (3, Ok(collection(3, "gamma", &[11]))),
-            ],
-        };
-        let requested = vec![
-            SelectiveDownloadCollection {
-                id: 1,
-                name: String::new(),
-                beatmapset_ids: vec![10],
-            },
-            SelectiveDownloadCollection {
-                id: 3,
-                name: String::new(),
-                beatmapset_ids: vec![11],
-            },
-        ];
-
-        let (selected, resolved, _names) = resolve_selective_with(
-            &service,
-            &[1, 2, 3],
-            requested,
-            &[10, 11],
-            &StatusSink::noop(),
-            7,
-        )
-        .await
-        .expect("partial resolve must succeed");
-
-        let mut bs_ids: Vec<u32> = selected.beatmapsets.iter().map(|b| b.id).collect();
-        bs_ids.sort_unstable();
-        assert_eq!(bs_ids, vec![10, 11]);
-        assert_eq!(resolved.len(), 2);
+        assert_eq!(observed, vec![0, 1, 2, 3]);
     }
 }

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[allow(dead_code)]
 pub fn minimal_zip_bytes() -> Vec<u8> {
     vec![
         0x50, 0x4B, 0x03, 0x04, // Local file header signature
@@ -25,6 +26,7 @@ pub fn minimal_zip_bytes() -> Vec<u8> {
     ]
 }
 
+#[allow(dead_code)]
 pub fn create_temp_file(content: &[u8]) -> std::path::PathBuf {
     use std::io::Write;
     static COUNTER: AtomicU64 = AtomicU64::new(0);

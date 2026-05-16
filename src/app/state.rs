@@ -1,5 +1,5 @@
 use super::{
-    collection::{CollectionPage, ThreadStatusLine},
+    collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ConfigField, ConfigTab},
     home::{HomeField, HomeTab},
@@ -561,13 +561,12 @@ impl App {
             DownloadEvent::BeatmapProgress {
                 id,
                 beatmapset_id,
-                thread_index,
                 downloaded,
                 total,
             } => {
                 if let Some(page) = self.page_mut(id) {
                     page.update_progress(beatmapset_id, downloaded, total);
-                    page.update_thread_progress(thread_index, downloaded, total);
+                    page.update_active_progress(beatmapset_id, downloaded, total);
                 }
             }
             DownloadEvent::BeatmapStatus {
@@ -575,9 +574,11 @@ impl App {
                 beatmapset_id,
                 stage,
                 message,
+                rate_limited,
             } => {
                 if let Some(page) = self.page_mut(id) {
                     page.update_status(beatmapset_id, stage, &message);
+                    page.update_active_status(beatmapset_id, stage, &message, rate_limited);
                 }
             }
             DownloadEvent::DownloadTarget { id, remaining } => {
@@ -613,21 +614,6 @@ impl App {
             DownloadEvent::Log { id, message } => {
                 if let Some(page) = self.page_mut(id) {
                     page.push_log(&message);
-                }
-            }
-            DownloadEvent::ThreadStatus {
-                id,
-                thread_index,
-                message,
-                rate_limited,
-                beatmapset_id,
-            } => {
-                if let Some(page) = self.page_mut(id) {
-                    let completed = ThreadStatusLine::is_completion_message(&message);
-                    if completed {
-                        page.reset_thread_speed(thread_index);
-                    }
-                    page.update_thread_status(thread_index, &message, rate_limited, beatmapset_id);
                 }
             }
             DownloadEvent::StageChanged { id, stage } => {

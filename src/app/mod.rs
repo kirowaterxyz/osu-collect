@@ -11,7 +11,7 @@ pub mod snapshots;
 pub mod state;
 pub mod updates;
 
-pub use collection::{CollectionPage, ThreadStatusLine};
+pub use collection::{ActiveDownloadLine, CollectionPage};
 pub use config::{AuthLoginState, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField};
 pub use messages::MessageKind;

@@ -1,101 +1,119 @@
-//! Event types for download progress and status updates
+//! Event types emitted during a download session.
 
-use crate::{DownloadError, MirrorKind};
+use crate::{downloader::BeatmapsetStatusEvent, DownloadError, MirrorKind};
 use std::time::Duration;
 
-/// Events emitted during download session
+/// Events emitted while a [`DownloadSession`](crate::DownloadSession) is running.
 #[derive(Debug, Clone)]
 pub enum DownloadEvent {
-    /// Download session has started
+    /// Session has started.
     SessionStarted {
-        /// Total number of beatmapsets to download
+        /// Total number of beatmapsets in the session.
         total_beatmapsets: usize,
     },
 
-    /// A beatmapset download has started
+    /// A beatmapset download has started.
     BeatmapsetStarted {
-        /// Beatmapset ID
+        /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Mirror being used for download
-        mirror: MirrorKind,
     },
 
-    /// Download progress update for a beatmapset
-    Progress {
-        /// Beatmapset ID
+    /// Per-attempt status update (which mirror is being contacted, rate limits, etc.).
+    BeatmapsetStatus {
+        /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Number of bytes downloaded so far
+        /// Underlying status event.
+        status: BeatmapsetStatusEvent,
+    },
+
+    /// Download progress update.
+    Progress {
+        /// Beatmapset ID.
+        beatmapset_id: u32,
+        /// Bytes downloaded so far.
         downloaded_bytes: u64,
-        /// Total size in bytes (None if unknown)
+        /// Total bytes if the server reported a Content-Length.
         total_bytes: Option<u64>,
-        /// Download speed in bytes per second
+        /// Bytes-per-second since the last progress emission.
         speed_bps: u64,
     },
 
-    /// A beatmapset was downloaded successfully
+    /// A beatmapset was downloaded successfully.
     BeatmapsetCompleted {
-        /// Beatmapset ID
+        /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Downloaded filename
+        /// On-disk filename.
         filename: String,
-        /// File size in bytes
+        /// File size in bytes.
         size_bytes: u64,
-        /// MD5 hash (if computed)
+        /// MD5 hash if computed.
         md5_hash: Option<String>,
-        /// Mirror that was used
+        /// Mirror that served the archive.
         mirror_used: MirrorKind,
+        /// Archive verification time in microseconds.
+        verify_duration_us: u64,
     },
 
-    /// A beatmapset download failed
+    /// A beatmapset failed for a non-transient reason.
     BeatmapsetFailed {
-        /// Beatmapset ID
+        /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Error that occurred
+        /// Underlying error.
         error: DownloadError,
-        /// Number of retries attempted
-        retry_count: u32,
+        /// Mirror associated with the failure if known.
+        mirror: Option<MirrorKind>,
     },
 
-    /// A beatmapset was skipped
-    BeatmapsetSkipped {
-        /// Beatmapset ID
+    /// Every mirror failed with transient network errors only.
+    BeatmapsetNetworkError {
+        /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Reason for skipping
+        /// Last transient failure reason.
+        reason: String,
+    },
+
+    /// A beatmapset was skipped.
+    BeatmapsetSkipped {
+        /// Beatmapset ID.
+        beatmapset_id: u32,
+        /// Reason for skipping.
         reason: SkipReason,
     },
 
-    /// Download session has completed
+    /// Session has finished.
     SessionCompleted {
-        /// Download summary statistics
+        /// Aggregate summary.
         summary: DownloadSummary,
     },
 }
 
-/// Reason a beatmapset was skipped
+/// Reason a beatmapset was skipped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SkipReason {
-    /// Beatmapset already exists at destination
+    /// Already exists at the destination.
     AlreadyExists,
-    /// Beatmapset is not available on any configured mirror
+    /// Not available on any configured mirror.
     UnavailableOnMirrors,
-    /// Invalid beatmapset ID
+    /// Caller marked the item as not-to-download.
     InvalidBeatmapsetId,
 }
 
-/// Summary of a completed download session
-#[derive(Debug, Clone)]
+/// Summary of a completed download session.
+#[derive(Debug, Clone, Default)]
 pub struct DownloadSummary {
-    /// Total number of beatmapsets in session
+    /// Total number of beatmapsets requested.
     pub total: usize,
-    /// IDs of successfully downloaded beatmapsets
+    /// IDs of successful downloads.
     pub downloaded: Vec<u32>,
-    /// IDs and reasons for skipped beatmapsets
+    /// IDs of skipped beatmapsets with reasons.
     pub skipped: Vec<(u32, SkipReason)>,
-    /// IDs and error messages for failed beatmapsets
+    /// IDs of failed beatmapsets with error messages.
     pub failed: Vec<(u32, String)>,
-    /// Total bytes downloaded
+    /// IDs of beatmapsets that gave up after all mirrors hit transient errors.
+    pub network_errors: Vec<u32>,
+    /// Total bytes downloaded.
     pub total_bytes: u64,
-    /// Duration of the download session
+    /// Session duration.
     pub duration: Duration,
 }
 
@@ -103,109 +121,33 @@ impl DownloadSummary {
     pub(crate) fn new(total: usize) -> Self {
         Self {
             total,
-            downloaded: Vec::new(),
-            skipped: Vec::new(),
-            failed: Vec::new(),
-            total_bytes: 0,
-            duration: Duration::ZERO,
+            ..Self::default()
         }
     }
 
-    /// Get the number of successfully downloaded beatmapsets
-    pub fn downloaded_count(&self) -> usize {
-        self.downloaded.len()
-    }
-
-    /// Get the number of skipped beatmapsets
-    pub fn skipped_count(&self) -> usize {
-        self.skipped.len()
-    }
-
-    /// Get the number of failed beatmapsets
-    pub fn failed_count(&self) -> usize {
-        self.failed.len()
-    }
-
-    /// Check if all downloads were successful
+    /// True if every beatmapset succeeded or was skipped because it already existed.
     pub fn all_succeeded(&self) -> bool {
-        self.failed.is_empty() && self.skipped.is_empty()
-    }
-
-    /// Get success rate (0.0 to 1.0)
-    pub fn success_rate(&self) -> f64 {
-        if self.total == 0 {
-            return 1.0;
-        }
-        self.downloaded.len() as f64 / self.total as f64
+        self.failed.is_empty() && self.network_errors.is_empty()
     }
 }
 
-/// Individual beatmapset download result
+/// Per-beatmapset result returned by single-download helpers and from the summary.
 #[derive(Debug, Clone)]
 pub enum DownloadResult {
-    /// Download succeeded
+    /// Download succeeded.
     Success {
-        /// Downloaded filename
+        /// On-disk filename.
         filename: String,
-        /// File size in bytes
+        /// File size in bytes.
         size_bytes: u64,
-        /// MD5 hash (if computed)
+        /// MD5 hash if computed.
         md5_hash: Option<String>,
-        /// Mirror that served the file
+        /// Mirror that served the archive.
         mirror_used: MirrorKind,
     },
-    /// Download was skipped
+    /// Download was skipped.
     Skipped {
-        /// Reason for skipping
+        /// Reason for skipping.
         reason: SkipReason,
     },
-}
-
-impl DownloadResult {
-    /// Check if the download was successful
-    pub fn is_success(&self) -> bool {
-        matches!(self, DownloadResult::Success { .. })
-    }
-
-    /// Check if the download was skipped
-    pub fn is_skipped(&self) -> bool {
-        matches!(self, DownloadResult::Skipped { .. })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_download_summary() {
-        let mut summary = DownloadSummary::new(10);
-        summary.downloaded = vec![1, 2, 3];
-        summary.skipped = vec![(4, SkipReason::AlreadyExists)];
-        summary.failed = vec![(5, "Error".to_string())];
-
-        assert_eq!(summary.downloaded_count(), 3);
-        assert_eq!(summary.skipped_count(), 1);
-        assert_eq!(summary.failed_count(), 1);
-        assert!(!summary.all_succeeded());
-        assert_eq!(summary.success_rate(), 0.3);
-    }
-
-    #[test]
-    fn test_download_result() {
-        let success = DownloadResult::Success {
-            filename: "test.osz".to_string(),
-            size_bytes: 1024,
-            md5_hash: None,
-            mirror_used: crate::MirrorKind::Custom,
-        };
-        assert!(success.is_success());
-        assert!(!success.is_skipped());
-
-        let skipped = DownloadResult::Skipped {
-            reason: SkipReason::AlreadyExists,
-        };
-        assert!(!skipped.is_success());
-        assert!(skipped.is_skipped());
-    }
 }

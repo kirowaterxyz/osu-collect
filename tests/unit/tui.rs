@@ -308,15 +308,20 @@ fn login_action_row_renders_when_focused() {
 }
 
 #[test]
-fn thread_view_renders_progress_bar_when_downloading() {
+fn active_view_renders_progress_bar_when_downloading() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
     page.register_beatmaps(&[42]);
-    page.update_thread_status(0, "Downloading #42 from mirror", false, Some(42));
-    page.update_thread_progress(0, 5_000_000, 10_000_000);
+    page.update_active_status(
+        42,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #42 from mirror",
+        false,
+    );
+    page.update_active_progress(42, 5_000_000, 10_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
     app.downloads.push(page);
     app.active_tab = 3;
@@ -332,14 +337,19 @@ fn thread_view_renders_progress_bar_when_downloading() {
 }
 
 #[test]
-fn thread_view_omits_progress_bar_when_fetching() {
+fn active_view_omits_progress_bar_when_fetching() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
     page.register_beatmaps(&[42]);
-    page.update_thread_status(0, "Fetching #42 from mirror", false, Some(42));
+    page.update_active_status(
+        42,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Fetching #42 from mirror",
+        false,
+    );
     std::thread::sleep(std::time::Duration::from_millis(150));
     app.downloads.push(page);
     app.active_tab = 3;
@@ -350,41 +360,6 @@ fn thread_view_omits_progress_bar_when_fetching() {
     assert!(
         !output.contains("█") && !output.contains("░"),
         "bar must not render while status is not Downloading"
-    );
-}
-
-#[test]
-fn thread_status_change_is_debounced_except_for_downloading() {
-    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
-    page.update_thread_status(0, "Fetching #1 from mirror", false, Some(1));
-
-    assert_eq!(
-        page.thread_statuses[0].displayed_message(),
-        "Idle",
-        "non-Downloading status must wait for the debounce window"
-    );
-
-    page.update_thread_status(0, "Downloading #1 from mirror", false, Some(1));
-
-    assert_eq!(
-        page.thread_statuses[0].displayed_message(),
-        "Downloading #1 from mirror",
-        "Downloading status must bypass debounce and promote immediately"
-    );
-}
-
-#[test]
-fn fetching_status_promotes_after_debounce_expires() {
-    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
-    page.update_thread_status(0, "Fetching #1 from mirror", false, Some(1));
-
-    assert_eq!(page.thread_statuses[0].displayed_message(), "Idle");
-
-    std::thread::sleep(std::time::Duration::from_millis(150));
-
-    assert_eq!(
-        page.thread_statuses[0].displayed_message(),
-        "Fetching #1 from mirror",
     );
 }
 
@@ -631,21 +606,36 @@ fn rechecking_stage_uses_warning_color_on_gauge() {
 }
 
 #[test]
-fn fetching_message_switches_active_beatmap_without_pre_emit() {
+fn active_progress_is_per_beatmapset() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
-    page.update_thread_status(0, "Downloading #100 from mirror", false, Some(100));
-    page.update_thread_progress(0, 1_000_000, 4_000_000);
-
-    page.update_thread_status(0, "Fetching #101 from mirror", false, Some(101));
-
-    let thread = &page.thread_statuses[0];
-    assert!(thread.message.contains("Fetching"));
-    assert!(thread.message.contains("#101"));
-    assert_eq!(
-        thread.progress_ratio(),
-        None,
-        "progress must reset when switching to a new beatmap"
+    page.update_active_status(
+        100,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #100 from mirror",
+        false,
     );
+    page.update_active_progress(100, 1_000_000, 4_000_000);
+    page.update_active_status(
+        101,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Fetching #101 from mirror",
+        false,
+    );
+
+    let line_100 = page
+        .active_downloads
+        .iter()
+        .find(|l| l.beatmapset_id == 100)
+        .expect("100 still active");
+    assert_eq!(line_100.downloaded, 1_000_000);
+
+    let line_101 = page
+        .active_downloads
+        .iter()
+        .find(|l| l.beatmapset_id == 101)
+        .expect("101 inserted");
+    assert!(line_101.message.contains("Fetching"));
+    assert_eq!(line_101.progress_ratio(), None);
 }
 
 #[test]

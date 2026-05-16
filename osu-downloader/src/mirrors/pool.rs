@@ -19,25 +19,6 @@ impl MirrorPool {
         }
     }
 
-    pub(crate) fn plan(&self) -> Vec<Mirror> {
-        let now = Instant::now();
-        let mut penalties = self.penalties.lock().unwrap();
-        let mut ready: Vec<Mirror> = Vec::with_capacity(self.mirrors.len());
-
-        for mirror in self.mirrors.iter() {
-            match penalties.get(&mirror.kind()).copied() {
-                Some(until) if until > now => {}
-                Some(_) => {
-                    penalties.remove(&mirror.kind());
-                    ready.push(mirror.clone());
-                }
-                None => ready.push(mirror.clone()),
-            }
-        }
-
-        ready
-    }
-
     pub(crate) fn mirrors_len(&self) -> usize {
         self.mirrors.len()
     }
@@ -63,46 +44,11 @@ impl MirrorPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_mirror_pool_plan() {
-        let mirrors = vec![Mirror::nerinyan(), Mirror::sayobot(), Mirror::osu_direct()];
-        let pool = MirrorPool::new(mirrors);
-
-        let plan = pool.plan();
-        assert_eq!(plan.len(), 3);
-    }
 
     #[test]
-    fn test_rate_limit() {
-        let mirrors = vec![Mirror::nerinyan()];
-        let pool = MirrorPool::new(mirrors);
-
+    fn rate_limit_records_penalty() {
+        let pool = MirrorPool::new(vec![Mirror::nerinyan()]);
         pool.mark_rate_limited(MirrorKind::Nerinyan);
-        assert!(pool.plan().is_empty());
-        assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
-    }
-
-    #[test]
-    fn test_plan_excludes_cooling_mirrors_when_ready_exists() {
-        let mirrors = vec![Mirror::nerinyan(), Mirror::osu_direct()];
-        let pool = MirrorPool::new(mirrors);
-
-        pool.mark_rate_limited(MirrorKind::Nerinyan);
-
-        let plan = pool.plan();
-        assert_eq!(plan.len(), 1);
-        assert_eq!(plan[0].kind(), MirrorKind::OsuDirect);
-    }
-
-    #[test]
-    fn test_plan_returns_no_mirrors_when_all_cooling() {
-        let mirrors = vec![Mirror::nerinyan()];
-        let pool = MirrorPool::new(mirrors);
-
-        pool.mark_rate_limited(MirrorKind::Nerinyan);
-
-        let plan = pool.plan();
-        assert!(plan.is_empty());
         assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
     }
 }

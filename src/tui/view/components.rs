@@ -1,5 +1,5 @@
 use crate::{
-    app::{InputField, ThreadStatusLine},
+    app::{ActiveDownloadLine, InputField},
     download::DownloadStage,
 };
 use ratatui::{
@@ -351,32 +351,29 @@ pub fn status_style(stage: DownloadStage) -> Style {
     }
 }
 
-pub fn thread_item(index: usize, status: &ThreadStatusLine, width: u16) -> ListItem<'static> {
+pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'static> {
     const BAR_WIDTH: u16 = 12;
     const LABEL_WIDTH: u16 = 5;
     const RESERVED_RIGHT: u16 = BAR_WIDTH + 1 + LABEL_WIDTH;
 
-    let prefix = format!("  t{:<2} ", index + 1);
+    let prefix = format!("  #{:<7} ", line.beatmapset_id);
     let prefix_w = prefix.chars().count() as u16;
-    let message = status.displayed_message();
+    let message = line.message.clone();
     let message_w = message.chars().count() as u16;
-    let rate_limited = status.displayed_rate_limited();
+    let rate_limited = line.rate_limited;
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
-        Span::styled(
-            message,
-            thread_style_for(&status.displayed_message(), rate_limited),
-        ),
+        Span::styled(message.clone(), thread_style_for(&message, rate_limited)),
     ];
 
-    if status.should_show_bar() {
+    if line.should_show_bar() {
         let used = prefix_w.saturating_add(message_w);
         if width >= used + RESERVED_RIGHT {
             let pad = (width - used - RESERVED_RIGHT) as usize;
             spans.push(Span::raw(" ".repeat(pad)));
 
-            let (filled, label) = match status.progress_ratio() {
+            let (filled, label) = match line.progress_ratio() {
                 Some(ratio) => {
                     let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
                     (f, format!("{:>3}%", (ratio * 100.0).round() as u16))

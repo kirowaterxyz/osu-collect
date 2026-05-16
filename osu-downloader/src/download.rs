@@ -1,11 +1,11 @@
-//! Core download client logic
+//! Per-beatmapset download state machine.
+//!
+//! Internal to the crate. `batch.rs` calls [`download_beatmapset`] for each item; results are
+//! translated into the public [`DownloadEvent`](crate::DownloadEvent) stream there.
 
 use crate::{
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
-    downloader::{
-        BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
-        BeatmapsetStatusEvent, FileExistsPolicy,
-    },
+    downloader::{BeatmapsetStatusEvent, FileExistsPolicy},
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation,
     worker::stream_download,
@@ -15,10 +15,55 @@ use std::{
     collections::HashSet,
     future::{pending, Future},
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::time::sleep;
 use tracing::{debug, trace};
+
+/// Internal callback bundle for a single beatmapset attempt.
+#[derive(Clone, Default)]
+pub(crate) struct BeatmapsetDownloadCallbacks {
+    pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    pub(crate) status: Option<Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync>>,
+}
+
+/// Internal per-attempt options.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BeatmapsetDownloadOptions {
+    pub(crate) file_exists_policy: FileExistsPolicy,
+}
+
+impl Default for BeatmapsetDownloadOptions {
+    fn default() -> Self {
+        Self {
+            file_exists_policy: FileExistsPolicy::Skip,
+        }
+    }
+}
+
+/// Internal outcome for a single beatmapset attempt.
+#[derive(Debug, Clone)]
+pub(crate) enum BeatmapsetDownloadOutcome {
+    Success {
+        filename: String,
+        hash: String,
+        mirror: MirrorKind,
+        size_bytes: u64,
+        verify_duration_us: u64,
+    },
+    Skipped {
+        reason: SkipReason,
+    },
+    Failed {
+        mirror: Option<MirrorKind>,
+        reason: String,
+    },
+    NetworkError {
+        reason: String,
+    },
+    Aborted,
+}
 
 pub(crate) struct DownloadParams<'a> {
     pub(crate) beatmapset_id: u32,
@@ -150,21 +195,6 @@ fn decode_quoted_string(s: &str) -> String {
 
 fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
     parse_beatmapset_id(name) == Some(beatmapset_id)
-}
-
-pub(crate) async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32> {
-    let mut ids = std::collections::HashSet::new();
-    let Ok(mut read_dir) = tokio::fs::read_dir(dir).await else {
-        return ids;
-    };
-    while let Ok(Some(entry)) = read_dir.next_entry().await {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(id) = parse_beatmapset_id(&name) {
-            ids.insert(id);
-        }
-    }
-    ids
 }
 
 fn parse_beatmapset_id(name: &str) -> Option<u32> {
