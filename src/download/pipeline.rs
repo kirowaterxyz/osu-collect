@@ -150,6 +150,8 @@ async fn run_collection(
     .await?;
 
     if aborted {
+        drop(session);
+        try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
     }
 
@@ -226,6 +228,8 @@ async fn run_selective(
         run_pipeline_core(id, &session, &config, true, false, cancel_rx, emit.as_ref()).await?;
 
     if aborted {
+        drop(session);
+        try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
     }
 
@@ -699,6 +703,27 @@ async fn write_collection_db(
     }
 }
 
+async fn try_remove_empty_output_dir(
+    id: DownloadId,
+    output_dir: &Path,
+    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
+) {
+    let Ok(mut entries) = tokio::fs::read_dir(output_dir).await else {
+        return;
+    };
+    if entries.next_entry().await.ok().flatten().is_some() {
+        return;
+    }
+    if let Err(err) = tokio::fs::remove_dir(output_dir).await {
+        warn!(error = %err, path = %output_dir.display(), "failed to remove empty output directory");
+        return;
+    }
+    emit(DownloadEvent::Log {
+        id,
+        message: format!("removed empty directory {}", output_dir.display()),
+    });
+}
+
 fn create_selective_collection_database(
     collection: &Collection,
     collections: &[SelectiveDownloadCollection],
@@ -756,6 +781,24 @@ mod tests {
             name: name.to_string(),
             beatmapset_ids,
         }
+    }
+
+    #[tokio::test]
+    async fn empty_output_dir_is_removed_after_cancel() {
+        let root = tempdir().unwrap();
+        let empty = root.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let occupied = root.path().join("occupied");
+        std::fs::create_dir_all(&occupied).unwrap();
+        std::fs::write(occupied.join("123.osz"), b"hi").unwrap();
+
+        let noop = |_event: DownloadEvent| {};
+
+        try_remove_empty_output_dir(7, &empty, &noop).await;
+        assert!(!empty.exists(), "empty output dir must be removed");
+
+        try_remove_empty_output_dir(7, &occupied, &noop).await;
+        assert!(occupied.exists(), "non-empty output dir must remain");
     }
 
     #[test]
