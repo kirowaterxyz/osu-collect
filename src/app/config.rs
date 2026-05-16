@@ -18,9 +18,6 @@ pub enum AuthLoginState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
     MirrorNerinyan,
-    MirrorCatboyCentral,
-    MirrorCatboyUs,
-    MirrorCatboyAsia,
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
@@ -48,9 +45,6 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
     ConfigField::MirrorNekoha,
-    ConfigField::MirrorCatboyCentral,
-    ConfigField::MirrorCatboyUs,
-    ConfigField::MirrorCatboyAsia,
     ConfigField::MirrorCustomUrl,
     ConfigField::LoggingEnabled,
     ConfigField::LoggingLevel,
@@ -68,9 +62,6 @@ const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
     ConfigField::MirrorNekoha,
-    ConfigField::MirrorCatboyCentral,
-    ConfigField::MirrorCatboyUs,
-    ConfigField::MirrorCatboyAsia,
     ConfigField::MirrorCustomUrl,
     ConfigField::LoggingEnabled,
     ConfigField::LoggingLevel,
@@ -91,9 +82,6 @@ impl ConfigField {
 
 pub struct ConfigTab {
     pub nerinyan: bool,
-    pub catboy_central: bool,
-    pub catboy_us: bool,
-    pub catboy_asia: bool,
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
@@ -117,9 +105,6 @@ impl ConfigTab {
         let auth_loaded = crate::auth::load().is_some();
         Self {
             nerinyan: config.mirror.nerinyan,
-            catboy_central: config.mirror.catboy_central,
-            catboy_us: config.mirror.catboy_us,
-            catboy_asia: config.mirror.catboy_asia,
             osu_direct: config.mirror.osu_direct,
             sayobot: config.mirror.sayobot,
             nekoha: config.mirror.nekoha,
@@ -181,9 +166,6 @@ impl ConfigTab {
         clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::MirrorNerinyan => self.nerinyan = !self.nerinyan,
-            ConfigField::MirrorCatboyCentral => self.catboy_central = !self.catboy_central,
-            ConfigField::MirrorCatboyUs => self.catboy_us = !self.catboy_us,
-            ConfigField::MirrorCatboyAsia => self.catboy_asia = !self.catboy_asia,
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
@@ -215,9 +197,6 @@ impl ConfigTab {
         let concurrent = self.parse_concurrent()?;
         let mirror = MirrorConfig {
             nerinyan: self.nerinyan,
-            catboy_central: self.catboy_central,
-            catboy_us: self.catboy_us,
-            catboy_asia: self.catboy_asia,
             osu_direct: self.osu_direct,
             sayobot: self.sayobot,
             nekoha: self.nekoha,
@@ -519,7 +498,7 @@ mod tests {
     fn all_fields_form_complete_cycle() {
         let mut tab = tab_logged_in();
         let start = tab.focus;
-        let total = 18;
+        let total = 15;
         for _ in 0..total {
             tab.next_field();
         }

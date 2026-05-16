@@ -40,24 +40,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
             form.nekoha,
             form.focus == HomeField::MirrorNekoha,
         ),
-        components::mirror_item(
-            "catboy central",
-            "catboy.best",
-            form.catboy_central,
-            form.focus == HomeField::MirrorCatboyCentral,
-        ),
-        components::mirror_item(
-            "catboy us",
-            "us.catboy.best",
-            form.catboy_us,
-            form.focus == HomeField::MirrorCatboyUs,
-        ),
-        components::mirror_item(
-            "catboy asia",
-            "sg.catboy.best",
-            form.catboy_asia,
-            form.focus == HomeField::MirrorCatboyAsia,
-        ),
         components::spacer(),
         components::section_header("download"),
         components::input_item(&form.threads, form.focus == HomeField::Threads),
@@ -94,13 +76,10 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::MirrorNerinyan => 8,
         HomeField::MirrorSayobot => 9,
         HomeField::MirrorNekoha => 10,
-        HomeField::MirrorCatboyCentral => 11,
-        HomeField::MirrorCatboyUs => 12,
-        HomeField::MirrorCatboyAsia => 13,
-        HomeField::Threads => 16,
-        HomeField::SkipExisting => 17,
-        HomeField::AutoOverwrite => 18,
-        HomeField::NoVideo => 19,
+        HomeField::Threads => 13,
+        HomeField::SkipExisting => 14,
+        HomeField::AutoOverwrite => 15,
+        HomeField::NoVideo => 16,
     };
 
     components::render_scrollable_panel(frame, area, "home", &items, focused_index);

@@ -637,7 +637,7 @@ mod download_result_tests {
 
 #[cfg(test)]
 mod mirror_integration_tests {
-    use osu_downloader::{CatboyRegion, DownloadResult, Downloader, Mirror};
+    use osu_downloader::{DownloadResult, Downloader, Mirror};
     use std::path::Path;
     use std::time::Duration;
     use tempfile::tempdir;
@@ -746,98 +746,6 @@ mod mirror_integration_tests {
     mirror_test!(download_705655_from_nerinyan, Mirror::nerinyan());
     mirror_test!(download_705655_from_osu_direct, Mirror::osu_direct());
     mirror_test!(download_705655_from_nekoha, Mirror::nekoha());
-
-    // catboy.best (all regions) resolves DNS to 0.0.0.0/[::]  — server is offline as of 2026-05-11
-    #[tokio::test]
-    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
-    async fn download_705655_from_catboy_central() {
-        if !network_tests_enabled() {
-            println!(
-                "skipping download_705655_from_catboy_central: set OSU_NETWORK_TESTS=1 to enable"
-            );
-            return;
-        }
-        let dir = tempdir().expect("create tempdir");
-        let downloader = Downloader::builder()
-            .mirror(Mirror::catboy(CatboyRegion::Central))
-            .verify_archives(false)
-            .progress_timeout(Duration::from_secs(120))
-            .build()
-            .expect("build downloader");
-        let result = download_with_retry(&downloader, dir.path()).await;
-        match result {
-            DownloadResult::Success { size_bytes, .. } => {
-                assert!(size_bytes >= MIN_SIZE_BYTES);
-                assert_valid_osz(dir.path()).await;
-            }
-            DownloadResult::Skipped { reason } => {
-                panic!(
-                    "beatmapset {} skipped via catboy central: {:?}",
-                    BEATMAPSET_ID, reason
-                );
-            }
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
-    async fn download_705655_from_catboy_us() {
-        if !network_tests_enabled() {
-            println!("skipping download_705655_from_catboy_us: set OSU_NETWORK_TESTS=1 to enable");
-            return;
-        }
-        let dir = tempdir().expect("create tempdir");
-        let downloader = Downloader::builder()
-            .mirror(Mirror::catboy(CatboyRegion::Us))
-            .verify_archives(false)
-            .progress_timeout(Duration::from_secs(120))
-            .build()
-            .expect("build downloader");
-        let result = download_with_retry(&downloader, dir.path()).await;
-        match result {
-            DownloadResult::Success { size_bytes, .. } => {
-                assert!(size_bytes >= MIN_SIZE_BYTES);
-                assert_valid_osz(dir.path()).await;
-            }
-            DownloadResult::Skipped { reason } => {
-                panic!(
-                    "beatmapset {} skipped via catboy us: {:?}",
-                    BEATMAPSET_ID, reason
-                );
-            }
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "catboy.best offline as of 2026-05-11: DNS resolves to 0.0.0.0/[::], connection refused"]
-    async fn download_705655_from_catboy_asia() {
-        if !network_tests_enabled() {
-            println!(
-                "skipping download_705655_from_catboy_asia: set OSU_NETWORK_TESTS=1 to enable"
-            );
-            return;
-        }
-        let dir = tempdir().expect("create tempdir");
-        let downloader = Downloader::builder()
-            .mirror(Mirror::catboy(CatboyRegion::Asia))
-            .verify_archives(false)
-            .progress_timeout(Duration::from_secs(120))
-            .build()
-            .expect("build downloader");
-        let result = download_with_retry(&downloader, dir.path()).await;
-        match result {
-            DownloadResult::Success { size_bytes, .. } => {
-                assert!(size_bytes >= MIN_SIZE_BYTES);
-                assert_valid_osz(dir.path()).await;
-            }
-            DownloadResult::Skipped { reason } => {
-                panic!(
-                    "beatmapset {} skipped via catboy asia: {:?}",
-                    BEATMAPSET_ID, reason
-                );
-            }
-        }
-    }
 
     // sayobot returns 504 Gateway Timeout as of 2026-05-11
     #[tokio::test]

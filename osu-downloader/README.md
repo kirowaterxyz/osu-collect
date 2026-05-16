@@ -43,13 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Batch Downloads with Progress
 
 ```rust
-use osu_downloader::{Downloader, Mirror, CatboyRegion, DownloadEvent};
+use osu_downloader::{Downloader, Mirror, DownloadEvent};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let downloader = Downloader::builder()
         .mirror(Mirror::nerinyan())
-        .mirror(Mirror::catboy(CatboyRegion::Us))
+        .mirror(Mirror::osu_direct())
         .concurrent_downloads(8)
         .max_retries(3)
         .build()?;
@@ -85,7 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Supported Mirrors
 
 - **Nerinyan** - https://api.nerinyan.moe
-- **Catboy** - https://catboy.best (Central, US, Asia regions)
 - **osu.direct** - https://osu.direct
 - **Sayobot** - https://dl.sayobot.cn
 - **Nekoha** - https://mirror.nekoha.moe

@@ -23,12 +23,6 @@ pub struct MirrorConfig {
     pub sayobot: bool,
     #[serde(default)]
     pub nekoha: bool,
-    #[serde(default, alias = "catboy")]
-    pub catboy_central: bool,
-    #[serde(default)]
-    pub catboy_us: bool,
-    #[serde(default)]
-    pub catboy_asia: bool,
     #[serde(default)]
     pub url: Option<Box<str>>,
 }
@@ -91,9 +85,6 @@ impl Default for MirrorConfig {
             osu_direct: false,
             sayobot: false,
             nekoha: false,
-            catboy_central: false,
-            catboy_us: false,
-            catboy_asia: false,
             url: None,
         }
     }
@@ -115,9 +106,6 @@ impl MirrorConfig {
             || self.osu_direct
             || self.sayobot
             || self.nekoha
-            || self.catboy_central
-            || self.catboy_us
-            || self.catboy_asia
             || self.custom_template().is_some()
     }
 }

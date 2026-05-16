@@ -2,14 +2,14 @@
 //!
 //! Usage: cargo run --example 02_custom_mirrors
 
-use osu_downloader::{CatboyRegion, Downloader, Mirror};
+use osu_downloader::{Downloader, Mirror};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a downloader with specific mirrors
     let downloader = Downloader::builder()
         .mirror(Mirror::nerinyan())
-        .mirror(Mirror::catboy(CatboyRegion::Us))
+        .mirror(Mirror::sayobot())
         .mirror(Mirror::osu_direct())
         .concurrent_downloads(8)
         .max_retries(5)
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Downloader configured with:");
     println!("  - Nerinyan");
-    println!("  - Catboy (US)");
+    println!("  - Sayobot");
     println!("  - osu.direct");
     println!("  - No video mode enabled");
     println!();

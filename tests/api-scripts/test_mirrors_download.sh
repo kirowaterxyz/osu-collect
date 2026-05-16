@@ -2,7 +2,6 @@
 # tests: all mirror download endpoints - verifies ZIP magic bytes (first 4 bytes)
 # rust source: src/download/size_fetcher.rs (probe_mirror), osu-downloader/src/mirrors/mod.rs
 # mirrors tested:
-#   - catboy.best (central/US/Asia)  https://{region}.catboy.best/d/{id}
 #   - nerinyan                        https://api.nerinyan.moe/d/{id}
 #   - osu.direct download template    https://osu.direct/d/{id}
 #   - osu.direct MIRROR_CHECK_URLS    https://osu.direct/api/d/{id}  (different path!)
@@ -69,9 +68,6 @@ echo "=== mirror download endpoints (beatmapset $BEATMAPSET_ID) ==="
 echo ""
 
 echo "--- download templates (used for actual downloads in osu-downloader) ---"
-probe_zip "catboy.best (central)" "https://catboy.best/d/$BEATMAPSET_ID"
-probe_zip "catboy.best (US)" "https://us.catboy.best/d/$BEATMAPSET_ID"
-probe_zip "catboy.best (Asia)" "https://sg.catboy.best/d/$BEATMAPSET_ID"
 probe_zip "nerinyan" "https://api.nerinyan.moe/d/$BEATMAPSET_ID"
 probe_zip "osu.direct (download template: /d/)" "https://osu.direct/d/$BEATMAPSET_ID"
 probe_zip "sayobot" "https://dl.sayobot.cn/beatmaps/download/full/$BEATMAPSET_ID"

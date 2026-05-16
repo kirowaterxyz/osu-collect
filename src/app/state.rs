@@ -447,9 +447,6 @@ impl App {
                         HomeField::SkipExisting
                             | HomeField::AutoOverwrite
                             | HomeField::MirrorNerinyan
-                            | HomeField::MirrorCatboyCentral
-                            | HomeField::MirrorCatboyUs
-                            | HomeField::MirrorCatboyAsia
                             | HomeField::MirrorOsuDirect
                             | HomeField::MirrorSayobot
                             | HomeField::MirrorNekoha

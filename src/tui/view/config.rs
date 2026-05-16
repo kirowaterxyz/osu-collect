@@ -70,24 +70,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             form.nekoha,
             form.focus == ConfigField::MirrorNekoha,
         ),
-        components::row_item(
-            "catboy central",
-            Some("catboy.best"),
-            form.catboy_central,
-            form.focus == ConfigField::MirrorCatboyCentral,
-        ),
-        components::row_item(
-            "catboy us",
-            Some("us.catboy.best"),
-            form.catboy_us,
-            form.focus == ConfigField::MirrorCatboyUs,
-        ),
-        components::row_item(
-            "catboy asia",
-            Some("sg.catboy.best"),
-            form.catboy_asia,
-            form.focus == ConfigField::MirrorCatboyAsia,
-        ),
         components::input_item(
             &form.custom_mirror,
             form.focus == ConfigField::MirrorCustomUrl,
@@ -130,14 +112,11 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::MirrorNerinyan => 15,
         ConfigField::MirrorSayobot => 16,
         ConfigField::MirrorNekoha => 17,
-        ConfigField::MirrorCatboyCentral => 18,
-        ConfigField::MirrorCatboyUs => 19,
-        ConfigField::MirrorCatboyAsia => 20,
-        ConfigField::MirrorCustomUrl => 21,
-        ConfigField::LoggingEnabled => 25,
-        ConfigField::LoggingLevel => 26,
-        ConfigField::LoggingFormat => 27,
-        ConfigField::LoggingDirectory => 28,
+        ConfigField::MirrorCustomUrl => 18,
+        ConfigField::LoggingEnabled => 22,
+        ConfigField::LoggingLevel => 23,
+        ConfigField::LoggingFormat => 24,
+        ConfigField::LoggingDirectory => 25,
     };
 
     components::render_scrollable_panel(frame, area, "config", &items, focused_index);

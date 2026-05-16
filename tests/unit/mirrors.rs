@@ -1,4 +1,4 @@
-use osu_collect::mirrors::{CatboyRegion, Mirror, MirrorKind};
+use osu_collect::mirrors::{Mirror, MirrorKind};
 
 #[test]
 fn builtin_nerinyan_is_constructible() {
@@ -26,16 +26,6 @@ fn custom_mirror_requires_http() {
 fn custom_mirror_valid() {
     let mirror = Mirror::custom("https://example.com/d/{id}").unwrap();
     assert_eq!(mirror.kind(), MirrorKind::Custom);
-}
-
-#[test]
-fn catboy_regions_are_constructible() {
-    let central = Mirror::builtin(MirrorKind::Catboy(CatboyRegion::Central), false).unwrap();
-    let us = Mirror::builtin(MirrorKind::Catboy(CatboyRegion::Us), false).unwrap();
-    let asia = Mirror::builtin(MirrorKind::Catboy(CatboyRegion::Asia), false).unwrap();
-    assert_eq!(central.kind(), MirrorKind::Catboy(CatboyRegion::Central));
-    assert_eq!(us.kind(), MirrorKind::Catboy(CatboyRegion::Us));
-    assert_eq!(asia.kind(), MirrorKind::Catboy(CatboyRegion::Asia));
 }
 
 #[test]

@@ -2,14 +2,14 @@
 //!
 //! Usage: cargo run --example 03_batch_download
 
-use osu_downloader::{CatboyRegion, DownloadEvent, Downloader, Mirror};
+use osu_downloader::{DownloadEvent, Downloader, Mirror};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create downloader with multiple mirrors
     let downloader = Downloader::builder()
         .mirror(Mirror::nerinyan())
-        .mirror(Mirror::catboy(CatboyRegion::Central))
+        .mirror(Mirror::sayobot())
         .mirror(Mirror::osu_direct())
         .concurrent_downloads(4)
         .verify_archives(true)

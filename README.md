@@ -8,8 +8,6 @@ A TUI program to download osu! beatmap collections from [osu!collector](https://
 > [!NOTE]
 > This is a TUI (Terminal User Interface) program, so make sure to run it in terminal / command prompt.
 
-> [!TIP]
-> Catboy mirrors (Central / US / Asia) tend to rate limit quickly, so keep at least one other mirror enabled.
 
 ![usage example](media/image.png)
 ![usage example](media/image1.png)

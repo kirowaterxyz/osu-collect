@@ -6,9 +6,6 @@ fn home_all_off(config: &Config) -> HomeTab {
     home.osu_direct = false;
     home.sayobot = false;
     home.nekoha = false;
-    home.catboy_central = false;
-    home.catboy_us = false;
-    home.catboy_asia = false;
     home.custom_mirror.value = String::new();
     home
 }
@@ -48,7 +45,7 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
     let config = Config::default();
     let mut home = home_all_off(&config);
     home.nerinyan = true;
-    home.catboy_central = true;
+    home.osu_direct = true;
     home.collection.value = "12345".to_string();
 
     let standalone = home.build_mirrors();

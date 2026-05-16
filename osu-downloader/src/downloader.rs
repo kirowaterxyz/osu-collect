@@ -51,11 +51,9 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Add default mirrors (Nerinyan, Catboy Central, osu.direct)
+    /// Add default mirrors (Nerinyan, osu.direct)
     pub fn default_mirrors(mut self) -> Self {
         self.mirrors.push(Mirror::nerinyan());
-        self.mirrors
-            .push(Mirror::catboy(crate::CatboyRegion::Central));
         self.mirrors.push(Mirror::osu_direct());
         self
     }

@@ -32,9 +32,6 @@ bash tests/api-scripts/test_osucollector.sh
 
 | mirror | download template | check URL (`MIRROR_CHECK_URLS`) |
 |--------|-------------------|----------------------------------|
-| catboy.best (central) | `https://catboy.best/d/{id}` | same |
-| catboy.best (US) | `https://us.catboy.best/d/{id}` | same |
-| catboy.best (Asia) | `https://sg.catboy.best/d/{id}` | same |
 | nerinyan | `https://api.nerinyan.moe/d/{id}` | same |
 | osu.direct | `https://osu.direct/d/{id}` | `https://osu.direct/api/d/{id}` |
 | sayobot | `https://dl.sayobot.cn/beatmaps/download/full/{id}` | same |
@@ -48,5 +45,4 @@ bash tests/api-scripts/test_osucollector.sh
 ## notes
 
 - mirrors that return `429` (rate limited) or `502/503/504` (server error) are skipped, not failed — these are transient upstream conditions
-- some catboy regional servers (US, Asia) may be unreachable depending on network location
 - sayobot intermittently returns 504; this is a known upstream issue

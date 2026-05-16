@@ -3,9 +3,6 @@
 [mirror]
 # Select any combination of supported mirrors
 nerinyan = true
-catboy_central = false
-catboy_us = false
-catboy_asia = false
 osu_direct = false
 sayobot = false
 

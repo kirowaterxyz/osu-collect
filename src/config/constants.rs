@@ -71,7 +71,6 @@ pub const STATIC_TABS: usize = 3;
 
 pub const NEKOHA_API_BASE: &str = "https://mirror.nekoha.moe/api4";
 pub const MIRROR_CHECK_URLS: &[&str] = &[
-    "https://catboy.best/d/{id}",
     "https://api.nerinyan.moe/d/{id}",
     "https://osu.direct/api/d/{id}",
     "https://dl.sayobot.cn/beatmaps/download/full/{id}",

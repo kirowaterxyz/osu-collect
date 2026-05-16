@@ -63,15 +63,9 @@ impl MirrorPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mirrors::CatboyRegion;
-
     #[test]
     fn test_mirror_pool_plan() {
-        let mirrors = vec![
-            Mirror::nerinyan(),
-            Mirror::catboy(CatboyRegion::Us),
-            Mirror::osu_direct(),
-        ];
+        let mirrors = vec![Mirror::nerinyan(), Mirror::sayobot(), Mirror::osu_direct()];
         let pool = MirrorPool::new(mirrors);
 
         let plan = pool.plan();

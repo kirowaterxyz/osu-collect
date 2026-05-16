@@ -457,10 +457,7 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
     };
 
     let status = response.status();
-    let catboy_rate_limited =
-        matches!(mirror.kind(), MirrorKind::Catboy(_)) && status == reqwest::StatusCode::FORBIDDEN;
-
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || catboy_rate_limited {
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         return MirrorAttempt::RateLimited;
     }
 

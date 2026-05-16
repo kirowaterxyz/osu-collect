@@ -20,7 +20,7 @@
 //! # async fn example() -> Result<(), osu_downloader::Error> {
 //! let downloader = Downloader::builder()
 //!     .mirror(Mirror::nerinyan())
-//!     .mirror(Mirror::catboy(osu_downloader::CatboyRegion::Us))
+//!     .mirror(Mirror::osu_direct())
 //!     .concurrent_downloads(8)
 //!     .build()?;
 //!
@@ -60,7 +60,7 @@ pub use downloader::{
 };
 pub use error::{DownloadError, Error, Result};
 pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};
-pub use mirrors::{CatboyRegion, Mirror, MirrorKind};
+pub use mirrors::{Mirror, MirrorKind};
 pub use validation::{
     ensure_valid_archive, validate_archive, ArchiveValidationOptions, ArchiveValidationResult,
 };

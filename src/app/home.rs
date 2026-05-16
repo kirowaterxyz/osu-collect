@@ -2,7 +2,7 @@ use super::{messages::AppMessage, next_field, prev_field};
 use crate::{
     config::Config,
     download::{DownloadConfig, DownloadRequest},
-    mirrors::{CatboyRegion, Mirror, MirrorKind},
+    mirrors::{Mirror, MirrorKind},
 };
 use std::{env, str::FromStr};
 
@@ -32,9 +32,6 @@ pub enum HomeField {
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
-    MirrorCatboyCentral,
-    MirrorCatboyUs,
-    MirrorCatboyAsia,
     Threads,
     SkipExisting,
     AutoOverwrite,
@@ -49,9 +46,6 @@ const HOME_FIELDS: &[HomeField] = &[
     HomeField::MirrorNerinyan,
     HomeField::MirrorSayobot,
     HomeField::MirrorNekoha,
-    HomeField::MirrorCatboyCentral,
-    HomeField::MirrorCatboyUs,
-    HomeField::MirrorCatboyAsia,
     HomeField::Threads,
     HomeField::SkipExisting,
     HomeField::AutoOverwrite,
@@ -78,9 +72,6 @@ pub struct HomeTab {
     pub skip_existing: bool,
     pub auto_overwrite: bool,
     pub nerinyan: bool,
-    pub catboy_central: bool,
-    pub catboy_us: bool,
-    pub catboy_asia: bool,
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
@@ -96,23 +87,12 @@ pub struct HomeTab {
 impl HomeTab {
     pub fn new(config: &Config) -> Self {
         let mut nerinyan = config.mirror.nerinyan;
-        let catboy_central = config.mirror.catboy_central;
-        let catboy_us = config.mirror.catboy_us;
-        let catboy_asia = config.mirror.catboy_asia;
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
         let custom_template = config.mirror.custom_template().unwrap_or("");
 
-        if !nerinyan
-            && !catboy_central
-            && !catboy_us
-            && !catboy_asia
-            && !osu_direct
-            && !sayobot
-            && !nekoha
-            && custom_template.is_empty()
-        {
+        if !nerinyan && !osu_direct && !sayobot && !nekoha && custom_template.is_empty() {
             nerinyan = true;
         }
 
@@ -153,9 +133,6 @@ impl HomeTab {
             skip_existing: config.download.skip_existing,
             auto_overwrite: false,
             nerinyan,
-            catboy_central,
-            catboy_us,
-            catboy_asia,
             osu_direct,
             sayobot,
             nekoha,
@@ -188,9 +165,6 @@ impl HomeTab {
                 }
             }
             HomeField::MirrorNerinyan
-            | HomeField::MirrorCatboyCentral
-            | HomeField::MirrorCatboyUs
-            | HomeField::MirrorCatboyAsia
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
@@ -207,9 +181,6 @@ impl HomeTab {
             HomeField::CustomMirror => self.custom_mirror.pop(),
             HomeField::Threads => self.threads.pop(),
             HomeField::MirrorNerinyan
-            | HomeField::MirrorCatboyCentral
-            | HomeField::MirrorCatboyUs
-            | HomeField::MirrorCatboyAsia
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
@@ -223,15 +194,6 @@ impl HomeTab {
         match self.focus {
             HomeField::MirrorNerinyan => {
                 self.nerinyan = !self.nerinyan;
-            }
-            HomeField::MirrorCatboyCentral => {
-                self.catboy_central = !self.catboy_central;
-            }
-            HomeField::MirrorCatboyUs => {
-                self.catboy_us = !self.catboy_us;
-            }
-            HomeField::MirrorCatboyAsia => {
-                self.catboy_asia = !self.catboy_asia;
             }
             HomeField::MirrorOsuDirect => {
                 self.osu_direct = !self.osu_direct;
@@ -267,12 +229,6 @@ impl HomeTab {
             (self.osu_direct, MirrorKind::OsuDirect),
             (self.sayobot, MirrorKind::Sayobot),
             (self.nekoha, MirrorKind::Nekoha),
-            (
-                self.catboy_central,
-                MirrorKind::Catboy(CatboyRegion::Central),
-            ),
-            (self.catboy_us, MirrorKind::Catboy(CatboyRegion::Us)),
-            (self.catboy_asia, MirrorKind::Catboy(CatboyRegion::Asia)),
         ];
 
         let mut mirrors: Vec<Mirror> = builtin_checks

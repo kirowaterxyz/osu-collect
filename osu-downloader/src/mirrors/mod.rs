@@ -6,42 +6,11 @@ use crate::error::{Error, Result};
 use reqwest::header::HeaderMap;
 use std::time::Duration;
 
-/// Region for Catboy mirror
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CatboyRegion {
-    /// Central region (catboy.best)
-    Central,
-    /// US region (us.catboy.best)
-    Us,
-    /// Asia region (sg.catboy.best)
-    Asia,
-}
-
-impl CatboyRegion {
-    pub(crate) fn label(&self) -> &'static str {
-        match self {
-            CatboyRegion::Central => "Catboy (Central)",
-            CatboyRegion::Us => "Catboy (US)",
-            CatboyRegion::Asia => "Catboy (Asia)",
-        }
-    }
-
-    pub(crate) fn base_url(&self) -> &'static str {
-        match self {
-            CatboyRegion::Central => "https://catboy.best",
-            CatboyRegion::Us => "https://us.catboy.best",
-            CatboyRegion::Asia => "https://sg.catboy.best",
-        }
-    }
-}
-
 /// Mirror type identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MirrorKind {
     /// Nerinyan mirror
     Nerinyan,
-    /// Catboy mirror with region
-    Catboy(CatboyRegion),
     /// osu.direct mirror
     OsuDirect,
     /// Sayobot mirror
@@ -94,7 +63,7 @@ impl MirrorKind {
                 template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
                 template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
             }),
-            MirrorKind::Catboy(_) | MirrorKind::Custom => None,
+            MirrorKind::Custom => None,
         }
     }
 
@@ -102,9 +71,8 @@ impl MirrorKind {
     #[inline]
     pub fn label(&self) -> &'static str {
         match self {
-            MirrorKind::Catboy(region) => region.label(),
             MirrorKind::Custom => "Custom",
-            other => other.meta().expect("non-catboy/custom has meta").label,
+            other => other.meta().expect("builtin mirror has meta").label,
         }
     }
 
@@ -116,26 +84,18 @@ impl MirrorKind {
 
         #[cfg(not(test))]
         match self {
-            MirrorKind::Catboy(_) => Duration::from_secs(30),
             MirrorKind::Custom => Duration::from_secs(60),
-            other => Duration::from_secs(
-                other
-                    .meta()
-                    .expect("non-catboy/custom has meta")
-                    .backoff_secs,
-            ),
+            other => {
+                Duration::from_secs(other.meta().expect("builtin mirror has meta").backoff_secs)
+            }
         }
     }
 
     pub(crate) fn download_template(&self, no_video: bool) -> Option<String> {
         match self {
-            MirrorKind::Catboy(region) => {
-                let suffix = if no_video { "n" } else { "" };
-                Some(format!("{}/d/{{id}}{}", region.base_url(), suffix))
-            }
             MirrorKind::Custom => None,
             other => {
-                let meta = other.meta().expect("non-catboy/custom has meta");
+                let meta = other.meta().expect("builtin mirror has meta");
                 Some(
                     if no_video {
                         meta.template_no_video
@@ -176,11 +136,6 @@ impl Mirror {
         Self::builtin(MirrorKind::Nerinyan, false).expect("nerinyan has template")
     }
 
-    /// Catboy mirror with specified region
-    pub fn catboy(region: CatboyRegion) -> Self {
-        Self::builtin(MirrorKind::Catboy(region), false).expect("catboy has template")
-    }
-
     /// osu.direct mirror
     pub fn osu_direct() -> Self {
         Self::builtin(MirrorKind::OsuDirect, false).expect("osu.direct has template")
@@ -199,7 +154,7 @@ impl Mirror {
     /// Create a mirror from a [`MirrorKind`] with optional no-video support.
     ///
     /// Returns `None` for [`MirrorKind::Custom`] since custom mirrors require a user-provided template.
-    /// For named constructors without no-video, use [`Mirror::nerinyan`], [`Mirror::catboy`], etc.
+    /// For named constructors without no-video, use [`Mirror::nerinyan`], [`Mirror::osu_direct`], etc.
     pub fn builtin(kind: MirrorKind, no_video: bool) -> Option<Self> {
         kind.download_template(no_video).map(|template| Self {
             kind,
@@ -269,10 +224,6 @@ mod tests {
         assert_eq!(
             Mirror::nerinyan().url_for(123),
             "https://api.nerinyan.moe/d/123"
-        );
-        assert_eq!(
-            Mirror::catboy(CatboyRegion::Us).url_for(456),
-            "https://us.catboy.best/d/456"
         );
         assert_eq!(
             Mirror::osu_direct().url_for(789),
