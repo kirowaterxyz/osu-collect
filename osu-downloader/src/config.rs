@@ -2,13 +2,15 @@
 
 use std::time::Duration;
 
+pub(crate) const TRANSIENT_RETRY_ATTEMPTS: u32 = 3;
+pub(crate) const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
+
 #[derive(Debug, Clone)]
 pub(crate) struct DownloadConfig {
     pub(crate) concurrent_downloads: usize,
     pub(crate) verify_archives: bool,
     pub(crate) progress_timeout: Duration,
     pub(crate) user_agent: String,
-    pub(crate) max_retries: u32,
 }
 
 impl Default for DownloadConfig {
@@ -18,7 +20,6 @@ impl Default for DownloadConfig {
             verify_archives: true,
             progress_timeout: Duration::from_secs(30),
             user_agent: format!("osu-downloader/{}", env!("CARGO_PKG_VERSION")),
-            max_retries: 3,
         }
     }
 }

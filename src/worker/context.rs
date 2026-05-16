@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::download::{BeatmapTracker, CleanupTracker, DownloadEvent, DownloadId, ShutdownToken};
-use crate::mirrors::MirrorPool;
+use crate::mirrors::Mirror;
 use dashmap::DashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -16,7 +16,7 @@ pub struct DownloadContextConfig {
     pub verify_zip_eocd: bool,
     pub shutdown: ShutdownToken,
     pub client: reqwest::Client,
-    pub mirror_pool: MirrorPool,
+    pub mirrors: Vec<Mirror>,
     pub output_dir: PathBuf,
     pub tracker: BeatmapTracker,
     pub initial_unverified: Arc<DashSet<u32>>,
@@ -119,7 +119,7 @@ pub struct DownloadContext {
     pub verify_zip_eocd: bool,
     pub shutdown: ShutdownToken,
     pub client: reqwest::Client,
-    pub mirror_pool: MirrorPool,
+    pub mirrors: Arc<Vec<Mirror>>,
     pub output_dir: Arc<PathBuf>,
     pub tracker: BeatmapTracker,
     pub cleanup_tracker: CleanupTracker,
@@ -138,7 +138,7 @@ impl DownloadContext {
             verify_zip_eocd,
             shutdown,
             client,
-            mirror_pool,
+            mirrors,
             output_dir,
             tracker,
             initial_unverified,
@@ -154,7 +154,7 @@ impl DownloadContext {
             verify_zip_eocd,
             shutdown,
             client,
-            mirror_pool,
+            mirrors: Arc::new(mirrors),
             output_dir: Arc::new(output_dir),
             tracker,
             cleanup_tracker: CleanupTracker::new(),

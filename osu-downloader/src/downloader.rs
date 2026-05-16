@@ -2,9 +2,9 @@
 
 use crate::{
     config::DownloadConfig,
-    event::{DownloadResult, DownloadSummary},
+    event::{DownloadResult, DownloadSummary, SkipReason},
     http,
-    mirrors::{Mirror, MirrorPool},
+    mirrors::{Mirror, MirrorKind, MirrorPool},
     Error, Result,
 };
 use std::{path::Path, sync::Arc, time::Duration};
@@ -125,7 +125,6 @@ impl DownloaderBuilder {
             user_agent: self
                 .user_agent
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
-            max_retries: self.max_retries.unwrap_or(3),
         };
         let mirrors = self
             .mirrors
@@ -154,6 +153,146 @@ impl DownloaderBuilder {
 impl Default for DownloaderBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Callbacks emitted while downloading a single beatmapset.
+#[derive(Clone, Default)]
+pub struct BeatmapsetDownloadCallbacks {
+    /// Receives bytes downloaded and total bytes, or `0` when unknown.
+    pub progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    /// Receives structured status updates for mirror attempts.
+    pub status: Option<Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync>>,
+}
+
+/// File-exists policy for a single beatmapset download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileExistsPolicy {
+    /// Skip if any matching beatmapset archive already exists.
+    Skip,
+    /// Overwrite the exact target filename if it already exists.
+    OverwriteTarget,
+}
+
+/// Options for a single beatmapset download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BeatmapsetDownloadOptions {
+    /// How to handle an existing target archive.
+    pub file_exists_policy: FileExistsPolicy,
+}
+
+impl Default for BeatmapsetDownloadOptions {
+    fn default() -> Self {
+        Self {
+            file_exists_policy: FileExistsPolicy::Skip,
+        }
+    }
+}
+
+/// Status update for a single beatmapset download attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeatmapsetStatusEvent {
+    /// A mirror is being contacted.
+    Contacting {
+        /// Mirror being contacted.
+        mirror: MirrorKind,
+    },
+    /// A mirror started streaming the archive.
+    Downloading {
+        /// Mirror serving the archive.
+        mirror: MirrorKind,
+    },
+    /// The downloaded archive is being verified.
+    Verifying {
+        /// Mirror that served the archive.
+        mirror: MirrorKind,
+    },
+    /// A mirror returned a rate-limit response.
+    RateLimited {
+        /// Rate-limited mirror.
+        mirror: MirrorKind,
+        /// Cooldown before the mirror is retried.
+        cooldown: Duration,
+    },
+    /// A transient failure will be retried on the same mirror.
+    RetryingTransient {
+        /// Mirror being retried.
+        mirror: MirrorKind,
+        /// Attempt about to run.
+        attempt: u32,
+        /// Maximum attempts for this mirror.
+        max_attempts: u32,
+        /// Failure reason.
+        reason: String,
+    },
+    /// A mirror cannot serve this beatmapset for this attempt.
+    MirrorFailed {
+        /// Failed mirror.
+        mirror: MirrorKind,
+        /// Failure reason.
+        reason: String,
+    },
+}
+
+/// Outcome for a single beatmapset download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeatmapsetDownloadOutcome {
+    /// Download succeeded.
+    Success {
+        /// Downloaded filename.
+        filename: String,
+        /// MD5 hash of the archive.
+        hash: String,
+        /// Mirror that served the archive.
+        mirror: MirrorKind,
+        /// Archive size in bytes.
+        size_bytes: u64,
+        /// Archive verification time in microseconds.
+        verify_duration_us: u64,
+    },
+    /// Download was skipped.
+    Skipped {
+        /// Reason for skipping.
+        reason: SkipReason,
+    },
+    /// Download failed for a non-transient reason.
+    Failed {
+        /// Mirror associated with the failure, if known.
+        mirror: Option<MirrorKind>,
+        /// Failure reason.
+        reason: String,
+    },
+    /// Every mirror failed with transient network errors only.
+    NetworkError {
+        /// Last transient failure reason.
+        reason: String,
+    },
+    /// Download was cancelled.
+    Aborted,
+}
+
+impl From<BeatmapsetDownloadOutcome> for Result<DownloadResult> {
+    fn from(outcome: BeatmapsetDownloadOutcome) -> Self {
+        match outcome {
+            BeatmapsetDownloadOutcome::Success {
+                filename,
+                hash,
+                mirror,
+                size_bytes,
+                verify_duration_us: _,
+            } => Ok(DownloadResult::Success {
+                filename,
+                size_bytes,
+                md5_hash: Some(hash),
+                mirror_used: mirror,
+            }),
+            BeatmapsetDownloadOutcome::Skipped { reason } => Ok(DownloadResult::Skipped { reason }),
+            BeatmapsetDownloadOutcome::Failed { reason, .. }
+            | BeatmapsetDownloadOutcome::NetworkError { reason } => {
+                Err(crate::DownloadError::worker_error(reason).into())
+            }
+            BeatmapsetDownloadOutcome::Aborted => Err(crate::DownloadError::Cancelled.into()),
+        }
     }
 }
 
@@ -198,20 +337,62 @@ impl Downloader {
     ) -> Result<DownloadResult> {
         let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-        let (result, _retries) =
+        self.download_beatmapset(
+            beatmapset_id,
+            self.mirror_pool.mirrors().to_vec().as_slice(),
+            output_dir,
+            BeatmapsetDownloadCallbacks::default(),
+            cancel_rx,
+        )
+        .await
+        .into()
+    }
+
+    /// Download a single beatmapset through the selected mirrors.
+    pub async fn download_beatmapset(
+        &self,
+        beatmapset_id: u32,
+        mirrors: &[Mirror],
+        output_dir: impl AsRef<Path>,
+        callbacks: BeatmapsetDownloadCallbacks,
+        cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> BeatmapsetDownloadOutcome {
+        self.download_beatmapset_with_options(
+            beatmapset_id,
+            mirrors,
+            output_dir,
+            callbacks,
+            BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        )
+        .await
+    }
+
+    /// Download a single beatmapset through the selected mirrors with explicit options.
+    pub async fn download_beatmapset_with_options(
+        &self,
+        beatmapset_id: u32,
+        mirrors: &[Mirror],
+        output_dir: impl AsRef<Path>,
+        callbacks: BeatmapsetDownloadCallbacks,
+        options: BeatmapsetDownloadOptions,
+        cancel_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> BeatmapsetDownloadOutcome {
+        let mirror_pool = MirrorPool::new(mirrors.to_vec());
+        let (outcome, _retries) =
             crate::download::download_beatmapset(crate::download::DownloadParams {
                 beatmapset_id,
                 output_dir: output_dir.as_ref(),
                 client: &self.http_client,
-                mirror_pool: &self.mirror_pool,
+                mirror_pool: &mirror_pool,
                 verify_archive: self.config.verify_archives,
                 progress_timeout: self.config.progress_timeout,
-                max_retries: self.config.max_retries,
-                progress_callback: None,
+                callbacks,
+                options,
                 cancel_rx,
             })
             .await;
-        result
+        outcome
     }
 
     /// Download multiple beatmapsets
@@ -270,7 +451,6 @@ impl Downloader {
                 concurrent_downloads: config.concurrent_downloads,
                 verify_archives: config.verify_archives,
                 progress_timeout: config.progress_timeout,
-                max_retries: config.max_retries,
             };
 
             let summary = crate::batch::download_batch(

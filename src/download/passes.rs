@@ -30,7 +30,6 @@ async fn download_single_target(
     let progress_callback = progress_callback(context, slot, beatmapset_id);
     let status_reporter: Option<StatusCallback> =
         Some(make_status_reporter(context, slot, beatmapset_id));
-    let mirror_pool = context.mirror_pool.clone();
     let shutdown = context.shutdown.clone();
     let mut network_retries: u32 = 0;
 
@@ -43,28 +42,21 @@ async fn download_single_target(
             break Ok(DownloadResult::Aborted);
         }
 
-        let mirror_plan =
-            match wait_for_ready_mirrors(context, slot, beatmapset_id, &shutdown).await {
-                MirrorReadiness::Ready(plan) => plan,
-                MirrorReadiness::Retry => continue,
-                MirrorReadiness::Aborted => break Ok(DownloadResult::Aborted),
-            };
-
+        let mirrors = context.mirrors.as_slice();
         trace!(
             download_id = context.id,
             beatmapset_id,
             slot,
-            mirror = first_mirror_label(&mirror_plan),
+            mirror = first_mirror_label(mirrors),
             "Starting mirror download"
         );
 
         let result = download_beatmap(
             beatmapset_id,
-            mirror_plan.as_slice(),
+            mirrors,
             context,
             Some(progress_callback.clone()),
             status_reporter.clone(),
-            Some(mirror_pool.clone()),
         )
         .await?;
 
@@ -131,63 +123,6 @@ fn make_status_reporter(
             beatmapset_id: Some(beatmapset_id),
         });
     })
-}
-
-enum MirrorReadiness {
-    Ready(Vec<crate::mirrors::Mirror>),
-    Retry,
-    Aborted,
-}
-
-async fn wait_for_ready_mirrors(
-    context: &DownloadContext,
-    slot: usize,
-    beatmapset_id: u32,
-    shutdown: &super::ShutdownToken,
-) -> MirrorReadiness {
-    if let Some((mirror_info, wait_for)) = context.mirror_pool.single_mirror_cooldown()
-        && !wait_for.is_zero()
-    {
-        let wait_secs = wait_for.as_secs().max(1);
-        context.emit(DownloadEvent::ThreadStatus {
-            id: context.id,
-            thread_index: slot,
-            message: format!(
-                "{} on {}, waiting {}s before retry",
-                status::RATE_LIMITED,
-                mirror_info.display_name(),
-                wait_secs
-            ),
-            rate_limited: true,
-            beatmapset_id: Some(beatmapset_id),
-        });
-        if cancellable_sleep(wait_for, shutdown).await {
-            warn!(
-                download_id = context.id,
-                beatmapset_id, "Download task aborted during mirror cooldown"
-            );
-            return MirrorReadiness::Aborted;
-        }
-        return MirrorReadiness::Retry;
-    }
-
-    let mirror_plan = context.mirror_pool.plan();
-    if !mirror_plan.is_empty() {
-        return MirrorReadiness::Ready(mirror_plan);
-    }
-
-    warn!(
-        download_id = context.id,
-        beatmapset_id, "all mirrors penalized, waiting 5s"
-    );
-    if cancellable_sleep(Duration::from_secs(5), shutdown).await {
-        warn!(
-            download_id = context.id,
-            beatmapset_id, "Download task aborted while all mirrors were penalized"
-        );
-        return MirrorReadiness::Aborted;
-    }
-    MirrorReadiness::Retry
 }
 
 fn first_mirror_label(mirror_plan: &[crate::mirrors::Mirror]) -> &'static str {
@@ -534,7 +469,6 @@ impl<'a> PassCoordinator<'a> {
     ) -> bool {
         match result {
             Ok(DownloadResult::Success(file)) => {
-                self.context.mirror_pool.clear_penalty(file.mirror);
                 trace!(
                     download_id = self.context.id,
                     beatmapset_id, "Download verification succeeded"

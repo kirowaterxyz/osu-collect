@@ -5,24 +5,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Mirror pool for managing mirror selection and rate limiting
 #[derive(Clone)]
-pub struct MirrorPool {
+pub(crate) struct MirrorPool {
     mirrors: Arc<Vec<Mirror>>,
     penalties: Arc<Mutex<HashMap<MirrorKind, Instant>>>,
 }
 
 impl MirrorPool {
-    /// Create a new mirror pool
-    pub fn new(mirrors: Vec<Mirror>) -> Self {
+    pub(crate) fn new(mirrors: Vec<Mirror>) -> Self {
         Self {
             mirrors: Arc::new(mirrors),
             penalties: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Get a prioritized list of mirrors for attempting downloads.
-    pub fn plan(&self) -> Vec<Mirror> {
+    pub(crate) fn plan(&self) -> Vec<Mirror> {
         let now = Instant::now();
         let mut penalties = self.penalties.lock().unwrap();
         let mut ready: Vec<Mirror> = Vec::with_capacity(self.mirrors.len());
@@ -41,48 +38,16 @@ impl MirrorPool {
         ready
     }
 
-    /// Get the earliest remaining cooldown across configured mirrors.
-    pub fn earliest_cooldown(&self) -> Option<Duration> {
-        let now = Instant::now();
-        let penalties = self.penalties.lock().unwrap();
-
-        self.mirrors
-            .iter()
-            .filter_map(|mirror| penalties.get(&mirror.kind()).copied())
-            .filter_map(|until| (until > now).then_some(until - now))
-            .min()
+    pub(crate) fn mirrors_len(&self) -> usize {
+        self.mirrors.len()
     }
 
-    /// Check if only a single mirror is configured
-    pub fn is_single_mirror(&self) -> bool {
-        self.mirrors.len() == 1
-    }
-
-    /// Get cooldown info if using a single mirror and it's rate limited
-    pub fn single_mirror_cooldown(&self) -> Option<(Mirror, Duration)> {
-        if !self.is_single_mirror() {
-            return None;
-        }
-
-        let mirror = self.mirrors.first()?.clone();
-        let duration = self.earliest_cooldown()?;
-        Some((mirror, duration))
-    }
-
-    /// Mark a mirror as rate limited
-    pub fn mark_rate_limited(&self, kind: MirrorKind) {
+    pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
         let mut penalties = self.penalties.lock().unwrap();
         penalties.insert(kind, Instant::now() + kind.rate_limit_backoff());
     }
 
-    /// Clear rate limit penalty for a mirror
-    pub fn clear_penalty(&self, kind: MirrorKind) {
-        let mut penalties = self.penalties.lock().unwrap();
-        penalties.remove(&kind);
-    }
-
-    /// Get remaining cooldown duration for a mirror
-    pub fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
+    pub(crate) fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
         let now = Instant::now();
         let penalties = self.penalties.lock().unwrap();
         penalties
@@ -90,7 +55,6 @@ impl MirrorPool {
             .and_then(|&until| (until > now).then_some(until - now))
     }
 
-    #[cfg(test)]
     pub(crate) fn mirrors(&self) -> &[Mirror] {
         &self.mirrors
     }
@@ -120,10 +84,8 @@ mod tests {
         let pool = MirrorPool::new(mirrors);
 
         pool.mark_rate_limited(MirrorKind::Nerinyan);
+        assert!(pool.plan().is_empty());
         assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
-
-        pool.clear_penalty(MirrorKind::Nerinyan);
-        assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_none());
     }
 
     #[test]
@@ -147,7 +109,6 @@ mod tests {
 
         let plan = pool.plan();
         assert!(plan.is_empty());
-        assert!(pool.earliest_cooldown().is_some());
-        assert!(pool.single_mirror_cooldown().is_some());
+        assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
     }
 }

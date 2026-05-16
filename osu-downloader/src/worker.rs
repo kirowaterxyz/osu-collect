@@ -4,27 +4,101 @@ use crate::{DownloadError, Result};
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::{
-    path::Path,
-    sync::Arc,
+    future::{pending, Future},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc,
+    },
     time::{Duration, Instant},
 };
 use tokio::{
-    fs,
-    fs::OpenOptions,
-    io::{AsyncWriteExt, BufWriter},
+    fs::{self, OpenOptions},
+    io::AsyncWriteExt,
+    task,
     time::timeout,
 };
 
-/// Minimum bytes changed to emit progress update
-const MIN_PROGRESS_DELTA: u64 = 131_072; // 128 KB
-
-/// Minimum interval between progress updates
+const MIN_PROGRESS_DELTA: u64 = 131_072;
 const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) struct DownloadStreamResult {
-    pub(crate) cancelled: bool,
-    pub(crate) hash: Option<String>,
+    pub(crate) aborted: bool,
+    pub(crate) hash: Option<Box<str>>,
     pub(crate) bytes_written: u64,
+    pub(crate) temp_path: PathBuf,
+}
+
+struct HashWorker {
+    sender: Option<mpsc::Sender<Vec<u8>>>,
+    handle: task::JoinHandle<Box<str>>,
+}
+
+impl HashWorker {
+    fn new() -> Self {
+        let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+        let handle = task::spawn_blocking(move || {
+            let mut hasher = Md5::new();
+            while let Ok(chunk) = receiver.recv() {
+                hasher.update(&chunk);
+            }
+            hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                .into_boxed_str()
+        });
+
+        Self {
+            sender: Some(sender),
+            handle,
+        }
+    }
+
+    fn update(&self, data: &[u8]) {
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(data.to_vec());
+        }
+    }
+
+    async fn finalize(mut self) -> Result<Box<str>> {
+        self.sender.take();
+        self.handle
+            .await
+            .map_err(|err| DownloadError::worker_error(format!("hash worker failed: {err}")))
+            .map_err(Into::into)
+    }
+
+    fn abort(mut self) {
+        self.sender.take();
+        self.handle.abort();
+    }
+}
+
+struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 pub(crate) async fn stream_download(
@@ -35,69 +109,81 @@ pub(crate) async fn stream_download(
     progress_timeout: Duration,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<DownloadStreamResult> {
-    let raw_file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(output_path)
-        .await?;
-    let mut file = BufWriter::with_capacity(256 * 1024, raw_file);
-    let mut stream = response.bytes_stream();
-    let mut downloaded: u64 = 0;
-    let total = content_length.unwrap_or(0);
-    let mut hasher = Md5::new();
+    let temp_path = temp_path_for(output_path);
+    let Some(raw_file) = run_cancelable(
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path),
+        &cancel_rx,
+    )
+    .await
+    else {
+        return Ok(aborted_stream(temp_path, 0));
+    };
 
+    let mut file = raw_file?;
+    let mut guard = TempFileGuard::new(temp_path.clone());
+    let mut stream = response.bytes_stream();
+    let mut downloaded = 0u64;
+    let total = content_length.unwrap_or(0);
+    let mut hash_worker = Some(HashWorker::new());
     let mut last_progress_bytes = 0u64;
     let mut last_progress_emitted = Instant::now();
+    let mut last_progress_at = Instant::now();
 
     loop {
-        // Check for cancellation
         if *cancel_rx.borrow_and_update() {
-            file.get_mut().shutdown().await.ok();
-            let _ = fs::remove_file(output_path).await;
-            return Ok(DownloadStreamResult {
-                cancelled: true,
-                hash: None,
-                bytes_written: downloaded,
-            });
+            abort_download(&mut hash_worker, &mut file, &temp_path).await;
+            return Ok(aborted_stream(temp_path, downloaded));
         }
 
-        // Get next chunk with timeout
-        let maybe_chunk = match timeout(progress_timeout, stream.next()).await {
-            Ok(chunk) => chunk,
-            Err(_) => {
-                file.get_mut().shutdown().await.ok();
-                let _ = fs::remove_file(output_path).await;
-                return Err(DownloadError::ProgressTimeout.into());
-            }
+        let Some(maybe_chunk) =
+            run_cancelable(timeout(progress_timeout, stream.next()), &cancel_rx).await
+        else {
+            abort_download(&mut hash_worker, &mut file, &temp_path).await;
+            return Ok(aborted_stream(temp_path, downloaded));
         };
 
-        let Some(chunk) = maybe_chunk else {
-            break;
-        };
-
-        let chunk = match chunk {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                file.get_mut().shutdown().await.ok();
-                let _ = fs::remove_file(output_path).await;
+        let chunk = match maybe_chunk {
+            Ok(Some(Ok(bytes))) => bytes,
+            Ok(Some(Err(err))) => {
+                abort_download(&mut hash_worker, &mut file, &temp_path).await;
                 return Err(DownloadError::stream(err.to_string()).into());
+            }
+            Ok(None) => break,
+            Err(_) => {
+                abort_download(&mut hash_worker, &mut file, &temp_path).await;
+                let stalled_for = last_progress_at.elapsed().as_secs();
+                return Err(DownloadError::http(format!(
+                    "download stalled with no progress for {} seconds",
+                    stalled_for.max(progress_timeout.as_secs())
+                ))
+                .into());
             }
         };
 
         downloaded += chunk.len() as u64;
 
-        // Write to file
-        if let Err(err) = file.write_all(&chunk).await {
-            file.get_mut().shutdown().await.ok();
-            let _ = fs::remove_file(output_path).await;
+        let Some(write_result) = run_cancelable(file.write_all(&chunk), &cancel_rx).await else {
+            abort_download(&mut hash_worker, &mut file, &temp_path).await;
+            return Ok(aborted_stream(temp_path, downloaded));
+        };
+        if let Err(err) = write_result {
+            abort_download(&mut hash_worker, &mut file, &temp_path).await;
             return Err(DownloadError::io(err.to_string()).into());
         }
 
-        hasher.update(&chunk);
+        if let Some(worker) = hash_worker.as_ref() {
+            worker.update(&chunk);
+        }
 
-        // Emit progress
+        let delta = downloaded.saturating_sub(last_progress_bytes);
+        if delta >= MIN_PROGRESS_DELTA {
+            last_progress_at = Instant::now();
+        }
+
         if let Some(ref callback) = progress_callback {
-            let delta = downloaded.saturating_sub(last_progress_bytes);
             if delta >= MIN_PROGRESS_DELTA
                 || last_progress_emitted.elapsed() >= MIN_PROGRESS_INTERVAL
             {
@@ -108,55 +194,157 @@ pub(crate) async fn stream_download(
         }
     }
 
-    // Final cancellation check
     if *cancel_rx.borrow() {
-        file.get_mut().shutdown().await.ok();
-        let _ = fs::remove_file(output_path).await;
-        return Ok(DownloadStreamResult {
-            cancelled: true,
-            hash: None,
-            bytes_written: downloaded,
-        });
+        abort_download(&mut hash_worker, &mut file, &temp_path).await;
+        return Ok(aborted_stream(temp_path, downloaded));
     }
 
-    // Flush BufWriter to kernel, sync to disk, then shut down
-    if let Err(err) = file.flush().await {
-        if let Err(rm_err) = fs::remove_file(output_path).await {
-            tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after flush error");
-        }
-        return Err(DownloadError::io(err.to_string()).into());
-    }
+    flush_download(&mut file, &mut hash_worker, &temp_path, &cancel_rx).await?;
 
-    if let Err(err) = file.get_mut().sync_data().await {
-        if let Err(rm_err) = fs::remove_file(output_path).await {
-            tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after sync error");
-        }
-        return Err(DownloadError::io(err.to_string()).into());
-    }
-
-    if let Err(err) = file.get_mut().shutdown().await {
-        if let Err(rm_err) = fs::remove_file(output_path).await {
-            tracing::warn!(path = %output_path.display(), error = %rm_err, "failed to remove partial file after shutdown error");
-        }
-        return Err(DownloadError::io(err.to_string()).into());
-    }
-
-    let hash = Some(
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    );
-
-    // Final progress callback
     if let Some(ref callback) = progress_callback {
-        callback(downloaded, total);
+        if downloaded != last_progress_bytes {
+            callback(downloaded, total);
+        }
     }
+
+    let hash = match hash_worker.take() {
+        Some(worker) => Some(worker.finalize().await?),
+        None => None,
+    };
+
+    guard.disarm();
 
     Ok(DownloadStreamResult {
-        cancelled: false,
+        aborted: false,
         hash,
         bytes_written: downloaded,
+        temp_path,
     })
+}
+
+fn temp_path_for(output_path: &Path) -> PathBuf {
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download");
+    output_path.with_file_name(format!(
+        "{name}.download-{}-{counter}.tmp",
+        std::process::id()
+    ))
+}
+
+fn aborted_stream(temp_path: PathBuf, bytes_written: u64) -> DownloadStreamResult {
+    DownloadStreamResult {
+        aborted: true,
+        hash: None,
+        bytes_written,
+        temp_path,
+    }
+}
+
+async fn flush_download(
+    file: &mut tokio::fs::File,
+    hash_worker: &mut Option<HashWorker>,
+    temp_path: &Path,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> Result<()> {
+    let Some(flush_result) = run_cancelable(file.flush(), cancel_rx).await else {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::Cancelled.into());
+    };
+    if let Err(err) = flush_result {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    let Some(sync_result) = run_cancelable(file.sync_all(), cancel_rx).await else {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::Cancelled.into());
+    };
+    if let Err(err) = sync_result {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    let Some(shutdown_result) = run_cancelable(file.shutdown(), cancel_rx).await else {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::Cancelled.into());
+    };
+    if let Err(err) = shutdown_result {
+        abort_download(hash_worker, file, temp_path).await;
+        return Err(DownloadError::io(err.to_string()).into());
+    }
+
+    Ok(())
+}
+
+async fn abort_download(
+    hash_worker: &mut Option<HashWorker>,
+    file: &mut tokio::fs::File,
+    temp_path: &Path,
+) {
+    if let Some(worker) = hash_worker.take() {
+        worker.abort();
+    }
+    let _ = file.shutdown().await;
+    let _ = fs::remove_file(temp_path).await;
+}
+
+async fn run_cancelable<T>(
+    future: impl Future<Output = T>,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> Option<T> {
+    let mut cancel_rx = cancel_rx.clone();
+    tokio::select! {
+        biased;
+        _ = wait_until_cancelled(&mut cancel_rx) => None,
+        result = future => Some(result),
+    }
+}
+
+async fn wait_until_cancelled(cancel_rx: &mut tokio::sync::watch::Receiver<bool>) {
+    loop {
+        if *cancel_rx.borrow_and_update() {
+            return;
+        }
+        if cancel_rx.changed().await.is_err() {
+            pending::<()>().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_file_guard_removes_on_drop_when_armed() {
+        let path = std::env::temp_dir().join(format!(
+            "osu-downloader-test-{}-{}.part",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"hello").unwrap();
+        {
+            let _guard = TempFileGuard::new(path.clone());
+        }
+        assert!(!path.exists(), "guard must remove file when dropped armed");
+    }
+
+    #[test]
+    fn temp_file_guard_keeps_file_when_disarmed() {
+        let path = std::env::temp_dir().join(format!(
+            "osu-downloader-test-{}-{}.part",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, b"hello").unwrap();
+        {
+            let mut guard = TempFileGuard::new(path.clone());
+            guard.disarm();
+        }
+        assert!(path.exists(), "disarmed guard must not remove the file");
+        std::fs::remove_file(&path).unwrap();
+    }
 }

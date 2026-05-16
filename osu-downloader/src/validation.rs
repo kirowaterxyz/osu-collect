@@ -14,11 +14,8 @@ const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
 /// ZIP End of Central Directory signature
 const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 
-/// Offset within EOCD record where "offset of start of central directory" lives (relative to EOCD start)
-const EOCD_CD_OFFSET_FIELD: usize = 16;
-
 /// Maximum bytes to search for EOCD signature
-const MAX_EOCD_SEARCH_BYTES: u64 = 65536;
+const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;
 
 pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
     let mut file = fs::File::open(path).await?;
@@ -51,26 +48,8 @@ pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
     file.read_exact(&mut buffer).await?;
 
     task::spawn_blocking(move || {
-        let eocd_pos = find_eocd_position(&buffer)
+        find_eocd_position(&buffer)
             .ok_or_else(|| DownloadError::validation_failed("ZIP EOCD signature not found"))?;
-
-        // Central directory offset is a u32 at EOCD+16; it must be < file_size.
-        let abs_eocd = search_start + eocd_pos as u64;
-        let cd_offset_start = eocd_pos + EOCD_CD_OFFSET_FIELD;
-        if cd_offset_start + 4 <= buffer.len() {
-            let cd_offset = u32::from_le_bytes(
-                buffer[cd_offset_start..cd_offset_start + 4]
-                    .try_into()
-                    .unwrap(),
-            ) as u64;
-            if cd_offset >= abs_eocd {
-                return Err(DownloadError::validation_failed(
-                    "ZIP central directory offset exceeds file size",
-                )
-                .into());
-            }
-        }
-
         Ok(())
     })
     .await
@@ -157,8 +136,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn zip_with_odd_eocd_offset_still_passes() {
+        let mut data = minimal_zip_bytes();
+        let eocd_pos = find_eocd_position(&data).unwrap();
+        data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&(u32::MAX).to_le_bytes());
+
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(&data).unwrap();
+        assert!(validate_zip_archive(tmp.path()).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn zeros_with_eocd_tail_fails_local_header_check() {
-        // File is all zeros except for the EOCD magic at the end — no local header at offset 0.
         let mut data = vec![0u8; 64];
         let eocd_magic = &[0x50u8, 0x4B, 0x05, 0x06];
         let tail = data.len() - 4;

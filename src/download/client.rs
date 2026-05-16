@@ -1,31 +1,21 @@
 use crate::{
-    check_shutdown,
-    config::constants::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
-    download::status,
-    mirrors::{Mirror, MirrorKind, MirrorPool},
-    utils::{
-        AppError, FileExistsAction, Result, determine_file_exists_action, sanitize_filename_safe,
-    },
-    worker::{
-        DownloadContext,
-        io::{ArchiveValidationOptions, ensure_valid_archive, stream_download, validate_archive},
-    },
+    config::constants::status,
+    download::{BeatmapStage, DownloadEvent},
+    mirrors::{Mirror, MirrorKind},
+    utils::{AppError, Result},
+    worker::DownloadContext,
 };
-use std::{
-    borrow::Cow,
-    io::ErrorKind,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
+use osu_downloader::{
+    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
+    BeatmapsetStatusEvent, Downloader, FileExistsPolicy, SkipReason,
 };
-use tokio::{fs, time::sleep};
-use tracing::trace;
+use std::{borrow::Cow, sync::Arc};
 
 pub type StatusCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
-fn emit_status(reporter: &Option<StatusCallback>, build: impl FnOnce() -> String) {
-    if let Some(cb) = reporter {
-        cb(&build());
+fn emit_status(reporter: &Option<StatusCallback>, message: impl AsRef<str>) {
+    if let Some(callback) = reporter {
+        callback(message.as_ref());
     }
 }
 
@@ -34,7 +24,6 @@ pub enum DownloadResult {
     Success(CompletedDownload),
     Skipped(Box<str>),
     Failed(DownloadFailure),
-    /// All mirrors failed with transient network errors only — not a logical failure.
     NetworkError(String),
     Aborted,
 }
@@ -63,18 +52,9 @@ pub struct CompletedDownload {
 }
 
 pub fn create_download_client() -> Result<reqwest::Client> {
-    osu_downloader::http::create_download_client(None).map_err(|e| {
-        AppError::other_dynamic(format!("failed to create download client: {e}").into_boxed_str())
+    osu_downloader::http::create_download_client(None).map_err(|err| {
+        AppError::other_dynamic(format!("failed to create download client: {err}").into_boxed_str())
     })
-}
-
-/// Per-mirror attempt outcome used inside `download_beatmap`.
-enum MirrorAttempt {
-    Done(DownloadResult),
-    NotFound,
-    RateLimited,
-    Transient(String),
-    Definitive(String),
 }
 
 pub async fn download_beatmap(
@@ -83,462 +63,229 @@ pub async fn download_beatmap(
     context: &DownloadContext,
     progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     status_reporter: Option<StatusCallback>,
-    rate_limiter: Option<MirrorPool>,
 ) -> Result<DownloadResult> {
-    check_shutdown!(context.shutdown);
-
-    let mut last_error: Option<DownloadResult> = None;
-    let mut not_found_count: usize = 0;
-    let total_mirrors = mirrors.len();
-    let mut pending: Vec<Mirror> = mirrors.to_vec();
-    let mut all_transient = true;
-    let mut last_transient_reason = String::new();
-
-    while !pending.is_empty() {
-        let mut deferred_rate_limited: Vec<Mirror> = Vec::new();
-
-        for mirror in pending.iter() {
-            check_shutdown!(context.shutdown);
-
-            match try_mirror_retry(
-                beatmapset_id,
-                mirror,
-                context,
-                progress_callback.clone(),
-                &status_reporter,
-                rate_limiter.as_ref(),
-            )
-            .await?
-            {
-                MirrorAttempt::Done(result) => match result {
-                    DownloadResult::Success(_) | DownloadResult::Skipped(_) => {
-                        return Ok(result);
-                    }
-                    DownloadResult::Aborted => return Ok(DownloadResult::Aborted),
-                    DownloadResult::Failed(_) | DownloadResult::NetworkError(_) => {
-                        all_transient = false;
-                        last_error = Some(result);
-                    }
-                },
-                MirrorAttempt::NotFound => {
-                    all_transient = false;
-                    not_found_count += 1;
-                    last_error = Some(DownloadResult::failed(
-                        Some(mirror.kind()),
-                        "Not found (404)",
-                    ));
-                }
-                MirrorAttempt::RateLimited => {
-                    all_transient = false;
-                    deferred_rate_limited.push(mirror.clone());
-                    last_error = Some(DownloadResult::failed(
-                        Some(mirror.kind()),
-                        status::RATE_LIMITED,
-                    ));
-                }
-                MirrorAttempt::Transient(reason) => {
-                    last_transient_reason = reason.clone();
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), reason));
-                }
-                MirrorAttempt::Definitive(reason) => {
-                    all_transient = false;
-                    last_error = Some(DownloadResult::failed(Some(mirror.kind()), reason));
-                }
-            }
-        }
-
-        if deferred_rate_limited.is_empty() {
-            break;
-        }
-
-        let Some(ref limiter) = rate_limiter else {
-            break;
-        };
-
-        let wait_duration = deferred_rate_limited
-            .iter()
-            .filter_map(|mirror| limiter.penalty_remaining(mirror.kind()))
-            .min()
-            .unwrap_or(Duration::from_secs(0));
-
-        if !wait_duration.is_zero() {
-            let deadline = tokio::time::Instant::now() + wait_duration;
-            loop {
-                if context.shutdown.is_cancelled() {
-                    return Ok(DownloadResult::Aborted);
-                }
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if remaining.is_zero() {
-                    break;
-                }
-                sleep(remaining.min(Duration::from_millis(100))).await;
-            }
-        }
-
-        pending = deferred_rate_limited;
-    }
-
-    if not_found_count == total_mirrors && total_mirrors > 0 {
-        return Ok(DownloadResult::failed(
-            None,
-            "Unavailable on all mirrors (404)",
-        ));
-    }
-
-    if all_transient && !last_transient_reason.is_empty() {
-        return Ok(DownloadResult::NetworkError(last_transient_reason));
-    }
-
-    Ok(last_error.unwrap_or_else(|| DownloadResult::failed(None, "All mirrors failed")))
-}
-
-async fn try_mirror_retry(
-    beatmapset_id: u32,
-    mirror: &Mirror,
-    context: &DownloadContext,
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    status_reporter: &Option<StatusCallback>,
-    rate_limiter: Option<&MirrorPool>,
-) -> Result<MirrorAttempt> {
-    let mut attempt: u8 = 0;
-
-    loop {
-        if context.shutdown.is_cancelled() {
-            return Ok(MirrorAttempt::Done(DownloadResult::Aborted));
-        }
-
-        let outcome = try_mirror_once(
-            beatmapset_id,
-            mirror,
-            context,
-            progress_callback.clone(),
-            status_reporter,
-            rate_limiter,
-        )
-        .await?;
-
-        match &outcome {
-            MirrorAttempt::Transient(reason) if attempt + 1 < TRANSIENT_RETRY_ATTEMPTS => {
-                attempt += 1;
-                let backoff = TRANSIENT_RETRY_BASE_DELAY * (1u32 << (attempt - 1));
-                trace!(
-                    beatmapset_id,
-                    mirror = mirror.display_name(),
-                    attempt,
-                    reason = %reason,
-                    "retrying mirror after transient error"
-                );
-                emit_status(status_reporter, || {
-                    format!(
-                        "retrying {} after {} (attempt {}/{})",
-                        mirror.display_name(),
-                        reason,
-                        attempt + 1,
-                        TRANSIENT_RETRY_ATTEMPTS
-                    )
-                });
-                if cancellable_sleep(backoff, context).await {
-                    return Ok(MirrorAttempt::Done(DownloadResult::Aborted));
-                }
-                continue;
-            }
-            _ => return Ok(outcome),
-        }
-    }
-}
-
-async fn cancellable_sleep(duration: Duration, context: &DownloadContext) -> bool {
-    let deadline = tokio::time::Instant::now() + duration;
-    loop {
-        if context.shutdown.is_cancelled() {
-            return true;
-        }
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            return false;
-        }
-        sleep(remaining.min(Duration::from_millis(100))).await;
-    }
-}
-
-async fn try_mirror_once(
-    beatmapset_id: u32,
-    mirror: &Mirror,
-    context: &DownloadContext,
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    status_reporter: &Option<StatusCallback>,
-    rate_limiter: Option<&MirrorPool>,
-) -> Result<MirrorAttempt> {
-    emit_status(status_reporter, || {
-        format!(
-            "{} #{} from {}",
-            status::FETCHING,
-            beatmapset_id,
-            mirror.display_name()
-        )
-    });
-
-    let url = mirror.url_for(beatmapset_id);
-    let mut req = context.client.get(&url);
-    if let Some(extra_headers) = mirror.headers() {
-        req = req.headers(extra_headers.clone());
-    }
-    let response = match req.send().await {
-        Ok(resp) => resp,
-        Err(e) => {
-            if e.is_timeout() {
-                return Ok(MirrorAttempt::Transient("Connection timeout".to_string()));
-            }
-            if e.is_connect() {
-                return Ok(MirrorAttempt::Transient("Connection failed".to_string()));
-            }
-            return Ok(MirrorAttempt::Transient(format!(
-                "Request failed on {}: {e}",
-                mirror.display_name()
-            )));
-        }
-    };
-
-    let status = response.status();
-
-    let catboy_rate_limited =
-        matches!(mirror.kind(), MirrorKind::Catboy(_)) && status == reqwest::StatusCode::FORBIDDEN;
-
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || catboy_rate_limited {
-        if let Some(limiter) = rate_limiter {
-            limiter.mark_rate_limited(mirror.kind());
-        }
-        return Ok(MirrorAttempt::RateLimited);
-    }
-
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Ok(MirrorAttempt::NotFound);
-    }
-
-    if status.is_server_error() {
-        return Ok(MirrorAttempt::Transient(format!("HTTP {}", status)));
-    }
-
-    if !status.is_success() {
-        return Ok(MirrorAttempt::Definitive(format!("HTTP {}", status)));
-    }
-
-    emit_status(status_reporter, || {
-        format!(
-            "{} #{} from {}",
-            status::DOWNLOADING,
-            beatmapset_id,
-            mirror.display_name()
-        )
-    });
-
-    let result =
-        match process_mirror_response(mirror, response, beatmapset_id, context, progress_callback)
-            .await
-        {
-            Ok(res) => res,
-            Err(err) => {
-                return Ok(MirrorAttempt::Definitive(format!(
-                    "{} via {}",
-                    err,
-                    mirror.display_name()
-                )));
-            }
-        };
-
-    Ok(MirrorAttempt::Done(result))
-}
-
-async fn process_mirror_response(
-    mirror: &Mirror,
-    response: reqwest::Response,
-    beatmapset_id: u32,
-    context: &DownloadContext,
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-) -> Result<DownloadResult> {
-    let content_length = response.content_length();
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_ascii_lowercase());
-
-    if let Some(ref ct) = content_type
-        && !is_archive_content_type(ct)
-    {
-        return Ok(DownloadResult::failed(
-            Some(mirror.kind()),
-            format!(
-                "Unexpected content type '{}' from {}",
-                ct,
-                mirror.display_name()
-            ),
-        ));
-    }
-
-    let filename = extract_filename(&response, beatmapset_id)?;
-    let sanitized_filename = sanitize_filename_safe(&filename, beatmapset_id);
-    let output_path = context.output_dir.join(&sanitized_filename);
-
-    let existing_metadata = match fs::metadata(&output_path).await {
-        Ok(meta) => Some(meta),
-        Err(err) if err.kind() == ErrorKind::NotFound => None,
-        Err(err) => return Err(AppError::from(err)),
-    };
-
-    if existing_metadata.is_some() {
-        check_shutdown!(context.shutdown);
-
-        if context.skip_existing {
-            if context.tracker.is_verified(beatmapset_id) {
-                return Ok(DownloadResult::Skipped(
-                    sanitized_filename.clone().into_boxed_str(),
-                ));
-            }
-            let validation_opts = ArchiveValidationOptions {
-                verify_zip_eocd: context.verify_zip_eocd,
-                remove_on_invalid: true,
-            };
-            let _ = validate_archive(&output_path, validation_opts).await?;
-        } else {
-            let action = determine_file_exists_action(context.auto_overwrite);
-            if matches!(action, FileExistsAction::Skip) {
-                return Ok(DownloadResult::Skipped(
-                    sanitized_filename.clone().into_boxed_str(),
-                ));
-            }
-            fs::remove_file(&output_path).await?;
-        }
-    }
-
-    write_archive(
-        mirror,
-        response,
-        context,
-        output_path,
-        sanitized_filename,
-        content_length,
-        progress_callback,
-    )
-    .await
-}
-
-async fn write_archive(
-    mirror: &Mirror,
-    response: reqwest::Response,
-    context: &DownloadContext,
-    output_path: PathBuf,
-    sanitized_filename: String,
-    content_length: Option<u64>,
-    progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-) -> Result<DownloadResult> {
-    context.cleanup_tracker.track(&output_path);
-
-    let stream = match stream_download(
-        response,
-        &output_path,
-        content_length,
-        progress_callback,
-        context.progress_watchdog,
-        context.shutdown.clone(),
-    )
-    .await
-    {
-        Ok(stream) => stream,
-        Err(err) => {
-            context.cleanup_tracker.forget(&output_path);
-            return Err(err);
-        }
-    };
-
-    context.cleanup_tracker.track(&stream.temp_path);
-
-    if stream.aborted {
-        context.cleanup_tracker.forget(&output_path);
-        context.cleanup_tracker.forget(&stream.temp_path);
+    if context.shutdown.is_cancelled() {
         return Ok(DownloadResult::Aborted);
     }
 
-    if let Some(expected) = content_length
-        && stream.bytes_written < expected
-    {
-        let _ = fs::remove_file(&stream.temp_path).await;
-        context.cleanup_tracker.forget(&output_path);
-        context.cleanup_tracker.forget(&stream.temp_path);
-        return Ok(DownloadResult::failed(
-            Some(mirror.kind()),
-            format!(
-                "download incomplete from {} (received {} of {} bytes)",
-                mirror.display_name(),
-                stream.bytes_written,
-                expected
-            ),
-        ));
+    if mirrors.is_empty() {
+        return Ok(DownloadResult::failed(None, "all mirrors failed"));
     }
 
-    let verify_start = Instant::now();
-    if let Err(err) = ensure_valid_archive(&stream.temp_path, context.verify_zip_eocd).await {
-        let _ = fs::remove_file(&stream.temp_path).await;
-        context.cleanup_tracker.forget(&output_path);
-        context.cleanup_tracker.forget(&stream.temp_path);
-        return Ok(DownloadResult::failed(
-            Some(mirror.kind()),
-            format!(
-                "{} returned an invalid archive: {}",
-                mirror.display_name(),
-                err
-            ),
-        ));
-    }
-    let verify_duration_us = verify_start.elapsed().as_micros() as u64;
+    let callbacks = BeatmapsetDownloadCallbacks {
+        progress: progress_callback,
+        status: Some(status_callback(context, beatmapset_id, status_reporter)),
+    };
+    let cancel_rx = cancellation_channel(context);
+    let downloader = Downloader::builder()
+        .mirrors(mirrors.iter().cloned())
+        .concurrent_downloads(context.thread_count.max(1))
+        .verify_archives(context.verify_zip_eocd)
+        .progress_timeout(context.progress_watchdog)
+        .build()
+        .map_err(|err| AppError::other_dynamic(err.to_string().into_boxed_str()))?;
 
-    let hash = stream.hash.unwrap_or_else(|| "unknown".into());
+    let options = BeatmapsetDownloadOptions {
+        file_exists_policy: if context.auto_overwrite {
+            FileExistsPolicy::OverwriteTarget
+        } else {
+            FileExistsPolicy::Skip
+        },
+    };
+    let outcome = downloader
+        .download_beatmapset_with_options(
+            beatmapset_id,
+            mirrors,
+            context.output_dir.as_ref(),
+            callbacks,
+            options,
+            cancel_rx,
+        )
+        .await;
 
-    if let Err(err) = fs::rename(&stream.temp_path, &output_path).await {
-        let _ = fs::remove_file(&stream.temp_path).await;
-        context.cleanup_tracker.forget(&output_path);
-        context.cleanup_tracker.forget(&stream.temp_path);
-        return Err(AppError::from(err));
-    }
-
-    context.cleanup_tracker.forget(&output_path);
-    context.cleanup_tracker.forget(&stream.temp_path);
-
-    Ok(DownloadResult::Success(CompletedDownload {
-        filename: sanitized_filename.into_boxed_str(),
-        hash,
-        mirror: mirror.kind(),
-        verify_duration_us,
-    }))
+    Ok(outcome.into())
 }
 
-fn is_archive_content_type(raw: &str) -> bool {
-    let mime = raw.split(';').next().map(str::trim).unwrap_or("");
-
-    matches!(
-        mime,
-        "application/x-osu-beatmap-archive"
-            | "application/octet-stream"
-            | "binary/octet-stream"
-            | "application/zip"
-            | "application/x-zip-compressed"
-    )
+fn status_callback(
+    context: &DownloadContext,
+    beatmapset_id: u32,
+    reporter: Option<StatusCallback>,
+) -> Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync> {
+    let sink = context.status_sink();
+    let download_id = context.id;
+    Arc::new(move |event| {
+        let (message, stage) = status_update(beatmapset_id, event);
+        if let Some(stage) = stage {
+            sink.emit(DownloadEvent::BeatmapStatus {
+                id: download_id,
+                beatmapset_id,
+                stage,
+                message: message.clone(),
+            });
+        }
+        emit_status(&reporter, message_for_thread(&message, beatmapset_id));
+    })
 }
 
-fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> Result<String> {
-    let filename = response
-        .headers()
-        .get(reqwest::header::CONTENT_DISPOSITION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(osu_downloader::filename_from_content_disposition)
-        .unwrap_or_else(|| format!("{beatmapset_id}.osz"));
-
-    if filename
-        .rsplit_once('.')
-        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("osz"))
-    {
-        Ok(filename)
+fn message_for_thread(message: &str, beatmapset_id: u32) -> String {
+    if message.contains(&format!("#{}", beatmapset_id)) {
+        message.to_string()
     } else {
-        Ok(format!("{filename}.osz"))
+        format!("{} #{}", message, beatmapset_id)
+    }
+}
+
+fn status_update(
+    beatmapset_id: u32,
+    event: BeatmapsetStatusEvent,
+) -> (String, Option<BeatmapStage>) {
+    match event {
+        BeatmapsetStatusEvent::Contacting { mirror } => (
+            format!(
+                "{} #{} from {}",
+                status::CONTACTING_PREFIX,
+                beatmapset_id,
+                mirror.label()
+            ),
+            Some(BeatmapStage::Downloading),
+        ),
+        BeatmapsetStatusEvent::Downloading { mirror } => (
+            format!(
+                "{} #{} from {}",
+                status::DOWNLOADING,
+                beatmapset_id,
+                mirror.label()
+            ),
+            Some(BeatmapStage::Downloading),
+        ),
+        BeatmapsetStatusEvent::Verifying { mirror } => (
+            format!("Verifying #{} from {}", beatmapset_id, mirror.label()),
+            Some(BeatmapStage::Downloading),
+        ),
+        BeatmapsetStatusEvent::RateLimited { mirror, cooldown } => {
+            let wait_secs = cooldown.as_secs().max(1);
+            (
+                format!(
+                    "{} on {}, waiting {}s before retry",
+                    status::RATE_LIMITED,
+                    mirror.label(),
+                    wait_secs
+                ),
+                Some(BeatmapStage::Downloading),
+            )
+        }
+        BeatmapsetStatusEvent::RetryingTransient {
+            mirror,
+            attempt,
+            max_attempts,
+            reason,
+        } => (
+            format!(
+                "Retrying {} after {} (attempt {}/{})",
+                mirror.label(),
+                reason,
+                attempt,
+                max_attempts
+            ),
+            Some(BeatmapStage::Downloading),
+        ),
+        BeatmapsetStatusEvent::MirrorFailed { mirror, reason } => {
+            (format!("{} failed: {}", mirror.label(), reason), None)
+        }
+    }
+}
+
+fn cancellation_channel(context: &DownloadContext) -> tokio::sync::watch::Receiver<bool> {
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(context.shutdown.is_cancelled());
+    if !context.shutdown.is_cancelled() {
+        let shutdown = context.shutdown.clone();
+        tokio::spawn(async move {
+            shutdown.cancelled().await;
+            let _ = cancel_tx.send(true);
+        });
+    }
+    cancel_rx
+}
+
+impl From<BeatmapsetDownloadOutcome> for DownloadResult {
+    fn from(outcome: BeatmapsetDownloadOutcome) -> Self {
+        match outcome {
+            BeatmapsetDownloadOutcome::Success {
+                filename,
+                hash,
+                mirror,
+                size_bytes: _,
+                verify_duration_us,
+            } => DownloadResult::Success(CompletedDownload {
+                filename: filename.into_boxed_str(),
+                hash: hash.into_boxed_str(),
+                mirror,
+                verify_duration_us,
+            }),
+            BeatmapsetDownloadOutcome::Skipped { reason } => {
+                DownloadResult::Skipped(skipped_reason(reason).into_boxed_str())
+            }
+            BeatmapsetDownloadOutcome::Failed { mirror, reason } => {
+                DownloadResult::failed(mirror, reason)
+            }
+            BeatmapsetDownloadOutcome::NetworkError { reason } => {
+                DownloadResult::NetworkError(reason)
+            }
+            BeatmapsetDownloadOutcome::Aborted => DownloadResult::Aborted,
+        }
+    }
+}
+
+fn skipped_reason(reason: SkipReason) -> String {
+    match reason {
+        SkipReason::AlreadyExists => "already exists".to_string(),
+        SkipReason::UnavailableOnMirrors => "unavailable on all mirrors".to_string(),
+        SkipReason::InvalidBeatmapsetId => "invalid beatmapset id".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn verifying_status_updates_beatmap_without_failing_it() {
+        let (message, stage) = status_update(
+            123,
+            BeatmapsetStatusEvent::Verifying {
+                mirror: MirrorKind::Nerinyan,
+            },
+        );
+
+        assert_eq!(stage, Some(BeatmapStage::Downloading));
+        assert!(message.contains("Verifying #123"));
+    }
+
+    #[test]
+    fn rate_limit_status_stays_in_downloading_stage() {
+        let (message, stage) = status_update(
+            123,
+            BeatmapsetStatusEvent::RateLimited {
+                mirror: MirrorKind::Nerinyan,
+                cooldown: Duration::from_secs(2),
+            },
+        );
+
+        assert_eq!(stage, Some(BeatmapStage::Downloading));
+        assert!(message.contains("Rate limited"));
+    }
+
+    #[test]
+    fn mirror_failed_status_does_not_mark_beatmap_failed() {
+        let (_, stage) = status_update(
+            123,
+            BeatmapsetStatusEvent::MirrorFailed {
+                mirror: MirrorKind::Nerinyan,
+                reason: "HTTP 500".to_string(),
+            },
+        );
+
+        assert_eq!(stage, None);
     }
 }

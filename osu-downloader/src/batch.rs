@@ -2,6 +2,7 @@
 
 use crate::{
     download::{self, download_beatmapset, present_beatmapset_ids},
+    downloader::{BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions},
     mirrors::MirrorPool,
     DownloadEvent, DownloadResult, DownloadSummary, SkipReason,
 };
@@ -219,19 +220,22 @@ async fn download_one(
         });
     });
 
-    // Attempt download
-    let (result, retry_count) = download_beatmapset(download::DownloadParams {
+    let (outcome, retry_count) = download_beatmapset(download::DownloadParams {
         beatmapset_id,
         output_dir,
         client,
         mirror_pool,
         verify_archive: config.verify_archives,
         progress_timeout: config.progress_timeout,
-        max_retries: config.max_retries,
-        progress_callback: Some(progress_callback),
+        callbacks: BeatmapsetDownloadCallbacks {
+            progress: Some(progress_callback),
+            status: None,
+        },
+        options: BeatmapsetDownloadOptions::default(),
         cancel_rx,
     })
     .await;
+    let result: Result<DownloadResult, crate::Error> = outcome.into();
 
     // Send completion event
     match &result {
@@ -272,7 +276,6 @@ pub(crate) struct BatchConfig {
     pub(crate) concurrent_downloads: usize,
     pub(crate) verify_archives: bool,
     pub(crate) progress_timeout: Duration,
-    pub(crate) max_retries: u32,
 }
 
 #[cfg(test)]
@@ -286,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_mid_batch_does_not_panic() {
-        use crate::{Mirror, MirrorPool};
+        use crate::{mirrors::MirrorPool, Mirror};
 
         let dir = tempfile::tempdir().unwrap();
         let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -297,7 +300,6 @@ mod tests {
             concurrent_downloads: 2,
             verify_archives: false,
             progress_timeout: std::time::Duration::from_secs(1),
-            max_retries: 0,
         };
 
         // Cancel after a short delay
@@ -323,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn started_event_precedes_completed_and_failed() {
-        use crate::{Mirror, MirrorPool};
+        use crate::{mirrors::MirrorPool, Mirror};
 
         let dir = tempfile::tempdir().unwrap();
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -334,7 +336,6 @@ mod tests {
             concurrent_downloads: 1,
             verify_archives: false,
             progress_timeout: std::time::Duration::from_secs(5),
-            max_retries: 0,
         };
 
         // We only want to check ordering, not actual download success.

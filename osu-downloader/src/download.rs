@@ -1,23 +1,24 @@
 //! Core download client logic
 
 use crate::{
+    config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
+    downloader::{
+        BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
+        BeatmapsetStatusEvent, FileExistsPolicy,
+    },
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation,
     worker::stream_download,
-    DownloadError, DownloadResult, Result, SkipReason,
+    SkipReason,
 };
 use std::{
+    collections::HashSet,
+    future::{pending, Future},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::time::sleep;
-use tracing::{debug, warn};
-
-static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+use tracing::{debug, trace};
 
 pub(crate) struct DownloadParams<'a> {
     pub(crate) beatmapset_id: u32,
@@ -26,12 +27,11 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) mirror_pool: &'a MirrorPool,
     pub(crate) verify_archive: bool,
     pub(crate) progress_timeout: Duration,
-    pub(crate) max_retries: u32,
-    pub(crate) progress_callback: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    pub(crate) callbacks: BeatmapsetDownloadCallbacks,
+    pub(crate) options: BeatmapsetDownloadOptions,
     pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
-/// Sanitize a filename from Content-Disposition header or generate default
 fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
     let fallback = || format!("{beatmapset_id}.osz");
 
@@ -62,8 +62,7 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
 
 /// Extract filename from Content-Disposition header.
 ///
-/// Handles `filename*=UTF-8''...` (RFC 5987) and `filename="..."` (RFC 2616).
-/// Backslash escapes inside quoted strings are decoded per RFC 2616 §2.2.
+/// Handles `filename*=UTF-8''...` and `filename="..."`.
 pub fn extract_filename_from_header(header_value: &str) -> Option<String> {
     let mut filename = None;
     let mut extended_filename = None;
@@ -134,9 +133,6 @@ fn decode_filename_value(raw: &str) -> String {
     }
 }
 
-/// Decode backslash-escaped characters inside a quoted-string value (RFC 2616 §2.2).
-///
-/// `\"` → `"`, `\\` → `\`, any other `\X` → `X`.
 fn decode_quoted_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -156,7 +152,6 @@ fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
     parse_beatmapset_id(name) == Some(beatmapset_id)
 }
 
-/// Scan `dir` and return the set of beatmapset IDs that already have a file present.
 pub(crate) async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32> {
     let mut ids = std::collections::HashSet::new();
     let Ok(mut read_dir) = tokio::fs::read_dir(dir).await else {
@@ -186,317 +181,513 @@ fn parse_beatmapset_id(name: &str) -> Option<u32> {
     }
 }
 
-/// Download a single beatmapset with mirror fallback.
-///
-/// Returns the download result and the number of retry attempts made.
-pub(crate) async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
-    if let Err(err) = tokio::fs::create_dir_all(params.output_dir).await {
-        return (Err(DownloadError::io(err.to_string()).into()), 0);
+pub(crate) async fn download_beatmapset(
+    params: DownloadParams<'_>,
+) -> (BeatmapsetDownloadOutcome, u32) {
+    let mut cancel_rx = params.cancel_rx.clone();
+    if *cancel_rx.borrow_and_update() {
+        return (BeatmapsetDownloadOutcome::Aborted, 0);
     }
 
-    match tokio::fs::read_dir(params.output_dir).await {
-        Ok(mut dir) => loop {
-            match dir.next_entry().await {
-                Ok(Some(entry)) => {
-                    let name = entry.file_name();
-                    let name = name.to_string_lossy();
-                    if matches_beatmapset(params.beatmapset_id, &name) {
-                        debug!(
-                            "beatmapset {} already exists ({}), skipping",
-                            params.beatmapset_id, name
-                        );
-                        return (
-                            Ok(DownloadResult::Skipped {
-                                reason: SkipReason::AlreadyExists,
-                            }),
-                            0,
-                        );
-                    }
-                }
-                Ok(None) => break,
-                Err(err) => return (Err(DownloadError::io(err.to_string()).into()), 0),
-            }
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => return (Err(DownloadError::io(err.to_string()).into()), 0),
-    }
-
-    let mut total_attempts: u32 = 0;
-
-    let mirrors = loop {
-        let mirrors = params.mirror_pool.plan();
-        if !mirrors.is_empty() {
-            break mirrors;
-        }
-
-        let Some(cooldown) = params.mirror_pool.earliest_cooldown() else {
-            return (
-                Err(DownloadError::AllMirrorsFailed {
-                    beatmapset_id: params.beatmapset_id,
-                }
-                .into()),
-                total_attempts,
-            );
-        };
-
-        let mut cancel_watch = params.cancel_rx.clone();
-        tokio::select! {
-            _ = sleep(cooldown) => {}
-            _ = cancel_watch.changed() => {
-                if *cancel_watch.borrow() {
-                    return (Err(DownloadError::Cancelled.into()), total_attempts);
-                }
-            }
-        }
+    let Some(create_dir_result) =
+        run_cancelable(tokio::fs::create_dir_all(params.output_dir), &cancel_rx).await
+    else {
+        return (BeatmapsetDownloadOutcome::Aborted, 0);
     };
+    if let Err(err) = create_dir_result {
+        return (failed(None, err.to_string()), 0);
+    }
 
-    let mut last_error = None;
-    let mut attempted_mirrors = 0usize;
-    let mut missed_mirrors = 0usize;
+    match find_existing_beatmapset(params.beatmapset_id, params.output_dir, &cancel_rx).await {
+        ExistingCheck::Exists => match params.options.file_exists_policy {
+            FileExistsPolicy::Skip => {
+                return (
+                    BeatmapsetDownloadOutcome::Skipped {
+                        reason: SkipReason::AlreadyExists,
+                    },
+                    0,
+                );
+            }
+            FileExistsPolicy::OverwriteTarget => {}
+        }
+        ExistingCheck::Missing => {}
+        ExistingCheck::Aborted => return (BeatmapsetDownloadOutcome::Aborted, 0),
+        ExistingCheck::Failed(reason) => return (failed(None, reason), 0),
+    }
 
-    for mirror in mirrors {
-        if *params.cancel_rx.borrow() {
-            return (Err(DownloadError::Cancelled.into()), total_attempts);
+    let mut total_attempts = 0u32;
+    let mut last_error: Option<BeatmapsetDownloadOutcome> = None;
+    let mut not_found = HashSet::new();
+    let mut all_transient = true;
+    let mut last_transient_reason = String::new();
+
+    let mut pending = params.mirror_pool.mirrors().to_vec();
+
+    while !pending.is_empty() {
+        if *cancel_rx.borrow_and_update() {
+            return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
         }
 
-        attempted_mirrors += 1;
-        debug!(
-            "Attempting download of {} from {}",
-            params.beatmapset_id,
-            mirror.display_name()
-        );
+        let mut deferred_rate_limited = Vec::new();
+        for mirror in &pending {
+            if *cancel_rx.borrow_and_update() {
+                return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
+            }
 
-        let mut attempt = 0u32;
-        loop {
-            total_attempts += 1;
-            match try_mirror(&mirror, &params).await {
-                Ok(MirrorAttempt::Downloaded(result)) => return (Ok(result), total_attempts),
-                Ok(MirrorAttempt::NotFound) => {
-                    missed_mirrors += 1;
-                    break;
-                }
-                Err(err) if should_retry(&err) && attempt < params.max_retries => {
-                    // 429 on a retryable path: mark mirror and fall through to next mirror
-                    if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
-                        params.mirror_pool.mark_rate_limited(mirror.kind());
-                        last_error = Some(err);
-                        break;
-                    }
-                    attempt += 1;
-                    warn!(
-                        "Failed to download {} from {}: {}",
-                        params.beatmapset_id,
-                        mirror.display_name(),
-                        err
+            match try_mirror_retry(mirror, &params, &mut total_attempts).await {
+                MirrorAttempt::Done(outcome) => return (outcome, total_attempts),
+                MirrorAttempt::NotFound => {
+                    all_transient = false;
+                    not_found.insert(mirror.kind());
+                    let reason = "not found (404)".to_string();
+                    emit_status(
+                        &params.callbacks,
+                        BeatmapsetStatusEvent::MirrorFailed {
+                            mirror: mirror.kind(),
+                            reason: reason.clone(),
+                        },
                     );
-                    let backoff = Duration::from_millis(500 * 2u64.saturating_pow(attempt))
-                        .min(Duration::from_secs(8));
-                    let mut cancel_watch = params.cancel_rx.clone();
-                    tokio::select! {
-                        _ = sleep(backoff) => {}
-                        _ = cancel_watch.changed() => {
-                            if *cancel_watch.borrow() {
-                                return (Err(DownloadError::Cancelled.into()), total_attempts);
-                            }
-                        }
-                    }
+                    last_error = Some(failed(Some(mirror.kind()), reason));
                 }
-                Err(err) => {
-                    warn!(
-                        "Failed to download {} from {}: {}",
-                        params.beatmapset_id,
-                        mirror.display_name(),
-                        err
+                MirrorAttempt::RateLimited => {
+                    all_transient = false;
+                    deferred_rate_limited.push(mirror.clone());
+                    params.mirror_pool.mark_rate_limited(mirror.kind());
+                    let cooldown = mirror.kind().rate_limit_backoff();
+                    emit_status(
+                        &params.callbacks,
+                        BeatmapsetStatusEvent::RateLimited {
+                            mirror: mirror.kind(),
+                            cooldown,
+                        },
                     );
-
-                    if matches!(err, crate::Error::Download(DownloadError::RateLimited)) {
-                        params.mirror_pool.mark_rate_limited(mirror.kind());
-                    }
-
-                    last_error = Some(err);
-                    break;
+                    last_error = Some(failed(Some(mirror.kind()), "rate limited"));
+                }
+                MirrorAttempt::Transient(reason) => {
+                    last_transient_reason = reason.clone();
+                    emit_status(
+                        &params.callbacks,
+                        BeatmapsetStatusEvent::MirrorFailed {
+                            mirror: mirror.kind(),
+                            reason: reason.clone(),
+                        },
+                    );
+                    last_error = Some(failed(Some(mirror.kind()), reason));
+                }
+                MirrorAttempt::Definitive(reason) => {
+                    all_transient = false;
+                    emit_status(
+                        &params.callbacks,
+                        BeatmapsetStatusEvent::MirrorFailed {
+                            mirror: mirror.kind(),
+                            reason: reason.clone(),
+                        },
+                    );
+                    last_error = Some(failed(Some(mirror.kind()), reason));
                 }
             }
         }
+
+        if deferred_rate_limited.is_empty() {
+            break;
+        }
+
+        let wait_duration = deferred_rate_limited
+            .iter()
+            .filter_map(|mirror| params.mirror_pool.penalty_remaining(mirror.kind()))
+            .min()
+            .unwrap_or(Duration::ZERO);
+
+        if !wait_duration.is_zero() && sleep_cancelable(wait_duration, &cancel_rx).await {
+            return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
+        }
+
+        pending = deferred_rate_limited;
     }
 
-    if last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors {
+    if not_found.len() == params.mirror_pool.mirrors_len() && params.mirror_pool.mirrors_len() > 0 {
         return (
-            Ok(DownloadResult::Skipped {
+            BeatmapsetDownloadOutcome::Skipped {
                 reason: SkipReason::UnavailableOnMirrors,
-            }),
+            },
             total_attempts,
         );
     }
 
-    let err = last_error.unwrap_or_else(|| {
-        DownloadError::AllMirrorsFailed {
-            beatmapset_id: params.beatmapset_id,
-        }
-        .into()
-    });
-    (Err(err), total_attempts)
+    if all_transient && !last_transient_reason.is_empty() {
+        return (
+            BeatmapsetDownloadOutcome::NetworkError {
+                reason: last_transient_reason,
+            },
+            total_attempts,
+        );
+    }
+
+    (
+        last_error.unwrap_or_else(|| failed(None, "all mirrors failed")),
+        total_attempts,
+    )
 }
 
 #[derive(Debug)]
 enum MirrorAttempt {
-    Downloaded(DownloadResult),
+    Done(BeatmapsetDownloadOutcome),
     NotFound,
+    RateLimited,
+    Transient(String),
+    Definitive(String),
 }
 
-fn should_retry(err: &crate::Error) -> bool {
-    match err {
-        crate::Error::Http(err) => err.is_timeout() || err.is_connect(),
-        crate::Error::Download(DownloadError::HttpStatus(s)) => {
-            matches!(s, 500 | 502 | 503 | 504)
+async fn find_existing_beatmapset(
+    beatmapset_id: u32,
+    output_dir: &Path,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> ExistingCheck {
+    let Some(read_dir_result) = run_cancelable(tokio::fs::read_dir(output_dir), cancel_rx).await
+    else {
+        return ExistingCheck::Aborted;
+    };
+
+    let mut dir = match read_dir_result {
+        Ok(dir) => dir,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return ExistingCheck::Missing,
+        Err(err) => return ExistingCheck::Failed(err.to_string()),
+    };
+
+    loop {
+        let Some(entry_result) = run_cancelable(dir.next_entry(), cancel_rx).await else {
+            return ExistingCheck::Aborted;
+        };
+        let entry = match entry_result {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return ExistingCheck::Missing,
+            Err(err) => return ExistingCheck::Failed(err.to_string()),
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if matches_beatmapset(beatmapset_id, &name) {
+            debug!(beatmapset_id, file = %name, "beatmapset already exists");
+            return ExistingCheck::Exists;
         }
-        crate::Error::Download(DownloadError::ProgressTimeout | DownloadError::Stream(_)) => true,
-        _ => false,
     }
 }
 
-fn temp_path_for(output_path: &Path) -> PathBuf {
-    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let name = output_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("download");
-    output_path.with_file_name(format!(
-        "{name}.download-{}-{counter}.tmp",
-        std::process::id()
-    ))
+enum ExistingCheck {
+    Exists,
+    Missing,
+    Aborted,
+    Failed(String),
 }
 
-/// Try downloading from a specific mirror
-async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<MirrorAttempt> {
-    // Make HTTP request
+async fn try_mirror_retry(
+    mirror: &Mirror,
+    params: &DownloadParams<'_>,
+    total_attempts: &mut u32,
+) -> MirrorAttempt {
+    let mut retry = 0u32;
+
+    loop {
+        if *params.cancel_rx.borrow() {
+            return MirrorAttempt::Done(BeatmapsetDownloadOutcome::Aborted);
+        }
+
+        *total_attempts += 1;
+        let outcome = try_mirror_once(mirror, params).await;
+
+        match outcome {
+            MirrorAttempt::Transient(reason) if retry + 1 < TRANSIENT_RETRY_ATTEMPTS => {
+                retry += 1;
+                let backoff = TRANSIENT_RETRY_BASE_DELAY * (1u32 << (retry - 1));
+                trace!(
+                    beatmapset_id = params.beatmapset_id,
+                    mirror = mirror.display_name(),
+                    retry,
+                    reason = %reason,
+                    "retrying mirror after transient error"
+                );
+                emit_status(
+                    &params.callbacks,
+                    BeatmapsetStatusEvent::RetryingTransient {
+                        mirror: mirror.kind(),
+                        attempt: retry + 1,
+                        max_attempts: TRANSIENT_RETRY_ATTEMPTS,
+                        reason,
+                    },
+                );
+                if sleep_cancelable(backoff, &params.cancel_rx).await {
+                    return MirrorAttempt::Done(BeatmapsetDownloadOutcome::Aborted);
+                }
+            }
+            other => return other,
+        }
+    }
+}
+
+async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> MirrorAttempt {
+    emit_status(
+        &params.callbacks,
+        BeatmapsetStatusEvent::Contacting {
+            mirror: mirror.kind(),
+        },
+    );
+
     let url = mirror.url_for(params.beatmapset_id);
     let mut request = params.client.get(&url);
     if let Some(headers) = mirror.headers() {
         request = request.headers(headers.clone());
     }
-    let response = request.send().await?;
+
+    let Some(response) = run_cancelable(request.send(), &params.cancel_rx).await else {
+        return MirrorAttempt::Done(BeatmapsetDownloadOutcome::Aborted);
+    };
+    let response = match response {
+        Ok(response) => response,
+        Err(err) if err.is_timeout() => {
+            return MirrorAttempt::Transient("connection timeout".to_string())
+        }
+        Err(err) if err.is_connect() => {
+            return MirrorAttempt::Transient("connection failed".to_string())
+        }
+        Err(err) => {
+            return MirrorAttempt::Transient(format!(
+                "request failed on {}: {err}",
+                mirror.display_name()
+            ))
+        }
+    };
 
     let status = response.status();
+    let catboy_rate_limited =
+        matches!(mirror.kind(), MirrorKind::Catboy(_)) && status == reqwest::StatusCode::FORBIDDEN;
 
-    // Handle status codes
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS
-        || (status == reqwest::StatusCode::FORBIDDEN
-            && matches!(mirror.kind(), MirrorKind::Catboy(_)))
-    {
-        return Err(DownloadError::RateLimited.into());
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || catboy_rate_limited {
+        return MirrorAttempt::RateLimited;
     }
 
     if status == reqwest::StatusCode::NOT_FOUND {
-        return Ok(MirrorAttempt::NotFound);
+        return MirrorAttempt::NotFound;
+    }
+
+    if status.is_server_error() {
+        return MirrorAttempt::Transient(format!("HTTP {status}"));
     }
 
     if !status.is_success() {
-        return Err(DownloadError::HttpStatus(status.as_u16()).into());
+        return MirrorAttempt::Definitive(format!("HTTP {status}"));
     }
 
-    // Reject HTML/JSON responses (captcha pages, maintenance notices)
-    let content_type = response
+    emit_status(
+        &params.callbacks,
+        BeatmapsetStatusEvent::Downloading {
+            mirror: mirror.kind(),
+        },
+    );
+
+    match process_mirror_response(mirror, response, params).await {
+        Ok(outcome) => MirrorAttempt::Done(outcome),
+        Err(reason) => MirrorAttempt::Definitive(reason),
+    }
+}
+
+async fn process_mirror_response(
+    mirror: &Mirror,
+    response: reqwest::Response,
+    params: &DownloadParams<'_>,
+) -> std::result::Result<BeatmapsetDownloadOutcome, String> {
+    let content_length = response.content_length();
+    if let Some(content_type) = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.to_ascii_lowercase());
-
-    if let Some(ref ct) = content_type {
-        let mime = ct.split(';').next().map(str::trim).unwrap_or("");
-        if mime == "text/html" || mime == "application/json" {
-            return Err(DownloadError::http(format!(
-                "unexpected content type '{}' from {}",
-                ct,
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase())
+    {
+        if !is_archive_content_type(&content_type) {
+            return Err(format!(
+                "unexpected content type '{content_type}' from {}",
                 mirror.display_name()
-            ))
-            .into());
+            ));
         }
     }
 
-    // Get content length and filename
-    let content_length = response.content_length();
+    let filename = extract_filename(&response, params.beatmapset_id);
+    let sanitized_filename = sanitize_filename(Some(&filename), params.beatmapset_id);
+    let output_path = params.output_dir.join(&sanitized_filename);
 
-    let filename = response
-        .headers()
-        .get(reqwest::header::CONTENT_DISPOSITION)
-        .and_then(|h| h.to_str().ok())
-        .and_then(extract_filename_from_header)
-        .map(|f| sanitize_filename(Some(&f), params.beatmapset_id))
-        .unwrap_or_else(|| sanitize_filename(None, params.beatmapset_id));
+    if let Some(metadata_result) =
+        run_cancelable(tokio::fs::metadata(&output_path), &params.cancel_rx).await
+    {
+        match metadata_result {
+            Ok(_) => match params.options.file_exists_policy {
+                FileExistsPolicy::Skip => {
+                    return Ok(BeatmapsetDownloadOutcome::Skipped {
+                        reason: SkipReason::AlreadyExists,
+                    });
+                }
+                FileExistsPolicy::OverwriteTarget => {
+                    if let Some(remove_result) =
+                        run_cancelable(tokio::fs::remove_file(&output_path), &params.cancel_rx).await
+                    {
+                        remove_result.map_err(|err| err.to_string())?;
+                    } else {
+                        return Ok(BeatmapsetDownloadOutcome::Aborted);
+                    }
+                }
+            },
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err.to_string()),
+        }
+    } else {
+        return Ok(BeatmapsetDownloadOutcome::Aborted);
+    }
 
-    let output_path = params.output_dir.join(&filename);
-
-    let temp_path = temp_path_for(&output_path);
-    let stream_result = match stream_download(
+    write_archive(
+        mirror,
         response,
-        &temp_path,
+        params,
+        output_path,
+        sanitized_filename,
         content_length,
-        params.progress_callback.clone(),
+    )
+    .await
+}
+
+async fn write_archive(
+    mirror: &Mirror,
+    response: reqwest::Response,
+    params: &DownloadParams<'_>,
+    output_path: PathBuf,
+    filename: String,
+    content_length: Option<u64>,
+) -> std::result::Result<BeatmapsetDownloadOutcome, String> {
+    let stream = stream_download(
+        response,
+        &output_path,
+        content_length,
+        params.callbacks.progress.clone(),
         params.progress_timeout,
         params.cancel_rx.clone(),
     )
     .await
-    {
-        Ok(result) => result,
-        Err(err) => {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(err);
-        }
-    };
+    .map_err(|err| err.to_string())?;
 
-    if stream_result.cancelled {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err(DownloadError::Cancelled.into());
+    if stream.aborted {
+        return Ok(BeatmapsetDownloadOutcome::Aborted);
     }
 
     if let Some(expected) = content_length {
-        if stream_result.bytes_written < expected {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(DownloadError::http(format!(
-                "truncated response from {}: got {} of {} bytes",
+        if stream.bytes_written < expected {
+            let _ = tokio::fs::remove_file(&stream.temp_path).await;
+            return Err(format!(
+                "download incomplete from {} (received {} of {} bytes)",
                 mirror.display_name(),
-                stream_result.bytes_written,
+                stream.bytes_written,
                 expected
-            ))
-            .into());
+            ));
         }
     }
 
+    emit_status(
+        &params.callbacks,
+        BeatmapsetStatusEvent::Verifying {
+            mirror: mirror.kind(),
+        },
+    );
+
+    let verify_start = Instant::now();
     if params.verify_archive {
-        if let Err(err) = validation::validate_zip_archive(&temp_path).await {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(err);
+        if let Some(validate_result) = run_cancelable(
+            validation::validate_zip_archive(&stream.temp_path),
+            &params.cancel_rx,
+        )
+        .await
+        {
+            if let Err(err) = validate_result {
+                let _ = tokio::fs::remove_file(&stream.temp_path).await;
+                return Err(format!(
+                    "{} returned an invalid archive: {err}",
+                    mirror.display_name()
+                ));
+            }
+        } else {
+            let _ = tokio::fs::remove_file(&stream.temp_path).await;
+            return Ok(BeatmapsetDownloadOutcome::Aborted);
         }
     }
+    let verify_duration_us = verify_start.elapsed().as_micros() as u64;
 
-    match finalize_download(&temp_path, &output_path).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return Ok(MirrorAttempt::Downloaded(DownloadResult::Skipped {
+    match finalize_download(&stream.temp_path, &output_path, &params.cancel_rx).await {
+        FinalizeResult::Done => {}
+        FinalizeResult::AlreadyExists => {
+            return Ok(BeatmapsetDownloadOutcome::Skipped {
                 reason: SkipReason::AlreadyExists,
-            }));
+            });
         }
-        Err(err) => return Err(err),
+        FinalizeResult::Aborted => return Ok(BeatmapsetDownloadOutcome::Aborted),
+        FinalizeResult::Failed(reason) => return Err(reason),
     }
 
-    Ok(MirrorAttempt::Downloaded(DownloadResult::Success {
+    Ok(BeatmapsetDownloadOutcome::Success {
         filename,
-        size_bytes: stream_result.bytes_written,
-        md5_hash: stream_result.hash,
-        mirror_used: mirror.kind(),
-    }))
+        hash: stream
+            .hash
+            .unwrap_or_else(|| "unknown".into())
+            .into_string(),
+        mirror: mirror.kind(),
+        size_bytes: stream.bytes_written,
+        verify_duration_us,
+    })
 }
 
-async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool> {
-    match tokio::fs::hard_link(temp_path, output_path).await {
+fn is_archive_content_type(raw: &str) -> bool {
+    let mime = raw.split(';').next().map(str::trim).unwrap_or("");
+    matches!(
+        mime,
+        "application/x-osu-beatmap-archive"
+            | "application/octet-stream"
+            | "binary/octet-stream"
+            | "application/zip"
+            | "application/x-zip-compressed"
+    )
+}
+
+fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> String {
+    let filename = response
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(extract_filename_from_header)
+        .unwrap_or_else(|| format!("{beatmapset_id}.osz"));
+
+    if filename
+        .rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("osz"))
+    {
+        filename
+    } else {
+        format!("{filename}.osz")
+    }
+}
+
+async fn finalize_download(
+    temp_path: &Path,
+    output_path: &Path,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> FinalizeResult {
+    let Some(link_result) =
+        run_cancelable(tokio::fs::hard_link(temp_path, output_path), cancel_rx).await
+    else {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return FinalizeResult::Aborted;
+    };
+
+    match link_result {
         Ok(()) => {
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Ok(true);
+            return FinalizeResult::Done;
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Ok(false);
+            return FinalizeResult::AlreadyExists;
         }
         Err(err)
             if matches!(
@@ -505,51 +696,134 @@ async fn finalize_download(temp_path: &Path, output_path: &Path) -> Result<bool>
             ) => {}
         Err(err) => {
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Err(DownloadError::io(err.to_string()).into());
+            return FinalizeResult::Failed(err.to_string());
         }
     }
 
-    let mut output = match tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(output_path)
-        .await
-    {
+    copy_download(temp_path, output_path, cancel_rx).await
+}
+
+async fn copy_download(
+    temp_path: &Path,
+    output_path: &Path,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> FinalizeResult {
+    let Some(output_result) = run_cancelable(
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output_path),
+        cancel_rx,
+    )
+    .await
+    else {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return FinalizeResult::Aborted;
+    };
+
+    let mut output = match output_result {
         Ok(output) => output,
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Ok(false);
+            return FinalizeResult::AlreadyExists;
         }
         Err(err) => {
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Err(DownloadError::io(err.to_string()).into());
+            return FinalizeResult::Failed(err.to_string());
         }
     };
 
-    let mut input = match tokio::fs::File::open(temp_path).await {
+    let Some(input_result) = run_cancelable(tokio::fs::File::open(temp_path), cancel_rx).await
+    else {
+        let _ = tokio::fs::remove_file(output_path).await;
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return FinalizeResult::Aborted;
+    };
+    let mut input = match input_result {
         Ok(input) => input,
         Err(err) => {
             let _ = tokio::fs::remove_file(output_path).await;
             let _ = tokio::fs::remove_file(temp_path).await;
-            return Err(DownloadError::io(err.to_string()).into());
+            return FinalizeResult::Failed(err.to_string());
         }
     };
 
-    if let Err(err) = tokio::io::copy(&mut input, &mut output).await {
+    let Some(copy_result) =
+        run_cancelable(tokio::io::copy(&mut input, &mut output), cancel_rx).await
+    else {
         let _ = tokio::fs::remove_file(output_path).await;
         let _ = tokio::fs::remove_file(temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+        return FinalizeResult::Aborted;
+    };
+    if let Err(err) = copy_result {
+        let _ = tokio::fs::remove_file(output_path).await;
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return FinalizeResult::Failed(err.to_string());
     }
 
-    if let Err(err) = output.sync_all().await {
+    let Some(sync_result) = run_cancelable(output.sync_all(), cancel_rx).await else {
         let _ = tokio::fs::remove_file(output_path).await;
         let _ = tokio::fs::remove_file(temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+        return FinalizeResult::Aborted;
+    };
+    if let Err(err) = sync_result {
+        let _ = tokio::fs::remove_file(output_path).await;
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return FinalizeResult::Failed(err.to_string());
     }
 
     let _ = tokio::fs::remove_file(temp_path).await;
+    FinalizeResult::Done
+}
 
-    Ok(true)
+enum FinalizeResult {
+    Done,
+    AlreadyExists,
+    Aborted,
+    Failed(String),
+}
+
+fn failed(mirror: Option<MirrorKind>, reason: impl Into<String>) -> BeatmapsetDownloadOutcome {
+    BeatmapsetDownloadOutcome::Failed {
+        mirror,
+        reason: reason.into(),
+    }
+}
+
+fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: BeatmapsetStatusEvent) {
+    if let Some(callback) = &callbacks.status {
+        callback(event);
+    }
+}
+
+async fn sleep_cancelable(
+    duration: Duration,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    run_cancelable(sleep(duration), cancel_rx).await.is_none()
+}
+
+async fn run_cancelable<T>(
+    future: impl Future<Output = T>,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> Option<T> {
+    let mut cancel_rx = cancel_rx.clone();
+    tokio::select! {
+        biased;
+        _ = wait_until_cancelled(&mut cancel_rx) => None,
+        result = future => Some(result),
+    }
+}
+
+async fn wait_until_cancelled(cancel_rx: &mut tokio::sync::watch::Receiver<bool>) {
+    loop {
+        if *cancel_rx.borrow_and_update() {
+            return;
+        }
+        if cancel_rx.changed().await.is_err() {
+            pending::<()>().await;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -639,12 +913,25 @@ mod tests {
         assert!(!matches_beatmapset(123, "123 artist.zip"));
     }
 
+    #[test]
+    fn archive_content_type_accepts_known_archive_mimes() {
+        assert!(is_archive_content_type("application/x-osu-beatmap-archive"));
+        assert!(is_archive_content_type(
+            "application/octet-stream; charset=binary"
+        ));
+        assert!(is_archive_content_type("binary/octet-stream"));
+        assert!(is_archive_content_type("application/zip"));
+        assert!(is_archive_content_type("application/x-zip-compressed"));
+        assert!(!is_archive_content_type("text/html"));
+        assert!(!is_archive_content_type("application/json"));
+    }
+
     #[tokio::test]
     async fn finalize_download_preserves_existing_output() {
         let dir = std::env::temp_dir().join(format!(
-            "osu-downloader-finalize-{}-{}",
+            "osu-downloader-finalize-{}-{:?}",
             std::process::id(),
-            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+            std::time::SystemTime::now()
         ));
         tokio::fs::create_dir(&dir).await.unwrap();
 
@@ -652,10 +939,11 @@ mod tests {
         let output_path = dir.join("123.osz");
         tokio::fs::write(&temp_path, b"new").await.unwrap();
         tokio::fs::write(&output_path, b"old").await.unwrap();
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-        let finalized = finalize_download(&temp_path, &output_path).await.unwrap();
+        let finalized = finalize_download(&temp_path, &output_path, &cancel_rx).await;
 
-        assert!(!finalized);
+        assert!(matches!(finalized, FinalizeResult::AlreadyExists));
         assert_eq!(tokio::fs::read(&output_path).await.unwrap(), b"old");
         assert!(!tokio::fs::try_exists(&temp_path).await.unwrap());
 
@@ -663,67 +951,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rate_limited_mirror_is_retried_after_other_mirrors_fail() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc,
+            },
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let rate_hits = Arc::new(AtomicUsize::new(0));
+        let missing_hits = Arc::new(AtomicUsize::new(0));
+        let server_rate_hits = rate_hits.clone();
+        let server_missing_hits = missing_hits.clone();
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 1024];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.starts_with("GET /rate/") {
+                    let hit = server_rate_hits.fetch_add(1, Ordering::SeqCst);
+                    if hit == 0 {
+                        stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n").unwrap();
+                    } else {
+                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=123.osz\r\nContent-Length: 4\r\n\r\ndata").unwrap();
+                    }
+                } else if request.starts_with("GET /missing/") {
+                    server_missing_hits.fetch_add(1, Ordering::SeqCst);
+                    stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").unwrap();
+                } else {
+                    stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n").unwrap();
+                }
+            }
+        });
+
+        let rate_limited_then_ok = Mirror {
+            kind: MirrorKind::Nerinyan,
+            template: format!("http://{addr}/rate/{{id}}").into_boxed_str(),
+            headers: None,
+        };
+        let missing = Mirror {
+            kind: MirrorKind::OsuDirect,
+            template: format!("http://{addr}/missing/{{id}}").into_boxed_str(),
+            headers: None,
+        };
+        let mirror_pool = MirrorPool::new(vec![rate_limited_then_ok, missing]);
+        let dir = tempfile::tempdir().unwrap();
+        let client = reqwest::Client::new();
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+        let (outcome, _) = download_beatmapset(DownloadParams {
+            beatmapset_id: 123,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: false,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks::default(),
+            options: BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        })
+        .await;
+
+        assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
+        assert_eq!(rate_hits.load(Ordering::SeqCst), 2);
+        assert_eq!(missing_hits.load(Ordering::SeqCst), 1);
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn backoff_cancelled_before_expiry() {
-        // Verify that cancelling during a backoff sleep returns promptly (<200ms)
-        // even when the backoff duration is long (1s).
         use std::time::Instant;
 
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-        // Cancel after 30ms
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(30)).await;
             let _ = cancel_tx.send(true);
         });
 
         let start = Instant::now();
-        // Simulate the select! logic directly
-        let backoff = Duration::from_secs(1);
-        let mut rx = cancel_rx.clone();
-        tokio::select! {
-            _ = sleep(backoff) => {}
-            _ = rx.changed() => {}
-        }
+        assert!(sleep_cancelable(Duration::from_secs(1), &cancel_rx).await);
 
         assert!(
             start.elapsed() < Duration::from_millis(200),
             "backoff should have been cut short by cancel signal"
-        );
-    }
-
-    #[test]
-    fn first_attempt_counted_in_total_attempts() {
-        // total_attempts increments before try_mirror, so even a single attempt == 1.
-        // This is a structural logic test: verify the increment is unconditional.
-        // The counter starts at 0; after entering the inner loop once, it must be >= 1.
-        let initial: u32 = 0;
-        let after_first = initial + 1; // mirrors the unconditional increment
-        assert!(after_first >= 1, "first attempt must be counted");
-
-        // Two mirrors each failing once with max_retries=0 => total_attempts == 2.
-        let two_mirror_attempts = 2u32;
-        assert_eq!(two_mirror_attempts, 2);
-    }
-
-    #[test]
-    fn partial_mirror_miss_prefers_last_error() {
-        let last_error = Some(crate::Error::Download(DownloadError::HttpStatus(500)));
-        let attempted_mirrors = 2;
-        let missed_mirrors = 1;
-
-        assert!(
-            !(last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors)
-        );
-    }
-
-    #[test]
-    fn all_mirror_misses_skip_without_error() {
-        let last_error: Option<crate::Error> = None;
-        let attempted_mirrors = 2;
-        let missed_mirrors = 2;
-
-        assert!(
-            last_error.is_none() && attempted_mirrors > 0 && missed_mirrors == attempted_mirrors
         );
     }
 }

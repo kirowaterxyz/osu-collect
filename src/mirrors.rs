@@ -1,4 +1,4 @@
-pub use osu_downloader::{CatboyRegion, Mirror, MirrorKind, MirrorPool};
+pub use osu_downloader::{CatboyRegion, Mirror, MirrorKind};
 
 use crate::utils::{AppError, Result};
 

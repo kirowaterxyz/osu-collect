@@ -54,8 +54,10 @@ pub(crate) mod worker;
 #[cfg(feature = "collection")]
 pub mod collection;
 
-pub use download::extract_filename_from_header as filename_from_content_disposition;
-pub use downloader::{DownloadSession, Downloader, DownloaderBuilder};
+pub use downloader::{
+    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
+    BeatmapsetStatusEvent, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy,
+};
 pub use error::{DownloadError, Error, Result};
 pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};
-pub use mirrors::{CatboyRegion, Mirror, MirrorKind, MirrorPool};
+pub use mirrors::{CatboyRegion, Mirror, MirrorKind};

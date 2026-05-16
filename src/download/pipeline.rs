@@ -11,7 +11,7 @@ use crate::{
     core::collection::{
         CollectionDbEntry, create_collection_db, model::Collection, write_db_entries,
     },
-    mirrors::{Mirror, MirrorPool},
+    mirrors::Mirror,
     utils::{AppError, check_available_space, is_low_disk_space},
     worker::{DownloadContext, DownloadContextConfig, StatusSink},
 };
@@ -166,7 +166,7 @@ fn build_download_context(params: BuildContextParams) -> Result<DownloadContext,
         verify_zip_eocd: params.verify_zip_eocd,
         shutdown: params.shutdown,
         client: params.client,
-        mirror_pool: MirrorPool::new(params.mirrors),
+        mirrors: params.mirrors,
         output_dir: params.output_dir,
         tracker: params.tracker,
         initial_unverified: params.initial_unverified,

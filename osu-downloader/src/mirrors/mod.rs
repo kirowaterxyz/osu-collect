@@ -1,6 +1,6 @@
 mod pool;
 
-pub use pool::MirrorPool;
+pub(crate) use pool::MirrorPool;
 
 use crate::error::{Error, Result};
 use reqwest::header::HeaderMap;
@@ -109,6 +109,12 @@ impl MirrorKind {
     }
 
     pub(crate) fn rate_limit_backoff(&self) -> Duration {
+        #[cfg(test)]
+        {
+            return Duration::from_millis(10);
+        }
+
+        #[cfg(not(test))]
         match self {
             MirrorKind::Catboy(_) => Duration::from_secs(30),
             MirrorKind::Custom => Duration::from_secs(60),
@@ -218,8 +224,7 @@ impl Mirror {
         }
     }
 
-    /// Get HTTP headers attached to this mirror.
-    pub fn headers(&self) -> Option<&HeaderMap> {
+    pub(crate) fn headers(&self) -> Option<&HeaderMap> {
         self.headers.as_ref()
     }
 
@@ -233,9 +238,8 @@ impl Mirror {
         self.kind.label()
     }
 
-    /// Generate download URL for a beatmapset
     #[inline]
-    pub fn url_for(&self, beatmapset_id: u32) -> String {
+    pub(crate) fn url_for(&self, beatmapset_id: u32) -> String {
         self.template.replace("{id}", &beatmapset_id.to_string())
     }
 }
