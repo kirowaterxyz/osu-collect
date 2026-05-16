@@ -24,11 +24,16 @@ const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) struct DownloadStreamResult {
-    pub(crate) aborted: bool,
-    pub(crate) hash: Option<Box<str>>,
-    pub(crate) bytes_written: u64,
-    pub(crate) temp_path: PathBuf,
+/// Streamed download output.
+pub struct DownloadStreamResult {
+    /// Whether the download was cancelled before completion.
+    pub aborted: bool,
+    /// MD5 digest of the downloaded bytes.
+    pub hash: Option<Box<str>>,
+    /// Number of bytes written to the temp file.
+    pub bytes_written: u64,
+    /// Temporary file path holding the completed download.
+    pub temp_path: PathBuf,
 }
 
 struct HashWorker {
@@ -101,7 +106,8 @@ impl Drop for TempFileGuard {
     }
 }
 
-pub(crate) async fn stream_download(
+/// Stream a response body into a temporary download file.
+pub async fn stream_download(
     response: reqwest::Response,
     output_path: &Path,
     content_length: Option<u64>,

@@ -1,62 +1,158 @@
 //! Archive validation and hash computation
 
 use crate::{DownloadError, Result};
-use std::{io::SeekFrom, path::Path};
+use std::{io::ErrorKind, io::SeekFrom, path::Path};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt},
-    task,
 };
 
-/// ZIP local file header signature (at offset 0 for non-empty ZIPs)
 const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
-
-/// ZIP End of Central Directory signature
 const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
+const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 
-/// Maximum bytes to search for EOCD signature
-const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;
+/// Archive validation options.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ArchiveValidationOptions {
+    /// Whether to require the ZIP central directory footer.
+    pub verify_zip_eocd: bool,
+    /// Whether invalid archives should be removed.
+    pub remove_on_invalid: bool,
+}
 
-pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
+/// Archive validation outcome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArchiveValidationResult {
+    /// The archive passed validation.
+    Valid,
+    /// The archive path does not exist.
+    NotFound,
+    /// The archive failed validation and remains on disk.
+    Invalid(String),
+    /// The archive failed validation and was removed.
+    Removed(String),
+}
+
+/// Validate that a file looks like an osu! beatmap archive.
+pub async fn ensure_valid_archive(path: &Path, verify_zip_eocd: bool) -> Result<()> {
+    let metadata = fs::metadata(path).await?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err(DownloadError::validation_failed("downloaded file is empty or invalid").into());
+    }
+
     let mut file = fs::File::open(path).await?;
-    let file_size = file.metadata().await?.len();
+    let mut header = [0u8; 64];
+    let bytes_read = file.read(&mut header).await?;
 
-    // Minimum valid ZIP: local header (30) + EOCD (22) = 52 bytes
-    if file_size < 22 {
+    if bytes_read < 4 {
         return Err(
-            DownloadError::validation_failed("file too small to be a valid ZIP archive").into(),
+            DownloadError::validation_failed("file too small to be a valid archive").into(),
         );
     }
 
-    // Read the first 4 bytes to check local file header magic
-    let mut header_buf = [0u8; 4];
-    file.read_exact(&mut header_buf).await?;
-    if &header_buf != LOCAL_HEADER_SIGNATURE {
+    if &header[..LOCAL_HEADER_SIGNATURE.len()] == LOCAL_HEADER_SIGNATURE {
+        if verify_zip_eocd {
+            verify_zip_eocd_footer(&mut file, metadata.len()).await?;
+        }
+        return Ok(());
+    }
+
+    let trimmed = trim_leading_whitespace(&header[..bytes_read]);
+    if trimmed.starts_with(b"<!DOCTYPE")
+        || trimmed.starts_with(b"<!doctype")
+        || trimmed.starts_with(b"<html")
+        || trimmed.starts_with(b"<HTML")
+    {
         return Err(DownloadError::validation_failed(
-            "ZIP local file header signature not found at offset 0",
+            "received HTML error page instead of beatmap archive",
         )
         .into());
     }
 
-    // Read the tail to find the EOCD record
-    let search_size = file_size.min(MAX_EOCD_SEARCH_BYTES);
-    let search_start = file_size.saturating_sub(search_size);
-
-    file.seek(SeekFrom::Start(search_start)).await?;
-
-    let mut buffer = vec![0u8; search_size as usize];
-    file.read_exact(&mut buffer).await?;
-
-    task::spawn_blocking(move || {
-        find_eocd_position(&buffer)
-            .ok_or_else(|| DownloadError::validation_failed("ZIP EOCD signature not found"))?;
-        Ok(())
-    })
-    .await
-    .map_err(|err| DownloadError::worker_error(format!("validation task failed: {err}")))?
+    Err(DownloadError::validation_failed("invalid archive: missing ZIP signature").into())
 }
 
-/// Find the position of the EOCD signature within the tail buffer.
+/// Validate an archive path and optionally remove invalid files.
+pub async fn validate_archive(
+    path: &Path,
+    options: ArchiveValidationOptions,
+) -> Result<ArchiveValidationResult> {
+    let metadata = match fs::metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return Ok(ArchiveValidationResult::NotFound);
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    if !metadata.is_file() {
+        return handle_invalid(path, "not a regular file", options.remove_on_invalid).await;
+    }
+
+    if metadata.len() == 0 {
+        return handle_invalid(path, "file is empty", options.remove_on_invalid).await;
+    }
+
+    if let Err(err) = ensure_valid_archive(path, options.verify_zip_eocd).await {
+        return handle_invalid(path, &err.to_string(), options.remove_on_invalid).await;
+    }
+
+    Ok(ArchiveValidationResult::Valid)
+}
+
+pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
+    ensure_valid_archive(path, true).await
+}
+
+async fn verify_zip_eocd_footer(file: &mut fs::File, file_size: u64) -> Result<()> {
+    if file_size < 22 {
+        return Err(DownloadError::validation_failed(
+            "invalid archive: missing central directory footer",
+        )
+        .into());
+    }
+
+    let search_len = MAX_EOCD_SEARCH_BYTES.min(file_size);
+    file.seek(SeekFrom::End(-(search_len as i64))).await?;
+    let mut buffer = vec![0u8; search_len as usize];
+    file.read_exact(&mut buffer).await?;
+
+    if find_eocd_position(&buffer).is_some() {
+        Ok(())
+    } else {
+        Err(
+            DownloadError::validation_failed("invalid archive: missing central directory footer")
+                .into(),
+        )
+    }
+}
+
+async fn handle_invalid(
+    path: &Path,
+    reason: &str,
+    remove: bool,
+) -> Result<ArchiveValidationResult> {
+    if remove {
+        match fs::remove_file(path).await {
+            Ok(()) => return Ok(ArchiveValidationResult::Removed(reason.to_string())),
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                return Ok(ArchiveValidationResult::Removed(reason.to_string()));
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(ArchiveValidationResult::Invalid(reason.to_string()))
+}
+
+fn trim_leading_whitespace(data: &[u8]) -> &[u8] {
+    let start = data
+        .iter()
+        .position(|&byte| !matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        .unwrap_or(data.len());
+    &data[start..]
+}
+
 fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(EOCD_SIGNATURE.len())
@@ -70,57 +166,24 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn minimal_zip_bytes() -> Vec<u8> {
-        // Minimal valid ZIP: one empty stored file + EOCD.
-        // Local file header for empty file named "a"
         let local_header: &[u8] = &[
-            0x50, 0x4B, 0x03, 0x04, // local file header sig
-            0x14, 0x00, // version needed
-            0x00, 0x00, // flags
-            0x00, 0x00, // compression (stored)
-            0x00, 0x00, 0x00, 0x00, // mod time/date
-            0x00, 0x00, 0x00, 0x00, // crc32
-            0x00, 0x00, 0x00, 0x00, // compressed size
-            0x00, 0x00, 0x00, 0x00, // uncompressed size
-            0x01, 0x00, // filename length = 1
-            0x00, 0x00, // extra field length
-            b'a', // filename
+            0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, b'a',
         ];
-        // Central directory header
         let cd_header: &[u8] = &[
-            0x50, 0x4B, 0x01, 0x02, // central dir sig
-            0x14, 0x00, // version made by
-            0x14, 0x00, // version needed
-            0x00, 0x00, // flags
-            0x00, 0x00, // compression
-            0x00, 0x00, 0x00, 0x00, // mod time/date
-            0x00, 0x00, 0x00, 0x00, // crc32
-            0x00, 0x00, 0x00, 0x00, // compressed size
-            0x00, 0x00, 0x00, 0x00, // uncompressed size
-            0x01, 0x00, // filename length
-            0x00, 0x00, // extra field length
-            0x00, 0x00, // comment length
-            0x00, 0x00, // disk start
-            0x00, 0x00, // internal attrs
-            0x00, 0x00, 0x00, 0x00, // external attrs
-            0x00, 0x00, 0x00, 0x00, // local header offset
-            b'a', // filename
+            0x50, 0x4B, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, b'a',
         ];
         let local_len = local_header.len() as u32;
         let cd_len = cd_header.len() as u32;
-        // EOCD
-        let eocd: Vec<u8> = {
-            let mut v = vec![
-                0x50, 0x4B, 0x05, 0x06, // EOCD sig
-                0x00, 0x00, // disk number
-                0x00, 0x00, // disk with CD
-                0x01, 0x00, // entries on disk
-                0x01, 0x00, // total entries
-            ];
-            v.extend_from_slice(&cd_len.to_le_bytes()); // CD size
-            v.extend_from_slice(&local_len.to_le_bytes()); // CD offset = after local header
-            v.extend_from_slice(&[0x00, 0x00]); // comment length
-            v
-        };
+        let mut eocd = vec![
+            0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+        ];
+        eocd.extend_from_slice(&cd_len.to_le_bytes());
+        eocd.extend_from_slice(&local_len.to_le_bytes());
+        eocd.extend_from_slice(&[0x00, 0x00]);
+
         let mut zip = Vec::new();
         zip.extend_from_slice(local_header);
         zip.extend_from_slice(cd_header);
@@ -133,6 +196,32 @@ mod tests {
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(&minimal_zip_bytes()).unwrap();
         assert!(validate_zip_archive(tmp.path()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn lenient_validation_allows_header_only_archive() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(LOCAL_HEADER_SIGNATURE).unwrap();
+        assert!(ensure_valid_archive(tmp.path(), false).await.is_ok());
+        assert!(ensure_valid_archive(tmp.path(), true).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_archive_removes_invalid_files() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(b"not a zip").unwrap();
+        let path = tmp.path().to_path_buf();
+        let result = validate_archive(
+            &path,
+            ArchiveValidationOptions {
+                verify_zip_eocd: false,
+                remove_on_invalid: true,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, ArchiveValidationResult::Removed(_)));
+        assert!(!path.exists());
     }
 
     #[tokio::test]
@@ -149,9 +238,8 @@ mod tests {
     #[tokio::test]
     async fn zeros_with_eocd_tail_fails_local_header_check() {
         let mut data = vec![0u8; 64];
-        let eocd_magic = &[0x50u8, 0x4B, 0x05, 0x06];
-        let tail = data.len() - 4;
-        data[tail..].copy_from_slice(eocd_magic);
+        let tail = data.len() - EOCD_SIGNATURE.len();
+        data[tail..].copy_from_slice(EOCD_SIGNATURE);
 
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(&data).unwrap();
@@ -161,7 +249,6 @@ mod tests {
     #[test]
     fn find_eocd_returns_last_occurrence() {
         let mut buf = vec![0u8; 64];
-        // Two EOCD signatures; rposition should return the last one.
         buf[10..14].copy_from_slice(EOCD_SIGNATURE);
         buf[40..44].copy_from_slice(EOCD_SIGNATURE);
         assert_eq!(find_eocd_position(&buf), Some(40));

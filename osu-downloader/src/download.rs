@@ -209,7 +209,7 @@ pub(crate) async fn download_beatmapset(
                 );
             }
             FileExistsPolicy::OverwriteTarget => {}
-        }
+        },
         ExistingCheck::Missing => {}
         ExistingCheck::Aborted => return (BeatmapsetDownloadOutcome::Aborted, 0),
         ExistingCheck::Failed(reason) => return (failed(None, reason), 0),
@@ -525,7 +525,8 @@ async fn process_mirror_response(
                 }
                 FileExistsPolicy::OverwriteTarget => {
                     if let Some(remove_result) =
-                        run_cancelable(tokio::fs::remove_file(&output_path), &params.cancel_rx).await
+                        run_cancelable(tokio::fs::remove_file(&output_path), &params.cancel_rx)
+                            .await
                     {
                         remove_result.map_err(|err| err.to_string())?;
                     } else {
@@ -977,15 +978,25 @@ mod tests {
                 if request.starts_with("GET /rate/") {
                     let hit = server_rate_hits.fetch_add(1, Ordering::SeqCst);
                     if hit == 0 {
-                        stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n").unwrap();
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n",
+                            )
+                            .unwrap();
                     } else {
                         stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=123.osz\r\nContent-Length: 4\r\n\r\ndata").unwrap();
                     }
                 } else if request.starts_with("GET /missing/") {
                     server_missing_hits.fetch_add(1, Ordering::SeqCst);
-                    stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").unwrap();
+                    stream
+                        .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                        .unwrap();
                 } else {
-                    stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n").unwrap();
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n",
+                        )
+                        .unwrap();
                 }
             }
         });
