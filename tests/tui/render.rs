@@ -171,7 +171,7 @@ fn home_footer_shows_space_on_toggle_focus() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
-    app.home.focus = HomeField::SkipExisting;
+    app.home.focus = HomeField::AutoOverwrite;
     let buf = render_to_buffer(&app, 120, 24);
     let content: String = buf.content().iter().map(|c| c.symbol()).collect();
     assert!(content.contains("space toggle"));

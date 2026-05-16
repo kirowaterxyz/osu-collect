@@ -87,7 +87,6 @@ fn config_render_shows_download_help() {
     let output = render_app(&app, 80, 20);
 
     assert!(output.contains("DOWNLOAD"));
-    assert!(output.contains("skip existing files"));
     assert!(output.contains("verify .osz integrity"));
 }
 

@@ -27,25 +27,13 @@ pub struct MirrorConfig {
     pub url: Option<Box<str>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct DownloadConfig {
-    pub skip_existing: bool,
     pub concurrent: Option<u8>,
     pub no_video: bool,
     #[serde(default)]
     pub verify_zip_eocd: bool,
-}
-
-impl Default for DownloadConfig {
-    fn default() -> Self {
-        Self {
-            skip_existing: true,
-            concurrent: None,
-            no_video: false,
-            verify_zip_eocd: false,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

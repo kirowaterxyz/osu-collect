@@ -33,7 +33,6 @@ pub enum HomeField {
     MirrorSayobot,
     MirrorNekoha,
     Threads,
-    SkipExisting,
     AutoOverwrite,
     NoVideo,
 }
@@ -47,7 +46,6 @@ const HOME_FIELDS: &[HomeField] = &[
     HomeField::MirrorSayobot,
     HomeField::MirrorNekoha,
     HomeField::Threads,
-    HomeField::SkipExisting,
     HomeField::AutoOverwrite,
     HomeField::NoVideo,
 ];
@@ -69,7 +67,6 @@ pub struct HomeTab {
     pub directory: InputField,
     pub custom_mirror: InputField,
     pub threads: InputField,
-    pub skip_existing: bool,
     pub auto_overwrite: bool,
     pub nerinyan: bool,
     pub osu_direct: bool,
@@ -130,7 +127,6 @@ impl HomeTab {
                 value: threads_value,
                 placeholder: default_threads.to_string(),
             },
-            skip_existing: config.download.skip_existing,
             auto_overwrite: false,
             nerinyan,
             osu_direct,
@@ -168,7 +164,6 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
-            | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
         }
@@ -184,7 +179,6 @@ impl HomeTab {
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
-            | HomeField::SkipExisting
             | HomeField::AutoOverwrite
             | HomeField::NoVideo => {}
         }
@@ -204,17 +198,8 @@ impl HomeTab {
             HomeField::MirrorNekoha => {
                 self.nekoha = !self.nekoha;
             }
-            HomeField::SkipExisting => {
-                self.skip_existing = !self.skip_existing;
-                if self.skip_existing {
-                    self.auto_overwrite = false;
-                }
-            }
             HomeField::AutoOverwrite => {
                 self.auto_overwrite = !self.auto_overwrite;
-                if self.auto_overwrite {
-                    self.skip_existing = false;
-                }
             }
             HomeField::NoVideo => {
                 self.no_video = !self.no_video;
@@ -289,7 +274,6 @@ impl HomeTab {
         Ok(DownloadRequest {
             collection_input: collection_input.to_string(),
             config,
-            skip_existing: self.skip_existing,
             auto_overwrite: self.auto_overwrite,
         })
     }

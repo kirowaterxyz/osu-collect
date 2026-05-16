@@ -47,7 +47,6 @@ pub struct DownloadConfig {
 pub struct DownloadRequest {
     pub collection_input: String,
     pub config: DownloadConfig,
-    pub skip_existing: bool,
     pub auto_overwrite: bool,
 }
 

@@ -444,8 +444,7 @@ impl App {
                 HOME_TAB_INDEX => {
                     if matches!(
                         self.home.focus,
-                        HomeField::SkipExisting
-                            | HomeField::AutoOverwrite
+                        HomeField::AutoOverwrite
                             | HomeField::MirrorNerinyan
                             | HomeField::MirrorOsuDirect
                             | HomeField::MirrorSayobot

@@ -44,12 +44,6 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         components::section_header("download"),
         components::input_item(&form.threads, form.focus == HomeField::Threads),
         components::row_item(
-            "skip existing",
-            None,
-            form.skip_existing,
-            form.focus == HomeField::SkipExisting,
-        ),
-        components::row_item(
             "overwrite existing",
             None,
             form.auto_overwrite,
@@ -77,9 +71,8 @@ fn render_form(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::MirrorSayobot => 9,
         HomeField::MirrorNekoha => 10,
         HomeField::Threads => 13,
-        HomeField::SkipExisting => 14,
-        HomeField::AutoOverwrite => 15,
-        HomeField::NoVideo => 16,
+        HomeField::AutoOverwrite => 14,
+        HomeField::NoVideo => 15,
     };
 
     components::render_scrollable_panel(frame, area, "home", &items, focused_index);

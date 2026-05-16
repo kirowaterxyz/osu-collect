@@ -18,9 +18,6 @@ official = false
 # client_secret = ""
 
 [download]
-# autoskip existing files without prompting (default: false)
-skip_existing = false
-
 # concurrent downloads
 concurrent = 6
 

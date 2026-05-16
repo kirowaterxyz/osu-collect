@@ -110,7 +110,6 @@ async fn run_collection(
     let DownloadRequest {
         collection_input,
         config,
-        skip_existing,
         auto_overwrite,
     } = request;
 
@@ -142,7 +141,6 @@ async fn run_collection(
         id,
         &session,
         &config,
-        skip_existing,
         auto_overwrite,
         cancel_rx,
         emit.as_ref(),
@@ -224,8 +222,7 @@ async fn run_selective(
     let initial_unverified = session.initial_unverified.clone();
     let target_ids = session.beatmapset_ids.clone();
 
-    let aborted =
-        run_pipeline_core(id, &session, &config, true, false, cancel_rx, emit.as_ref()).await?;
+    let aborted = run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?;
 
     if aborted {
         drop(session);
@@ -294,7 +291,6 @@ async fn run_pipeline_core(
     id: DownloadId,
     session: &DownloadSession,
     config: &DownloadConfig,
-    skip_existing: bool,
     auto_overwrite: bool,
     cancel_rx: watch::Receiver<bool>,
     emit: &(dyn Fn(DownloadEvent) + Send + Sync),
@@ -310,9 +306,10 @@ async fn run_pipeline_core(
         return Ok(false);
     }
 
-    let policy = match (auto_overwrite, skip_existing) {
-        (true, _) => FileExistsPolicy::OverwriteTarget,
-        (false, _) => FileExistsPolicy::Skip,
+    let policy = if auto_overwrite {
+        FileExistsPolicy::OverwriteTarget
+    } else {
+        FileExistsPolicy::Skip
     };
     let items: Vec<DownloadItem> = session
         .pending_ids

@@ -24,7 +24,6 @@ pub enum ConfigField {
     MirrorCustomUrl,
     LoginEntry,
     LogoutEntry,
-    DownloadSkipExisting,
     DownloadThreads,
     DownloadNoVideo,
     DownloadVerifyZipEocd,
@@ -38,7 +37,6 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LoginEntry,
     ConfigField::LogoutEntry,
     ConfigField::DownloadThreads,
-    ConfigField::DownloadSkipExisting,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadVerifyZipEocd,
     ConfigField::MirrorOsuDirect,
@@ -55,7 +53,6 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
 const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LoginEntry,
     ConfigField::DownloadThreads,
-    ConfigField::DownloadSkipExisting,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadVerifyZipEocd,
     ConfigField::MirrorOsuDirect,
@@ -88,7 +85,6 @@ pub struct ConfigTab {
     pub custom_mirror: InputField,
     pub auth_loaded: bool,
     pub login_state: AuthLoginState,
-    pub skip_existing: bool,
     pub threads: InputField,
     pub no_video: bool,
     pub verify_zip_eocd: bool,
@@ -111,7 +107,6 @@ impl ConfigTab {
             custom_mirror: custom_mirror_field(&config.mirror),
             auth_loaded,
             login_state: login_state(auth_loaded),
-            skip_existing: config.download.skip_existing,
             threads: threads_field(&config.download),
             no_video: config.download.no_video,
             verify_zip_eocd: config.download.verify_zip_eocd,
@@ -169,7 +164,6 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
-            ConfigField::DownloadSkipExisting => self.skip_existing = !self.skip_existing,
             ConfigField::DownloadNoVideo => self.no_video = !self.no_video,
             ConfigField::DownloadVerifyZipEocd => {
                 self.verify_zip_eocd = !self.verify_zip_eocd;
@@ -206,7 +200,6 @@ impl ConfigTab {
         };
 
         let download = DownloadConfig {
-            skip_existing: self.skip_existing,
             concurrent,
             no_video: self.no_video,
             verify_zip_eocd: self.verify_zip_eocd,
@@ -498,7 +491,7 @@ mod tests {
     fn all_fields_form_complete_cycle() {
         let mut tab = tab_logged_in();
         let start = tab.focus;
-        let total = 15;
+        let total = 14;
         for _ in 0..total {
             tab.next_field();
         }
