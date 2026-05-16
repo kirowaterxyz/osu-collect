@@ -5,6 +5,7 @@
 //! `concurrent_downloads` tasks that pull from it.
 
 use crate::{
+    config::NETWORK_RETRY_BACKOFF,
     download::{
         self, download_beatmapset, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions,
         BeatmapsetDownloadOutcome,
@@ -26,6 +27,7 @@ pub(crate) struct BatchConfig {
     pub(crate) concurrent_downloads: usize,
     pub(crate) verify_archives: bool,
     pub(crate) progress_timeout: Duration,
+    pub(crate) network_retry_attempts: usize,
 }
 
 pub(crate) async fn download_batch(
@@ -247,23 +249,47 @@ async fn process_one(
         });
     });
 
-    let (outcome, _retries) = download_beatmapset(download::DownloadParams {
-        beatmapset_id,
-        output_dir,
-        client,
-        mirror_pool,
-        verify_archive: config.verify_archives,
-        progress_timeout: config.progress_timeout,
-        callbacks: BeatmapsetDownloadCallbacks {
-            progress: Some(progress_callback),
-            status: Some(status_callback),
-        },
-        options: BeatmapsetDownloadOptions {
-            file_exists_policy: item.policy,
-        },
-        cancel_rx,
-    })
-    .await;
+    let mut outcome;
+    let mut attempts_remaining = config.network_retry_attempts;
+    loop {
+        outcome = download_beatmapset(download::DownloadParams {
+            beatmapset_id,
+            output_dir,
+            client,
+            mirror_pool,
+            verify_archive: config.verify_archives,
+            progress_timeout: config.progress_timeout,
+            callbacks: BeatmapsetDownloadCallbacks {
+                progress: Some(progress_callback.clone()),
+                status: Some(status_callback.clone()),
+            },
+            options: BeatmapsetDownloadOptions {
+                file_exists_policy: item.policy,
+            },
+            cancel_rx: cancel_rx.clone(),
+        })
+        .await
+        .0;
+
+        if !matches!(outcome, BeatmapsetDownloadOutcome::NetworkError { .. })
+            || attempts_remaining == 0
+            || *cancel_rx.borrow()
+        {
+            break;
+        }
+
+        attempts_remaining -= 1;
+        let cancelled = tokio::select! {
+            _ = tokio::time::sleep(NETWORK_RETRY_BACKOFF) => false,
+            changed = async {
+                let mut rx = cancel_rx.clone();
+                rx.changed().await
+            } => changed.is_err() || *cancel_rx.borrow(),
+        };
+        if cancelled {
+            break;
+        }
+    }
 
     match outcome {
         BeatmapsetDownloadOutcome::Success {
@@ -345,6 +371,7 @@ mod tests {
             concurrent_downloads: 2,
             verify_archives: false,
             progress_timeout: Duration::from_secs(1),
+            network_retry_attempts: 0,
         };
 
         tokio::spawn(async move {

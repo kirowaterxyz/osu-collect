@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     app::snapshots,
-    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, status},
+    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP, status},
     core::collection::{
         CollectionDbEntry, create_collection_db, model::Collection, write_db_entries,
     },
@@ -341,6 +341,7 @@ async fn run_pipeline_core(
         .concurrent_downloads(config.concurrent.max(1) as usize)
         .verify_archives(config.verify_zip_eocd)
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
+        .network_retry_attempts(NETWORK_RETRY_CAP as usize)
         .build()
         .map_err(|err| DownloadError::internal(err.to_string()))?;
 

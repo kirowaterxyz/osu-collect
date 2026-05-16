@@ -24,6 +24,7 @@ pub struct DownloaderBuilder {
     progress_timeout: Option<Duration>,
     user_agent: Option<String>,
     no_video: bool,
+    network_retry_attempts: usize,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
 }
@@ -38,6 +39,7 @@ impl DownloaderBuilder {
             progress_timeout: None,
             user_agent: None,
             no_video: false,
+            network_retry_attempts: 0,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
         }
@@ -100,6 +102,15 @@ impl DownloaderBuilder {
         self
     }
 
+    /// Maximum number of additional passes through the mirror pool after every
+    /// mirror has exhausted its transient retries. Each retry waits 5 seconds
+    /// (cancellable) before the next pass. Default `0` (no retry).
+    #[must_use]
+    pub fn network_retry_attempts(mut self, attempts: usize) -> Self {
+        self.network_retry_attempts = attempts;
+        self
+    }
+
     /// Override the HTTP client (test helper).
     #[cfg(any(test, feature = "test-helpers"))]
     #[must_use]
@@ -130,6 +141,7 @@ impl DownloaderBuilder {
             user_agent: self
                 .user_agent
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
+            network_retry_attempts: self.network_retry_attempts,
         };
         let mirrors: Vec<Mirror> = self
             .mirrors
@@ -280,6 +292,7 @@ impl Downloader {
                 concurrent_downloads: config.concurrent_downloads,
                 verify_archives: config.verify_archives,
                 progress_timeout: config.progress_timeout,
+                network_retry_attempts: config.network_retry_attempts,
             };
             batch::download_batch(
                 items,

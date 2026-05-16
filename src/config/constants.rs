@@ -30,7 +30,9 @@ pub fn default_threads() -> u8 {
 pub const TRANSIENT_RETRY_ATTEMPTS: u8 = 3;
 /// Base delay between transient retries (doubles each attempt).
 pub const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(800);
-/// Hard cap on per-beatmap network retries before the worker gives up silently (not counted as failed).
+/// Maximum number of additional passes through the mirror pool after every mirror has
+/// exhausted its transient retries. The library waits 5 seconds between passes
+/// (cancellable). Beyond this cap the beatmapset is reported as `BeatmapsetNetworkError`.
 pub const NETWORK_RETRY_CAP: u32 = 1000;
 
 pub const CONFIG_SUBDIR: &str = "osu-collect";
