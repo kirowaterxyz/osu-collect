@@ -679,42 +679,6 @@ fn thread_status_change_is_debounced_except_for_downloading() {
 }
 
 #[test]
-fn completed_lines_linger_then_sweep() {
-    use osu_collect::download::BeatmapStage;
-
-    let mut app = App::new(Config::default());
-    let mut page = CollectionPage::new(1, "x".into(), 1);
-    page.update_active_status(300, BeatmapStage::Downloading, "Downloading #300", false);
-    page.update_active_status(300, BeatmapStage::Success, "ignored-rewrite", false);
-    app.downloads.push(page);
-
-    assert_eq!(
-        app.downloads[0].active_downloads.len(),
-        1,
-        "line must linger immediately after terminal stage"
-    );
-    let msg = app.downloads[0].active_downloads[0].displayed_message();
-    assert!(
-        msg.starts_with("Done"),
-        "terminal message must show as Done #X, got {msg:?}"
-    );
-
-    app.clear_expired_messages();
-    assert_eq!(
-        app.downloads[0].active_downloads.len(),
-        1,
-        "line must still be present a tick later (within 1.5s)"
-    );
-
-    std::thread::sleep(std::time::Duration::from_millis(1600));
-    app.clear_expired_messages();
-    assert!(
-        app.downloads[0].active_downloads.is_empty(),
-        "line must be swept after lingering past the 1.5s threshold"
-    );
-}
-
-#[test]
 fn terminal_stage_clears_active_downloads() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);

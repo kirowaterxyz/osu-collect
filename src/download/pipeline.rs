@@ -557,16 +557,12 @@ fn emit_status(
     let (message, stage, rate_limited) = match event {
         BeatmapsetStatusEvent::Contacting { .. } => return,
         BeatmapsetStatusEvent::Downloading { mirror } => (
-            format!(
-                "{} #{beatmapset_id} from {}",
-                status::DOWNLOADING,
-                mirror.label()
-            ),
+            format!("{} from {}", status::DOWNLOADING, mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
         BeatmapsetStatusEvent::Verifying { mirror } => (
-            format!("verifying #{beatmapset_id} from {}", mirror.label()),
+            format!("verifying from {}", mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),

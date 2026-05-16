@@ -10,7 +10,6 @@ use crate::config::constants::{
 };
 
 const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
-const COMPLETION_LINGER: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
@@ -46,7 +45,6 @@ pub struct ActiveDownloadLine {
     displayed_message: RefCell<String>,
     displayed_rate_limited: Cell<bool>,
     status_changed_at: Cell<Option<Instant>>,
-    completed_at: Cell<Option<Instant>>,
     pub downloaded: u64,
     pub total: u64,
     bytes_for_speed: u64,
@@ -63,7 +61,6 @@ impl ActiveDownloadLine {
             displayed_message: RefCell::new(String::new()),
             displayed_rate_limited: Cell::new(false),
             status_changed_at: Cell::new(None),
-            completed_at: Cell::new(None),
             downloaded: 0,
             total: 0,
             bytes_for_speed: 0,
@@ -86,7 +83,7 @@ impl ActiveDownloadLine {
     }
 
     pub fn should_show_bar(&self) -> bool {
-        self.displayed_message().starts_with(status::DOWNLOADING) && self.total > 0
+        self.displayed_message().starts_with(status::DOWNLOADING)
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
@@ -107,10 +104,6 @@ impl ActiveDownloadLine {
     pub fn displayed_rate_limited(&self) -> bool {
         self.resolve_pending();
         self.displayed_rate_limited.get()
-    }
-
-    pub fn completed_at(&self) -> Option<Instant> {
-        self.completed_at.get()
     }
 
     fn resolve_pending(&self) {
@@ -260,43 +253,24 @@ impl CollectionPage {
                 | BeatmapStage::Aborted
         );
 
-        let final_message: String = if terminal {
-            match stage {
-                BeatmapStage::Success => format!("Done #{beatmapset_id}"),
-                BeatmapStage::Skipped => format!("Skipped #{beatmapset_id}"),
-                BeatmapStage::Failed => format!("Failed #{beatmapset_id}"),
-                BeatmapStage::Aborted => format!("Aborted #{beatmapset_id}"),
-                _ => unreachable!(),
-            }
-        } else {
-            message.to_string()
-        };
+        if terminal {
+            self.active_downloads
+                .retain(|line| line.beatmapset_id != beatmapset_id);
+            return;
+        }
 
         let line = self.active_or_insert(beatmapset_id);
         let first_message = line.displayed_message.borrow().is_empty();
-        let immediate = first_message || terminal || final_message.starts_with(status::DOWNLOADING);
-        line.pending_message = final_message.clone();
+        let immediate = first_message || message.starts_with(status::DOWNLOADING);
+        line.pending_message = message.to_string();
         line.pending_rate_limited = rate_limited;
         if immediate {
-            *line.displayed_message.borrow_mut() = final_message;
+            *line.displayed_message.borrow_mut() = message.to_string();
             line.displayed_rate_limited.set(rate_limited);
             line.status_changed_at.set(None);
         } else {
             line.status_changed_at.set(Some(Instant::now()));
         }
-        if terminal {
-            line.completed_at.set(Some(Instant::now()));
-            line.downloaded = 0;
-            line.total = 0;
-        }
-    }
-
-    /// Removes lines whose terminal status has been visible for [`COMPLETION_LINGER`].
-    pub fn sweep_completed_lines(&mut self) {
-        self.active_downloads.retain(|line| {
-            line.completed_at()
-                .is_none_or(|at| at.elapsed() < COMPLETION_LINGER)
-        });
     }
 
     pub fn update_active_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
