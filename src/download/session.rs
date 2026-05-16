@@ -236,7 +236,6 @@ impl DownloadSession {
             expectations,
             thread_count,
             PrecheckOptions {
-                verify_integrity: true,
                 notify_verified: true,
                 verify_zip_eocd,
             },
@@ -294,13 +293,6 @@ impl DownloadSession {
             emit(DownloadEvent::Log {
                 id,
                 message: format!("{skipped} beatmapsets already verified locally"),
-            });
-            emit(DownloadEvent::OverallProgress {
-                id,
-                downloaded: 0,
-                skipped,
-                failed: 0,
-                unverified: initial_unverified.len() as u32,
             });
         }
 

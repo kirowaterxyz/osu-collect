@@ -17,14 +17,10 @@ pub(crate) struct PrecheckReport {
     pub(crate) unverified: Vec<u32>,
     pub(crate) verified_bytes: u64,
     pub(crate) aborted: bool,
-    #[allow(dead_code)]
-    pub(crate) files_changed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PrecheckOptions {
-    #[allow(dead_code)]
-    pub(crate) verify_integrity: bool,
     pub(crate) notify_verified: bool,
     pub(crate) verify_zip_eocd: bool,
 }
@@ -51,7 +47,6 @@ pub(crate) async fn verify_existing_beatmapsets(
             unverified: Vec::new(),
             verified_bytes: 0,
             aborted: true,
-            files_changed: false,
         });
     }
 
@@ -110,23 +105,20 @@ pub(crate) async fn verify_existing_beatmapsets(
         }
     }
 
-    let mut changed_ids: HashSet<u32> = HashSet::new();
-    let files_changed = match capture_osz_snapshot(output_dir).await {
-        Ok(final_snapshot) => {
-            let changed = final_snapshot != initial_snapshot;
-            if changed {
-                changed_ids = detect_changed_beatmapsets(&initial_snapshot, &final_snapshot);
-                info!(
-                    download_id = id,
-                    changed = changed_ids.len(),
-                    "files changed during precheck"
-                );
-            }
+    let changed_ids: HashSet<u32> = match capture_osz_snapshot(output_dir).await {
+        Ok(final_snapshot) if final_snapshot != initial_snapshot => {
+            let changed = detect_changed_beatmapsets(&initial_snapshot, &final_snapshot);
+            info!(
+                download_id = id,
+                changed = changed.len(),
+                "files changed during precheck"
+            );
             changed
         }
+        Ok(_) => HashSet::new(),
         Err(err) => {
             warn!(download_id = id, error = %err, "failed to capture final snapshot after precheck");
-            false
+            HashSet::new()
         }
     };
 
@@ -140,7 +132,6 @@ pub(crate) async fn verify_existing_beatmapsets(
         unverified: state.unverified,
         verified_bytes: state.verified_bytes,
         aborted,
-        files_changed,
     })
 }
 
@@ -162,7 +153,6 @@ impl PrecheckState {
             unverified: Vec::new(),
             verified_bytes: self.verified_bytes,
             aborted: true,
-            files_changed: false,
         }
     }
 

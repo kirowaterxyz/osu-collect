@@ -9,12 +9,9 @@ pub const MAX_TRUNCATED_CHARS: usize = 80;
 
 pub mod status {
     pub const RATE_LIMITED: &str = "Rate limited";
-    pub const CONTACTING_PREFIX: &str = "Contacting";
     pub const ABORTED: &str = "Aborted";
     pub const RECHECKING_PREFIX: &str = "Rechecking";
-    pub const STARTING_DOWNLOAD: &str = "Starting download";
     pub const DOWNLOADING: &str = "Downloading";
-    pub const FETCHING: &str = "Fetching";
 }
 
 pub const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;

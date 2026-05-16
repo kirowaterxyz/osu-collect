@@ -137,7 +137,6 @@ async fn run_collection(
 
     let collection_for_db = session.target.collection().clone();
     let output_dir = session.output.output_dir.clone();
-    let initial_unverified = session.initial_unverified.clone();
 
     let aborted = run_pipeline_core(
         id,
@@ -154,6 +153,8 @@ async fn run_collection(
         return Ok(());
     }
 
+    // collection.db reflects the full collection regardless of partial failures so that
+    // saved state matches the user's intent even when some maps couldn't be downloaded.
     let collection = collection_for_db;
     let db_collection_name = format!("{}-{}", collection.name, collection.id);
     write_collection_db(
@@ -165,7 +166,6 @@ async fn run_collection(
     )
     .await?;
 
-    let _ = initial_unverified;
     finish(id, emit.as_ref(), summary_from_events(id));
     Ok(())
 }
@@ -330,7 +330,6 @@ async fn run_pipeline_core(
 
     let mut session_handle = downloader.download_many(items, &session.output.output_dir);
     let mut events = session_handle.events();
-    let cancel_watcher = cancel_rx.clone();
 
     let mut cancel_signal = cancel_rx;
     let mut tally = Tally {
@@ -359,7 +358,6 @@ async fn run_pipeline_core(
         }
     };
 
-    let _ = cancel_watcher;
     let _ = session_handle.wait().await;
 
     if cancelled {
@@ -411,15 +409,7 @@ fn translate_event(
                 message: format!("downloading {total_beatmapsets} beatmapsets"),
             });
         }
-        LibEvent::BeatmapsetStarted { beatmapset_id } => {
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Downloading,
-                message: format!("{} {beatmapset_id}", status::STARTING_DOWNLOAD),
-                rate_limited: false,
-            });
-        }
+        LibEvent::BeatmapsetStarted { .. } => {}
         LibEvent::BeatmapsetStatus {
             beatmapset_id,
             status,
@@ -529,15 +519,7 @@ fn emit_status(
     emit: &(dyn Fn(DownloadEvent) + Send + Sync),
 ) {
     let (message, stage, rate_limited) = match event {
-        BeatmapsetStatusEvent::Contacting { mirror } => (
-            format!(
-                "{} #{beatmapset_id} from {}",
-                status::CONTACTING_PREFIX,
-                mirror.label()
-            ),
-            BeatmapStage::Downloading,
-            false,
-        ),
+        BeatmapsetStatusEvent::Contacting { .. } => return,
         BeatmapsetStatusEvent::Downloading { mirror } => (
             format!(
                 "{} #{beatmapset_id} from {}",
