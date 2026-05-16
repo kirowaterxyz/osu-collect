@@ -634,8 +634,85 @@ fn active_progress_is_per_beatmapset() {
         .iter()
         .find(|l| l.beatmapset_id == 101)
         .expect("101 inserted");
-    assert!(line_101.message.contains("Fetching"));
+    assert!(line_101.displayed_message().contains("Fetching"));
     assert_eq!(line_101.progress_ratio(), None);
+}
+
+#[test]
+fn thread_status_change_is_debounced_except_for_downloading() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "x".into(), 1);
+    page.update_active_status(
+        200,
+        BeatmapStage::Downloading,
+        "Downloading #200 ...",
+        false,
+    );
+    let initial = page.active_downloads[0].displayed_message();
+    assert!(
+        initial.starts_with("Downloading"),
+        "Downloading must promote immediately, got {initial:?}"
+    );
+
+    // a non-Downloading update should not change the displayed message right away
+    page.update_active_status(
+        200,
+        BeatmapStage::Downloading,
+        "Rate limited on X, ...",
+        true,
+    );
+    assert!(
+        page.active_downloads[0]
+            .displayed_message()
+            .starts_with("Downloading"),
+        "non-Downloading transition must stay debounced for 100ms"
+    );
+
+    // after the debounce window, the pending message becomes visible
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    let visible = page.active_downloads[0].displayed_message();
+    assert!(
+        visible.starts_with("Rate limited"),
+        "debounced message must promote after 100ms, got {visible:?}"
+    );
+    assert!(page.active_downloads[0].displayed_rate_limited());
+}
+
+#[test]
+fn completed_lines_linger_then_sweep() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "x".into(), 1);
+    page.update_active_status(300, BeatmapStage::Downloading, "Downloading #300", false);
+    page.update_active_status(300, BeatmapStage::Success, "ignored-rewrite", false);
+    app.downloads.push(page);
+
+    assert_eq!(
+        app.downloads[0].active_downloads.len(),
+        1,
+        "line must linger immediately after terminal stage"
+    );
+    let msg = app.downloads[0].active_downloads[0].displayed_message();
+    assert!(
+        msg.starts_with("Done"),
+        "terminal message must show as Done #X, got {msg:?}"
+    );
+
+    app.clear_expired_messages();
+    assert_eq!(
+        app.downloads[0].active_downloads.len(),
+        1,
+        "line must still be present a tick later (within 1.5s)"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(1600));
+    app.clear_expired_messages();
+    assert!(
+        app.downloads[0].active_downloads.is_empty(),
+        "line must be swept after lingering past the 1.5s threshold"
+    );
 }
 
 #[test]

@@ -508,6 +508,9 @@ impl App {
         clear_expired_message(&mut self.home.message);
         clear_expired_message(&mut self.updates.message);
         clear_expired_message(&mut self.config.message);
+        for page in &mut self.downloads {
+            page.sweep_completed_lines();
+        }
         self.tick_count = self.tick_count.wrapping_add(1);
     }
 

@@ -1,6 +1,6 @@
 use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, status};
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     time::{Duration, Instant},
 };
@@ -8,6 +8,9 @@ use std::{
 use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
+
+const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
+const COMPLETION_LINGER: Duration = Duration::from_millis(1500);
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
@@ -38,8 +41,12 @@ pub struct FailedBeatmap {
 #[derive(Debug, Clone)]
 pub struct ActiveDownloadLine {
     pub beatmapset_id: u32,
-    pub message: String,
-    pub rate_limited: bool,
+    pending_message: String,
+    pending_rate_limited: bool,
+    displayed_message: RefCell<String>,
+    displayed_rate_limited: Cell<bool>,
+    status_changed_at: Cell<Option<Instant>>,
+    completed_at: Cell<Option<Instant>>,
     pub downloaded: u64,
     pub total: u64,
     bytes_for_speed: u64,
@@ -51,8 +58,12 @@ impl ActiveDownloadLine {
     fn new(beatmapset_id: u32) -> Self {
         Self {
             beatmapset_id,
-            message: String::new(),
-            rate_limited: false,
+            pending_message: String::new(),
+            pending_rate_limited: false,
+            displayed_message: RefCell::new(String::new()),
+            displayed_rate_limited: Cell::new(false),
+            status_changed_at: Cell::new(None),
+            completed_at: Cell::new(None),
             downloaded: 0,
             total: 0,
             bytes_for_speed: 0,
@@ -75,7 +86,7 @@ impl ActiveDownloadLine {
     }
 
     pub fn should_show_bar(&self) -> bool {
-        self.message.starts_with(status::DOWNLOADING) && self.total > 0
+        self.displayed_message().starts_with(status::DOWNLOADING) && self.total > 0
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
@@ -84,6 +95,33 @@ impl ActiveDownloadLine {
         }
         let ratio = self.downloaded as f32 / self.total as f32;
         Some(ratio.clamp(0.0, 1.0))
+    }
+
+    /// Resolved message shown to the user. Non-Downloading transitions are debounced
+    /// for [`STATUS_DEBOUNCE`] so quick handshake → retry → download flickers coalesce.
+    pub fn displayed_message(&self) -> String {
+        self.resolve_pending();
+        self.displayed_message.borrow().clone()
+    }
+
+    pub fn displayed_rate_limited(&self) -> bool {
+        self.resolve_pending();
+        self.displayed_rate_limited.get()
+    }
+
+    pub fn completed_at(&self) -> Option<Instant> {
+        self.completed_at.get()
+    }
+
+    fn resolve_pending(&self) {
+        let Some(changed_at) = self.status_changed_at.get() else {
+            return;
+        };
+        if changed_at.elapsed() >= STATUS_DEBOUNCE {
+            *self.displayed_message.borrow_mut() = self.pending_message.clone();
+            self.displayed_rate_limited.set(self.pending_rate_limited);
+            self.status_changed_at.set(None);
+        }
     }
 }
 
@@ -148,7 +186,10 @@ impl CollectionPage {
 
     pub fn all_active_rate_limited(&self) -> bool {
         !self.active_downloads.is_empty()
-            && self.active_downloads.iter().all(|line| line.rate_limited)
+            && self
+                .active_downloads
+                .iter()
+                .all(|line| line.displayed_rate_limited())
     }
 
     pub fn register_beatmaps(&mut self, ids: &[u32]) {
@@ -219,15 +260,43 @@ impl CollectionPage {
                 | BeatmapStage::Aborted
         );
 
-        if terminal {
-            self.active_downloads
-                .retain(|line| line.beatmapset_id != beatmapset_id);
-            return;
-        }
+        let final_message: String = if terminal {
+            match stage {
+                BeatmapStage::Success => format!("Done #{beatmapset_id}"),
+                BeatmapStage::Skipped => format!("Skipped #{beatmapset_id}"),
+                BeatmapStage::Failed => format!("Failed #{beatmapset_id}"),
+                BeatmapStage::Aborted => format!("Aborted #{beatmapset_id}"),
+                _ => unreachable!(),
+            }
+        } else {
+            message.to_string()
+        };
 
         let line = self.active_or_insert(beatmapset_id);
-        line.message = message.to_string();
-        line.rate_limited = rate_limited;
+        let first_message = line.displayed_message.borrow().is_empty();
+        let immediate = first_message || terminal || final_message.starts_with(status::DOWNLOADING);
+        line.pending_message = final_message.clone();
+        line.pending_rate_limited = rate_limited;
+        if immediate {
+            *line.displayed_message.borrow_mut() = final_message;
+            line.displayed_rate_limited.set(rate_limited);
+            line.status_changed_at.set(None);
+        } else {
+            line.status_changed_at.set(Some(Instant::now()));
+        }
+        if terminal {
+            line.completed_at.set(Some(Instant::now()));
+            line.downloaded = 0;
+            line.total = 0;
+        }
+    }
+
+    /// Removes lines whose terminal status has been visible for [`COMPLETION_LINGER`].
+    pub fn sweep_completed_lines(&mut self) {
+        self.active_downloads.retain(|line| {
+            line.completed_at()
+                .is_none_or(|at| at.elapsed() < COMPLETION_LINGER)
+        });
     }
 
     pub fn update_active_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
@@ -324,6 +393,3 @@ impl CollectionPage {
         }
     }
 }
-
-#[allow(dead_code)]
-const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);

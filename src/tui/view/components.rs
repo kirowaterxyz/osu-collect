@@ -358,9 +358,9 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 
     let prefix = format!("  #{:<7} ", line.beatmapset_id);
     let prefix_w = prefix.chars().count() as u16;
-    let message = line.message.clone();
+    let message = line.displayed_message();
     let message_w = message.chars().count() as u16;
-    let rate_limited = line.rate_limited;
+    let rate_limited = line.displayed_rate_limited();
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
