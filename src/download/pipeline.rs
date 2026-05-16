@@ -137,7 +137,7 @@ async fn run_collection(
     let collection_for_db = session.target.collection().clone();
     let output_dir = session.output.output_dir.clone();
 
-    let aborted = run_pipeline_core(
+    let outcome = run_pipeline_core(
         id,
         &session,
         &config,
@@ -147,11 +147,11 @@ async fn run_collection(
     )
     .await?;
 
-    if aborted {
+    let Some(tally) = outcome else {
         drop(session);
         try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
-    }
+    };
 
     // collection.db reflects the full collection regardless of partial failures so that
     // saved state matches the user's intent even when some maps couldn't be downloaded.
@@ -166,7 +166,7 @@ async fn run_collection(
     )
     .await?;
 
-    finish(id, emit.as_ref(), summary_from_events(id));
+    finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
 }
 
@@ -219,28 +219,34 @@ async fn run_selective(
         .map(<[_]>::to_vec)
         .unwrap_or_default();
     let output_dir = session.output.output_dir.clone();
-    let initial_unverified = session.initial_unverified.clone();
+    let initial_satisfied = session.initial_satisfied.clone();
     let target_ids = session.beatmapset_ids.clone();
 
-    let aborted = run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?;
+    let outcome = run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?;
 
-    if aborted {
+    let Some(tally) = outcome else {
         drop(session);
         try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
-    }
+    };
 
-    let newly_downloaded: HashSet<u32> = newly_downloaded_from_summary(id, &initial_unverified);
+    // every target that is verifiably on disk now: pre-existing + newly downloaded.
+    let verified_now: HashSet<u32> = initial_satisfied
+        .iter()
+        .copied()
+        .chain(tally.successful.iter().copied())
+        .collect();
 
-    if !newly_downloaded.is_empty() {
+    if !verified_now.is_empty() {
         let collection_clone = collection.clone();
         let selective_clone = selective_collections.clone();
         let dir_clone = output_dir.clone();
+        let verified_clone = verified_now.clone();
         let result = tokio::task::spawn_blocking(move || {
             create_selective_collection_database(
                 &collection_clone,
                 &selective_clone,
-                &newly_downloaded,
+                &verified_clone,
                 &dir_clone,
             )
         })
@@ -263,9 +269,8 @@ async fn run_selective(
         }
     }
 
-    if target_ids.iter().all(|id| !initial_unverified.contains(id))
-        && let Some(snapshot_dir) = snapshot_dir
-    {
+    let all_targets_satisfied = target_ids.iter().all(|id| verified_now.contains(id));
+    if all_targets_satisfied && let Some(snapshot_dir) = snapshot_dir {
         tokio::task::spawn_blocking(move || {
             for snapshot in snapshot_files {
                 let Ok(collection_id) = snapshot.collection_id.parse() else {
@@ -281,12 +286,15 @@ async fn run_selective(
         .map_err(|err| DownloadError::internal(format!("snapshot save task panicked: {err}")))?;
     }
 
-    finish(id, emit.as_ref(), summary_from_events(id));
+    finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
 }
 
+/// Outcome of [`run_pipeline_core`]: either the final tally, or `None` if the run was cancelled.
+type PipelineOutcome = Option<Tally>;
+
 /// Drives the [`Downloader`] for the prepared session and emits app events.
-/// Returns `true` if cancelled.
+/// Returns `None` if the run was cancelled; otherwise the final [`Tally`].
 async fn run_pipeline_core(
     id: DownloadId,
     session: &DownloadSession,
@@ -294,7 +302,7 @@ async fn run_pipeline_core(
     auto_overwrite: bool,
     cancel_rx: watch::Receiver<bool>,
     emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) -> Result<bool, DownloadError> {
+) -> Result<PipelineOutcome, DownloadError> {
     if config.mirrors.is_empty() {
         return Err(DownloadError::NoMirrors);
     }
@@ -302,8 +310,15 @@ async fn run_pipeline_core(
     fetch_collection_sizes(id, &session.beatmapset_ids, emit).await;
     warn_low_disk_space(id, &session.output.output_dir, emit);
 
+    let mut tally = Tally {
+        skipped: session.skipped_existing,
+        unverified: session.initial_unverified.len() as u32,
+        ..Tally::default()
+    };
+    emit_overall_progress(id, &tally, emit);
+
     if session.pending_ids.is_empty() {
-        return Ok(false);
+        return Ok(Some(tally));
     }
 
     let policy = if auto_overwrite {
@@ -333,12 +348,6 @@ async fn run_pipeline_core(
     let mut events = session_handle.events();
 
     let mut cancel_signal = cancel_rx;
-    let mut tally = Tally {
-        skipped: session.skipped_existing,
-        unverified: session.initial_unverified.len() as u32,
-        ..Tally::default()
-    };
-    emit_overall_progress(id, &tally, emit);
 
     let cancelled = loop {
         tokio::select! {
@@ -370,7 +379,7 @@ async fn run_pipeline_core(
             id,
             message: "Download aborted by user".into(),
         });
-        return Ok(true);
+        return Ok(None);
     }
 
     if !tally.failures.is_empty() {
@@ -384,7 +393,7 @@ async fn run_pipeline_core(
         );
     }
 
-    Ok(false)
+    Ok(Some(tally))
 }
 
 #[derive(Default)]
@@ -394,7 +403,19 @@ struct Tally {
     failed: u32,
     unverified: u32,
     failures: Vec<(u32, String)>,
-    last_summary: Option<DownloadSummary>,
+    /// Beatmapset IDs that this run downloaded successfully.
+    successful: HashSet<u32>,
+}
+
+impl Tally {
+    fn to_summary(&self) -> DownloadSummary {
+        DownloadSummary {
+            downloaded: self.downloaded,
+            skipped: self.skipped,
+            failed: self.failed,
+            unverified: self.unverified,
+        }
+    }
 }
 
 fn translate_event(
@@ -437,6 +458,7 @@ fn translate_event(
             ..
         } => {
             tally.downloaded = tally.downloaded.saturating_add(1);
+            tally.successful.insert(beatmapset_id);
             if tally.unverified > 0 {
                 tally.unverified = tally.unverified.saturating_sub(1);
             }
@@ -457,24 +479,36 @@ fn translate_event(
         LibEvent::BeatmapsetSkipped {
             beatmapset_id,
             reason,
-        } => {
-            tally.skipped = tally.skipped.saturating_add(1);
-            let message = match reason {
-                SkipReason::AlreadyExists => "skipped: already exists".to_string(),
-                SkipReason::UnavailableOnMirrors => {
-                    "skipped: unavailable on all mirrors".to_string()
-                }
-                SkipReason::InvalidBeatmapsetId => "skipped: invalid beatmapset id".to_string(),
-            };
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Skipped,
-                message,
-                rate_limited: false,
-            });
-            emit_overall_progress(id, tally, emit);
-        }
+        } => match reason {
+            SkipReason::AlreadyExists => {
+                tally.skipped = tally.skipped.saturating_add(1);
+                emit(DownloadEvent::BeatmapStatus {
+                    id,
+                    beatmapset_id,
+                    stage: BeatmapStage::Skipped,
+                    message: "skipped: already exists".to_string(),
+                    rate_limited: false,
+                });
+                emit_overall_progress(id, tally, emit);
+            }
+            SkipReason::UnavailableOnMirrors | SkipReason::InvalidBeatmapsetId => {
+                let message = match reason {
+                    SkipReason::UnavailableOnMirrors => "unavailable on all mirrors".to_string(),
+                    SkipReason::InvalidBeatmapsetId => "invalid beatmapset id".to_string(),
+                    SkipReason::AlreadyExists => unreachable!(),
+                };
+                tally.failed = tally.failed.saturating_add(1);
+                tally.failures.push((beatmapset_id, message.clone()));
+                emit(DownloadEvent::BeatmapStatus {
+                    id,
+                    beatmapset_id,
+                    stage: BeatmapStage::Failed,
+                    message,
+                    rate_limited: false,
+                });
+                emit_overall_progress(id, tally, emit);
+            }
+        },
         LibEvent::BeatmapsetFailed {
             beatmapset_id,
             error,
@@ -497,19 +531,19 @@ fn translate_event(
             reason,
         } => {
             warn!(beatmapset_id, %reason, "network error, all mirrors exhausted");
-            emit(DownloadEvent::Log {
+            let message = format!("network error: {reason}");
+            tally.failed = tally.failed.saturating_add(1);
+            tally.failures.push((beatmapset_id, message.clone()));
+            emit(DownloadEvent::BeatmapStatus {
                 id,
-                message: format!("#{beatmapset_id}: network error ({reason})"),
+                beatmapset_id,
+                stage: BeatmapStage::Failed,
+                message,
+                rate_limited: false,
             });
+            emit_overall_progress(id, tally, emit);
         }
-        LibEvent::SessionCompleted { summary } => {
-            tally.last_summary = Some(DownloadSummary {
-                downloaded: summary.downloaded.len() as u32,
-                skipped: summary.skipped.len() as u32,
-                failed: summary.failed.len() as u32,
-                unverified: tally.unverified,
-            });
-        }
+        LibEvent::SessionCompleted { .. } => {}
     }
 }
 
@@ -593,26 +627,6 @@ fn finish(id: DownloadId, emit: &(dyn Fn(DownloadEvent) + Send + Sync), summary:
         id,
         stage: DownloadStage::Completed,
     });
-}
-
-/// Placeholder summary derivation; the real values are pushed via [`Tally`] as events are
-/// translated. We rebuild a [`DownloadSummary`] from the last emitted state.
-fn summary_from_events(_id: DownloadId) -> DownloadSummary {
-    DownloadSummary {
-        downloaded: 0,
-        skipped: 0,
-        failed: 0,
-        unverified: 0,
-    }
-}
-
-fn newly_downloaded_from_summary(
-    _id: DownloadId,
-    initial_unverified: &HashSet<u32>,
-) -> HashSet<u32> {
-    // Approximated as initial_unverified for the selective flow; the precise set is
-    // observable in the event stream but isn't retained globally to keep this slim.
-    initial_unverified.clone()
 }
 
 fn warn_low_disk_space(
@@ -765,7 +779,11 @@ fn create_selective_collection_database(
 mod tests {
     use super::*;
     use crate::core::collection::model::{test_beatmapset, test_collection};
-    use std::collections::HashSet;
+    use osu_downloader::MirrorKind;
+    use std::{
+        collections::HashSet,
+        sync::{Arc, Mutex},
+    };
     use tempfile::tempdir;
 
     fn make_selective(
@@ -778,6 +796,87 @@ mod tests {
             name: name.to_string(),
             beatmapset_ids,
         }
+    }
+
+    fn drive_translate(events: Vec<LibEvent>) -> (Tally, Vec<DownloadEvent>) {
+        let captured: Arc<Mutex<Vec<DownloadEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured);
+        let emit = move |event: DownloadEvent| captured_clone.lock().unwrap().push(event);
+        let mut tally = Tally::default();
+        for event in events {
+            translate_event(42, event, &mut tally, &emit);
+        }
+        let collected = std::mem::take(&mut *captured.lock().unwrap());
+        (tally, collected)
+    }
+
+    fn last_overall_progress(events: &[DownloadEvent]) -> &DownloadEvent {
+        events
+            .iter()
+            .rev()
+            .find(|event| matches!(event, DownloadEvent::OverallProgress { .. }))
+            .expect("at least one OverallProgress emission")
+    }
+
+    fn completed(beatmapset_id: u32) -> LibEvent {
+        LibEvent::BeatmapsetCompleted {
+            beatmapset_id,
+            filename: format!("{beatmapset_id}.osz"),
+            size_bytes: 0,
+            md5_hash: Some("md5".into()),
+            mirror_used: MirrorKind::Nerinyan,
+            verify_duration_us: 0,
+        }
+    }
+
+    #[test]
+    fn completed_events_populate_tally_successful() {
+        let (tally, _events) = drive_translate(vec![completed(10), completed(20)]);
+        assert_eq!(tally.downloaded, 2);
+        assert!(tally.successful.contains(&10) && tally.successful.contains(&20));
+        assert_eq!(tally.to_summary().downloaded, 2);
+    }
+
+    #[test]
+    fn network_error_counts_as_failed() {
+        let (tally, events) = drive_translate(vec![LibEvent::BeatmapsetNetworkError {
+            beatmapset_id: 77,
+            reason: "timeout".into(),
+        }]);
+        assert_eq!(tally.failed, 1);
+        assert!(tally.failures.iter().any(|(id, _)| *id == 77));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            DownloadEvent::BeatmapStatus {
+                beatmapset_id: 77,
+                stage: BeatmapStage::Failed,
+                ..
+            }
+        )));
+        let DownloadEvent::OverallProgress { failed, .. } = last_overall_progress(&events) else {
+            unreachable!()
+        };
+        assert_eq!(*failed, 1);
+    }
+
+    #[test]
+    fn unavailable_on_mirrors_counts_as_failed_not_skipped() {
+        let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
+            beatmapset_id: 5,
+            reason: SkipReason::UnavailableOnMirrors,
+        }]);
+        assert_eq!(tally.failed, 1);
+        assert_eq!(tally.skipped, 0);
+    }
+
+    #[test]
+    fn already_exists_still_counts_as_skipped() {
+        let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
+            beatmapset_id: 5,
+            reason: SkipReason::AlreadyExists,
+        }]);
+        assert_eq!(tally.skipped, 1);
+        assert_eq!(tally.failed, 0);
     }
 
     #[tokio::test]
