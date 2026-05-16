@@ -1,15 +1,84 @@
 use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
-use crate::worker::io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive};
+use crate::{
+    config::constants::VALIDATION_CACHE_LIMIT,
+    worker::io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive},
+};
+use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub(crate) enum CacheKey {
+    #[cfg(unix)]
+    FileId { device: u64, inode: u64, size: u64 },
+    #[cfg(not(unix))]
+    Path {
+        path: PathBuf,
+        size: u64,
+        mtime: Option<SystemTime>,
+    },
+}
+
+impl CacheKey {
+    fn from_meta(_path: &Path, meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            CacheKey::FileId {
+                device: meta.dev(),
+                inode: meta.ino(),
+                size: meta.len(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            CacheKey::Path {
+                path: _path.to_path_buf(),
+                size: meta.len(),
+                mtime: meta.modified().ok(),
+            }
+        }
+    }
+
+    fn size(&self) -> u64 {
+        match self {
+            #[cfg(unix)]
+            CacheKey::FileId { size, .. } => *size,
+            #[cfg(not(unix))]
+            CacheKey::Path { size, .. } => *size,
+        }
+    }
+}
+
+/// In-memory cache of previously-validated `.osz` archives. Hits skip the
+/// expensive ZIP/EOCD re-read on the next precheck run.
+#[derive(Default)]
+pub(crate) struct ValidationCache {
+    entries: DashMap<CacheKey, ()>,
+}
+
+impl ValidationCache {
+    fn is_valid(&self, key: &CacheKey) -> bool {
+        self.entries.contains_key(key)
+    }
+
+    fn mark_valid(&self, key: CacheKey) {
+        if self.entries.len() >= VALIDATION_CACHE_LIMIT {
+            self.entries.clear();
+        }
+        self.entries.insert(key, ());
+    }
+}
+
+static VALIDATION_CACHE: LazyLock<ValidationCache> = LazyLock::new(ValidationCache::default);
 
 pub(crate) struct PrecheckReport {
     pub(crate) satisfied: HashSet<u32>,
@@ -365,6 +434,24 @@ async fn validate_existing_candidate(
     }
 
     let verify_start = Instant::now();
+    let cache = &*VALIDATION_CACHE;
+    let cache_key = fs::metadata(&candidate.path)
+        .await
+        .ok()
+        .map(|meta| CacheKey::from_meta(&candidate.path, &meta));
+
+    if let Some(key) = cache_key.as_ref()
+        && cache.is_valid(key)
+    {
+        return Ok(Some(FileRecord {
+            beatmapset_id: candidate.beatmapset_id,
+            file_size: key.size(),
+            path: candidate.path,
+            validation_error: None,
+            duration_us: verify_start.elapsed().as_micros() as u64,
+        }));
+    }
+
     let opts = ArchiveValidationOptions {
         verify_zip_eocd: options.verify_zip_eocd,
         remove_on_invalid: true,
@@ -376,6 +463,7 @@ async fn validate_existing_candidate(
         Ok(ArchiveValidationResult::Valid) => {
             if let Ok(meta) = fs::metadata(&candidate.path).await {
                 file_size = meta.len();
+                cache.mark_valid(CacheKey::from_meta(&candidate.path, &meta));
             }
         }
         Ok(ArchiveValidationResult::NotFound) => {
@@ -580,6 +668,29 @@ mod tests {
         );
         assert_eq!(extract_beatmapset_id(Path::new("1234.osz")), Some(1234));
         assert_eq!(extract_beatmapset_id(Path::new("123abc.osz")), None);
+    }
+
+    #[test]
+    fn validation_cache_marks_and_lookups_by_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("123.osz");
+        std::fs::write(&path, b"hello").unwrap();
+        let meta = std::fs::metadata(&path).unwrap();
+        let cache = ValidationCache::default();
+        let key = CacheKey::from_meta(&path, &meta);
+
+        assert!(!cache.is_valid(&key), "miss before insert");
+        cache.mark_valid(key.clone());
+        assert!(cache.is_valid(&key), "hit after insert");
+
+        // a rewritten file with a different size produces a different key
+        std::fs::write(&path, b"changed-bytes").unwrap();
+        let meta2 = std::fs::metadata(&path).unwrap();
+        let key2 = CacheKey::from_meta(&path, &meta2);
+        assert!(
+            !cache.is_valid(&key2),
+            "size change must invalidate the key"
+        );
     }
 
     #[tokio::test]
