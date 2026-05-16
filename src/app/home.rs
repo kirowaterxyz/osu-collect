@@ -1,7 +1,4 @@
-use super::{
-    messages::{AppMessage, clear_expired_app_message, set_error_message, set_info_message},
-    next_field, prev_field,
-};
+use super::{messages::AppMessage, next_field, prev_field};
 use crate::{
     config::Config,
     download::{DownloadConfig, DownloadRequest},
@@ -262,18 +259,6 @@ impl HomeTab {
             }
             _ => {}
         }
-    }
-
-    pub fn set_error(&mut self, message: &str) {
-        set_error_message(&mut self.message, message);
-    }
-
-    pub fn set_info(&mut self, message: &str) {
-        set_info_message(&mut self.message, message);
-    }
-
-    pub fn clear_expired_message(&mut self) {
-        clear_expired_app_message(&mut self.message);
     }
 
     pub fn build_mirror_list(&self) -> Vec<Mirror> {

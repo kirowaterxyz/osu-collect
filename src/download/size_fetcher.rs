@@ -1,4 +1,4 @@
-use crate::config::constants::{CONCURRENT_REQUESTS, MIRROR_CHECK_URLS, NEKOHA_API_BASE};
+use crate::config::constants::{CONCURRENT_REQUESTS, NEKOHA_API_BASE};
 use futures_util::{StreamExt, TryStreamExt, stream, stream::FuturesUnordered};
 use reqwest::Client;
 use serde::Deserialize;
@@ -52,31 +52,7 @@ pub struct MirrorAvailabilityResult {
     pub unavailable: HashSet<u32>,
 }
 
-/// Check beatmapsets availability across mirrors.
-/// Uses ZIP magic byte verification to ensure actual archives are available.
 pub async fn check_mirror_availability(
-    client: &Client,
-    beatmapset_ids: &[u32],
-) -> MirrorAvailabilityResult {
-    check_mirror_availability_with_progress(client, beatmapset_ids, |_, _| {}).await
-}
-
-pub async fn check_mirror_availability_with_progress(
-    client: &Client,
-    beatmapset_ids: &[u32],
-    report_progress: impl FnMut(usize, usize),
-) -> MirrorAvailabilityResult {
-    check_mirror_availability_on_urls_with_progress(
-        client,
-        beatmapset_ids,
-        MIRROR_CHECK_URLS,
-        report_progress,
-    )
-    .await
-}
-
-#[doc(hidden)]
-pub async fn check_mirror_availability_on_urls_with_progress(
     client: &Client,
     beatmapset_ids: &[u32],
     urls: &[&str],

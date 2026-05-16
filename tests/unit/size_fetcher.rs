@@ -1,6 +1,4 @@
-use osu_collect::download::size_fetcher::{
-    check_availability_on_urls, check_mirror_availability_on_urls_with_progress,
-};
+use osu_collect::download::size_fetcher::{check_availability_on_urls, check_mirror_availability};
 use reqwest::Client;
 use std::sync::{
     Arc,
@@ -173,7 +171,7 @@ async fn availability_progress_reports_each_checked_map() {
     let template = format!("{}/d/{{id}}", base);
     let client = Client::new();
     let mut progress = Vec::new();
-    let result = check_mirror_availability_on_urls_with_progress(
+    let result = check_mirror_availability(
         &client,
         &[1, 2, 3],
         &[template.as_str()],

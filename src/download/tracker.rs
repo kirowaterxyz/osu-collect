@@ -259,15 +259,6 @@ impl BeatmapTracker {
             .collect()
     }
 
-    pub fn check_validation_cache(
-        &self,
-        path: &Path,
-        size: u64,
-        mtime: Option<SystemTime>,
-    ) -> Option<bool> {
-        self.check_validation_cache_with_identity(path, size, mtime, None)
-    }
-
     pub fn check_validation_cache_with_identity(
         &self,
         path: &Path,
@@ -277,16 +268,6 @@ impl BeatmapTracker {
     ) -> Option<bool> {
         let key = ValidationCacheKey::from_lookup(path, size, mtime, file_id);
         self.validation_cache.get(&key).map(|entry| *entry)
-    }
-
-    pub fn cache_validation_result(
-        &self,
-        path: PathBuf,
-        size: u64,
-        mtime: Option<SystemTime>,
-        valid: bool,
-    ) {
-        self.cache_validation_result_with_identity(path, size, mtime, None, valid);
     }
 
     pub fn cache_validation_result_with_identity(
@@ -304,10 +285,6 @@ impl BeatmapTracker {
 
     pub fn clear_validation_cache(&self) {
         self.validation_cache.clear();
-    }
-
-    pub fn invalidate_cache(&self, path: &Path) {
-        self.invalidate_cache_with_identity(path, None);
     }
 
     pub fn invalidate_cache_with_identity(&self, path: &Path, file_id: Option<FileIdentity>) {

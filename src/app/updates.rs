@@ -1,9 +1,6 @@
 use super::{
     home::InputField,
-    messages::{
-        AppMessage, clear_app_message, clear_expired_app_message, set_error_message,
-        set_info_message, set_loading_message,
-    },
+    messages::{AppMessage, set_error_message},
     next_field, prev_field,
 };
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
@@ -195,8 +192,8 @@ impl UpdatesTab {
     pub fn handle_char(&mut self, ch: char) {
         if self.selection.in_collection_list || self.selection.in_beatmap_list {
             match ch {
-                'a' => self.select_all(),
-                'd' => self.deselect_all(),
+                'a' => self.set_all_selected(true),
+                'd' => self.set_all_selected(false),
                 _ => {}
             }
             return;
@@ -377,14 +374,6 @@ impl UpdatesTab {
         }
     }
 
-    pub fn select_all(&mut self) {
-        self.set_all_selected(true);
-    }
-
-    pub fn deselect_all(&mut self) {
-        self.set_all_selected(false);
-    }
-
     fn set_all_selected(&mut self, value: bool) {
         if self.selection.in_collection_list {
             for collection in &mut self.selection.local_collections {
@@ -443,22 +432,6 @@ impl UpdatesTab {
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.scan.scan_status = ScanStatus::Error;
         set_error_message(&mut self.message, message);
-    }
-
-    pub fn set_info(&mut self, message: impl Into<String>) {
-        set_info_message(&mut self.message, message);
-    }
-
-    pub fn set_loading(&mut self, message: impl Into<String>) {
-        set_loading_message(&mut self.message, message);
-    }
-
-    pub fn clear_message(&mut self) {
-        clear_app_message(&mut self.message);
-    }
-
-    pub fn clear_expired_message(&mut self) {
-        clear_expired_app_message(&mut self.message);
     }
 
     pub fn is_path_auto_detected(&self) -> bool {

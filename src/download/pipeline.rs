@@ -211,7 +211,7 @@ async fn run_download_pass(
     }
 
     for (beatmapset_id, reason) in pass_outcome.failures.beatmaps() {
-        final_failures.record_error(*beatmapset_id, reason.clone());
+        final_failures.record(*beatmapset_id, reason.clone(), None);
     }
 
     final_failures

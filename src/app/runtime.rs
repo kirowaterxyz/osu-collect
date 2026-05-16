@@ -1,4 +1,8 @@
-use super::{App, AppCommand, AuthLoginState, collection_state, failed_maps, snapshots};
+use super::{
+    App, AppCommand, AuthLoginState, collection_state, failed_maps,
+    messages::{clear_app_message, set_error_message, set_info_message, set_loading_message},
+    snapshots,
+};
 use crate::{
     app::updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id},
     auth,
@@ -72,14 +76,14 @@ pub async fn run(
     if let Some(msg) = validation_issue {
         warn!(error = %msg, "Configuration validation failed; surfacing to UI");
         if let Some(ref notice_text) = notice {
-            app.home.set_error(&format!("{msg}\n{notice_text}"));
+            set_error_message(&mut app.home.message, format!("{msg}\n{notice_text}"));
             notice = None;
         } else {
-            app.home.set_error(&msg);
+            set_error_message(&mut app.home.message, msg);
         }
     }
     if let Some(message) = notice.take() {
-        app.home.set_info(&message);
+        set_info_message(&mut app.home.message, message);
     }
 
     let (download_tx, mut download_rx) = mpsc::unbounded_channel::<DownloadEvent>();
@@ -141,7 +145,7 @@ pub async fn run(
     }
 
     app.home.quit_prompt = false;
-    app.home.set_info("Quitting...");
+    set_info_message(&mut app.home.message, "Quitting...");
     terminal.draw(|f| draw(f, &app))?;
 
     drop(download_rx);
@@ -277,19 +281,19 @@ fn handle_auth_event(event: AuthEvent, app: &mut App) {
         }
         AuthEvent::LoginComplete(Ok(())) => {
             app.config.set_login_complete();
-            app.config.set_info("login successful");
+            set_info_message(&mut app.config.message, "login successful");
         }
         AuthEvent::LoginComplete(Err(err)) => {
             app.config.set_login_failed();
-            app.config.set_error(format!("login failed: {err}"));
+            set_error_message(&mut app.config.message, format!("login failed: {err}"));
         }
         AuthEvent::LogoutComplete(Ok(())) => {
             app.config.set_logged_out();
-            app.config.set_info("logged out");
+            set_info_message(&mut app.config.message, "logged out");
         }
         AuthEvent::LogoutComplete(Err(err)) => {
             app.config.set_login_failed();
-            app.config.set_error(format!("logout failed: {err}"));
+            set_error_message(&mut app.config.message, format!("logout failed: {err}"));
         }
     }
 }
@@ -398,13 +402,15 @@ fn handle_updates_event(
             app.updates.set_local_beatmapsets(beatmapsets);
             app.updates.set_all_checksums(all_checksums);
             app.updates.scan.scan_status = ScanStatus::FetchingCollection;
-            app.updates.set_loading("fetching collections...");
+            set_loading_message(&mut app.updates.message, "fetching collections...");
 
             let selected_ids = app.updates.selected_collection_ids();
             if selected_ids.is_empty() {
                 app.updates.scan.scan_status = ScanStatus::Ready;
-                app.updates
-                    .set_info("No collections with IDs found to compare");
+                set_info_message(
+                    &mut app.updates.message,
+                    "No collections with IDs found to compare",
+                );
                 return;
             }
 
@@ -415,7 +421,7 @@ fn handle_updates_event(
             message,
         } => {
             if generation == app.updates.scan.scan_generation {
-                app.updates.set_loading(message);
+                set_loading_message(&mut app.updates.message, message);
             }
         }
         UpdatesEvent::ScanComplete {
@@ -450,7 +456,7 @@ fn handle_updates_event(
                 manually_added_count,
                 hidden_failed_count,
             );
-            app.updates.set_info(msg);
+            set_info_message(&mut app.updates.message, msg);
 
             for (collection_id, ids) in collection_seen {
                 let installed_ids: Vec<u32> = ids
@@ -476,8 +482,10 @@ fn handle_updates_event(
             total,
         } => {
             if generation == app.updates.scan.scan_generation {
-                app.updates
-                    .set_loading(format!("checking failed maps {checked}/{total}..."));
+                set_loading_message(
+                    &mut app.updates.message,
+                    format!("checking failed maps {checked}/{total}..."),
+                );
             }
         }
         UpdatesEvent::FailedMapRecheckComplete {
@@ -488,11 +496,14 @@ fn handle_updates_event(
             if generation != app.updates.scan.scan_generation {
                 return;
             }
-            app.updates.set_info(format!(
-                "{} failed maps available; {} still unavailable",
-                available.len(),
-                unavailable.len()
-            ));
+            set_info_message(
+                &mut app.updates.message,
+                format!(
+                    "{} failed maps available; {} still unavailable",
+                    available.len(),
+                    unavailable.len()
+                ),
+            );
             app.updates.scan.scan_generation = app.updates.scan.scan_generation.wrapping_add(1);
             spawn_scan_task(app, updates_tx.clone());
         }
@@ -535,8 +546,8 @@ fn spawn_scan_task(app: &mut App, tx: mpsc::UnboundedSender<UpdatesEvent>) {
     let generation = app.updates.scan.scan_generation;
 
     app.updates.scan.scan_status = ScanStatus::ReadingDatabase;
-    app.updates.clear_message();
-    app.updates.set_loading("Reading database...");
+    clear_app_message(&mut app.updates.message);
+    set_loading_message(&mut app.updates.message, "Reading database...");
 
     let handle = tokio::spawn(async move {
         let result =
@@ -668,18 +679,20 @@ fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<Update
 
     let generation = app.updates.scan.scan_generation;
     let Some(path) = failed_maps::failed_maps_path() else {
-        app.updates.set_info("no failed maps to check");
+        set_info_message(&mut app.updates.message, "no failed maps to check");
         return;
     };
     let ids: Vec<u32> = failed_maps::load(&path).beatmapset_ids;
     if ids.is_empty() {
-        app.updates.set_info("no failed maps to check");
+        set_info_message(&mut app.updates.message, "no failed maps to check");
         return;
     }
 
     app.updates.scan.scan_status = ScanStatus::CheckingFailedMaps;
-    app.updates
-        .set_loading(format!("checking failed maps 0/{}...", ids.len()));
+    set_loading_message(
+        &mut app.updates.message,
+        format!("checking failed maps 0/{}...", ids.len()),
+    );
 
     let handle = tokio::spawn(async move {
         let client = match download::create_download_client() {
@@ -690,15 +703,19 @@ fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<Update
             }
         };
         let progress_tx = tx.clone();
-        let result =
-            download::check_mirror_availability_with_progress(&client, &ids, |checked, total| {
+        let result = download::check_mirror_availability(
+            &client,
+            &ids,
+            crate::config::constants::MIRROR_CHECK_URLS,
+            |checked, total| {
                 let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
                     generation,
                     checked,
                     total,
                 });
-            })
-            .await;
+            },
+        )
+        .await;
         failed_maps::remove_available(&path, &result.available);
         let _ = tx.send(UpdatesEvent::FailedMapRecheckComplete {
             generation,
@@ -814,24 +831,6 @@ impl CollectionBeatmapset {
             OsuClient::Lazer => snapshot.lazer_ids.contains(&u64::from(self.id)),
         }
     }
-}
-
-pub async fn fetch_and_compare(
-    client_type: OsuClient,
-    collection_ids: Vec<u32>,
-    local_beatmapsets: HashMap<u32, LocalBeatmapset>,
-    local_checksums: HashSet<String>,
-    snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
-) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
-    fetch_and_compare_with_progress(
-        client_type,
-        collection_ids,
-        local_beatmapsets,
-        local_checksums,
-        snapshot_diffs,
-        FetchCompareSettings::default(),
-    )
-    .await
 }
 
 pub async fn fetch_and_compare_with_progress(

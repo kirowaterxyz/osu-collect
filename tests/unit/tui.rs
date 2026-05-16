@@ -1,5 +1,5 @@
 use osu_collect::{
-    app::{App, CollectionPage, ConfigField},
+    app::{App, CollectionPage, ConfigField, messages::AppMessage},
     config::{Config, constants::CONFIG_TAB_INDEX},
     download::{DownloadEvent, DownloadStage, DownloadSummary},
     tui,
@@ -651,7 +651,7 @@ fn fetching_message_switches_active_beatmap_without_pre_emit() {
 #[test]
 fn footer_info_message_uses_info_color() {
     let mut app = App::new(Config::default());
-    app.home.set_info("ready");
+    app.home.message = Some(AppMessage::info("ready"));
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal

@@ -3,6 +3,7 @@ use super::{
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ConfigField, ConfigTab},
     home::{HomeField, HomeTab},
+    messages::{clear_expired_app_message, set_error_message, set_info_message},
     snapshots,
     updates::{UpdatesAction, UpdatesTab, extract_collection_id},
 };
@@ -136,7 +137,7 @@ impl App {
         match self.config.build_config() {
             Ok(new_config) => {
                 if let Err(err) = new_config.validate() {
-                    self.config.set_error(err.to_string());
+                    set_error_message(&mut self.config.message, err.to_string());
                     return;
                 }
 
@@ -146,25 +147,27 @@ impl App {
                             "Config saved to {} (applies on next launch)",
                             path.display()
                         );
-                        self.config.set_info(message);
+                        set_info_message(&mut self.config.message, message);
                     }
-                    Err(err) => self.config.set_error(err.to_string()),
+                    Err(err) => set_error_message(&mut self.config.message, err.to_string()),
                 }
             }
-            Err(err) => self.config.set_error(err),
+            Err(err) => set_error_message(&mut self.config.message, err),
         }
     }
 
     fn request_login(&mut self) -> Option<AppCommand> {
         if matches!(self.config.login_state, AuthLoginState::InProgress(_)) {
             self.config.set_login_failed();
-            self.config.set_info("login cancelled");
+            set_info_message(&mut self.config.message, "login cancelled");
             return Some(AppCommand::CancelLogin);
         }
 
         let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
-            self.config
-                .set_error("login unavailable - build without credentials");
+            set_error_message(
+                &mut self.config.message,
+                "login unavailable - build without credentials",
+            );
             return None;
         };
         self.config.set_login_in_progress();
@@ -181,7 +184,7 @@ impl App {
                 Some(AppCommand::Logout)
             }
             AuthLoginState::LoggedOut => {
-                self.config.set_info("already logged out");
+                set_info_message(&mut self.config.message, "already logged out");
                 None
             }
             AuthLoginState::InProgress(_) => None,
@@ -196,7 +199,7 @@ impl App {
         match self.home.build_request() {
             Ok(request) => {
                 if self.downloads.len() >= usize::MAX - 1 {
-                    self.home.set_error("Too many downloads queued");
+                    set_error_message(&mut self.home.message, "Too many downloads queued");
                     return None;
                 }
 
@@ -211,12 +214,12 @@ impl App {
                 self.downloads.push(page);
                 self.active_tab = STATIC_TABS + self.downloads.len() - 1;
 
-                self.home.set_info(&format!("Queued download #{id}"));
+                set_info_message(&mut self.home.message, format!("Queued download #{id}"));
 
                 Some((id, request))
             }
             Err(err) => {
-                self.home.set_error(&err);
+                set_error_message(&mut self.home.message, err);
                 None
             }
         }
@@ -278,10 +281,13 @@ impl App {
         self.downloads.push(page);
         self.active_tab = STATIC_TABS + self.downloads.len() - 1;
 
-        self.updates.set_info(format!(
-            "Queued update download #{id} ({} beatmaps)",
-            beatmapset_ids.len()
-        ));
+        set_info_message(
+            &mut self.updates.message,
+            format!(
+                "Queued update download #{id} ({} beatmaps)",
+                beatmapset_ids.len()
+            ),
+        );
 
         let config = DownloadConfig {
             directory,
@@ -503,9 +509,9 @@ impl App {
     }
 
     pub fn clear_expired_messages(&mut self) {
-        self.home.clear_expired_message();
-        self.updates.clear_expired_message();
-        self.config.clear_expired_message();
+        clear_expired_app_message(&mut self.home.message);
+        clear_expired_app_message(&mut self.updates.message);
+        clear_expired_app_message(&mut self.config.message);
         self.tick_count = self.tick_count.wrapping_add(1);
     }
 
@@ -699,11 +705,15 @@ impl App {
 
         let display = title.unwrap_or_else(|| format!("download #{download_id}"));
         if was_running {
-            self.home
-                .set_info(&format!("Cancelled download \"{}\"", display));
+            set_info_message(
+                &mut self.home.message,
+                format!("Cancelled download \"{}\"", display),
+            );
         } else {
-            self.home
-                .set_info(&format!("No active download to cancel for \"{}\"", display));
+            set_info_message(
+                &mut self.home.message,
+                format!("No active download to cancel for \"{}\"", display),
+            );
         }
     }
 

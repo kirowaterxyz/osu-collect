@@ -114,16 +114,24 @@ fn validation_cache_hit_and_miss() {
     let tracker = BeatmapTracker::default();
     let path = std::path::PathBuf::from("/tmp/test.osz");
 
-    assert!(tracker.check_validation_cache(&path, 1024, None).is_none());
+    assert!(
+        tracker
+            .check_validation_cache_with_identity(&path, 1024, None, None)
+            .is_none()
+    );
 
-    tracker.cache_validation_result(path.clone(), 1024, None, true);
+    tracker.cache_validation_result_with_identity(path.clone(), 1024, None, None, true);
     assert_eq!(
-        tracker.check_validation_cache(&path, 1024, None),
+        tracker.check_validation_cache_with_identity(&path, 1024, None, None),
         Some(true)
     );
 
-    tracker.invalidate_cache(&path);
-    assert!(tracker.check_validation_cache(&path, 1024, None).is_none());
+    tracker.invalidate_cache_with_identity(&path, None);
+    assert!(
+        tracker
+            .check_validation_cache_with_identity(&path, 1024, None, None)
+            .is_none()
+    );
 }
 
 #[test]

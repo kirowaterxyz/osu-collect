@@ -1,9 +1,6 @@
 use super::{
     home::InputField,
-    messages::{
-        AppMessage, clear_app_message, clear_expired_app_message, set_error_message,
-        set_info_message, set_loading_message,
-    },
+    messages::{AppMessage, clear_app_message, set_loading_message},
     next_field, prev_field,
 };
 use crate::config::{
@@ -153,7 +150,7 @@ impl ConfigTab {
     }
 
     pub fn handle_char(&mut self, ch: char) {
-        self.clear_message();
+        clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::MirrorCustomUrl => self.custom_mirror.value.push(ch),
             ConfigField::DownloadThreads if ch.is_ascii_digit() => {
@@ -165,7 +162,7 @@ impl ConfigTab {
     }
 
     pub fn backspace(&mut self) {
-        self.clear_message();
+        clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::MirrorCustomUrl => {
                 self.custom_mirror.value.pop();
@@ -181,7 +178,7 @@ impl ConfigTab {
     }
 
     pub fn toggle_current(&mut self) {
-        self.clear_message();
+        clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::MirrorNerinyan => self.nerinyan = !self.nerinyan,
             ConfigField::MirrorCatboyCentral => self.catboy_central = !self.catboy_central,
@@ -252,14 +249,6 @@ impl ConfigTab {
         })
     }
 
-    pub fn set_error(&mut self, message: impl Into<String>) {
-        set_error_message(&mut self.message, message);
-    }
-
-    pub fn set_info(&mut self, message: impl Into<String>) {
-        set_info_message(&mut self.message, message);
-    }
-
     pub fn set_loading(&mut self, message: impl Into<String>) {
         let text: String = message.into();
         self.login_state = AuthLoginState::InProgress(text.clone());
@@ -305,14 +294,6 @@ impl ConfigTab {
         if self.focus == ConfigField::LogoutEntry && !self.logout_selectable() {
             self.focus = ConfigField::LoginEntry;
         }
-    }
-
-    pub fn clear_message(&mut self) {
-        clear_app_message(&mut self.message);
-    }
-
-    pub fn clear_expired_message(&mut self) {
-        clear_expired_app_message(&mut self.message);
     }
 
     fn parse_concurrent(&self) -> Result<Option<u8>, String> {
@@ -396,7 +377,7 @@ fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::{app::messages::set_info_message, config::Config};
 
     fn tab_logged_out() -> ConfigTab {
         let mut tab = ConfigTab::new(&Config::default());
@@ -462,7 +443,7 @@ mod tests {
         assert!(matches!(tab.login_state, AuthLoginState::InProgress(_)));
 
         tab.set_login_failed();
-        tab.set_info("login cancelled");
+        set_info_message(&mut tab.message, "login cancelled");
 
         assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
         let msg = tab.message.as_ref().expect("info message preserved");

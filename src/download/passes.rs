@@ -371,10 +371,6 @@ impl FailureReport {
         self.mirror_failures.record(mirror, &reason);
     }
 
-    pub(crate) fn record_error(&mut self, beatmapset_id: u32, reason: String) {
-        self.record(beatmapset_id, reason, None);
-    }
-
     pub fn beatmaps(&self) -> &[(u32, String)] {
         &self.beatmaps
     }
@@ -656,7 +652,7 @@ impl<'a> PassCoordinator<'a> {
             Err(err) => {
                 self.totals.failed = self.totals.failed.saturating_add(1);
                 let message = err.to_string();
-                failures.record_error(beatmapset_id, message.clone());
+                failures.record(beatmapset_id, message.clone(), None);
                 warn!(
                     download_id = self.context.id,
                     beatmapset_id,

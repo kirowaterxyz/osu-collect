@@ -95,8 +95,9 @@ fn render_form(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         components::help_item("must contain {id}"),
         components::spacer(),
         components::section_header("logging"),
-        components::toggle_item(
+        components::row_item(
             "enable logging",
+            None,
             form.logging_enabled,
             form.focus == ConfigField::LoggingEnabled,
         ),

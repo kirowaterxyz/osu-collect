@@ -16,7 +16,7 @@ pub use client::{DownloadResult, create_download_client};
 pub use error::DownloadError;
 pub use lock::ActiveDownloadRegistry;
 pub use pipeline::{spawn_download, spawn_selective_download};
-pub use size_fetcher::{check_mirror_availability, check_mirror_availability_with_progress};
+pub use size_fetcher::check_mirror_availability;
 pub use tracker::BeatmapTracker;
 
 pub use crate::config::constants::status;

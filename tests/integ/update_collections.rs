@@ -149,12 +149,13 @@ mod tests {
         let local_checksums: HashSet<String> = all_checksums.into_iter().collect();
 
         let t_fetch = Instant::now();
-        let result = runtime::fetch_and_compare(
+        let result = runtime::fetch_and_compare_with_progress(
             OsuClient::Stable,
             collection_ids,
             local_beatmapsets,
             local_checksums,
             HashMap::new(),
+            runtime::FetchCompareSettings::default(),
         )
         .await;
 

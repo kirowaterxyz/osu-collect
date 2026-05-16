@@ -208,10 +208,6 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     ]))
 }
 
-pub fn toggle_item(label: &str, state: bool, focused: bool) -> ListItem<'static> {
-    row_item(label, None, state, focused)
-}
-
 pub fn cycle_item(
     label: &str,
     options: &[&str],

@@ -65,7 +65,7 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
 ///
 /// Handles `filename*=UTF-8''...` (RFC 5987) and `filename="..."` (RFC 2616).
 /// Backslash escapes inside quoted strings are decoded per RFC 2616 §2.2.
-pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String> {
+pub fn extract_filename_from_header(header_value: &str) -> Option<String> {
     let mut filename = None;
     let mut extended_filename = None;
 
@@ -191,11 +191,6 @@ fn parse_beatmapset_id_from_filename(name: &str) -> Option<u32> {
 ///
 /// Returns the download result and the number of retry attempts made.
 pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
-    let (result, attempts) = download_beatmapset_inner(params).await;
-    (result, attempts)
-}
-
-async fn download_beatmapset_inner(params: DownloadParams<'_>) -> (Result<DownloadResult>, u32) {
     if let Err(err) = tokio::fs::create_dir_all(params.output_dir).await {
         return (Err(DownloadError::io(err.to_string()).into()), 0);
     }
