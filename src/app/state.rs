@@ -3,7 +3,7 @@ use super::{
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ConfigField, ConfigTab},
     home::{HomeField, HomeTab},
-    messages::{clear_expired_app_message, set_error_message, set_info_message},
+    messages::{clear_expired_message, set_error_message, set_info_message},
     snapshots,
     updates::{UpdatesAction, UpdatesTab, extract_collection_id},
 };
@@ -206,8 +206,7 @@ impl App {
                 let id = self.next_download_id;
                 self.next_download_id += 1;
 
-                let placeholder_title =
-                    Self::placeholder_collection_title(&request.collection_input, id);
+                let placeholder_title = Self::placeholder_title(&request.collection_input, id);
                 let concurrent = usize::from(request.config.concurrent.max(1));
                 let mut page = CollectionPage::new(id, placeholder_title, concurrent);
                 page.stage = DownloadStage::Resolving;
@@ -509,9 +508,9 @@ impl App {
     }
 
     pub fn clear_expired_messages(&mut self) {
-        clear_expired_app_message(&mut self.home.message);
-        clear_expired_app_message(&mut self.updates.message);
-        clear_expired_app_message(&mut self.config.message);
+        clear_expired_message(&mut self.home.message);
+        clear_expired_message(&mut self.updates.message);
+        clear_expired_message(&mut self.config.message);
         self.tick_count = self.tick_count.wrapping_add(1);
     }
 
@@ -770,7 +769,7 @@ impl App {
         None
     }
 
-    fn placeholder_collection_title(input: &str, download_id: DownloadId) -> String {
+    fn placeholder_title(input: &str, download_id: DownloadId) -> String {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return format!("collection {download_id}");

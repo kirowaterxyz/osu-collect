@@ -55,7 +55,7 @@ impl FileSystemError {
         }
     }
 
-    pub fn contextual_with_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
+    pub fn contextual_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
         Self::Context {
             source: Some(source),
             message: message.into(),
@@ -128,8 +128,8 @@ impl AppError {
     }
 
     #[inline]
-    pub fn filesystem_context_with_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
-        AppError::FileSystem(FileSystemError::contextual_with_source(source, message))
+    pub fn filesystem_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
+        AppError::FileSystem(FileSystemError::contextual_source(source, message))
     }
 }
 

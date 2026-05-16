@@ -61,7 +61,7 @@ fn remove_pending_transitions_to_in_progress() {
 fn with_verified_separates_initial_states() {
     let pending: HashSet<u32> = [1, 2].into_iter().collect();
     let verified: HashSet<u32> = [3, 4].into_iter().collect();
-    let tracker = BeatmapTracker::with_verified(pending, verified);
+    let tracker = BeatmapTracker::verified(pending, verified);
 
     assert_eq!(tracker.pending_count(), 2);
     assert!(tracker.is_pending(1));
@@ -116,20 +116,20 @@ fn validation_cache_hit_and_miss() {
 
     assert!(
         tracker
-            .check_validation_cache_with_identity(&path, 1024, None, None)
+            .check_validation_cache(&path, 1024, None, None)
             .is_none()
     );
 
-    tracker.cache_validation_result_with_identity(path.clone(), 1024, None, None, true);
+    tracker.cache_validation_result(path.clone(), 1024, None, None, true);
     assert_eq!(
-        tracker.check_validation_cache_with_identity(&path, 1024, None, None),
+        tracker.check_validation_cache(&path, 1024, None, None),
         Some(true)
     );
 
-    tracker.invalidate_cache_with_identity(&path, None);
+    tracker.invalidate_cache(&path, None);
     assert!(
         tracker
-            .check_validation_cache_with_identity(&path, 1024, None, None)
+            .check_validation_cache(&path, 1024, None, None)
             .is_none()
     );
 }

@@ -5,7 +5,7 @@ pub mod logging;
 pub use error::{AppError, Result};
 pub use fs::{
     FileExistsAction, check_available_space, determine_file_exists_action, format_bytes,
-    is_low_disk_space, validate_and_prepare_directory,
+    is_low_disk_space, prepare_directory,
 };
 pub use logging::init_logging;
 

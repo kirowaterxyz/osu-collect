@@ -2,7 +2,7 @@
 mod tests {
     use crate::common::{create_temp_file, minimal_zip_bytes};
     use osu_collect::worker::io::ensure_valid_archive;
-    use osu_collect::{download::ShutdownToken, worker::io::download_with_streaming};
+    use osu_collect::{download::ShutdownToken, worker::io::stream_download};
     use std::time::Duration;
     use tokio::{io::AsyncWriteExt, net::TcpListener};
 
@@ -128,7 +128,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output_path = dir.path().join("123.osz");
         let response = reqwest::get(url).await.unwrap();
-        let result = download_with_streaming(
+        let result = stream_download(
             response,
             &output_path,
             Some(100),

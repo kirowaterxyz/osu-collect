@@ -105,7 +105,7 @@ fn resolve_log_dir(config: &LoggingConfig) -> Result<PathBuf> {
     };
 
     if let Err(err) = std::fs::create_dir_all(&path) {
-        return Err(AppError::filesystem_context_with_source(
+        return Err(AppError::filesystem_source(
             err,
             format!("failed to create log directory at {}", path.display()),
         ));

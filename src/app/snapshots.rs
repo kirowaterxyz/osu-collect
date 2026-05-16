@@ -204,7 +204,7 @@ pub fn current_snapshots(
         .collect()
 }
 
-pub fn beatmapset_in_deleted_snapshot(
+pub fn in_deleted_snapshot(
     client: OsuClient,
     beatmapset: &Beatmapset,
     deleted: &CollectionSnapshot,

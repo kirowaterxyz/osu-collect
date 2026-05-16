@@ -17,7 +17,7 @@ pub fn create_collection_db(
     collection_name: &str,
     output_dir: &Path,
 ) -> Result<()> {
-    create_collection_db_entries(
+    write_db_entries(
         &[CollectionDbEntry {
             name: collection_name.to_string(),
             beatmap_hashes: collection_hashes(collection),
@@ -26,10 +26,7 @@ pub fn create_collection_db(
     )
 }
 
-pub(crate) fn create_collection_db_entries(
-    entries: &[CollectionDbEntry],
-    output_dir: &Path,
-) -> Result<()> {
+pub(crate) fn write_db_entries(entries: &[CollectionDbEntry], output_dir: &Path) -> Result<()> {
     let collections = entries
         .iter()
         .map(|entry| {
@@ -84,7 +81,7 @@ fn write_collection_files(collection_list: CollectionList, output_dir: &Path) ->
 }
 
 /// Generate the folder name that will host the downloaded beatmaps.
-pub fn generate_collection_folder_name(collection: &Collection) -> String {
+pub fn folder_name(collection: &Collection) -> String {
     let sanitized_name = sanitize_filename(&collection.name);
     format!("{}-{}", sanitized_name, collection.id)
 }
@@ -160,7 +157,7 @@ mod tests {
             },
         ];
 
-        create_collection_db_entries(&entries, dir.path()).unwrap();
+        write_db_entries(&entries, dir.path()).unwrap();
 
         let db_path = dir.path().join("collection.db");
         let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();

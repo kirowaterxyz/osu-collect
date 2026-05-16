@@ -10,7 +10,7 @@ use osu_collect::windows_init;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
-    windows_init::relaunch_in_powershell_if_needed();
+    windows_init::relaunch_if_needed();
     #[cfg(windows)]
     windows_init::enable_ansi_support();
 

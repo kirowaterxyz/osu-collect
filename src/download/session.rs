@@ -6,10 +6,10 @@ use super::{
 };
 use crate::{
     core::collection::{
-        CollectionService, HttpCollectionService, generate_collection_folder_name,
+        CollectionService, HttpCollectionService, folder_name,
         model::{Collection, Uploader},
     },
-    utils::{self, validate_and_prepare_directory},
+    utils::{self, prepare_directory},
     worker::StatusSink,
 };
 use dashmap::DashSet;
@@ -195,8 +195,7 @@ impl DownloadSession {
             params.id,
         )
         .await?;
-        let output =
-            prepare_selective_output_directory(params.directory, params.collection_ids).await?;
+        let output = prepare_selective_output(params.directory, params.collection_ids).await?;
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
         let mut target_ids = params.beatmapset_ids.to_vec();
         target_ids.sort_unstable();
@@ -275,7 +274,7 @@ impl DownloadSession {
             .copied()
             .filter(|beatmap_id| !satisfied.contains(beatmap_id))
             .collect();
-        let tracker = BeatmapTracker::with_verified(pending_ids.clone(), satisfied);
+        let tracker = BeatmapTracker::verified(pending_ids.clone(), satisfied);
 
         params.status.target(params.id, pending_ids.len());
 
@@ -352,7 +351,7 @@ pub(crate) async fn prepare_output_dir_common(
         if trimmed.is_empty() { "." } else { trimmed }
     };
 
-    let base_dir = validate_and_prepare_directory(normalized).await?;
+    let base_dir = prepare_directory(normalized).await?;
     debug!(base = %base_dir.display(), "Validated base download directory");
 
     let output_dir = base_dir.join(folder_name);
@@ -370,11 +369,11 @@ async fn prepare_output_directory(
     directory: &str,
     collection: &Collection,
 ) -> Result<OutputPreparation, DownloadError> {
-    let folder_name = generate_collection_folder_name(collection);
+    let folder_name = folder_name(collection);
     prepare_output_dir_common(directory, &folder_name).await
 }
 
-pub(crate) async fn prepare_selective_output_directory(
+pub(crate) async fn prepare_selective_output(
     directory: &str,
     collection_ids: &[u32],
 ) -> Result<OutputPreparation, DownloadError> {

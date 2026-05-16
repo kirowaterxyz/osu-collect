@@ -9,7 +9,7 @@ use crate::{
     app::snapshots,
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, DIRECTORY_LOCK_FILE},
     core::collection::{
-        CollectionDbEntry, create_collection_db, create_collection_db_entries, model::Collection,
+        CollectionDbEntry, create_collection_db, model::Collection, write_db_entries,
     },
     mirrors::{Mirror, MirrorPool},
     utils::{AppError, check_available_space, is_low_disk_space},
@@ -261,7 +261,7 @@ async fn run_download_core(params: RunDownloadCoreParams) -> Result<(), Download
         );
     }
 
-    check_and_warn_low_disk_space(&status, id, &output.output_dir);
+    warn_low_disk_space(&status, id, &output.output_dir);
 
     let download_client = osu_downloader::http::create_download_client(None)
         .map_err(|e| DownloadError::internal(format!("failed to create download client: {e}")))?;
@@ -442,7 +442,7 @@ fn validate_mirrors(mirrors: &[Mirror]) -> Result<(), DownloadError> {
     Ok(())
 }
 
-fn check_and_warn_low_disk_space(status: &StatusSink, id: DownloadId, output_dir: &Path) {
+fn warn_low_disk_space(status: &StatusSink, id: DownloadId, output_dir: &Path) {
     if is_low_disk_space(output_dir)
         && let Some(available) = check_available_space(output_dir)
     {
@@ -466,7 +466,7 @@ fn emit_failed_maps(status: &StatusSink, id: DownloadId, failures: &FailureRepor
     });
 }
 
-fn create_selective_collection_database(
+fn create_collection_database(
     collection: &Collection,
     collections: &[super::SelectiveDownloadCollection],
     newly_downloaded: &std::collections::HashSet<u32>,
@@ -504,7 +504,7 @@ fn create_selective_collection_database(
         return Ok(());
     }
 
-    create_collection_db_entries(&entries, output_dir)
+    write_db_entries(&entries, output_dir)
 }
 
 async fn run_download(
@@ -659,7 +659,7 @@ async fn run_selective_download(
 
     if !newly_downloaded.is_empty() {
         let db_result = tokio::task::spawn_blocking(move || {
-            create_selective_collection_database(
+            create_collection_database(
                 &collection,
                 &selective_collections,
                 &newly_downloaded,
@@ -739,13 +739,7 @@ mod tests {
         // 10 newly downloaded; 20 requested but failed; 30 was pre-existing (not in newly_downloaded)
         let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
 
-        create_selective_collection_database(
-            &collection,
-            &selective,
-            &newly_downloaded,
-            dir.path(),
-        )
-        .unwrap();
+        create_collection_database(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
         let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
             .unwrap();
@@ -776,13 +770,7 @@ mod tests {
         ];
         let newly_downloaded: HashSet<u32> = [10, 20].into_iter().collect();
 
-        create_selective_collection_database(
-            &collection,
-            &selective,
-            &newly_downloaded,
-            dir.path(),
-        )
-        .unwrap();
+        create_collection_database(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
         let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
             .unwrap();
@@ -821,13 +809,7 @@ mod tests {
         let selective = vec![make_selective(1, "my-api-name-123", vec![10])];
         let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
 
-        create_selective_collection_database(
-            &collection,
-            &selective,
-            &newly_downloaded,
-            dir.path(),
-        )
-        .unwrap();
+        create_collection_database(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
         let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
             .unwrap();
@@ -841,13 +823,7 @@ mod tests {
         let selective = vec![make_selective(1, "some-collection", vec![10])];
         let newly_downloaded: HashSet<u32> = HashSet::new();
 
-        create_selective_collection_database(
-            &collection,
-            &selective,
-            &newly_downloaded,
-            dir.path(),
-        )
-        .unwrap();
+        create_collection_database(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
         assert!(
             !dir.path().join("collection.db").exists(),
@@ -882,13 +858,7 @@ mod tests {
         // only 10 downloaded; 20 failed
         let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
 
-        create_selective_collection_database(
-            &collection,
-            &selective,
-            &newly_downloaded,
-            dir.path(),
-        )
-        .unwrap();
+        create_collection_database(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
         let list = osu_db::collection::CollectionList::from_file(dir.path().join("collection.db"))
             .unwrap();

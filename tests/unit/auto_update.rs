@@ -1,6 +1,6 @@
 use osu_collect::auto_update::{
-    AutoUpdateError, DownloadedAsset, apply_update_to, check_and_apply_with_client,
-    spawn_background_update_with, target_asset_name, update_banner, verify_checksum,
+    AutoUpdateError, DownloadedAsset, apply_update_to, check_release, spawn_update_task,
+    target_asset_name, update_banner, verify_checksum,
 };
 use reqwest::Client;
 use sha2::{Digest, Sha256};
@@ -80,7 +80,7 @@ async fn spawn_background_update_with_calls_update_fn() {
     let ran = Arc::new(AtomicBool::new(false));
     let ran_flag = ran.clone();
 
-    let handle = spawn_background_update_with(move || async move {
+    let handle = spawn_update_task(move || async move {
         ran_flag.store(true, Ordering::SeqCst);
         Ok(Some("done".into()))
     });
@@ -197,7 +197,7 @@ async fn check_and_apply_with_client_runs_hooks_on_update() {
     let callback_flag = callback_ran.clone();
     let applier_flag = applier_ran.clone();
 
-    let result = check_and_apply_with_client(
+    let result = check_release(
         &client,
         &release_url,
         move || callback_flag.store(true, Ordering::SeqCst),
@@ -249,7 +249,7 @@ async fn check_and_apply_with_client_skips_when_current() {
     let callback_flag = callback_ran.clone();
     let applier_flag = applier_ran.clone();
 
-    let result = check_and_apply_with_client(
+    let result = check_release(
         &client,
         &release_url,
         move || callback_flag.store(true, Ordering::SeqCst),

@@ -8,10 +8,7 @@ use crate::{
     },
     worker::{
         DownloadContext,
-        io::{
-            ArchiveValidationOptions, download_with_streaming, ensure_valid_archive,
-            validate_archive,
-        },
+        io::{ArchiveValidationOptions, ensure_valid_archive, stream_download, validate_archive},
     },
 };
 use std::{
@@ -103,7 +100,7 @@ pub async fn download_beatmap(
         for mirror in pending.iter() {
             check_shutdown!(context.shutdown);
 
-            match try_mirror_with_transient_retry(
+            match try_mirror_retry(
                 beatmapset_id,
                 mirror,
                 context,
@@ -195,7 +192,7 @@ pub async fn download_beatmap(
     Ok(last_error.unwrap_or_else(|| DownloadResult::failed(None, "All mirrors failed")))
 }
 
-async fn try_mirror_with_transient_retry(
+async fn try_mirror_retry(
     beatmapset_id: u32,
     mirror: &Mirror,
     context: &DownloadContext,
@@ -379,7 +376,7 @@ async fn process_mirror_response(
         ));
     }
 
-    let filename = extract_filename_from_response(&response, beatmapset_id)?;
+    let filename = extract_filename(&response, beatmapset_id)?;
     let sanitized_filename = sanitize_filename_safe(&filename, beatmapset_id);
     let output_path = context.output_dir.join(&sanitized_filename);
 
@@ -414,7 +411,7 @@ async fn process_mirror_response(
         }
     }
 
-    write_and_verify_archive(
+    write_archive(
         mirror,
         response,
         context,
@@ -426,7 +423,7 @@ async fn process_mirror_response(
     .await
 }
 
-async fn write_and_verify_archive(
+async fn write_archive(
     mirror: &Mirror,
     response: reqwest::Response,
     context: &DownloadContext,
@@ -437,7 +434,7 @@ async fn write_and_verify_archive(
 ) -> Result<DownloadResult> {
     context.cleanup_tracker.track(&output_path);
 
-    let stream = match download_with_streaming(
+    let stream = match stream_download(
         response,
         &output_path,
         content_length,
@@ -528,10 +525,7 @@ fn is_archive_content_type(raw: &str) -> bool {
     )
 }
 
-fn extract_filename_from_response(
-    response: &reqwest::Response,
-    beatmapset_id: u32,
-) -> Result<String> {
+fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> Result<String> {
     let filename = response
         .headers()
         .get(reqwest::header::CONTENT_DISPOSITION)

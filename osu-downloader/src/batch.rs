@@ -79,7 +79,7 @@ pub async fn download_batch(
         let config = config.clone();
 
         let handle = tokio::spawn(async move {
-            let result = download_single_with_events(
+            let result = download_one(
                 beatmapset_id,
                 &output_dir,
                 &client,
@@ -172,7 +172,7 @@ fn deduplicate_ids(ids: Vec<u32>) -> Vec<u32> {
 }
 
 /// Download a single beatmapset and emit events
-async fn download_single_with_events(
+async fn download_one(
     beatmapset_id: u32,
     output_dir: &Path,
     client: &reqwest::Client,
@@ -354,7 +354,7 @@ mod tests {
             let _ = cancel_tx2.send(true);
         });
 
-        let _ = download_single_with_events(
+        let _ = download_one(
             999_999_999,
             dir.path(),
             &client,

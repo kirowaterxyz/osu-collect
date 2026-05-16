@@ -203,12 +203,12 @@ impl Mirror {
     }
 
     /// Attach HTTP headers to requests sent through this mirror.
-    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+    pub fn set_headers(mut self, headers: HeaderMap) -> Self {
         self.headers = Some(headers);
         self
     }
 
-    pub(crate) fn with_no_video(self, no_video: bool) -> Self {
+    pub(crate) fn video(self, no_video: bool) -> Self {
         match Self::builtin(self.kind, no_video) {
             Some(mut mirror) => {
                 mirror.headers = self.headers;

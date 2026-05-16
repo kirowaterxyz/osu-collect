@@ -39,7 +39,7 @@ pub struct DownloadStreamResult {
 /// - Calls progress callback periodically
 /// - Handles cancellation and timeouts
 /// - Cleans up on error
-pub async fn download_with_streaming(
+pub async fn stream_download(
     response: reqwest::Response,
     output_path: &Path,
     content_length: Option<u64>,

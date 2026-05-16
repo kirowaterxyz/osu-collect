@@ -22,14 +22,14 @@ where
         .timeout(Duration::from_secs(15))
         .build()?;
 
-    check_and_apply_with_client(&client, RELEASES_URL, on_update_found, |asset| async move {
+    check_release(&client, RELEASES_URL, on_update_found, |asset| async move {
         apply_update(&asset).await
     })
     .await
 }
 
 #[doc(hidden)]
-pub async fn check_and_apply_with_client<F, A, Fut>(
+pub async fn check_release<F, A, Fut>(
     client: &Client,
     releases_url: &str,
     on_update_found: F,
@@ -90,11 +90,11 @@ where
 }
 
 pub fn spawn_background_update() {
-    let handle = spawn_background_update_with(|| check_and_apply(print_update_banner));
+    let handle = spawn_update_task(|| check_and_apply(print_update_banner));
     drop(handle);
 }
 
-pub fn spawn_background_update_with<Fut>(
+pub fn spawn_update_task<Fut>(
     update_fn: impl FnOnce() -> Fut + Send + 'static,
 ) -> tokio::task::JoinHandle<()>
 where

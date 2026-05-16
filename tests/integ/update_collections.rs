@@ -149,7 +149,7 @@ mod tests {
         let local_checksums: HashSet<String> = all_checksums.into_iter().collect();
 
         let t_fetch = Instant::now();
-        let result = runtime::fetch_and_compare_with_progress(
+        let result = runtime::fetch_missing_beatmapsets(
             OsuClient::Stable,
             collection_ids,
             local_beatmapsets,

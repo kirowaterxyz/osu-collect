@@ -344,7 +344,7 @@ async fn scan_candidates(
         }
 
         let path = entry.path();
-        let Some(beatmapset_id) = extract_beatmapset_id_from_filename(&path) else {
+        let Some(beatmapset_id) = extract_beatmapset_id(&path) else {
             debug!(file = %path.display(), "Could not extract beatmapset ID from filename");
             continue;
         };
@@ -487,13 +487,13 @@ fn detect_changed_beatmapsets(
             Some(current) => {
                 if (previous.size != current.size
                     || previous.modified_micros != current.modified_micros)
-                    && let Some(id) = extract_beatmapset_id_from_filename(Path::new(name))
+                    && let Some(id) = extract_beatmapset_id(Path::new(name))
                 {
                     changes.insert(id);
                 }
             }
             None => {
-                if let Some(id) = extract_beatmapset_id_from_filename(Path::new(name)) {
+                if let Some(id) = extract_beatmapset_id(Path::new(name)) {
                     changes.insert(id);
                 }
             }
@@ -502,7 +502,7 @@ fn detect_changed_beatmapsets(
 
     for name in final_map.keys() {
         if !initial_map.contains_key(name)
-            && let Some(id) = extract_beatmapset_id_from_filename(Path::new(name))
+            && let Some(id) = extract_beatmapset_id(Path::new(name))
         {
             changes.insert(id);
         }
@@ -549,7 +549,7 @@ fn is_orphan_temp_name(name: &OsStr) -> bool {
 }
 
 #[inline]
-pub(crate) fn extract_beatmapset_id_from_filename(path: &Path) -> Option<u32> {
+pub(crate) fn extract_beatmapset_id(path: &Path) -> Option<u32> {
     let filename = path.file_stem()?.to_str()?;
     let mut chars = filename.chars().peekable();
     let mut id = String::new();
@@ -605,22 +605,13 @@ mod tests {
 
     #[test]
     fn extracts_exact_prefixed_beatmapset_ids() {
+        assert_eq!(extract_beatmapset_id(Path::new("123.osz")), Some(123));
         assert_eq!(
-            extract_beatmapset_id_from_filename(Path::new("123.osz")),
+            extract_beatmapset_id(Path::new("123 artist.osz")),
             Some(123)
         );
-        assert_eq!(
-            extract_beatmapset_id_from_filename(Path::new("123 artist.osz")),
-            Some(123)
-        );
-        assert_eq!(
-            extract_beatmapset_id_from_filename(Path::new("1234.osz")),
-            Some(1234)
-        );
-        assert_eq!(
-            extract_beatmapset_id_from_filename(Path::new("123abc.osz")),
-            None
-        );
+        assert_eq!(extract_beatmapset_id(Path::new("1234.osz")), Some(1234));
+        assert_eq!(extract_beatmapset_id(Path::new("123abc.osz")), None);
     }
 
     #[tokio::test]

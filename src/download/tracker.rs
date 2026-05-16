@@ -136,7 +136,7 @@ impl BeatmapTracker {
         }
     }
 
-    pub fn with_verified(initial: HashSet<u32>, verified: HashSet<u32>) -> Self {
+    pub fn verified(initial: HashSet<u32>, verified: HashSet<u32>) -> Self {
         let total_capacity = initial.len() + verified.len();
         let counters = Arc::new(TrackerCounters::default());
         let inner = Arc::new(DashMap::with_capacity(total_capacity));
@@ -259,7 +259,7 @@ impl BeatmapTracker {
             .collect()
     }
 
-    pub fn check_validation_cache_with_identity(
+    pub fn check_validation_cache(
         &self,
         path: &Path,
         size: u64,
@@ -270,7 +270,7 @@ impl BeatmapTracker {
         self.validation_cache.get(&key).map(|entry| *entry)
     }
 
-    pub fn cache_validation_result_with_identity(
+    pub fn cache_validation_result(
         &self,
         path: PathBuf,
         size: u64,
@@ -287,7 +287,7 @@ impl BeatmapTracker {
         self.validation_cache.clear();
     }
 
-    pub fn invalidate_cache_with_identity(&self, path: &Path, file_id: Option<FileIdentity>) {
+    pub fn invalidate_cache(&self, path: &Path, file_id: Option<FileIdentity>) {
         self.validation_cache.retain(|key, _| match key {
             ValidationCacheKey::Path {
                 path: cached_path, ..

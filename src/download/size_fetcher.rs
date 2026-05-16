@@ -174,7 +174,7 @@ async fn fetch_single_size(client: &Client, beatmapset_id: u32) -> Option<u64> {
 /// HEAD requests alone are unreliable as some mirrors return 200 for error pages.
 /// Probe one mirror URL, following redirects up to `MAX_REDIRECTS` and retrying
 /// transient errors up to `MIRROR_RETRIES` times.
-async fn probe_with_redirects(client: &Client, beatmapset_id: u32, template: &str) -> bool {
+async fn probe_redirects(client: &Client, beatmapset_id: u32, template: &str) -> bool {
     let mut url = template.replace("{id}", &beatmapset_id.to_string());
     let mut redirects_remaining = MAX_REDIRECTS;
     let mut retries_remaining = MIRROR_RETRIES;
@@ -209,7 +209,7 @@ pub async fn check_availability_on_urls(
 ) -> bool {
     let mut probes: FuturesUnordered<_> = urls
         .iter()
-        .map(|template| probe_with_redirects(client, beatmapset_id, template))
+        .map(|template| probe_redirects(client, beatmapset_id, template))
         .collect();
 
     while let Some(available) = probes.next().await {

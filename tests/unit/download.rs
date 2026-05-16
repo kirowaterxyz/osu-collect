@@ -87,7 +87,7 @@ mod tracker_tests {
         let pending: HashSet<u32> = [1, 2].into_iter().collect();
         let pre_verified: HashSet<u32> = [3, 4].into_iter().collect();
 
-        let tracker = BeatmapTracker::with_verified(pending, pre_verified);
+        let tracker = BeatmapTracker::verified(pending, pre_verified);
 
         assert!(tracker.is_pending(1));
         assert!(tracker.is_pending(2));

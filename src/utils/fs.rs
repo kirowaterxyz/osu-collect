@@ -41,7 +41,7 @@ pub fn determine_file_exists_action(auto_overwrite: bool) -> FileExistsAction {
     }
 }
 
-pub async fn validate_and_prepare_directory(directory: &str) -> Result<PathBuf> {
+pub async fn prepare_directory(directory: &str) -> Result<PathBuf> {
     let expanded_path = if let Some(stripped) = directory.strip_prefix("~/") {
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(stripped)
@@ -59,7 +59,7 @@ pub async fn validate_and_prepare_directory(directory: &str) -> Result<PathBuf> 
                 expanded_path.display(),
                 err
             );
-            AppError::filesystem_context_with_source(err, message.into_boxed_str())
+            AppError::filesystem_source(err, message.into_boxed_str())
         })?;
     }
 
@@ -83,10 +83,7 @@ pub async fn validate_and_prepare_directory(directory: &str) -> Result<PathBuf> 
                 expanded_path.display(),
                 err
             );
-            Err(AppError::filesystem_context_with_source(
-                err,
-                message.into_boxed_str(),
-            ))
+            Err(AppError::filesystem_source(err, message.into_boxed_str()))
         }
     }
 }

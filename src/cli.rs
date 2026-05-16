@@ -185,7 +185,7 @@ pub async fn run_update_collections(
     info!("fetching collections from API");
     let t_fetch = Instant::now();
 
-    let (missing, collection_seen) = runtime::fetch_and_compare_with_progress(
+    let (missing, collection_seen) = runtime::fetch_missing_beatmapsets(
         args.client,
         collection_ids.clone(),
         local_beatmapsets.clone(),

@@ -3,7 +3,7 @@
 use crate::{
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation,
-    worker::download_with_streaming,
+    worker::stream_download,
     DownloadError, DownloadResult, Result, SkipReason,
 };
 use std::{
@@ -153,8 +153,8 @@ fn decode_quoted_string(s: &str) -> String {
     out
 }
 
-fn matches_beatmapset_file_name(beatmapset_id: u32, name: &str) -> bool {
-    parse_beatmapset_id_from_filename(name) == Some(beatmapset_id)
+fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
+    parse_beatmapset_id(name) == Some(beatmapset_id)
 }
 
 /// Scan `dir` and return the set of beatmapset IDs that already have a file present.
@@ -166,14 +166,14 @@ pub async fn present_beatmapset_ids(dir: &Path) -> std::collections::HashSet<u32
     while let Ok(Some(entry)) = read_dir.next_entry().await {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if let Some(id) = parse_beatmapset_id_from_filename(&name) {
+        if let Some(id) = parse_beatmapset_id(&name) {
             ids.insert(id);
         }
     }
     ids
 }
 
-fn parse_beatmapset_id_from_filename(name: &str) -> Option<u32> {
+fn parse_beatmapset_id(name: &str) -> Option<u32> {
     let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;
@@ -201,7 +201,7 @@ pub async fn download_beatmapset(params: DownloadParams<'_>) -> (Result<Download
                 Ok(Some(entry)) => {
                     let name = entry.file_name();
                     let name = name.to_string_lossy();
-                    if matches_beatmapset_file_name(params.beatmapset_id, &name) {
+                    if matches_beatmapset(params.beatmapset_id, &name) {
                         debug!(
                             "beatmapset {} already exists ({}), skipping",
                             params.beatmapset_id, name
@@ -429,7 +429,7 @@ async fn try_mirror(mirror: &Mirror, params: &DownloadParams<'_>) -> Result<Mirr
     let output_path = params.output_dir.join(&filename);
 
     let temp_path = temp_path_for(&output_path);
-    let stream_result = match download_with_streaming(
+    let stream_result = match stream_download(
         response,
         &temp_path,
         content_length,
@@ -633,11 +633,11 @@ mod tests {
 
     #[test]
     fn matches_exact_beatmapset_file_names() {
-        assert!(matches_beatmapset_file_name(123, "123.osz"));
-        assert!(matches_beatmapset_file_name(123, "123 artist.osz"));
-        assert!(!matches_beatmapset_file_name(123, "1234.osz"));
-        assert!(!matches_beatmapset_file_name(123, "123artist.osz"));
-        assert!(!matches_beatmapset_file_name(123, "123 artist.zip"));
+        assert!(matches_beatmapset(123, "123.osz"));
+        assert!(matches_beatmapset(123, "123 artist.osz"));
+        assert!(!matches_beatmapset(123, "1234.osz"));
+        assert!(!matches_beatmapset(123, "123artist.osz"));
+        assert!(!matches_beatmapset(123, "123 artist.zip"));
     }
 
     #[tokio::test]

@@ -98,7 +98,7 @@ impl DownloaderBuilder {
 
     /// Override the HTTP client.
     #[cfg(any(test, feature = "test-helpers"))]
-    pub fn with_client(mut self, client: reqwest::Client) -> Self {
+    pub fn client(mut self, client: reqwest::Client) -> Self {
         self.http_client_override = Some(client);
         self
     }
@@ -130,7 +130,7 @@ impl DownloaderBuilder {
         let mirrors = self
             .mirrors
             .into_iter()
-            .map(|mirror| mirror.with_no_video(self.no_video))
+            .map(|mirror| mirror.video(self.no_video))
             .collect();
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -397,7 +397,7 @@ mod tests {
         );
 
         let downloader = Downloader::builder()
-            .mirror(Mirror::nerinyan().with_headers(headers.clone()))
+            .mirror(Mirror::nerinyan().set_headers(headers.clone()))
             .no_video(true)
             .build()
             .unwrap();

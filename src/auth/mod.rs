@@ -246,10 +246,10 @@ pub async fn client_credentials(
 ) -> Result<TokenResponse> {
     let params = client_credentials_params(client_id, client_secret);
 
-    client_credentials_with_url(client, OSU_TOKEN_URL, &params).await
+    request_token(client, OSU_TOKEN_URL, &params).await
 }
 
-async fn client_credentials_with_url(
+async fn request_token(
     client: &reqwest::Client,
     token_url: &str,
     params: &[(&str, &str)],

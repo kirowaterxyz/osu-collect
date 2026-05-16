@@ -122,7 +122,7 @@ impl Drop for TempFileGuard {
     }
 }
 
-pub async fn download_with_streaming(
+pub async fn stream_download(
     response: reqwest::Response,
     output_path: &Path,
     content_length: Option<u64>,

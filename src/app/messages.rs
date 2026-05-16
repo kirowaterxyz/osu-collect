@@ -57,7 +57,7 @@ pub(crate) fn clear_app_message(slot: &mut Option<AppMessage>) {
     *slot = None;
 }
 
-pub(crate) fn clear_expired_app_message(slot: &mut Option<AppMessage>) {
+pub(crate) fn clear_expired_message(slot: &mut Option<AppMessage>) {
     if slot.as_ref().is_some_and(AppMessage::is_expired) {
         *slot = None;
     }

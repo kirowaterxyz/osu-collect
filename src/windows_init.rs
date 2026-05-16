@@ -28,7 +28,7 @@ pub fn enable_ansi_support() {
 pub fn enable_ansi_support() {}
 
 #[cfg(windows)]
-pub fn relaunch_in_powershell_if_needed() {
+pub fn relaunch_if_needed() {
     use std::os::windows::process::CommandExt;
 
     if !is_launched_from_explorer() {
@@ -50,7 +50,7 @@ pub fn relaunch_in_powershell_if_needed() {
 }
 
 #[cfg(not(windows))]
-pub fn relaunch_in_powershell_if_needed() {}
+pub fn relaunch_if_needed() {}
 
 #[cfg(windows)]
 fn is_launched_from_explorer() -> bool {

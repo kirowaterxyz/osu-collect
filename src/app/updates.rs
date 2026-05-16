@@ -276,7 +276,7 @@ impl UpdatesTab {
         if self.selection.in_collection_list {
             self.selection.in_collection_list = false;
             // Filter cached beatmaps based on newly selected collections
-            self.filter_missing_from_cache();
+            self.filter_cached();
             return Some(UpdatesAction::None);
         }
 
@@ -519,7 +519,7 @@ impl UpdatesTab {
                 beatmap
             })
             .collect();
-        self.filter_missing_from_cache();
+        self.filter_cached();
     }
 
     fn selected_collection_id_set(&self) -> HashSet<u64> {
@@ -530,7 +530,7 @@ impl UpdatesTab {
             .collect()
     }
 
-    pub fn filter_missing_from_cache(&mut self) {
+    pub fn filter_cached(&mut self) {
         let selected_ids = self.selected_collection_id_set();
 
         self.selection.visible_missing = self

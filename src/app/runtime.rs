@@ -414,7 +414,7 @@ fn handle_updates_event(
                 return;
             }
 
-            spawn_fetch_and_compare_task(app, selected_ids, updates_tx.clone());
+            spawn_fetch_task(app, selected_ids, updates_tx.clone());
         }
         UpdatesEvent::Progress {
             generation,
@@ -726,7 +726,7 @@ fn spawn_failed_map_recheck_task(app: &mut App, tx: mpsc::UnboundedSender<Update
     app.scan_handle = Some(handle);
 }
 
-fn spawn_fetch_and_compare_task(
+fn spawn_fetch_task(
     app: &mut App,
     selected_ids: Vec<u64>,
     tx: mpsc::UnboundedSender<UpdatesEvent>,
@@ -767,7 +767,7 @@ fn spawn_fetch_and_compare_task(
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
     let handle = tokio::spawn(async move {
-        let result = fetch_and_compare_with_progress(
+        let result = fetch_missing_beatmapsets(
             client_type,
             selected_collection_ids,
             local_beatmapsets,
@@ -833,7 +833,7 @@ impl CollectionBeatmapset {
     }
 }
 
-pub async fn fetch_and_compare_with_progress(
+pub async fn fetch_missing_beatmapsets(
     client_type: OsuClient,
     collection_ids: Vec<u32>,
     local_beatmapsets: HashMap<u32, LocalBeatmapset>,
