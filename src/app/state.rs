@@ -622,6 +622,9 @@ impl App {
                         page.indeterminate_anim_start.set(None);
                     }
                     page.stage = stage;
+                    if matches!(stage, DownloadStage::Completed | DownloadStage::Failed) {
+                        page.active_downloads.clear();
+                    }
                 }
             }
             DownloadEvent::BeatmapVerified { id, duration_us } => {
@@ -648,6 +651,7 @@ impl App {
                     page.stage = DownloadStage::Failed;
                     page.push_log(&format!("Error: {message}"));
                     page.summary = None;
+                    page.active_downloads.clear();
                 }
             }
         }

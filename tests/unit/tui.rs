@@ -639,6 +639,43 @@ fn active_progress_is_per_beatmapset() {
 }
 
 #[test]
+fn terminal_stage_clears_active_downloads() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.update_active_status(
+        100,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #100",
+        false,
+    );
+    app.downloads.push(page);
+
+    app.handle_download_event(DownloadEvent::Failed {
+        id: 1,
+        message: "boom".into(),
+    });
+    assert!(
+        app.downloads[0].active_downloads.is_empty(),
+        "active_downloads must be cleared on Failed"
+    );
+
+    app.downloads[0].update_active_status(
+        101,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #101",
+        false,
+    );
+    app.handle_download_event(DownloadEvent::StageChanged {
+        id: 1,
+        stage: DownloadStage::Completed,
+    });
+    assert!(
+        app.downloads[0].active_downloads.is_empty(),
+        "active_downloads must be cleared on StageChanged Completed"
+    );
+}
+
+#[test]
 fn footer_info_message_uses_info_color() {
     let mut app = App::new(Config::default());
     app.home.message = Some(AppMessage::info("ready"));
