@@ -196,7 +196,7 @@ impl App {
     }
 
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
-        match self.home.build_request() {
+        match self.home.build_request(self.config.verify_zip_eocd) {
             Ok(request) => {
                 if self.downloads.len() >= usize::MAX - 1 {
                     set_error_message(&mut self.home.message, "Too many downloads queued");
@@ -292,7 +292,7 @@ impl App {
             directory,
             mirrors,
             concurrent,
-            verify_zip_eocd: self.home.verify_zip_eocd,
+            verify_zip_eocd: self.config.verify_zip_eocd,
         };
 
         let beatmapsets: Vec<_> = self

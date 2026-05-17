@@ -73,7 +73,6 @@ pub struct HomeTab {
     pub sayobot: bool,
     pub nekoha: bool,
     pub no_video: bool,
-    pub verify_zip_eocd: bool,
     pub focus: HomeField,
     pub message: Option<AppMessage>,
     pub quit_prompt: bool,
@@ -129,7 +128,6 @@ impl HomeTab {
             sayobot,
             nekoha,
             no_video: config.download.no_video,
-            verify_zip_eocd: config.download.verify_zip_eocd,
             focus: HomeField::Collection,
             message: None,
             quit_prompt: false,
@@ -233,7 +231,7 @@ impl HomeTab {
         mirrors
     }
 
-    pub fn build_request(&self) -> Result<DownloadRequest, String> {
+    pub fn build_request(&self, verify_zip_eocd: bool) -> Result<DownloadRequest, String> {
         let collection_input = self.collection.value.trim();
         if collection_input.is_empty() {
             return Err("Collection ID or URL is required".to_string());
@@ -264,7 +262,7 @@ impl HomeTab {
             directory,
             mirrors,
             concurrent: threads_value,
-            verify_zip_eocd: self.verify_zip_eocd,
+            verify_zip_eocd,
         };
 
         Ok(DownloadRequest {
