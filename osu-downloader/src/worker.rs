@@ -207,11 +207,10 @@ pub async fn stream_download(
 
     flush_download(&mut file, &mut hash_worker, &temp_path, &cancel_rx).await?;
 
-    if let Some(ref callback) = progress_callback {
-        if downloaded != last_progress_bytes {
-            callback(downloaded, total);
-        }
-    }
+    // intentionally NOT emitting a final progress(downloaded=total) here. the caller's next
+    // event will be `Verifying`, which is the real "body done" signal; pushing 100% in between
+    // causes a one-frame full-bar flash in TUI consumers that render between every event.
+    let _ = last_progress_bytes;
 
     let hash = match hash_worker.take() {
         Some(worker) => Some(worker.finalize().await?),
