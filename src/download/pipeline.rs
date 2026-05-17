@@ -565,7 +565,7 @@ fn emit_status(
         ),
         BeatmapsetStatusEvent::Verifying { mirror } => (
             format!("verifying from {}", mirror.label()),
-            BeatmapStage::Downloading,
+            BeatmapStage::Verifying,
             false,
         ),
         BeatmapsetStatusEvent::RateLimited { mirror, cooldown } => (

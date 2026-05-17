@@ -9,7 +9,7 @@ use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
 
-const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
+const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Default)]
 struct DisplayedStatus {
@@ -25,6 +25,7 @@ fn non_empty_status(stage: BeatmapStage, beatmapset_id: u32, message: &str) -> S
     match stage {
         BeatmapStage::Pending => format!("queued #{beatmapset_id}"),
         BeatmapStage::Downloading => format!("Downloading #{beatmapset_id}"),
+        BeatmapStage::Verifying => format!("verifying #{beatmapset_id}"),
         BeatmapStage::Success => format!("done #{beatmapset_id}"),
         BeatmapStage::Skipped => format!("skipped #{beatmapset_id}"),
         BeatmapStage::Failed => format!("failed #{beatmapset_id}"),
@@ -61,10 +62,15 @@ pub struct FailedBeatmap {
 #[derive(Debug, Clone)]
 pub struct ActiveDownloadLine {
     pub beatmapset_id: u32,
+    /// drives bar visibility and slot reuse; updated immediately on every status event so
+    /// `first_free_slot` / `should_show_bar` see reality without lag.
     pub stage: BeatmapStage,
-    pending: DisplayedStatus,
+    pending: RefCell<DisplayedStatus>,
     displayed: RefCell<DisplayedStatus>,
+    /// when `pending` is allowed to flip into `displayed`. `None` means `displayed` is current.
     debounce_at: Cell<Option<Instant>>,
+    /// last time `displayed` was written. enforces a 50ms min gap between text updates.
+    last_applied: Cell<Option<Instant>>,
     pub downloaded: u64,
     pub total: u64,
     bytes_for_speed: u64,
@@ -77,9 +83,10 @@ impl ActiveDownloadLine {
         Self {
             beatmapset_id,
             stage: BeatmapStage::Downloading,
-            pending: DisplayedStatus::default(),
+            pending: RefCell::default(),
             displayed: RefCell::default(),
             debounce_at: Cell::new(None),
+            last_applied: Cell::new(None),
             downloaded: 0,
             total: 0,
             bytes_for_speed: 0,
@@ -103,21 +110,35 @@ impl ActiveDownloadLine {
     }
 
     fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
+        // stage is structural (bar / slot reuse) and updates immediately. the *text* shown to
+        // the user is rate-limited to one write per STATUS_DEBOUNCE for all stages — rapid
+        // changes (download → verify → success in <50ms) coalesce to the last write.
         self.stage = stage;
-        self.pending = DisplayedStatus {
+        let next = DisplayedStatus {
             message: non_empty_status(stage, self.beatmapset_id, message),
             rate_limited,
         };
-        *self.displayed.borrow_mut() = self.pending.clone();
-        self.debounce_at.set(None);
+        *self.pending.borrow_mut() = next.clone();
+
+        let now = Instant::now();
+        let elapsed = self
+            .last_applied
+            .get()
+            .map_or(Duration::MAX, |t| now.saturating_duration_since(t));
+        if elapsed >= STATUS_DEBOUNCE {
+            *self.displayed.borrow_mut() = next;
+            self.last_applied.set(Some(now));
+            self.debounce_at.set(None);
+        } else {
+            let last = self.last_applied.get().unwrap();
+            self.debounce_at.set(Some(last + STATUS_DEBOUNCE));
+        }
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
         (self.total > 0).then(|| (self.downloaded as f32 / self.total as f32).clamp(0.0, 1.0))
     }
 
-    /// Resolved message shown to the user. Non-Downloading transitions are debounced
-    /// for [`STATUS_DEBOUNCE`] so quick handshake → retry → download flickers coalesce.
     pub fn displayed_message(&self) -> String {
         self.resolve_pending();
         self.displayed.borrow().message.clone()
@@ -129,10 +150,13 @@ impl ActiveDownloadLine {
     }
 
     fn resolve_pending(&self) {
-        if let Some(at) = self.debounce_at.get()
-            && at.elapsed() >= STATUS_DEBOUNCE
-        {
-            *self.displayed.borrow_mut() = self.pending.clone();
+        let Some(at) = self.debounce_at.get() else {
+            return;
+        };
+        let now = Instant::now();
+        if now >= at {
+            *self.displayed.borrow_mut() = self.pending.borrow().clone();
+            self.last_applied.set(Some(now));
             self.debounce_at.set(None);
         }
     }
@@ -157,8 +181,6 @@ pub struct CollectionPage {
     pub logs: VecDeque<String>,
     pub summary: Option<DownloadSummary>,
     pub failed_maps: Vec<FailedBeatmap>,
-    pub progress_label_style_locked: bool,
-    pub progress_label_bold_when_locked: bool,
     pub low_disk_space: Option<u64>,
     pub resolve_progress: Option<(u32, u32)>,
     pub thread_scroll: usize,
@@ -188,8 +210,6 @@ impl CollectionPage {
             logs: VecDeque::new(),
             summary: None,
             failed_maps: Vec::new(),
-            progress_label_style_locked: false,
-            progress_label_bold_when_locked: true,
             low_disk_space: None,
             resolve_progress: None,
             thread_scroll: 0,
@@ -387,5 +407,75 @@ impl CollectionPage {
         } else {
             Some(self.stats.verify_total_us / self.stats.verify_total_count as u64)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread::sleep;
+
+    #[test]
+    fn verifying_is_not_terminal() {
+        // slot must stay claimed during verification — Verifying is mid-flight.
+        assert!(!BeatmapStage::Verifying.is_terminal());
+    }
+
+    #[test]
+    fn first_update_applies_immediately() {
+        // freshly-claimed slot must show its first status right away, otherwise the row sits
+        // blank for STATUS_DEBOUNCE on every new beatmapset.
+        let mut line = ActiveDownloadLine::new(1);
+        line.apply_status(BeatmapStage::Downloading, "checking osu.direct", false);
+        assert_eq!(line.displayed_message(), "checking osu.direct");
+        assert!(line.should_show_bar());
+    }
+
+    #[test]
+    fn second_update_within_window_queues_text_but_stage_updates_immediately() {
+        // text is debounced (no bypass for any stage), but `stage` is structural and must
+        // reflect Verifying right away so the bar hides without a one-frame 100% flash.
+        let mut line = ActiveDownloadLine::new(1);
+        line.apply_status(
+            BeatmapStage::Downloading,
+            "downloading from osu.direct",
+            false,
+        );
+        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
+        assert_eq!(line.displayed_message(), "downloading from osu.direct");
+        assert!(
+            !line.should_show_bar(),
+            "Verifying must hide the bar instantly"
+        );
+    }
+
+    #[test]
+    fn pending_update_resolves_after_window() {
+        let mut line = ActiveDownloadLine::new(1);
+        line.apply_status(
+            BeatmapStage::Downloading,
+            "downloading from osu.direct",
+            false,
+        );
+        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
+        sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
+        assert_eq!(line.displayed_message(), "verifying from osu.direct");
+        assert!(!line.should_show_bar());
+    }
+
+    #[test]
+    fn rapid_transitions_coalesce_to_latest() {
+        // verifying → success inside the window: the intermediate text is dropped; user only
+        // sees the final state when the window expires.
+        let mut line = ActiveDownloadLine::new(1);
+        line.apply_status(
+            BeatmapStage::Downloading,
+            "downloading from osu.direct",
+            false,
+        );
+        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
+        line.apply_status(BeatmapStage::Success, "downloaded from osu.direct", false);
+        sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
+        assert_eq!(line.displayed_message(), "downloaded from osu.direct");
     }
 }

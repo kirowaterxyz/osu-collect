@@ -423,8 +423,9 @@ fn active_panel_height_is_constant_across_completion_and_start() {
 
     // complete the middle slot — total row count stays the same and the slot keeps
     // rendering its terminal message ("done") instead of going blank until the next
-    // beatmapset arrives
+    // beatmapset arrives. text is debounced so we wait past the window before rendering.
     app.downloads[0].update_active_status(11, BeatmapStage::Success, "done", false);
+    std::thread::sleep(std::time::Duration::from_millis(75));
     let after_complete = render_app(&app, 120, 30);
     assert_eq!(
         app.downloads[0].thread_total_items.get(),
@@ -934,7 +935,7 @@ fn bar_visible_during_downloading_before_bytes_flow() {
 }
 
 #[test]
-fn active_status_line_always_shows_latest_non_empty_status() {
+fn first_status_lands_immediately_then_text_is_debounced() {
     use osu_collect::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
@@ -950,26 +951,30 @@ fn active_status_line_always_shows_latest_non_empty_status() {
         .displayed_message();
     assert!(
         initial.starts_with("Downloading"),
-        "Downloading must promote immediately, got {initial:?}"
+        "first write must land instantly so the slot isn't blank, got {initial:?}"
     );
 
+    // second write within the debounce window stays queued. after the window expires,
+    // displayed flips to the latest pending value on next read.
     page.update_active_status(
         200,
         BeatmapStage::Downloading,
         "Rate limited on X, ...",
         true,
     );
+    std::thread::sleep(std::time::Duration::from_millis(75));
     let line = page.active_downloads[0]
         .as_ref()
         .expect("slot must be allocated");
     let visible = line.displayed_message();
     assert!(
         visible.starts_with("Rate limited"),
-        "latest status must be visible immediately, got {visible:?}"
+        "queued status must surface after the debounce window, got {visible:?}"
     );
     assert!(line.displayed_rate_limited());
 
     page.update_active_status(200, BeatmapStage::Downloading, "", false);
+    std::thread::sleep(std::time::Duration::from_millis(75));
     let fallback = page.active_downloads[0]
         .as_ref()
         .expect("slot must be allocated")
@@ -978,7 +983,7 @@ fn active_status_line_always_shows_latest_non_empty_status() {
 }
 
 #[test]
-fn rapid_status_transitions_show_latest_message() {
+fn rapid_status_transitions_coalesce_to_latest() {
     use osu_collect::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
@@ -995,6 +1000,7 @@ fn rapid_status_transitions_show_latest_message() {
         "rate limited on nerinyan, waiting 5s",
         true,
     );
+    std::thread::sleep(std::time::Duration::from_millis(75));
 
     let line = page.active_downloads[0]
         .as_ref()
@@ -1002,7 +1008,7 @@ fn rapid_status_transitions_show_latest_message() {
     let visible = line.displayed_message();
     assert!(
         visible.starts_with("rate limited"),
-        "latest status must be visible immediately, got {visible:?}"
+        "intermediate texts must coalesce; only the final state shows after the window, got {visible:?}"
     );
     assert!(line.displayed_rate_limited());
 }

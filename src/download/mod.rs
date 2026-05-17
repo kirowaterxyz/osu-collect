@@ -151,6 +151,8 @@ pub enum DownloadEvent {
 pub enum BeatmapStage {
     Pending,
     Downloading,
+    /// archive bytes done; lib is hashing/zip-validating/finalizing before emitting a terminal stage.
+    Verifying,
     Success,
     Skipped,
     Failed,
