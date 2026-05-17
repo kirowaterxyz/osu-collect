@@ -1,4 +1,5 @@
 use super::model::{LogFormat, LogLevel};
+use osu_downloader::ArchiveValidation;
 use std::time::Duration;
 
 pub const KB: f64 = 1024.0;
@@ -62,6 +63,12 @@ pub const LOG_LEVELS: [LogLevel; 5] = [
 ];
 
 pub const LOG_FORMATS: [LogFormat; 2] = [LogFormat::Compact, LogFormat::Pretty];
+
+pub const ARCHIVE_VALIDATIONS: [ArchiveValidation; 3] = [
+    ArchiveValidation::Off,
+    ArchiveValidation::Magic,
+    ArchiveValidation::Eocd,
+];
 
 pub const HOME_TAB_INDEX: usize = 0;
 pub const UPDATES_TAB_INDEX: usize = 1;

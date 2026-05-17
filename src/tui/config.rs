@@ -1,6 +1,7 @@
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
     config::{LogFormat, LogLevel},
+    download::ArchiveValidation,
 };
 use ratatui::{
     Frame,
@@ -39,6 +40,9 @@ const STATUS_LOGGED_IN: &str = "logged in";
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
+const ARCHIVE_VALIDATION_LABELS: &[&str] = &["off", "basic", "strict"];
+
+const HELP_VERIFY_STRICT: &str = "strict mode may reject beatmaps that osu! would still accept";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     let focus = form.focus;
@@ -67,14 +71,17 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ),
     );
     items.push_focusable(
-        ConfigField::DownloadVerifyZipEocd,
-        widgets::row_item(
+        ConfigField::DownloadArchiveValidation,
+        widgets::cycle_item(
             LABEL_VERIFY_INTEGRITY,
-            None,
-            form.verify_zip_eocd,
-            focus == ConfigField::DownloadVerifyZipEocd,
+            ARCHIVE_VALIDATION_LABELS,
+            archive_validation_label(form.archive_validation),
+            focus == ConfigField::DownloadArchiveValidation,
         ),
     );
+    if form.archive_validation == ArchiveValidation::Eocd {
+        items.push(widgets::help_item(HELP_VERIFY_STRICT));
+    }
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_MIRRORS));
@@ -223,5 +230,13 @@ fn log_format_label(format: LogFormat) -> &'static str {
     match format {
         LogFormat::Compact => "compact",
         LogFormat::Pretty => "pretty",
+    }
+}
+
+fn archive_validation_label(mode: ArchiveValidation) -> &'static str {
+    match mode {
+        ArchiveValidation::Off => "off",
+        ArchiveValidation::Magic => "basic",
+        ArchiveValidation::Eocd => "strict",
     }
 }

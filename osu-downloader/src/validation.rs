@@ -12,7 +12,8 @@ const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 
 /// Archive validation strictness.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ArchiveValidation {
     /// Skip validation entirely.
     Off,

@@ -88,6 +88,33 @@ fn config_render_shows_download_help() {
 
     assert!(output.contains("DOWNLOAD"));
     assert!(output.contains("verify .osz integrity"));
+    assert!(
+        output.contains("off") && output.contains("basic") && output.contains("strict"),
+        "all three archive validation labels must render: {output}"
+    );
+}
+
+#[test]
+fn config_render_shows_strict_help_only_when_strict_selected() {
+    use osu_collect::download::ArchiveValidation;
+
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadArchiveValidation;
+
+    app.config.archive_validation = ArchiveValidation::Magic;
+    let basic = render_app(&app, 100, 24);
+    assert!(
+        !basic.contains("strict mode may reject"),
+        "help line must be hidden when basic is selected"
+    );
+
+    app.config.archive_validation = ArchiveValidation::Eocd;
+    let strict = render_app(&app, 100, 24);
+    assert!(
+        strict.contains("strict mode may reject"),
+        "help line must appear when strict is selected: {strict}"
+    );
 }
 
 #[test]

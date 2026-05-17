@@ -3,9 +3,12 @@ use super::{
     messages::{AppMessage, clear_app_message, set_loading_message},
     next_field, prev_field,
 };
-use crate::config::{
-    Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
-    constants::{LOG_FORMATS, LOG_LEVELS, default_threads},
+use crate::{
+    config::{
+        Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
+        constants::{ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, default_threads},
+    },
+    download::ArchiveValidation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,7 +29,7 @@ pub enum ConfigField {
     LogoutEntry,
     DownloadThreads,
     DownloadNoVideo,
-    DownloadVerifyZipEocd,
+    DownloadArchiveValidation,
     LoggingEnabled,
     LoggingLevel,
     LoggingFormat,
@@ -38,7 +41,7 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LogoutEntry,
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
-    ConfigField::DownloadVerifyZipEocd,
+    ConfigField::DownloadArchiveValidation,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
@@ -54,7 +57,7 @@ const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LoginEntry,
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
-    ConfigField::DownloadVerifyZipEocd,
+    ConfigField::DownloadArchiveValidation,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
@@ -87,7 +90,7 @@ pub struct ConfigTab {
     pub login_state: AuthLoginState,
     pub threads: InputField,
     pub no_video: bool,
-    pub verify_zip_eocd: bool,
+    pub archive_validation: ArchiveValidation,
     pub logging_enabled: bool,
     pub logging_level: LogLevel,
     pub logging_format: LogFormat,
@@ -109,7 +112,7 @@ impl ConfigTab {
             login_state: login_state(auth_loaded),
             threads: threads_field(&config.download),
             no_video: config.download.no_video,
-            verify_zip_eocd: config.download.verify_zip_eocd,
+            archive_validation: config.download.archive_validation,
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
@@ -165,9 +168,7 @@ impl ConfigTab {
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
             ConfigField::DownloadNoVideo => self.no_video = !self.no_video,
-            ConfigField::DownloadVerifyZipEocd => {
-                self.verify_zip_eocd = !self.verify_zip_eocd;
-            }
+            ConfigField::DownloadArchiveValidation => self.cycle_archive_validation(),
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
@@ -187,6 +188,10 @@ impl ConfigTab {
         self.logging_format = next_value(LOG_FORMATS, self.logging_format);
     }
 
+    pub fn cycle_archive_validation(&mut self) {
+        self.archive_validation = next_value(ARCHIVE_VALIDATIONS, self.archive_validation);
+    }
+
     pub fn build_config(&self) -> Result<Config, String> {
         let concurrent = self.parse_concurrent()?;
         let mirror = MirrorConfig {
@@ -202,7 +207,7 @@ impl ConfigTab {
         let download = DownloadConfig {
             concurrent,
             no_video: self.no_video,
-            verify_zip_eocd: self.verify_zip_eocd,
+            archive_validation: self.archive_validation,
         };
 
         let logging = LoggingConfig {
@@ -496,5 +501,17 @@ mod tests {
             tab.next_field();
         }
         assert_eq!(tab.focus, start, "next_field must complete a full cycle");
+    }
+
+    #[test]
+    fn cycle_archive_validation_wraps_through_all_variants() {
+        let mut tab = tab_logged_in();
+        tab.archive_validation = ArchiveValidation::Off;
+        tab.cycle_archive_validation();
+        assert_eq!(tab.archive_validation, ArchiveValidation::Magic);
+        tab.cycle_archive_validation();
+        assert_eq!(tab.archive_validation, ArchiveValidation::Eocd);
+        tab.cycle_archive_validation();
+        assert_eq!(tab.archive_validation, ArchiveValidation::Off);
     }
 }

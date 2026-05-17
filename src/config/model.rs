@@ -1,4 +1,5 @@
 use crate::{
+    download::ArchiveValidation,
     mirrors,
     utils::{AppError, Result},
 };
@@ -32,8 +33,7 @@ pub struct MirrorConfig {
 pub struct DownloadConfig {
     pub concurrent: Option<u8>,
     pub no_video: bool,
-    #[serde(default)]
-    pub verify_zip_eocd: bool,
+    pub archive_validation: ArchiveValidation,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
