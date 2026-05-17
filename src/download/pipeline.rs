@@ -837,6 +837,26 @@ mod tests {
     }
 
     #[test]
+    fn missing_progress_total_translates_to_zero_total() {
+        let (_tally, events) = drive_translate(vec![LibEvent::Progress {
+            beatmapset_id: 42,
+            downloaded_bytes: 1_500_000,
+            total_bytes: None,
+            speed_bps: 0,
+        }]);
+
+        assert!(matches!(
+            events.as_slice(),
+            [DownloadEvent::BeatmapProgress {
+                id: 42,
+                beatmapset_id: 42,
+                downloaded: 1_500_000,
+                total: 0,
+            }]
+        ));
+    }
+
+    #[test]
     fn network_error_counts_as_failed() {
         let (tally, events) = drive_translate(vec![LibEvent::BeatmapsetNetworkError {
             beatmapset_id: 77,

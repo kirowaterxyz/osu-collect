@@ -21,6 +21,8 @@ use std::{
 use tokio::time::sleep;
 use tracing::{debug, trace};
 
+const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
+
 /// Internal callback bundle for a single beatmapset attempt.
 #[derive(Clone, Default)]
 pub(crate) struct BeatmapsetDownloadCallbacks {
@@ -485,6 +487,11 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
             ))
         }
     };
+    let probed_size = if response.content_length().is_none() {
+        probe_download_size(mirror, params).await
+    } else {
+        None
+    };
 
     let status = response.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -510,18 +517,80 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
         },
     );
 
-    match process_mirror_response(mirror, response, params).await {
+    match process_mirror_response(mirror, response, params, probed_size).await {
         Ok(outcome) => MirrorAttempt::Done(outcome),
         Err(reason) => MirrorAttempt::Definitive(reason),
     }
+}
+
+async fn probe_download_size(mirror: &Mirror, params: &DownloadParams<'_>) -> Option<u64> {
+    let mut url = mirror.url_for(params.beatmapset_id);
+
+    for _ in 0..=SIZE_PROBE_REDIRECT_LIMIT {
+        let mut request = params
+            .client
+            .get(&url)
+            .header(reqwest::header::RANGE, "bytes=0-0")
+            .header(reqwest::header::ACCEPT_ENCODING, "identity")
+            .header(reqwest::header::CONNECTION, "close");
+        if let Some(headers) = mirror.headers() {
+            request = request.headers(headers.clone());
+        }
+
+        let Some(result) = run_cancelable(request.send(), &params.cancel_rx).await else {
+            return None;
+        };
+        let response = match result {
+            Ok(response) => response,
+            Err(err) => {
+                trace!(beatmapset_id = params.beatmapset_id, mirror = %mirror.display_name(), error = %err, "failed to probe download size");
+                return None;
+            }
+        };
+
+        if response.status().is_redirection() {
+            let Some(location) = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|location| response.url().join(location).ok())
+            else {
+                return None;
+            };
+            url = location.to_string();
+            continue;
+        }
+
+        return size_from_headers(response.headers());
+    }
+
+    None
+}
+
+fn size_from_headers(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(size_from_content_range)
+        .or_else(|| {
+            headers
+                .get(reqwest::header::CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse().ok())
+        })
+}
+
+fn size_from_content_range(value: &str) -> Option<u64> {
+    value.rsplit_once('/')?.1.parse().ok()
 }
 
 async fn process_mirror_response(
     mirror: &Mirror,
     response: reqwest::Response,
     params: &DownloadParams<'_>,
+    probed_size: Option<u64>,
 ) -> std::result::Result<BeatmapsetDownloadOutcome, String> {
-    let content_length = response.content_length();
+    let content_length = response.content_length().or(probed_size);
     if let Some(content_type) = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -952,6 +1021,198 @@ mod tests {
         assert!(is_archive_content_type("application/x-zip-compressed"));
         assert!(!is_archive_content_type("text/html"));
         assert!(!is_archive_content_type("application/json"));
+    }
+
+    #[test]
+    fn size_from_content_range_uses_complete_length() {
+        assert_eq!(
+            size_from_content_range("bytes 0-0/24413678"),
+            Some(24_413_678)
+        );
+        assert_eq!(size_from_content_range("bytes 0-3/*"), None);
+        assert_eq!(size_from_content_range("invalid"), None);
+    }
+
+    #[tokio::test]
+    async fn range_probe_discovers_redirected_download_size() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 1024];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.starts_with("GET /mirror/") {
+                    stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 302 Found\r\nLocation: http://{addr}/archive/42\r\nContent-Length: 0\r\n\r\n"
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                } else if request.starts_with("GET /archive/") {
+                    stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/10000000\r\nContent-Length: 1\r\n\r\nP").unwrap();
+                }
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let mirror = Mirror::custom(format!("http://{addr}/mirror/{{id}}")).unwrap();
+        let mirror_pool = MirrorPool::new(vec![mirror.clone()]);
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let dir = tempfile::tempdir().unwrap();
+        let params = DownloadParams {
+            beatmapset_id: 42,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: false,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks::default(),
+            options: BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        };
+
+        assert_eq!(
+            probe_download_size(&mirror, &params).await,
+            Some(10_000_000)
+        );
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn probe_preserves_range_across_multiple_redirects() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 2048];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.starts_with("GET /api/") {
+                    stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 302 Found\r\nLocation: http://{addr}/dl/997762\r\nContent-Length: 0\r\n\r\n"
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                } else if request.starts_with("GET /dl/") {
+                    stream
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 302 Found\r\nLocation: http://{addr}/s3/997762.osz\r\nContent-Length: 0\r\n\r\n"
+                            )
+                            .as_bytes(),
+                        )
+                        .unwrap();
+                } else if request.starts_with("GET /s3/") {
+                    assert!(request.contains("Range: bytes=0-0"));
+                    stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/44911016\r\nContent-Length: 1\r\n\r\nP").unwrap();
+                }
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let mirror = Mirror::custom(format!("http://{addr}/api/{{id}}")).unwrap();
+        let mirror_pool = MirrorPool::new(vec![mirror.clone()]);
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let dir = tempfile::tempdir().unwrap();
+        let params = DownloadParams {
+            beatmapset_id: 997762,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: false,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks::default(),
+            options: BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        };
+
+        assert_eq!(
+            probe_download_size(&mirror, &params).await,
+            Some(44_911_016)
+        );
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn progress_uses_probed_size_when_download_is_chunked() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            sync::{Arc, Mutex},
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0u8; 2048];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.contains("Range: bytes=0-0") {
+                    stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/262144\r\nContent-Length: 1\r\n\r\nP").unwrap();
+                } else {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=42.osz\r\nTransfer-Encoding: chunked\r\n\r\n40000\r\n").unwrap();
+                    stream.write_all(&vec![b'a'; 262_144]).unwrap();
+                    stream.write_all(b"\r\n0\r\n\r\n").unwrap();
+                }
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let mirror = Mirror::custom(format!("http://{addr}/download/{{id}}")).unwrap();
+        let mirror_pool = MirrorPool::new(vec![mirror]);
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let progress = Arc::new(Mutex::new(Vec::new()));
+        let progress_events = progress.clone();
+        let dir = tempfile::tempdir().unwrap();
+
+        let (outcome, _) = download_beatmapset(DownloadParams {
+            beatmapset_id: 42,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: false,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks {
+                progress: Some(Arc::new(move |downloaded, total| {
+                    progress_events.lock().unwrap().push((downloaded, total));
+                })),
+                status: None,
+            },
+            options: BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        })
+        .await;
+
+        assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
+        assert!(progress
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, total)| *total == 262_144));
+        server.join().unwrap();
     }
 
     #[tokio::test]
