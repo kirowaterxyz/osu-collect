@@ -1,6 +1,6 @@
 use crate::app::{
     UpdatesField, UpdatesTab,
-    updates::{BeatmapDisplayItem, ScanStatus},
+    updates::{BeatmapDisplayItem, CollectionEntry, MissingBeatmapset, MissingStatus, ScanStatus},
 };
 use crate::osu_db::OsuClient;
 use ratatui::{
@@ -11,45 +11,59 @@ use ratatui::{
     widgets::{List, ListItem},
 };
 
-use super::{UpdatesView, components};
+use super::widgets::{self, FOCUS_MARK, FOCUS_PAD, Metric};
+use super::{ACCENT, ACCENT_ALT, TEXT, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, focused_label};
 
-pub fn render(frame: &mut Frame, area: Rect, view: UpdatesView) {
-    render_form(frame, area, view.form);
-}
+const PANEL_TITLE: &str = "updates";
 
-fn render_form(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
-    let block = components::panel_block("updates");
+const SECTION_SOURCE: &str = "source";
+const SECTION_COLLECTIONS: &str = "collections";
+const SECTION_MISSING: &str = "missing beatmaps";
+
+const LABEL_CLIENT: &str = "client";
+const CLIENT_OPTIONS: &[&str] = &["lazer", "stable"];
+
+const LABEL_COLLECTIONS: &str = "collections";
+const LABEL_AVAILABLE: &str = "available";
+
+const DETAIL_LOADED_SUFFIX: &str = "loaded";
+const DETAIL_MISSING_SUFFIX: &str = "missing";
+const DETAIL_LOADING: &str = "loading";
+const DETAIL_LOCAL: &str = "local";
+
+const METRIC_SELECTED: &str = "selected";
+const METRIC_MISSING: &str = "missing";
+const METRIC_FAILED: &str = "failed";
+
+const STATUS_NOT_INSTALLED: &str = "not installed";
+const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
+
+const COUNT_SUFFIX_MAPS: &str = "maps";
+
+pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
+    let block = widgets::panel_block(PANEL_TITLE);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let built = build_view(form);
-    let visible_height = inner.height as usize;
-    let (start, end) = components::scroll_window(&built.items, built.focused_index, visible_height);
-    let visible_items = built.items[start..end].to_vec();
-
-    let list = List::new(visible_items).highlight_symbol("");
+    let (items, focused_index) = build_items(form);
+    let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
+    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
 }
 
-struct BuiltView {
-    items: Vec<ListItem<'static>>,
-    focused_index: usize,
-}
-
-fn build_view(form: &UpdatesTab) -> BuiltView {
+fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     let mut items: Vec<ListItem<'static>> = Vec::new();
-    let mut focused_index: usize = 0;
+    let mut focused_index = 0usize;
     let focus = form.selection.focus;
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
 
-    // SOURCE
-    items.push(components::section_header("source"));
+    items.push(widgets::section_header(SECTION_SOURCE));
     if focus == UpdatesField::ClientType && !in_list {
         focused_index = items.len();
     }
-    items.push(components::cycle_item(
-        "client",
-        &["lazer", "stable"],
+    items.push(widgets::cycle_item(
+        LABEL_CLIENT,
+        CLIENT_OPTIONS,
         client_label(form.path.client_type),
         focus == UpdatesField::ClientType && !in_list,
     ));
@@ -57,10 +71,9 @@ fn build_view(form: &UpdatesTab) -> BuiltView {
         focused_index = items.len();
     }
     items.push(osu_path_item(form));
-    items.push(components::spacer());
+    items.push(widgets::spacer());
 
-    // COLLECTIONS
-    items.push(components::section_header("collections"));
+    items.push(widgets::section_header(SECTION_COLLECTIONS));
     if focus == UpdatesField::Collections && !in_list {
         focused_index = items.len();
     }
@@ -75,10 +88,9 @@ fn build_view(form: &UpdatesTab) -> BuiltView {
             items.push(collection_item(collection, is_sel));
         }
     }
-    items.push(components::spacer());
+    items.push(widgets::spacer());
 
-    // MISSING BEATMAPS
-    items.push(components::section_header("missing beatmaps"));
+    items.push(widgets::section_header(SECTION_MISSING));
     if focus == UpdatesField::BeatmapList && !in_list {
         focused_index = items.len();
     }
@@ -90,35 +102,30 @@ fn build_view(form: &UpdatesTab) -> BuiltView {
             if is_sel && focus == UpdatesField::BeatmapList {
                 focused_index = items.len();
             }
-            items.push(display_item_to_list_item(item, is_sel, form));
+            items.push(display_item(item, is_sel, form));
         }
     }
-    items.push(components::spacer());
+    items.push(widgets::spacer());
 
-    // SUMMARY
     items.push(summary_metrics(form));
-
-    BuiltView {
-        items,
-        focused_index,
-    }
+    (items, focused_index)
 }
 
 fn summary_metrics(form: &UpdatesTab) -> ListItem<'static> {
     let mut metrics = vec![
-        components::Metric::accent("selected", form.selected_beatmap_count().to_string()),
-        components::Metric::muted("missing", form.total_missing_count().to_string()),
+        Metric::accent(METRIC_SELECTED, form.selected_beatmap_count().to_string()),
+        Metric::muted(METRIC_MISSING, form.total_missing_count().to_string()),
     ];
     if form.scan.failed_beatmapset_count > 0 {
-        metrics.push(components::Metric::muted(
-            "failed",
+        metrics.push(Metric::muted(
+            METRIC_FAILED,
             form.scan.failed_beatmapset_count.to_string(),
         ));
     }
-    components::summary_item(&metrics)
+    widgets::summary_item(&metrics)
 }
 
-fn display_item_to_list_item(
+fn display_item(
     item: &BeatmapDisplayItem,
     is_scroll_pos: bool,
     form: &UpdatesTab,
@@ -155,40 +162,35 @@ fn display_item_to_list_item(
                         .map(|beatmap| beatmap.selected)
                         .unwrap_or(false)
                 });
-            let (marker, marker_style) = components::check_marker(all_selected);
-
-            let name_style = Style::default()
-                .fg(components::ACCENT_ALT)
-                .add_modifier(Modifier::BOLD);
+            let (marker, marker_style) = widgets::check_marker(all_selected);
 
             ListItem::new(Line::from(vec![
                 indent_marker(is_scroll_pos),
                 Span::styled(marker, marker_style),
                 Span::styled(
                     format!(" #{collection_id}"),
-                    Style::default().fg(components::TEXT_FAINT),
+                    Style::default().fg(TEXT_FAINT),
                 ),
-                Span::styled(format!("  {name}"), name_style),
+                Span::styled(
+                    format!("  {name}"),
+                    Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+                ),
             ]))
         }
-        BeatmapDisplayItem::Beatmap { cache_index } => {
-            if let Some(beatmap) = form.selection.cached_missing_sets.get(*cache_index) {
-                beatmap_item(beatmap, is_scroll_pos)
-            } else {
-                ListItem::new(Line::from(""))
-            }
-        }
+        BeatmapDisplayItem::Beatmap { cache_index } => form
+            .selection
+            .cached_missing_sets
+            .get(*cache_index)
+            .map(|beatmap| beatmap_item(beatmap, is_scroll_pos))
+            .unwrap_or_else(|| ListItem::new(Line::from(""))),
     }
 }
 
 fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
     if is_scroll_pos {
-        Span::styled(
-            components::FOCUS_MARK,
-            Style::default().fg(components::ACCENT),
-        )
+        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT))
     } else {
-        Span::raw(components::FOCUS_PAD)
+        Span::raw(FOCUS_PAD)
     }
 }
 
@@ -206,24 +208,18 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
     let field = &form.path.osu_path;
 
     let value = if field.value.is_empty() {
-        Span::styled(
-            field.placeholder.clone(),
-            Style::default().fg(components::TEXT_FAINT),
-        )
+        Span::styled(field.placeholder.clone(), Style::default().fg(TEXT_FAINT))
     } else if form.is_path_auto_detected() {
-        Span::styled(
-            field.value.clone(),
-            Style::default().fg(components::TEXT_FAINT),
-        )
+        Span::styled(field.value.clone(), Style::default().fg(TEXT_FAINT))
     } else {
-        Span::styled(field.value.clone(), Style::default().fg(components::ACCENT))
+        Span::styled(field.value.clone(), Style::default().fg(ACCENT))
     };
 
     ListItem::new(Line::from(vec![
-        components::focus_span(focused),
+        widgets::focus_span(focused),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
-            components::focused_label_style(focused),
+            focused_label(focused),
         ),
         value,
     ]))
@@ -232,43 +228,38 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
 fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     let focused =
         form.selection.focus == UpdatesField::Collections && !form.selection.in_beatmap_list;
-    let count = form.selection.local_collections.len();
-    let detail = format!("{count} loaded");
-
-    components::disclosure_row(
-        "collections",
+    let detail = format!(
+        "{} {DETAIL_LOADED_SUFFIX}",
+        form.selection.local_collections.len()
+    );
+    widgets::disclosure_row(
+        LABEL_COLLECTIONS,
         detail,
         form.selection.in_collection_list,
         focused,
     )
 }
 
-fn collection_item(
-    collection: &crate::app::updates::CollectionEntry,
-    is_scroll_pos: bool,
-) -> ListItem<'static> {
-    let (marker, marker_style) = components::check_marker(collection.selected);
+fn collection_item(collection: &CollectionEntry, is_scroll_pos: bool) -> ListItem<'static> {
+    let (marker, marker_style) = widgets::check_marker(collection.selected);
     let id = collection
         .collection_id
         .map(|id| format!("#{id}"))
-        .unwrap_or_else(|| "local".to_string());
+        .unwrap_or_else(|| DETAIL_LOCAL.to_string());
     let name_style = if is_scroll_pos {
-        Style::default().fg(components::TEXT)
+        Style::default().fg(TEXT)
     } else {
-        Style::default().fg(components::TEXT_MUTED)
+        Style::default().fg(TEXT_MUTED)
     };
 
     ListItem::new(Line::from(vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
-        Span::styled(
-            format!(" {id}"),
-            Style::default().fg(components::TEXT_FAINT),
-        ),
+        Span::styled(format!(" {id}"), Style::default().fg(TEXT_FAINT)),
         Span::styled(format!("  {}", collection.name), name_style),
         Span::styled(
-            format!("  {} maps", collection.beatmap_count),
-            Style::default().fg(components::TEXT_FAINT),
+            format!("  {} {COUNT_SUFFIX_MAPS}", collection.beatmap_count),
+            Style::default().fg(TEXT_FAINT),
         ),
     ]))
 }
@@ -278,40 +269,36 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         && !form.selection.in_collection_list
         && !form.selection.in_beatmap_list;
     let detail = if is_scanning(form) {
-        "loading".to_string()
+        DETAIL_LOADING.to_string()
     } else {
-        format!("{} missing", form.total_missing_count())
+        format!("{} {DETAIL_MISSING_SUFFIX}", form.total_missing_count())
     };
 
-    components::disclosure_row("available", detail, form.selection.in_beatmap_list, focused)
+    widgets::disclosure_row(
+        LABEL_AVAILABLE,
+        detail,
+        form.selection.in_beatmap_list,
+        focused,
+    )
 }
 
-fn beatmap_item(
-    beatmap: &crate::app::updates::MissingBeatmapset,
-    is_scroll_pos: bool,
-) -> ListItem<'static> {
-    let (marker, marker_style) = components::check_marker(beatmap.selected);
+fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'static> {
+    let (marker, marker_style) = widgets::check_marker(beatmap.selected);
     let status_text = match beatmap.status {
-        crate::app::updates::MissingStatus::NotInstalled => "not installed",
+        MissingStatus::NotInstalled => STATUS_NOT_INSTALLED,
     };
 
     let mut spans = vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
-        Span::styled(
-            format!(" #{}", beatmap.id),
-            Style::default().fg(components::TEXT_DIM),
-        ),
-        Span::styled(
-            format!("  {status_text}"),
-            Style::default().fg(components::TEXT_FAINT),
-        ),
+        Span::styled(format!(" #{}", beatmap.id), Style::default().fg(TEXT_DIM)),
+        Span::styled(format!("  {status_text}"), Style::default().fg(TEXT_FAINT)),
     ];
 
     if beatmap.previously_deleted {
         spans.push(Span::styled(
-            "  previously deleted",
-            Style::default().fg(components::ACCENT_ALT),
+            format!("  {TAG_PREVIOUSLY_DELETED}"),
+            Style::default().fg(ACCENT_ALT),
         ));
     }
 

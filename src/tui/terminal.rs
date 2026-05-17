@@ -1,5 +1,5 @@
 use crate::app::runtime::InputEvent;
-use crate::tui::view::components::BG;
+use crate::tui::BG;
 use crossterm::{
     event::{self, Event as CrosstermEvent, KeyEventKind},
     execute,

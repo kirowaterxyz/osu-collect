@@ -4,7 +4,7 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, Padding, Paragraph},
@@ -12,25 +12,10 @@ use ratatui::{
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use super::TabsView;
-
-// cloudy-ui catppuccin mocha palette
-pub const ACCENT: Color = Color::Rgb(67, 171, 229); // sapphire-cyan primary
-pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87); // claude orange (secondary)
-pub const INFO: Color = Color::Rgb(116, 199, 236);
-pub const SUCCESS: Color = Color::Rgb(166, 227, 161);
-pub const WARNING: Color = Color::Rgb(249, 226, 175);
-pub const DANGER: Color = Color::Rgb(243, 139, 168);
-pub const TEXT: Color = Color::Rgb(205, 214, 244);
-pub const TEXT_MUTED: Color = Color::Rgb(186, 194, 222);
-pub const TEXT_DIM: Color = Color::Rgb(166, 173, 200);
-pub const TEXT_FAINT: Color = Color::Rgb(127, 132, 156);
-pub const LINE: Color = Color::Rgb(69, 71, 90);
-pub const LINE_SOFT: Color = Color::Rgb(49, 50, 68);
-pub const BG: Color = Color::Rgb(30, 30, 46);
-pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
-#[allow(dead_code)]
-pub const BG_SUNKEN: Color = Color::Rgb(17, 17, 27);
+use super::{
+    ACCENT, ACCENT_ALT, DANGER, INDETERMINATE, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM,
+    TEXT_FAINT, TEXT_MUTED, WARNING, eyebrow, focused_label,
+};
 
 pub const FOCUS_MARK: &str = "❯ ";
 pub const FOCUS_PAD: &str = "  ";
@@ -38,6 +23,7 @@ pub const CHECK_ON: &str = "◉";
 pub const CHECK_OFF: &str = "○";
 pub const EXPANDED: &str = "▾";
 pub const COLLAPSED: &str = "▸";
+pub const SEPARATOR: &str = "  │  ";
 
 pub struct Metric<'a> {
     pub label: &'a str,
@@ -70,10 +56,6 @@ impl<'a> Metric<'a> {
             style: Style::default().fg(color),
         }
     }
-}
-
-pub fn eyebrow_style() -> Style {
-    Style::default().fg(TEXT_FAINT).add_modifier(Modifier::BOLD)
 }
 
 pub fn scroll_window<T>(
@@ -135,62 +117,26 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
         return;
     }
     let line: String = "─".repeat(area.width as usize);
-    let paragraph = Paragraph::new(line).style(Style::default().fg(LINE_SOFT));
-    frame.render_widget(paragraph, area);
+    frame.render_widget(
+        Paragraph::new(line).style(Style::default().fg(LINE_SOFT)),
+        area,
+    );
 }
 
-pub fn render_header(frame: &mut Frame, area: Rect, tabs: &TabsView) {
-    if area.width == 0 || area.height == 0 {
-        return;
+pub fn focus_span(focused: bool) -> Span<'static> {
+    if focused {
+        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT).bold())
+    } else {
+        Span::raw(FOCUS_PAD)
     }
+}
 
-    let version = format!(" v{} ", env!("CARGO_PKG_VERSION"));
-    let version_width = version.chars().count() as u16;
-    let brand = " osu-collect ";
-    let brand_width = brand.chars().count() as u16;
-
-    let layout = Layout::horizontal([
-        Constraint::Length(brand_width),
-        Constraint::Min(0),
-        Constraint::Length(version_width),
-    ])
-    .split(area);
-
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            brand,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ))),
-        layout[0],
-    );
-
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.titles().len() * 3);
-    spans.push(Span::styled("  ", Style::default().fg(LINE)));
-    for (index, title) in tabs.titles().iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
-        }
-        let title = title.to_lowercase();
-        if index == tabs.active() {
-            spans.push(Span::styled(
-                title,
-                Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
-            ));
-        } else {
-            spans.push(Span::styled(title, Style::default().fg(TEXT_FAINT)));
-        }
+pub fn check_marker(state: bool) -> (&'static str, Style) {
+    if state {
+        (CHECK_ON, Style::default().fg(ACCENT))
+    } else {
+        (CHECK_OFF, Style::default().fg(TEXT_FAINT))
     }
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).alignment(Alignment::Left),
-        layout[1],
-    );
-
-    frame.render_widget(
-        Paragraph::new(version)
-            .style(Style::default().fg(TEXT_FAINT))
-            .alignment(Alignment::Right),
-        layout[2],
-    );
 }
 
 pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
@@ -204,7 +150,7 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
         focus_span(focused),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
-            focused_label_style(focused),
+            focused_label(focused),
         ),
         value,
     ]))
@@ -218,7 +164,7 @@ pub fn cycle_item(
 ) -> ListItem<'static> {
     let mut spans = vec![
         focus_span(focused),
-        Span::styled(format!("{label}: "), focused_label_style(focused)),
+        Span::styled(format!("{label}: "), focused_label(focused)),
     ];
     for (index, &option) in options.iter().enumerate() {
         if index > 0 {
@@ -261,7 +207,7 @@ pub fn disclosure_row(
     let label_style = if expanded {
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
     } else {
-        focused_label_style(focused)
+        focused_label(focused)
     };
     ListItem::new(Line::from(vec![
         focus_span(focused && !expanded),
@@ -287,7 +233,7 @@ pub fn row_item(
     let mut spans = vec![
         focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}"), focused_label_style(focused)),
+        Span::styled(format!(" {label}"), focused_label(focused)),
     ];
     if let Some(detail) = detail {
         spans.push(Span::styled(
@@ -298,17 +244,13 @@ pub fn row_item(
     ListItem::new(Line::from(spans))
 }
 
-pub fn mirror_item(label: &str, url: &str, state: bool, focused: bool) -> ListItem<'static> {
-    row_item(label, Some(url), state, focused)
-}
-
 pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
     let mut spans = vec![Span::raw("  ")];
     for (index, metric) in metrics.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
+            spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
         }
-        spans.push(Span::styled(metric.label.to_uppercase(), eyebrow_style()));
+        spans.push(Span::styled(metric.label.to_uppercase(), eyebrow()));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(metric.value.clone(), metric.style));
     }
@@ -324,22 +266,6 @@ pub fn status_pill(label: impl Into<String>, color: Color) -> Span<'static> {
 
 pub fn spacer() -> ListItem<'static> {
     ListItem::new(Line::from(""))
-}
-
-pub fn focus_span(focused: bool) -> Span<'static> {
-    if focused {
-        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT).bold())
-    } else {
-        Span::raw(FOCUS_PAD)
-    }
-}
-
-pub fn check_marker(state: bool) -> (&'static str, Style) {
-    if state {
-        (CHECK_ON, Style::default().fg(ACCENT))
-    } else {
-        (CHECK_OFF, Style::default().fg(TEXT_FAINT))
-    }
 }
 
 pub fn status_style(stage: DownloadStage) -> Style {
@@ -364,10 +290,6 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
     let rate_limited = line.displayed_rate_limited();
     let show_bar = line.should_show_bar();
 
-    // Reserve the bar columns when we plan to render it so the bar stays at a fixed
-    // right-aligned column regardless of how the message length changes. Without this
-    // reservation a long retry/mirror-failed message would push past the threshold and
-    // the bar would vanish between status updates — that was the visible flicker.
     let message_budget = if show_bar {
         width
             .saturating_sub(prefix_w)
@@ -381,7 +303,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
-        Span::styled(message.clone(), thread_style_for(&message, rate_limited)),
+        Span::styled(message.clone(), message_style(&message, rate_limited)),
     ];
 
     if show_bar {
@@ -408,7 +330,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
                 ));
             }
             None => {
-                spans.extend(indeterminate_bar_spans(BAR_WIDTH, Color::Rgb(45, 132, 196)));
+                spans.extend(indeterminate_bar_spans(BAR_WIDTH, INDETERMINATE));
                 spans.push(Span::styled("  ...", Style::default().fg(TEXT_FAINT)));
             }
         }
@@ -472,31 +394,62 @@ fn truncate_to_width(message: &str, budget: u16) -> String {
     out
 }
 
-pub fn focused_label_style(focused: bool) -> Style {
-    if focused {
-        Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(TEXT_MUTED)
-    }
-}
-
-fn thread_style_for(message: &str, rate_limited: bool) -> Style {
+fn message_style(message: &str, rate_limited: bool) -> Style {
     if rate_limited {
         return Style::default().fg(WARNING);
     }
 
-    let message = message.to_lowercase();
-    if message.contains("error") || message.starts_with("failed") {
+    let lower = message.to_lowercase();
+    if lower.contains("error") || lower.starts_with("failed") {
         return Style::default().fg(DANGER);
     }
-
-    if message.starts_with("done") {
+    if lower.starts_with("done") {
         return Style::default().fg(SUCCESS);
     }
-
-    if message.starts_with("skipped") {
+    if lower.starts_with("skipped") {
         return Style::default().fg(TEXT_FAINT);
     }
-
     Style::default().fg(TEXT_DIM)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scroll_window_keeps_focus_centered() {
+        let items: Vec<u8> = (0..20).collect();
+        let (start, end) = scroll_window(&items, 10, 5);
+        assert!((start..end).contains(&10));
+        assert_eq!(end - start, 5);
+    }
+
+    #[test]
+    fn scroll_window_clamps_to_end() {
+        let items: Vec<u8> = (0..10).collect();
+        let (start, end) = scroll_window(&items, 9, 4);
+        assert_eq!(end, 10);
+        assert_eq!(start, 6);
+    }
+
+    #[test]
+    fn scroll_window_empty_visible() {
+        let items: Vec<u8> = (0..10).collect();
+        assert_eq!(scroll_window(&items, 3, 0), (0, 10));
+    }
+
+    #[test]
+    fn truncate_to_width_handles_zero() {
+        assert_eq!(truncate_to_width("hello", 0), "");
+    }
+
+    #[test]
+    fn truncate_to_width_one_returns_ellipsis() {
+        assert_eq!(truncate_to_width("hello", 1), "…");
+    }
+
+    #[test]
+    fn truncate_to_width_unicode_safe() {
+        assert_eq!(truncate_to_width("こんにちは世界", 4), "こんに…");
+    }
 }

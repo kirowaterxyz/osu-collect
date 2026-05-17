@@ -597,17 +597,6 @@ impl App {
                     page.stats.skipped = skipped;
                     page.stats.failed = failed;
                     page.stats.unverified = unverified;
-                    let downloaded = page.stats.downloaded as usize;
-                    let ratio = if page.download_target == 0 {
-                        1.0
-                    } else {
-                        let goal = page.download_target as f64;
-                        (downloaded as f64 / goal).clamp(0.0, 1.0)
-                    };
-                    if ratio > 0.5 && !page.progress_label_style_locked {
-                        page.progress_label_style_locked = true;
-                        page.progress_label_bold_when_locked = true;
-                    }
                 }
             }
             DownloadEvent::Log { id, message } => {

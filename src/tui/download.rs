@@ -7,18 +7,67 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
 
-use super::{DownloadView, components};
+use super::widgets::{self, SEPARATOR};
+use super::{
+    ACCENT, BG_RAISED, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, WARNING,
+    eyebrow, spinner_char,
+};
 
 const INFO_HEIGHT: u16 = 8;
 const GAUGE_HEIGHT: u16 = 3;
 
-pub fn render(frame: &mut Frame, area: Rect, view: DownloadView) {
-    let page = view.page;
+const PANEL_OVERVIEW: &str = "overview";
+const PANEL_ACTIVE: &str = "active";
+const PANEL_RESULTS: &str = "results";
+
+const KEY_COLLECTION: &str = "collection: ";
+const KEY_UPLOADER: &str = "uploader: ";
+const KEY_OUTPUT: &str = "output: ";
+const KEY_SETTINGS: &str = "settings: ";
+const KEY_STATUS: &str = "status: ";
+const KEY_SPEED: &str = "  speed ";
+const KEY_SIZE: &str = "  size ";
+
+const VALUE_UNKNOWN: &str = "unknown";
+const VALUE_PREPARING: &str = "preparing";
+const VALUE_THREADS_SUFFIX: &str = "threads";
+
+const STATUS_PENDING: &str = "pending";
+const STATUS_RESOLVING: &str = "resolving";
+const STATUS_RECHECKING: &str = "rechecking";
+const STATUS_DOWNLOADING: &str = "downloading";
+const STATUS_COMPLETED: &str = "completed";
+const STATUS_FAILED: &str = "failed";
+const STATUS_RATE_LIMITED: &str = "rate limited";
+
+const SUMMARY_DONE: &str = "done";
+const SUMMARY_PROGRESS: &str = "progress";
+
+const ACTIVE_VERIFYING: &str = "verifying existing archives...";
+const ACTIVE_FETCHING: &str = "fetching collection metadata...";
+const ACTIVE_NONE: &str = "no active threads";
+const PLACEHOLDER_PREPARING: &str = "preparing";
+const PLACEHOLDER_RESOLVING: &str = "resolving collection";
+
+const FAILED_SECTION: &str = "failed";
+const FAILED_UNKNOWN: &str = "unknown error";
+
+const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
+const RESULTS_SKIPPED: &str = "SKIPPED";
+const RESULTS_FAILED: &str = "FAILED";
+const RESULTS_UNVERIFIED: &str = "UNVERIFIED";
+const RESULTS_OUTRO_1: &str = "Done! Check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu correctly";
+const RESULTS_OUTRO_2: &str = "and leave a star while you're at it :3";
+
+const LOW_DISK_PREFIX: &str = " low disk space: ";
+const LOW_DISK_SUFFIX: &str = " available";
+
+pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
     let show_disk_warning = should_render_disk_warning(page);
 
     let mut constraints = Vec::with_capacity(4);
@@ -30,23 +79,15 @@ pub fn render(frame: &mut Frame, area: Rect, view: DownloadView) {
     constraints.push(Constraint::Min(0));
 
     let sections = Layout::vertical(constraints).split(area);
-    let mut index = 0;
+    let mut idx = 0;
     if show_disk_warning {
-        render_disk_warning(frame, sections[index], page);
-        index += 1;
+        render_disk_warning(frame, sections[idx], page);
+        idx += 1;
     }
-    let info_area = sections[index];
-    index += 1;
-    let gauge_area = sections[index];
-    index += 1;
-    let threads_area = sections[index];
-
-    render_info(frame, info_area, page);
-    render_gauge(frame, gauge_area, page, view.tick);
-    render_threads(frame, threads_area, page);
+    render_info(frame, sections[idx], page);
+    render_gauge(frame, sections[idx + 1], page, tick);
+    render_threads(frame, sections[idx + 2], page);
 }
-
-const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 fn should_render_disk_warning(page: &CollectionPage) -> bool {
     page.low_disk_space.is_some()
@@ -62,97 +103,93 @@ fn should_render_disk_warning(page: &CollectionPage) -> bool {
 
 fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(available) = page.low_disk_space {
-        let text = format!(" low disk space: {} available", format_bytes(available));
-        let paragraph = Paragraph::new(text).style(Style::default().fg(components::WARNING));
-        frame.render_widget(paragraph, area);
+        let text = format!(
+            "{LOW_DISK_PREFIX}{}{LOW_DISK_SUFFIX}",
+            format_bytes(available)
+        );
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(WARNING)),
+            area,
+        );
     }
 }
 
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let status =
         if matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited() {
-            "rate limited"
+            STATUS_RATE_LIMITED
         } else {
             stage_label(page.stage)
         };
-    let speed_display = current_speed(page);
-    let bytes_display = if matches!(
-        page.stage,
-        DownloadStage::Downloading | DownloadStage::Completed
-    ) {
-        page.stats
-            .total_collection_bytes
-            .map(|total| format_bytes_progress(page.total_downloaded_bytes(), total))
-    } else {
-        None
-    };
 
-    let key_style = Style::default().fg(components::TEXT_FAINT);
-    let value_style = Style::default().fg(components::TEXT_MUTED);
+    let speed = current_speed(page);
+    let bytes = bytes_display(page);
+
+    let key_style = Style::default().fg(TEXT_FAINT);
+    let value_style = Style::default().fg(TEXT_MUTED);
+
     let mut status_spans = vec![
-        Span::styled("status: ", key_style),
-        components::status_pill(status, status_color(page.stage, status)),
+        Span::styled(KEY_STATUS, key_style),
+        widgets::status_pill(status, status_color(page.stage, status)),
     ];
-    if let Some(speed) = speed_display {
-        status_spans.push(Span::styled("  speed ", key_style));
-        status_spans.push(Span::styled(
-            speed,
-            Style::default().fg(components::SUCCESS),
-        ));
+    if let Some(speed) = speed {
+        status_spans.push(Span::styled(KEY_SPEED, key_style));
+        status_spans.push(Span::styled(speed, Style::default().fg(SUCCESS)));
     }
-    if let Some(bytes) = bytes_display {
-        status_spans.push(Span::styled("  size ", key_style));
-        status_spans.push(Span::styled(
-            bytes,
-            Style::default().fg(components::WARNING),
-        ));
+    if let Some(bytes) = bytes {
+        status_spans.push(Span::styled(KEY_SIZE, key_style));
+        status_spans.push(Span::styled(bytes, Style::default().fg(WARNING)));
     }
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("collection: ", key_style),
-            Span::styled(page.title.clone(), Style::default().fg(components::ACCENT)),
+            Span::styled(KEY_COLLECTION, key_style),
+            Span::styled(page.title.clone(), Style::default().fg(ACCENT)),
         ]),
         Line::from(vec![
-            Span::styled("uploader: ", key_style),
+            Span::styled(KEY_UPLOADER, key_style),
             Span::styled(
-                page.uploader.as_deref().unwrap_or("unknown").to_owned(),
+                page.uploader.as_deref().unwrap_or(VALUE_UNKNOWN).to_owned(),
                 value_style,
             ),
         ]),
         Line::from(vec![
-            Span::styled("output: ", key_style),
+            Span::styled(KEY_OUTPUT, key_style),
             Span::styled(
-                page.output_dir.as_deref().unwrap_or("preparing").to_owned(),
+                page.output_dir
+                    .as_deref()
+                    .unwrap_or(VALUE_PREPARING)
+                    .to_owned(),
                 value_style,
             ),
         ]),
         Line::from(vec![
-            Span::styled("settings: ", key_style),
+            Span::styled(KEY_SETTINGS, key_style),
             Span::styled(
-                format!("{} threads", page.concurrent),
-                Style::default().fg(components::ACCENT),
+                format!("{} {VALUE_THREADS_SUFFIX}", page.concurrent),
+                Style::default().fg(ACCENT),
             ),
         ]),
         Line::from(status_spans),
         Line::from(summary_spans(page)),
     ];
 
-    let paragraph = Paragraph::new(lines)
-        .block(components::panel_block("overview"))
-        .wrap(Wrap { trim: true });
-
-    frame.render_widget(paragraph, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(widgets::panel_block(PANEL_OVERVIEW))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 fn stage_label(stage: DownloadStage) -> &'static str {
     match stage {
-        DownloadStage::Pending => "pending",
-        DownloadStage::Resolving => "resolving",
-        DownloadStage::Rechecking => "rechecking",
-        DownloadStage::Downloading => "downloading",
-        DownloadStage::Completed => "completed",
-        DownloadStage::Failed => "failed",
+        DownloadStage::Pending => STATUS_PENDING,
+        DownloadStage::Resolving => STATUS_RESOLVING,
+        DownloadStage::Rechecking => STATUS_RECHECKING,
+        DownloadStage::Downloading => STATUS_DOWNLOADING,
+        DownloadStage::Completed => STATUS_COMPLETED,
+        DownloadStage::Failed => STATUS_FAILED,
     }
 }
 
@@ -160,29 +197,34 @@ fn current_speed(page: &CollectionPage) -> Option<String> {
     if !matches!(page.stage, DownloadStage::Downloading) {
         return None;
     }
-
     let speed = page.cumulative_speed();
-    if speed >= 1.0 {
-        Some(format_speed(speed))
-    } else {
-        None
-    }
+    (speed >= 1.0).then(|| format_speed(speed))
 }
 
-fn status_color(stage: DownloadStage, status: &str) -> ratatui::style::Color {
-    if status == "rate limited" {
-        components::WARNING
+fn bytes_display(page: &CollectionPage) -> Option<String> {
+    if !matches!(
+        page.stage,
+        DownloadStage::Downloading | DownloadStage::Completed
+    ) {
+        return None;
+    }
+    page.stats
+        .total_collection_bytes
+        .map(|total| format_bytes_progress(page.total_downloaded_bytes(), total))
+}
+
+fn status_color(stage: DownloadStage, status: &str) -> Color {
+    if status == STATUS_RATE_LIMITED {
+        WARNING
     } else {
-        components::status_style(stage)
-            .fg
-            .unwrap_or(components::TEXT_DIM)
+        widgets::status_style(stage).fg.unwrap_or(TEXT_DIM)
     }
 }
 
 fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     let (label, downloaded, skipped, failed, unverified) = if let Some(summary) = &page.summary {
         (
-            "done",
+            SUMMARY_DONE,
             summary.downloaded,
             summary.skipped,
             summary.failed,
@@ -190,46 +232,41 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         )
     } else {
         (
-            "progress",
+            SUMMARY_PROGRESS,
             page.stats.downloaded,
             page.stats.skipped,
             page.stats.failed,
             page.stats.unverified,
         )
     };
+
     let displayed_skipped = skipped.saturating_add(unverified);
     let mut spans = vec![
-        Span::styled(
-            format!("{label}: "),
-            Style::default().fg(components::TEXT_FAINT),
-        ),
+        Span::styled(format!("{label}: "), Style::default().fg(TEXT_FAINT)),
         Span::styled(
             format!("{downloaded} downloaded"),
-            Style::default().fg(components::SUCCESS),
+            Style::default().fg(SUCCESS),
         ),
-        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
         Span::styled(
             format!("{displayed_skipped} skipped"),
-            Style::default().fg(components::TEXT_MUTED),
+            Style::default().fg(TEXT_MUTED),
         ),
-        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
+        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
         Span::styled(
             format!("{failed} failed"),
             if failed > 0 {
-                Style::default().fg(components::DANGER)
+                Style::default().fg(DANGER)
             } else {
-                Style::default().fg(components::TEXT_MUTED)
+                Style::default().fg(TEXT_MUTED)
             },
         ),
     ];
     if unverified > 0 {
-        spans.push(Span::styled(
-            "  │  ",
-            Style::default().fg(components::LINE_SOFT),
-        ));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
         spans.push(Span::styled(
             format!("{unverified} unverified"),
-            Style::default().fg(components::WARNING),
+            Style::default().fg(WARNING),
         ));
     }
     spans
@@ -241,15 +278,12 @@ fn format_speed(bytes_per_sec: f64) -> String {
     } else if bytes_per_sec >= KB {
         format!("{:.1} KB/s", bytes_per_sec / KB)
     } else {
-        format!("{:.0} B/s", bytes_per_sec)
+        format!("{bytes_per_sec:.0} B/s")
     }
 }
 
 fn format_bytes_progress(downloaded: u64, total: u64) -> String {
-    let downloaded_gb = downloaded as f64 / GB;
-    let total_gb = total as f64 / GB;
-
-    format!("{downloaded_gb:.2}/{total_gb:.2} GB")
+    format!("{:.2}/{:.2} GB", downloaded as f64 / GB, total as f64 / GB)
 }
 
 fn format_avg_verify(avg_us: u64) -> String {
@@ -290,14 +324,9 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let verified_ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
     let failed_ratio = (failed_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    let mut top_style = Style::default().fg(components::TEXT_DIM);
-    if !page.progress_label_style_locked || page.progress_label_bold_when_locked {
-        top_style = top_style
-            .fg(components::TEXT_MUTED)
-            .add_modifier(Modifier::BOLD);
-    }
+    let mut top_style = Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD);
     if is_rechecking {
-        top_style = top_style.fg(components::WARNING);
+        top_style = top_style.fg(WARNING);
     }
 
     let top_title = if is_rechecking {
@@ -319,51 +348,42 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         .title_bottom(
             Line::from(Span::styled(
                 verified_title,
-                Style::default().fg(components::TEXT_FAINT),
+                Style::default().fg(TEXT_FAINT),
             ))
             .right_aligned(),
         );
 
-    let fill_color = if is_rechecking {
-        components::WARNING
-    } else {
-        components::ACCENT
-    };
+    let fill_color = if is_rechecking { WARNING } else { ACCENT };
 
     if failed_display == 0 {
-        let gauge = Gauge::default()
-            .block(block)
-            .ratio(verified_ratio)
-            .label(Span::raw(""))
-            .gauge_style(Style::default().fg(fill_color).bg(components::BG_RAISED));
-        frame.render_widget(gauge, area);
-    } else {
-        // Render two-segment bar: verified (accent) + failed (danger)
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-        if inner.width == 0 || inner.height == 0 {
-            return;
-        }
-        let bar_width = inner.width as usize;
-        let verified_cells = ((verified_ratio * bar_width as f64).round() as usize).min(bar_width);
-        let failed_cells =
-            ((failed_ratio * bar_width as f64).round() as usize).min(bar_width - verified_cells);
-        let empty_cells = bar_width.saturating_sub(verified_cells + failed_cells);
-
-        let bar = Line::from(vec![
-            Span::styled("█".repeat(verified_cells), Style::default().fg(fill_color)),
-            Span::styled(
-                "█".repeat(failed_cells),
-                Style::default().fg(components::DANGER),
-            ),
-            Span::styled(
-                "░".repeat(empty_cells),
-                Style::default().fg(components::BG_RAISED),
-            ),
-        ]);
-        let paragraph = Paragraph::new(bar);
-        frame.render_widget(paragraph, inner);
+        frame.render_widget(
+            Gauge::default()
+                .block(block)
+                .ratio(verified_ratio)
+                .label(Span::raw(""))
+                .gauge_style(Style::default().fg(fill_color).bg(BG_RAISED)),
+            area,
+        );
+        return;
     }
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let bar_width = inner.width as usize;
+    let verified_cells = ((verified_ratio * bar_width as f64).round() as usize).min(bar_width);
+    let failed_cells =
+        ((failed_ratio * bar_width as f64).round() as usize).min(bar_width - verified_cells);
+    let empty_cells = bar_width.saturating_sub(verified_cells + failed_cells);
+
+    let bar = Line::from(vec![
+        Span::styled("█".repeat(verified_cells), Style::default().fg(fill_color)),
+        Span::styled("█".repeat(failed_cells), Style::default().fg(DANGER)),
+        Span::styled("░".repeat(empty_cells), Style::default().fg(BG_RAISED)),
+    ]);
+    frame.render_widget(Paragraph::new(bar), inner);
 }
 
 fn render_indeterminate_gauge(
@@ -373,13 +393,12 @@ fn render_indeterminate_gauge(
     stage: DownloadStage,
     tick: u64,
 ) {
-    let spinner = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+    let spinner = spinner_char(tick);
     let label = match stage {
-        DownloadStage::Pending => "preparing",
-        _ => "resolving collection",
+        DownloadStage::Pending => PLACEHOLDER_PREPARING,
+        _ => PLACEHOLDER_RESOLVING,
     };
     let title = format!(" {spinner} {label} ");
-
     render_indeterminate_block(frame, area, &title, page, tick);
 }
 
@@ -390,11 +409,9 @@ fn render_resolve_progress_gauge(
     total: u32,
     tick: u64,
 ) {
-    let spinner = SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()];
+    let spinner = spinner_char(tick);
     let title = format!(" {spinner} resolving {current}/{total} collections ");
-    let title_style = Style::default()
-        .fg(components::INFO)
-        .add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(INFO).add_modifier(Modifier::BOLD);
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
@@ -414,11 +431,8 @@ fn render_resolve_progress_gauge(
     let empty = bar_width.saturating_sub(filled);
 
     let bar = Line::from(vec![
-        Span::styled("█".repeat(filled), Style::default().fg(components::INFO)),
-        Span::styled(
-            "░".repeat(empty),
-            Style::default().fg(components::BG_RAISED),
-        ),
+        Span::styled("█".repeat(filled), Style::default().fg(INFO)),
+        Span::styled("░".repeat(empty), Style::default().fg(BG_RAISED)),
     ]);
     let bar_area = Rect {
         x: inner.x,
@@ -436,9 +450,7 @@ fn render_indeterminate_block(
     page: &CollectionPage,
     tick: u64,
 ) {
-    let title_style = Style::default()
-        .fg(components::INFO)
-        .add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(INFO).add_modifier(Modifier::BOLD);
     let block = Block::default()
         .title(Line::from(Span::styled(title.to_string(), title_style)).left_aligned());
 
@@ -472,15 +484,9 @@ fn render_indeterminate_block(
     let trailing = bar_width - chunk_start - visible;
 
     let bar = Line::from(vec![
-        Span::styled(
-            "░".repeat(chunk_start),
-            Style::default().fg(components::BG_RAISED),
-        ),
-        Span::styled("█".repeat(visible), Style::default().fg(components::INFO)),
-        Span::styled(
-            "░".repeat(trailing),
-            Style::default().fg(components::BG_RAISED),
-        ),
+        Span::styled("░".repeat(chunk_start), Style::default().fg(BG_RAISED)),
+        Span::styled("█".repeat(visible), Style::default().fg(INFO)),
+        Span::styled("░".repeat(trailing), Style::default().fg(BG_RAISED)),
     ]);
     frame.render_widget(Paragraph::new(bar), inner);
 }
@@ -493,37 +499,25 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         return;
     }
 
-    let block = components::panel_block("active");
+    let block = widgets::panel_block(PANEL_ACTIVE);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let row_width = inner.width;
     let mut items: Vec<ListItem> = Vec::new();
 
-    // During the Downloading stage render exactly `concurrent` slot rows. Empty slots
-    // become blank lines so the panel height stays fixed while beatmaps come and go.
-    // This kills the flicker that used to fire each time a completing beatmap left a
-    // gap and a new one filled it: previously the rendered row count would drop to 0
-    // (or shrink past `last_occupied`) and the "no active threads" placeholder could
-    // also flash for a single frame between Rechecking → first lib status.
     if matches!(page.stage, DownloadStage::Downloading) {
         for slot in &page.active_downloads {
             match slot {
-                Some(line) => items.push(components::active_download_item(line, row_width)),
+                Some(line) => items.push(widgets::active_download_item(line, row_width)),
                 None => items.push(ListItem::new("")),
             }
         }
     } else if items.is_empty() && page.failed_maps.is_empty() {
         let (text, color) = match page.stage {
-            DownloadStage::Rechecking => (
-                "verifying existing archives...".to_string(),
-                components::WARNING,
-            ),
-            DownloadStage::Pending | DownloadStage::Resolving => (
-                "fetching collection metadata...".to_string(),
-                components::INFO,
-            ),
-            _ => ("no active threads".to_string(), components::TEXT_FAINT),
+            DownloadStage::Rechecking => (ACTIVE_VERIFYING, WARNING),
+            DownloadStage::Pending | DownloadStage::Resolving => (ACTIVE_FETCHING, INFO),
+            _ => (ACTIVE_NONE, TEXT_FAINT),
         };
         items.push(ListItem::new(Line::from(vec![
             Span::raw("  "),
@@ -534,19 +528,15 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed)
         && !page.failed_maps.is_empty()
     {
-        items.push(components::section_header("failed"));
-
+        items.push(widgets::section_header(FAILED_SECTION));
         for failure in &page.failed_maps {
             items.push(ListItem::new(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(
-                    format!("#{}", failure.id),
-                    Style::default().fg(components::TEXT_FAINT),
-                ),
-                Span::styled("  ", Style::default()),
+                Span::styled(format!("#{}", failure.id), Style::default().fg(TEXT_FAINT)),
+                Span::raw("  "),
                 Span::styled(
                     summarize_failure(&failure.reason),
-                    Style::default().fg(components::DANGER),
+                    Style::default().fg(DANGER),
                 ),
             ])));
         }
@@ -560,50 +550,45 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let max_scroll = total.saturating_sub(visible_height);
     let start = page.thread_scroll.min(max_scroll);
     let end = (start + visible_height).min(total);
-    let visible_items = items[start..end].to_vec();
 
-    let list = List::new(visible_items).highlight_symbol("");
-    frame.render_widget(list, inner);
+    frame.render_widget(
+        List::new(items[start..end].to_vec()).highlight_symbol(""),
+        inner,
+    );
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
-    let eyebrow = components::eyebrow_style().add_modifier(Modifier::DIM);
+    let eyebrow_style = eyebrow().add_modifier(Modifier::DIM);
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
     let failed_style = if summary.failed > 0 {
-        Style::default().fg(components::DANGER)
+        Style::default().fg(DANGER)
     } else {
-        Style::default().fg(components::TEXT_MUTED)
+        Style::default().fg(TEXT_MUTED)
     };
     let mut spans = vec![
         Span::raw("  "),
-        Span::styled("DOWNLOADED", eyebrow),
+        Span::styled(RESULTS_DOWNLOADED, eyebrow_style),
         Span::raw(" "),
-        Span::styled(
-            summary.downloaded.to_string(),
-            Style::default().fg(components::ACCENT),
-        ),
-        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
-        Span::styled("SKIPPED", eyebrow),
+        Span::styled(summary.downloaded.to_string(), Style::default().fg(ACCENT)),
+        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(RESULTS_SKIPPED, eyebrow_style),
         Span::raw(" "),
         Span::styled(
             displayed_skipped.to_string(),
-            Style::default().fg(components::TEXT_MUTED),
+            Style::default().fg(TEXT_MUTED),
         ),
-        Span::styled("  │  ", Style::default().fg(components::LINE_SOFT)),
-        Span::styled("FAILED", eyebrow),
+        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(RESULTS_FAILED, eyebrow_style),
         Span::raw(" "),
         Span::styled(summary.failed.to_string(), failed_style),
     ];
     if summary.unverified > 0 {
-        spans.push(Span::styled(
-            "  │  ",
-            Style::default().fg(components::LINE_SOFT),
-        ));
-        spans.push(Span::styled("UNVERIFIED", eyebrow));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
+        spans.push(Span::styled(RESULTS_UNVERIFIED, eyebrow_style));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
             summary.unverified.to_string(),
-            Style::default().fg(components::WARNING),
+            Style::default().fg(WARNING),
         ));
     }
 
@@ -612,30 +597,26 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                "Done! Check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu correctly",
-                Style::default().fg(components::TEXT_MUTED),
-            ),
+            Span::styled(RESULTS_OUTRO_1, Style::default().fg(TEXT_MUTED)),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                "and leave a star while you're at it :3",
-                Style::default().fg(components::TEXT_FAINT),
-            ),
+            Span::styled(RESULTS_OUTRO_2, Style::default().fg(TEXT_FAINT)),
         ]),
     ];
 
-    let paragraph = Paragraph::new(lines)
-        .block(components::panel_block("results"))
-        .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(widgets::panel_block(PANEL_RESULTS))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 fn summarize_failure(reason: &str) -> String {
     if reason.is_empty() {
-        return "unknown error".to_string();
+        return FAILED_UNKNOWN.to_string();
     }
 
     let mut truncated: String = reason.chars().take(MAX_TRUNCATED_CHARS).collect();
@@ -662,5 +643,25 @@ mod tests {
         assert_eq!(format_avg_verify(59_999_999), "60.0s");
         assert_eq!(format_avg_verify(60_000_000), "1.0m");
         assert_eq!(format_avg_verify(120_000_000), "2.0m");
+    }
+
+    #[test]
+    fn format_speed_units() {
+        assert_eq!(format_speed(500.0), "500 B/s");
+        assert_eq!(format_speed(1024.0), "1.0 KB/s");
+        assert_eq!(format_speed(1024.0 * 1024.0), "1.00 MB/s");
+    }
+
+    #[test]
+    fn summarize_failure_truncates_long() {
+        let reason = "x".repeat(200);
+        let summary = summarize_failure(&reason);
+        assert!(summary.ends_with("..."));
+        assert!(summary.chars().count() <= MAX_TRUNCATED_CHARS);
+    }
+
+    #[test]
+    fn summarize_failure_empty_returns_unknown() {
+        assert_eq!(summarize_failure(""), FAILED_UNKNOWN);
     }
 }
