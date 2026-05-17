@@ -9,6 +9,8 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, Padding, Paragraph},
 };
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use super::TabsView;
 
@@ -387,31 +389,71 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         let pad = width.saturating_sub(used).saturating_sub(RESERVED_RIGHT) as usize;
         spans.push(Span::raw(" ".repeat(pad)));
 
-        let (filled, label) = match line.progress_ratio() {
-            Some(ratio) => {
-                let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
-                (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
-            }
-            None => (0, "  --".to_string()),
-        };
-        let empty = BAR_WIDTH - filled;
-
         let bar_color = if rate_limited { WARNING } else { ACCENT };
-        spans.push(Span::styled(
-            "█".repeat(filled as usize),
-            Style::default().fg(bar_color),
-        ));
-        spans.push(Span::styled(
-            "░".repeat(empty as usize),
-            Style::default().fg(LINE_SOFT),
-        ));
-        spans.push(Span::styled(
-            format!(" {label}"),
-            Style::default().fg(TEXT_FAINT),
-        ));
+        match line.progress_ratio() {
+            Some(ratio) => {
+                let filled = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
+                let empty = BAR_WIDTH - filled;
+                spans.push(Span::styled(
+                    "█".repeat(filled as usize),
+                    Style::default().fg(bar_color),
+                ));
+                spans.push(Span::styled(
+                    "░".repeat(empty as usize),
+                    Style::default().fg(LINE_SOFT),
+                ));
+                spans.push(Span::styled(
+                    format!(" {:>3}%", (ratio * 100.0).round() as u16),
+                    Style::default().fg(TEXT_FAINT),
+                ));
+            }
+            None => {
+                spans.extend(indeterminate_bar_spans(BAR_WIDTH, Color::Rgb(45, 132, 196)));
+                spans.push(Span::styled("  ...", Style::default().fg(TEXT_FAINT)));
+            }
+        }
     }
 
     ListItem::new(Line::from(spans))
+}
+
+fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
+    let width = width as usize;
+    let segment = 4usize.min(width);
+    let travel = width.saturating_sub(segment);
+    let tick = animation_start().elapsed().as_millis() as usize / 90;
+    let cycle = travel.saturating_mul(2).max(1);
+    let phase = tick % cycle;
+    let offset = if phase <= travel {
+        phase
+    } else {
+        cycle.saturating_sub(phase)
+    };
+
+    let mut spans = Vec::new();
+    if offset > 0 {
+        spans.push(Span::styled(
+            "░".repeat(offset),
+            Style::default().fg(LINE_SOFT),
+        ));
+    }
+    spans.push(Span::styled(
+        "█".repeat(segment),
+        Style::default().fg(bar_color),
+    ));
+    let right = width.saturating_sub(offset).saturating_sub(segment);
+    if right > 0 {
+        spans.push(Span::styled(
+            "░".repeat(right),
+            Style::default().fg(LINE_SOFT),
+        ));
+    }
+    spans
+}
+
+fn animation_start() -> Instant {
+    static START: OnceLock<Instant> = OnceLock::new();
+    *START.get_or_init(Instant::now)
 }
 
 fn truncate_to_width(message: &str, budget: u16) -> String {

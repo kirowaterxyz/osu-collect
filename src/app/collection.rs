@@ -1,4 +1,4 @@
-use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, status};
+use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary};
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
@@ -15,6 +15,21 @@ const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
 struct DisplayedStatus {
     message: String,
     rate_limited: bool,
+}
+
+fn non_empty_status(stage: BeatmapStage, beatmapset_id: u32, message: &str) -> String {
+    if !message.trim().is_empty() {
+        return message.to_string();
+    }
+
+    match stage {
+        BeatmapStage::Pending => format!("queued #{beatmapset_id}"),
+        BeatmapStage::Downloading => format!("Downloading #{beatmapset_id}"),
+        BeatmapStage::Success => format!("done #{beatmapset_id}"),
+        BeatmapStage::Skipped => format!("skipped #{beatmapset_id}"),
+        BeatmapStage::Failed => format!("failed #{beatmapset_id}"),
+        BeatmapStage::Aborted => format!("aborted #{beatmapset_id}"),
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -83,27 +98,18 @@ impl ActiveDownloadLine {
         COMPLETION_PREFIXES.iter().any(|p| message.starts_with(p))
     }
 
-    /// Show the per-line progress bar once bytes have actually started flowing. Keyed on
-    /// `downloaded`/`total` (not stage) so the bar stays hidden during pre-stream phases
-    /// (contacting, mirror rotation) and stays visible across retries / rate-limits once
-    /// data has arrived.
     pub fn should_show_bar(&self) -> bool {
-        matches!(self.stage, BeatmapStage::Downloading) && (self.downloaded > 0 || self.total > 0)
+        matches!(self.stage, BeatmapStage::Downloading)
     }
 
     fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
         self.stage = stage;
         self.pending = DisplayedStatus {
-            message: message.to_string(),
+            message: non_empty_status(stage, self.beatmapset_id, message),
             rate_limited,
         };
-        let first = self.displayed.borrow().message.is_empty();
-        if first || stage.is_terminal() || message.starts_with(status::DOWNLOADING) {
-            *self.displayed.borrow_mut() = self.pending.clone();
-            self.debounce_at.set(None);
-        } else if self.debounce_at.get().is_none() {
-            self.debounce_at.set(Some(Instant::now()));
-        }
+        *self.displayed.borrow_mut() = self.pending.clone();
+        self.debounce_at.set(None);
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {

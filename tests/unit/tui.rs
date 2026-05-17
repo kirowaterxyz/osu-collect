@@ -336,6 +336,62 @@ fn active_view_renders_progress_bar_when_downloading() {
 }
 
 #[test]
+fn active_view_requires_percentage_for_discovered_download_size() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 5;
+    page.download_target = 5;
+    page.register_beatmaps(&[42]);
+    page.update_active_status(
+        42,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #42 from mirror",
+        false,
+    );
+    page.update_active_progress(42, 1_500_000, 10_000_000);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(output.contains("█"), "filled bar segment must render");
+    assert!(
+        output.contains("15%"),
+        "percent label must reflect probed size"
+    );
+    assert!(!output.contains("  --"), "progress must render as percent");
+}
+
+#[test]
+fn active_view_renders_bouncing_bar_when_total_is_unknown() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 5;
+    page.download_target = 5;
+    page.register_beatmaps(&[42]);
+    page.update_active_status(
+        42,
+        osu_collect::download::BeatmapStage::Downloading,
+        "Downloading #42 from mirror",
+        false,
+    );
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 100, 24);
+
+    assert!(output.contains("████"), "bouncing segment must render");
+    assert!(output.contains("..."), "unknown progress label must render");
+    assert!(
+        !output.contains("  --"),
+        "unknown progress must not render --"
+    );
+}
+
+#[test]
 fn active_panel_height_is_constant_across_completion_and_start() {
     use osu_collect::download::BeatmapStage;
 
@@ -862,27 +918,27 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
 }
 
 #[test]
-fn bar_hidden_during_contacting_visible_once_bytes_flow() {
+fn bar_visible_during_downloading_before_bytes_flow() {
     use osu_collect::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
     page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
     let line = page.active_lines().next().expect("slot allocated");
     assert!(
-        !line.should_show_bar(),
-        "no bytes yet — bar must stay hidden during contacting"
+        line.should_show_bar(),
+        "active downloads without a total should show an indeterminate bar"
     );
 
     page.update_active_progress(7, 4_096, 8_192);
     let line = page.active_lines().next().expect("slot allocated");
     assert!(
         line.should_show_bar(),
-        "bar must appear once real progress data is available"
+        "bar must remain visible once real progress data is available"
     );
 }
 
 #[test]
-fn thread_status_change_is_debounced_except_for_downloading() {
+fn active_status_line_always_shows_latest_non_empty_status() {
     use osu_collect::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
@@ -901,68 +957,58 @@ fn thread_status_change_is_debounced_except_for_downloading() {
         "Downloading must promote immediately, got {initial:?}"
     );
 
-    // a non-Downloading update should not change the displayed message right away
     page.update_active_status(
         200,
         BeatmapStage::Downloading,
         "Rate limited on X, ...",
         true,
     );
-    let debounced = page.active_downloads[0]
-        .as_ref()
-        .expect("slot must be allocated")
-        .displayed_message();
-    assert!(
-        debounced.starts_with("Downloading"),
-        "non-Downloading transition must stay debounced for 100ms"
-    );
-
-    // after the debounce window, the pending message becomes visible
-    std::thread::sleep(std::time::Duration::from_millis(120));
     let line = page.active_downloads[0]
         .as_ref()
         .expect("slot must be allocated");
     let visible = line.displayed_message();
     assert!(
         visible.starts_with("Rate limited"),
-        "debounced message must promote after 100ms, got {visible:?}"
+        "latest status must be visible immediately, got {visible:?}"
     );
     assert!(line.displayed_rate_limited());
+
+    page.update_active_status(200, BeatmapStage::Downloading, "", false);
+    let fallback = page.active_downloads[0]
+        .as_ref()
+        .expect("slot must be allocated")
+        .displayed_message();
+    assert_eq!(fallback, "Downloading #200");
 }
 
 #[test]
-fn rapid_non_downloading_transitions_share_one_debounce_window() {
+fn rapid_status_transitions_show_latest_message() {
     use osu_collect::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
-    // first message shows immediately so the slot is never blank
     page.update_active_status(
         400,
         BeatmapStage::Downloading,
         "downloading from nerinyan",
         false,
     );
-
-    // first non-downloading transition starts the debounce timer
     page.update_active_status(400, BeatmapStage::Downloading, "checking nerinyan", false);
-    std::thread::sleep(std::time::Duration::from_millis(60));
-    // a second non-downloading transition must not restart the timer — otherwise rapid
-    // transitions would indefinitely delay any message from being promoted
     page.update_active_status(
         400,
         BeatmapStage::Downloading,
         "rate limited on nerinyan, waiting 5s",
         true,
     );
-    std::thread::sleep(std::time::Duration::from_millis(60));
+
     let line = page.active_downloads[0]
         .as_ref()
         .expect("slot must be allocated");
     let visible = line.displayed_message();
     assert!(
         visible.starts_with("rate limited"),
-        "latest pending must promote once the original timer elapses, got {visible:?}"
+        "latest status must be visible immediately, got {visible:?}"
     );
+    assert!(line.displayed_rate_limited());
 }
 
 #[test]
