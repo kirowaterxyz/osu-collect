@@ -100,10 +100,6 @@ pub async fn validate_archive(
     Ok(ArchiveValidationResult::Valid)
 }
 
-pub(crate) async fn validate_zip_archive(path: &Path) -> Result<()> {
-    ensure_valid_archive(path, true).await
-}
-
 async fn verify_zip_eocd_footer(file: &mut fs::File, file_size: u64) -> Result<()> {
     if file_size < 22 {
         return Err(DownloadError::validation_failed(
@@ -160,10 +156,14 @@ fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+
+    pub(crate) fn minimal_zip_bytes_for_test() -> Vec<u8> {
+        minimal_zip_bytes()
+    }
 
     fn minimal_zip_bytes() -> Vec<u8> {
         let local_header: &[u8] = &[
@@ -195,7 +195,7 @@ mod tests {
     async fn valid_zip_passes() {
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(&minimal_zip_bytes()).unwrap();
-        assert!(validate_zip_archive(tmp.path()).await.is_ok());
+        assert!(ensure_valid_archive(tmp.path(), true).await.is_ok());
     }
 
     #[tokio::test]
@@ -232,7 +232,7 @@ mod tests {
 
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(&data).unwrap();
-        assert!(validate_zip_archive(tmp.path()).await.is_ok());
+        assert!(ensure_valid_archive(tmp.path(), true).await.is_ok());
     }
 
     #[tokio::test]
@@ -243,7 +243,7 @@ mod tests {
 
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(&data).unwrap();
-        assert!(validate_zip_archive(tmp.path()).await.is_err());
+        assert!(ensure_valid_archive(tmp.path(), true).await.is_err());
     }
 
     #[test]

@@ -11,6 +11,7 @@ pub(crate) const NETWORK_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 pub(crate) struct DownloadConfig {
     pub(crate) concurrent_downloads: usize,
     pub(crate) verify_archives: bool,
+    pub(crate) verify_zip_eocd: bool,
     pub(crate) progress_timeout: Duration,
     pub(crate) user_agent: String,
     pub(crate) network_retry_attempts: usize,
@@ -21,6 +22,7 @@ impl Default for DownloadConfig {
         Self {
             concurrent_downloads: 4,
             verify_archives: true,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(30),
             user_agent: format!("osu-downloader/{}", env!("CARGO_PKG_VERSION")),
             network_retry_attempts: 0,

@@ -26,6 +26,7 @@ use tracing::{debug, info, warn};
 pub(crate) struct BatchConfig {
     pub(crate) concurrent_downloads: usize,
     pub(crate) verify_archives: bool,
+    pub(crate) verify_zip_eocd: bool,
     pub(crate) progress_timeout: Duration,
     pub(crate) network_retry_attempts: usize,
 }
@@ -258,6 +259,7 @@ async fn process_one(
             client,
             mirror_pool,
             verify_archive: config.verify_archives,
+            verify_zip_eocd: config.verify_zip_eocd,
             progress_timeout: config.progress_timeout,
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(progress_callback.clone()),
@@ -370,6 +372,7 @@ mod tests {
         let config = BatchConfig {
             concurrent_downloads: 2,
             verify_archives: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             network_retry_attempts: 0,
         };

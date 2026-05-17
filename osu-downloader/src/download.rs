@@ -73,6 +73,7 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) client: &'a reqwest::Client,
     pub(crate) mirror_pool: &'a MirrorPool,
     pub(crate) verify_archive: bool,
+    pub(crate) verify_zip_eocd: bool,
     pub(crate) progress_timeout: Duration,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
     pub(crate) options: BeatmapsetDownloadOptions,
@@ -693,7 +694,7 @@ async fn write_archive(
     let verify_start = Instant::now();
     if params.verify_archive {
         if let Some(validate_result) = run_cancelable(
-            validation::validate_zip_archive(&stream.temp_path),
+            validation::ensure_valid_archive(&stream.temp_path, params.verify_zip_eocd),
             &params.cancel_rx,
         )
         .await
@@ -1075,6 +1076,7 @@ mod tests {
             client: &client,
             mirror_pool: &mirror_pool,
             verify_archive: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1140,6 +1142,7 @@ mod tests {
             client: &client,
             mirror_pool: &mirror_pool,
             verify_archive: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1194,6 +1197,7 @@ mod tests {
             client: &client,
             mirror_pool: &mirror_pool,
             verify_archive: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(Arc::new(move |downloaded, total| {
@@ -1253,6 +1257,7 @@ mod tests {
             client: &client,
             mirror_pool: &mirror_pool,
             verify_archive: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: None,
@@ -1376,6 +1381,7 @@ mod tests {
             client: &client,
             mirror_pool: &mirror_pool,
             verify_archive: false,
+            verify_zip_eocd: false,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1386,6 +1392,61 @@ mod tests {
         assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
         assert_eq!(rate_hits.load(Ordering::SeqCst), 2);
         assert_eq!(missing_hits.load(Ordering::SeqCst), 1);
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn verify_archive_records_nonzero_duration_when_enabled() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+
+        let zip_bytes = crate::validation::tests::minimal_zip_bytes_for_test();
+        let len = zip_bytes.len();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=99.osz\r\nContent-Length: {len}\r\n\r\n"
+            );
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&zip_bytes).unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let mirror = Mirror::custom(format!("http://{addr}/dl/{{id}}")).unwrap();
+        let mirror_pool = MirrorPool::new(vec![mirror]);
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let dir = tempfile::tempdir().unwrap();
+
+        let (outcome, _) = download_beatmapset(DownloadParams {
+            beatmapset_id: 99,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: true,
+            verify_zip_eocd: true,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks::default(),
+            options: BeatmapsetDownloadOptions::default(),
+            cancel_rx,
+        })
+        .await;
+
+        match outcome {
+            BeatmapsetDownloadOutcome::Success {
+                verify_duration_us, ..
+            } => assert!(
+                verify_duration_us > 0,
+                "verify_duration_us must be non-zero when verification runs (got {verify_duration_us}us)"
+            ),
+            other => panic!("expected Success outcome, got {other:?}"),
+        }
         server.join().unwrap();
     }
 
