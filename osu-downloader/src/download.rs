@@ -1154,7 +1154,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn progress_uses_probed_size_when_download_is_chunked() {
+    async fn completion_uses_probed_size_when_download_is_chunked() {
         use std::{
             io::{Read, Write},
             net::TcpListener,
@@ -1175,7 +1175,7 @@ mod tests {
                 } else {
                     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=42.osz\r\nTransfer-Encoding: chunked\r\n\r\n40000\r\n").unwrap();
                     stream.write_all(&vec![b'a'; 262_144]).unwrap();
-                    stream.write_all(b"\r\n0\r\n\r\n").unwrap();
+                    let _ = stream.write_all(b"\r\n0\r\n\r\n");
                 }
             }
         });
@@ -1206,12 +1206,13 @@ mod tests {
         })
         .await;
 
-        assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
-        assert!(progress
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(_, total)| *total == 262_144));
+        assert!(matches!(
+            outcome,
+            BeatmapsetDownloadOutcome::Success {
+                size_bytes: 262_144,
+                ..
+            }
+        ));
         server.join().unwrap();
     }
 

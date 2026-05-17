@@ -190,8 +190,10 @@ pub async fn stream_download(
         }
 
         if let Some(ref callback) = progress_callback {
-            if delta >= MIN_PROGRESS_DELTA
-                || last_progress_emitted.elapsed() >= MIN_PROGRESS_INTERVAL
+            let is_complete = total != 0 && downloaded >= total;
+            if !is_complete
+                && (delta >= MIN_PROGRESS_DELTA
+                    || last_progress_emitted.elapsed() >= MIN_PROGRESS_INTERVAL)
             {
                 callback(downloaded, total);
                 last_progress_bytes = downloaded;
@@ -206,11 +208,6 @@ pub async fn stream_download(
     }
 
     flush_download(&mut file, &mut hash_worker, &temp_path, &cancel_rx).await?;
-
-    // intentionally NOT emitting a final progress(downloaded=total) here. the caller's next
-    // event will be `Verifying`, which is the real "body done" signal; pushing 100% in between
-    // causes a one-frame full-bar flash in TUI consumers that render between every event.
-    let _ = last_progress_bytes;
 
     let hash = match hash_worker.take() {
         Some(worker) => Some(worker.finalize().await?),
@@ -335,6 +332,65 @@ mod tests {
             let _guard = TempFileGuard::new(path.clone());
         }
         assert!(!path.exists(), "guard must remove file when dropped armed");
+    }
+
+    #[tokio::test]
+    async fn final_chunk_does_not_emit_complete_progress() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            sync::{Arc, Mutex},
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {MIN_PROGRESS_DELTA}\r\n\r\n")
+                        .as_bytes(),
+                )
+                .unwrap();
+            stream
+                .write_all(&vec![b'a'; MIN_PROGRESS_DELTA as usize])
+                .unwrap();
+        });
+
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/archive.osz"))
+            .send()
+            .await
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("archive.osz");
+        let progress = Arc::new(Mutex::new(Vec::new()));
+        let progress_events = progress.clone();
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+        let result = stream_download(
+            response,
+            &output_path,
+            Some(MIN_PROGRESS_DELTA),
+            Some(Arc::new(move |downloaded, total| {
+                progress_events.lock().unwrap().push((downloaded, total));
+            })),
+            Duration::from_secs(1),
+            cancel_rx,
+        )
+        .await
+        .unwrap();
+
+        assert!(!result.aborted);
+        assert!(!progress
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|&(downloaded, total)| downloaded == total));
+        server.join().unwrap();
     }
 
     #[test]
