@@ -64,7 +64,7 @@ fn reset_terminal_bg<W: Write>(out: &mut W) -> io::Result<()> {
 }
 
 pub fn spawn_input_thread(tx: mpsc::UnboundedSender<InputEvent>) -> Option<thread::JoinHandle<()>> {
-    let tick_rate = Duration::from_millis(200);
+    let tick_rate = Duration::from_millis(50);
     thread::Builder::new()
         .name("osu-collect-input".into())
         .spawn(move || {
