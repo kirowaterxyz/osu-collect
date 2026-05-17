@@ -1,4 +1,4 @@
-use super::model::Config;
+use super::{migrator, model::Config};
 use crate::utils::{AppError, Result};
 use std::{
     env, fs,
@@ -41,7 +41,9 @@ pub fn load_config_or_default() -> Config {
 }
 
 pub fn load_config_from(path: impl AsRef<Path>) -> Result<Config> {
-    let contents = std::fs::read_to_string(path.as_ref())?;
+    let path = path.as_ref();
+    migrator::migrate_in_place(path);
+    let contents = std::fs::read_to_string(path)?;
     toml::from_str::<Config>(&contents)
         .map_err(|err| AppError::config_dynamic(format!("Invalid config file: {}", err)))
 }
