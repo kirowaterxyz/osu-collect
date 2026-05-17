@@ -3,7 +3,7 @@ use super::{
     DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadCollection,
     SelectiveDownloadRequest,
     lock::ActiveDownloadRegistry,
-    session::{DownloadSession, PrepareCollectionParams, PrepareSelectiveParams},
+    session::{DownloadSession, PrepareParams, PrepareTarget},
 };
 use crate::{
     app::snapshots,
@@ -118,15 +118,17 @@ async fn run_collection(
         stage: DownloadStage::Resolving,
     });
 
-    let session = DownloadSession::prepare_collection(PrepareCollectionParams {
+    let session = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
         directory: &config.directory,
-        collection_input: &collection_input,
         thread_count: config.concurrent.max(1) as usize,
         verify_zip_eocd: config.verify_zip_eocd,
         registry: &DOWNLOAD_REGISTRY,
         emit: emit.as_ref(),
+        target: PrepareTarget::Collection {
+            collection_input: &collection_input,
+        },
     })
     .await?;
 
@@ -194,17 +196,19 @@ async fn run_selective(
         stage: DownloadStage::Resolving,
     });
 
-    let session = DownloadSession::prepare_selective(PrepareSelectiveParams {
+    let session = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
         directory: &config.directory,
-        collection_ids: &collection_ids,
-        collections,
-        beatmapset_ids: &beatmapset_ids,
         thread_count: config.concurrent.max(1) as usize,
         verify_zip_eocd: config.verify_zip_eocd,
         registry: &DOWNLOAD_REGISTRY,
         emit: emit.as_ref(),
+        target: PrepareTarget::Selective {
+            collection_ids: &collection_ids,
+            collections,
+            beatmapset_ids: &beatmapset_ids,
+        },
     })
     .await?;
 

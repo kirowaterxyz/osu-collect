@@ -121,41 +121,74 @@ pub(crate) struct DownloadSession {
     pub(crate) _lock_guard: DownloadLockGuard,
 }
 
-pub(crate) struct PrepareCollectionParams<'a> {
-    pub(crate) id: DownloadId,
-    pub(crate) cancel_rx: watch::Receiver<bool>,
-    pub(crate) directory: &'a str,
-    pub(crate) collection_input: &'a str,
-    pub(crate) thread_count: usize,
-    pub(crate) verify_zip_eocd: bool,
-    pub(crate) registry: &'a ActiveDownloadRegistry,
-    pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
+pub(crate) enum PrepareTarget<'a> {
+    Collection {
+        collection_input: &'a str,
+    },
+    Selective {
+        collection_ids: &'a [u32],
+        collections: Vec<SelectiveDownloadCollection>,
+        beatmapset_ids: &'a [u32],
+    },
 }
 
-pub(crate) struct PrepareSelectiveParams<'a> {
+pub(crate) struct PrepareParams<'a> {
     pub(crate) id: DownloadId,
     pub(crate) cancel_rx: watch::Receiver<bool>,
     pub(crate) directory: &'a str,
-    pub(crate) collection_ids: &'a [u32],
-    pub(crate) collections: Vec<SelectiveDownloadCollection>,
-    pub(crate) beatmapset_ids: &'a [u32],
     pub(crate) thread_count: usize,
     pub(crate) verify_zip_eocd: bool,
     pub(crate) registry: &'a ActiveDownloadRegistry,
     pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
+    pub(crate) target: PrepareTarget<'a>,
 }
 
 impl DownloadSession {
-    pub(crate) async fn prepare_collection(
-        params: PrepareCollectionParams<'_>,
-    ) -> Result<Option<Self>, DownloadError> {
-        let collection = resolve_collection(params.collection_input).await?;
-        let mut beatmapset_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
-        beatmapset_ids.sort_unstable();
-        beatmapset_ids.dedup();
-        let output = prepare_output_directory(params.directory, &collection).await?;
+    pub(crate) async fn prepare(params: PrepareParams<'_>) -> Result<Option<Self>, DownloadError> {
+        let (target, output, beatmapset_ids) = match params.target {
+            PrepareTarget::Collection { collection_input } => {
+                let collection = resolve_collection(collection_input).await?;
+                let mut beatmapset_ids: Vec<u32> =
+                    collection.beatmapsets.iter().map(|b| b.id).collect();
+                beatmapset_ids.sort_unstable();
+                beatmapset_ids.dedup();
+                let output = prepare_output_directory(params.directory, &collection).await?;
+                (
+                    SessionTarget::Collection(collection),
+                    output,
+                    beatmapset_ids,
+                )
+            }
+            PrepareTarget::Selective {
+                collection_ids,
+                collections,
+                beatmapset_ids,
+            } => {
+                let (collection, collections, collection_names) = resolve_selective_collections(
+                    collection_ids,
+                    collections,
+                    beatmapset_ids,
+                    params.id,
+                    params.emit,
+                )
+                .await?;
+                let output = prepare_selective_output(params.directory, collection_ids).await?;
+                let mut target_ids = beatmapset_ids.to_vec();
+                target_ids.sort_unstable();
+                target_ids.dedup();
+                (
+                    SessionTarget::Selective {
+                        collection,
+                        collections,
+                        collection_names,
+                    },
+                    output,
+                    target_ids,
+                )
+            }
+        };
+
         let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
-        let target = SessionTarget::Collection(collection);
         target.announce_ready(&params.emit, params.id, &output, &beatmapset_ids);
 
         Self::finalize(
@@ -163,43 +196,6 @@ impl DownloadSession {
             params.cancel_rx,
             target,
             beatmapset_ids,
-            output,
-            lock_guard,
-            params.thread_count,
-            params.verify_zip_eocd,
-            params.emit,
-        )
-        .await
-    }
-
-    pub(crate) async fn prepare_selective(
-        params: PrepareSelectiveParams<'_>,
-    ) -> Result<Option<Self>, DownloadError> {
-        let (collection, collections, collection_names) = resolve_selective_collections(
-            params.collection_ids,
-            params.collections,
-            params.beatmapset_ids,
-            params.id,
-            params.emit,
-        )
-        .await?;
-        let output = prepare_selective_output(params.directory, params.collection_ids).await?;
-        let lock_guard = DownloadLockGuard::acquire(&output.output_dir, params.registry)?;
-        let mut target_ids = params.beatmapset_ids.to_vec();
-        target_ids.sort_unstable();
-        target_ids.dedup();
-        let target = SessionTarget::Selective {
-            collection,
-            collections,
-            collection_names,
-        };
-        target.announce_ready(&params.emit, params.id, &output, &target_ids);
-
-        Self::finalize(
-            params.id,
-            params.cancel_rx,
-            target,
-            target_ids,
             output,
             lock_guard,
             params.thread_count,
