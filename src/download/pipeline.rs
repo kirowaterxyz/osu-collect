@@ -121,9 +121,7 @@ async fn run_collection(
     let session = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
-        directory: &config.directory,
-        thread_count: config.concurrent.max(1) as usize,
-        verify_zip_eocd: config.verify_zip_eocd,
+        config: &config,
         registry: &DOWNLOAD_REGISTRY,
         emit: emit.as_ref(),
         target: PrepareTarget::Collection {
@@ -199,9 +197,7 @@ async fn run_selective(
     let session = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
-        directory: &config.directory,
-        thread_count: config.concurrent.max(1) as usize,
-        verify_zip_eocd: config.verify_zip_eocd,
+        config: &config,
         registry: &DOWNLOAD_REGISTRY,
         emit: emit.as_ref(),
         target: PrepareTarget::Selective {

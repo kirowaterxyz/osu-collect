@@ -1,5 +1,6 @@
 use super::{
-    DownloadError, DownloadEvent, DownloadId, DownloadStage, SelectiveDownloadCollection,
+    DownloadConfig, DownloadError, DownloadEvent, DownloadId, DownloadStage,
+    SelectiveDownloadCollection,
     lock::{ActiveDownloadRegistry, DownloadLockGuard},
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
 };
@@ -135,9 +136,7 @@ pub(crate) enum PrepareTarget<'a> {
 pub(crate) struct PrepareParams<'a> {
     pub(crate) id: DownloadId,
     pub(crate) cancel_rx: watch::Receiver<bool>,
-    pub(crate) directory: &'a str,
-    pub(crate) thread_count: usize,
-    pub(crate) verify_zip_eocd: bool,
+    pub(crate) config: &'a DownloadConfig,
     pub(crate) registry: &'a ActiveDownloadRegistry,
     pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
     pub(crate) target: PrepareTarget<'a>,
@@ -145,6 +144,7 @@ pub(crate) struct PrepareParams<'a> {
 
 impl DownloadSession {
     pub(crate) async fn prepare(params: PrepareParams<'_>) -> Result<Option<Self>, DownloadError> {
+        let directory = params.config.directory.as_str();
         let (target, output, beatmapset_ids) = match params.target {
             PrepareTarget::Collection { collection_input } => {
                 let collection = resolve_collection(collection_input).await?;
@@ -152,7 +152,7 @@ impl DownloadSession {
                     collection.beatmapsets.iter().map(|b| b.id).collect();
                 beatmapset_ids.sort_unstable();
                 beatmapset_ids.dedup();
-                let output = prepare_output_directory(params.directory, &collection).await?;
+                let output = prepare_output_directory(directory, &collection).await?;
                 (
                     SessionTarget::Collection(collection),
                     output,
@@ -172,7 +172,7 @@ impl DownloadSession {
                     params.emit,
                 )
                 .await?;
-                let output = prepare_selective_output(params.directory, collection_ids).await?;
+                let output = prepare_selective_output(directory, collection_ids).await?;
                 let mut target_ids = beatmapset_ids.to_vec();
                 target_ids.sort_unstable();
                 target_ids.dedup();
@@ -198,8 +198,7 @@ impl DownloadSession {
             beatmapset_ids,
             output,
             lock_guard,
-            params.thread_count,
-            params.verify_zip_eocd,
+            params.config,
             params.emit,
         )
         .await
@@ -213,8 +212,7 @@ impl DownloadSession {
         beatmapset_ids: Vec<u32>,
         output: OutputPreparation,
         lock_guard: DownloadLockGuard,
-        thread_count: usize,
-        verify_zip_eocd: bool,
+        config: &DownloadConfig,
         emit: &(dyn Fn(DownloadEvent) + Send + Sync),
     ) -> Result<Option<Self>, DownloadError> {
         let expectations = target.expectation_index(&beatmapset_ids);
@@ -231,10 +229,10 @@ impl DownloadSession {
             id,
             &output.output_dir,
             expectations,
-            thread_count,
+            config.concurrent.max(1) as usize,
             PrecheckOptions {
                 notify_verified: true,
-                verify_zip_eocd,
+                verify_zip_eocd: config.verify_zip_eocd,
             },
             &cancel_rx,
             emit,
