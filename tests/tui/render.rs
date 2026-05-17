@@ -245,6 +245,16 @@ fn gauge_label_none_when_no_verified() {
     assert_eq!(page.avg_verify_us(), None);
 }
 
+#[test]
+fn gauge_label_none_when_avg_rounds_to_zero() {
+    use osu_collect::app::CollectionPage;
+
+    let mut page = CollectionPage::new(1, "test".to_string(), 1);
+    page.stats.verify_total_count = 5;
+    page.stats.verify_total_us = 0;
+    assert_eq!(page.avg_verify_us(), None);
+}
+
 // ── config item order ─────────────────────────────────────────────────────────
 
 #[test]

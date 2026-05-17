@@ -403,10 +403,10 @@ impl CollectionPage {
 
     pub fn avg_verify_us(&self) -> Option<u64> {
         if self.stats.verify_total_count == 0 {
-            None
-        } else {
-            Some(self.stats.verify_total_us / self.stats.verify_total_count as u64)
+            return None;
         }
+        let avg = self.stats.verify_total_us / self.stats.verify_total_count as u64;
+        (avg > 0).then_some(avg)
     }
 }
 
