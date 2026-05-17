@@ -102,7 +102,7 @@ impl App {
     }
 
     fn check_auto_scan(&mut self) -> Option<AppCommand> {
-        if self.active_tab == UPDATES_TAB_INDEX {
+        if self.active_tab == UPDATES_TAB_INDEX && self.updates.needs_initial_scan() {
             self.updates.scan.scan_generation = self.updates.scan.scan_generation.wrapping_add(1);
             Some(AppCommand::ScanLocalDatabase)
         } else {

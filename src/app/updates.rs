@@ -490,6 +490,13 @@ impl UpdatesTab {
         )
     }
 
+    /// Whether entering the Updates tab should kick off a scan. Returns `false` once results
+    /// are cached in memory or a scan is already in flight, so tab switching reuses prior
+    /// results instead of redundantly re-checking.
+    pub fn needs_initial_scan(&self) -> bool {
+        matches!(self.scan.scan_status, ScanStatus::Idle | ScanStatus::Error)
+    }
+
     pub fn set_missing_beatmaps(&mut self, missing: Vec<MissingBeatmapset>) {
         let previously_selected: HashSet<u32> = self
             .selection
@@ -635,7 +642,28 @@ impl Default for UpdatesTab {
 
 #[cfg(test)]
 mod tests {
-    use super::scroll_list;
+    use super::{ScanStatus, UpdatesTab, scroll_list};
+
+    #[test]
+    fn needs_initial_scan_reflects_cache_state() {
+        let mut tab = UpdatesTab::new();
+        assert!(tab.needs_initial_scan(), "idle tab needs a scan");
+
+        tab.scan.scan_status = ScanStatus::ReadingDatabase;
+        assert!(
+            !tab.needs_initial_scan(),
+            "in-flight scan should not restart"
+        );
+
+        tab.scan.scan_status = ScanStatus::FetchingCollection;
+        assert!(!tab.needs_initial_scan());
+
+        tab.scan.scan_status = ScanStatus::Ready;
+        assert!(!tab.needs_initial_scan(), "cached results should be reused");
+
+        tab.scan.scan_status = ScanStatus::Error;
+        assert!(tab.needs_initial_scan(), "errored scans retry on tab entry");
+    }
 
     #[test]
     fn scroll_list_clamps_within_bounds() {
