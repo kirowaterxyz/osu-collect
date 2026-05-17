@@ -83,15 +83,11 @@ pub struct HomeTab {
 
 impl HomeTab {
     pub fn new(config: &Config) -> Self {
-        let mut nerinyan = config.mirror.nerinyan;
+        let nerinyan = config.mirror.nerinyan;
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
         let custom_template = config.mirror.custom_template().unwrap_or("");
-
-        if !nerinyan && !osu_direct && !sayobot && !nekoha && custom_template.is_empty() {
-            nerinyan = true;
-        }
 
         let default_directory = env::current_dir()
             .map(|dir| dir.to_string_lossy().into_owned())

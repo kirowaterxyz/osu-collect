@@ -1,4 +1,17 @@
-use osu_collect::mirrors::{Mirror, MirrorKind};
+use osu_collect::{
+    config::Config,
+    mirrors::{Mirror, MirrorKind},
+};
+
+#[test]
+fn config_defaults_to_every_builtin_mirror() {
+    let config: Config = toml::from_str("[mirror]\n[download]\n").unwrap();
+
+    assert!(config.mirror.nerinyan);
+    assert!(config.mirror.osu_direct);
+    assert!(config.mirror.sayobot);
+    assert!(config.mirror.nekoha);
+}
 
 #[test]
 fn builtin_nerinyan_is_constructible() {

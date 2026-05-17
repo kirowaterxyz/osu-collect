@@ -64,6 +64,8 @@ impl DownloaderBuilder {
     pub fn default_mirrors(mut self) -> Self {
         self.mirrors.push(Mirror::nerinyan());
         self.mirrors.push(Mirror::osu_direct());
+        self.mirrors.push(Mirror::sayobot());
+        self.mirrors.push(Mirror::nekoha());
         self
     }
 
@@ -363,6 +365,27 @@ mod tests {
             .concurrent_downloads(0)
             .build();
         assert!(matches!(result, Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn default_mirrors_include_every_builtin_mirror() {
+        let downloader = Downloader::builder().default_mirrors().build().unwrap();
+
+        let mirror_kinds: Vec<_> = downloader
+            .mirror_pool
+            .mirrors()
+            .iter()
+            .map(Mirror::kind)
+            .collect();
+        assert_eq!(
+            mirror_kinds,
+            vec![
+                MirrorKind::Nerinyan,
+                MirrorKind::OsuDirect,
+                MirrorKind::Sayobot,
+                MirrorKind::Nekoha,
+            ]
+        );
     }
 
     #[test]

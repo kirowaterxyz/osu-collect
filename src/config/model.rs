@@ -15,13 +15,13 @@ pub struct Config {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct MirrorConfig {
-    #[serde(default)]
+    #[serde(default = "default_enabled")]
     pub nerinyan: bool,
-    #[serde(default)]
+    #[serde(default = "default_enabled")]
     pub osu_direct: bool,
-    #[serde(default)]
+    #[serde(default = "default_enabled")]
     pub sayobot: bool,
-    #[serde(default)]
+    #[serde(default = "default_enabled")]
     pub nekoha: bool,
     #[serde(default)]
     pub url: Option<Box<str>>,
@@ -66,13 +66,17 @@ pub enum LogFormat {
     Pretty,
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 impl Default for MirrorConfig {
     fn default() -> Self {
         Self {
             nerinyan: true,
-            osu_direct: false,
-            sayobot: false,
-            nekoha: false,
+            osu_direct: true,
+            sayobot: true,
+            nekoha: true,
             url: None,
         }
     }

@@ -10,6 +10,27 @@ fn home_all_off(config: &Config) -> HomeTab {
     home
 }
 #[test]
+fn home_defaults_to_every_builtin_mirror() {
+    let config = Config::default();
+    let home = HomeTab::new(&config);
+
+    let mirror_kinds: Vec<_> = home
+        .build_mirror_list()
+        .iter()
+        .map(|mirror| mirror.kind())
+        .collect();
+    assert_eq!(
+        mirror_kinds,
+        vec![
+            MirrorKind::Nerinyan,
+            MirrorKind::OsuDirect,
+            MirrorKind::Sayobot,
+            MirrorKind::Nekoha,
+        ]
+    );
+}
+
+#[test]
 fn build_mirror_list_returns_selected_mirrors() {
     let config = Config::default();
     let mut home = home_all_off(&config);
