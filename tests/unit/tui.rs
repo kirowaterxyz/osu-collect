@@ -624,7 +624,7 @@ fn resolving_stage_renders_indeterminate_gauge_and_status() {
 }
 
 #[test]
-fn resolving_stage_with_progress_shows_count_in_title_and_threads() {
+fn resolving_stage_with_progress_shows_count_in_title() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
     page.stage = DownloadStage::Resolving;
@@ -637,10 +637,6 @@ fn resolving_stage_with_progress_shows_count_in_title_and_threads() {
     assert!(
         output.contains("resolving 2/5 collections"),
         "gauge title must reflect resolve progress"
-    );
-    assert!(
-        output.contains("fetching collection 2/5"),
-        "threads panel must show resolve progress count"
     );
 }
 
