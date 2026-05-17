@@ -58,6 +58,37 @@ impl<'a> Metric<'a> {
     }
 }
 
+pub struct FormItems<T> {
+    items: Vec<ListItem<'static>>,
+    focus: T,
+    focused_index: usize,
+}
+
+impl<T: Copy + PartialEq> FormItems<T> {
+    pub fn new(focus: T) -> Self {
+        Self {
+            items: Vec::new(),
+            focus,
+            focused_index: 0,
+        }
+    }
+
+    pub fn push(&mut self, item: ListItem<'static>) {
+        self.items.push(item);
+    }
+
+    pub fn push_focusable(&mut self, field: T, item: ListItem<'static>) {
+        if self.focus == field {
+            self.focused_index = self.items.len();
+        }
+        self.items.push(item);
+    }
+
+    pub fn into_parts(self) -> (Vec<ListItem<'static>>, usize) {
+        (self.items, self.focused_index)
+    }
+}
+
 pub fn scroll_window<T>(
     items: &[T],
     focused_index: usize,

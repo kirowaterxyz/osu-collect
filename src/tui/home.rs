@@ -1,5 +1,5 @@
 use crate::app::{HomeField, HomeTab};
-use ratatui::{Frame, layout::Rect, widgets::ListItem};
+use ratatui::{Frame, layout::Rect};
 
 use super::widgets::{self, Metric};
 use super::{HELP_CUSTOM_MIRROR, MIRRORS};
@@ -17,39 +17,22 @@ const METRIC_THREADS: &str = "threads";
 const METRIC_MIRRORS: &str = "mirrors";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
-    let mut items: Vec<ListItem<'static>> = Vec::new();
-    let mut focused_index = 0usize;
     let focus = form.focus;
-
-    let push = |items: &mut Vec<ListItem<'static>>,
-                idx: &mut usize,
-                field: HomeField,
-                item: ListItem<'static>| {
-        if focus == field {
-            *idx = items.len();
-        }
-        items.push(item);
-    };
+    let mut items = widgets::FormItems::new(focus);
 
     items.push(widgets::section_header(SECTION_COLLECTION));
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::Collection,
         widgets::input_item(&form.collection, focus == HomeField::Collection),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::Directory,
         widgets::input_item(&form.directory, focus == HomeField::Directory),
     );
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_MIRRORS));
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::CustomMirror,
         widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
     );
@@ -62,9 +45,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         (HomeField::MirrorNekoha, form.nekoha),
     ];
     for ((label, url), (field, on)) in MIRRORS.iter().zip(mirror_states) {
-        push(
-            &mut items,
-            &mut focused_index,
+        items.push_focusable(
             field,
             widgets::row_item(label, Some(url), on, focus == field),
         );
@@ -72,15 +53,11 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_DOWNLOAD));
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::Threads,
         widgets::input_item(&form.threads, focus == HomeField::Threads),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::AutoOverwrite,
         widgets::row_item(
             LABEL_OVERWRITE,
@@ -89,9 +66,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
             focus == HomeField::AutoOverwrite,
         ),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         HomeField::NoVideo,
         widgets::row_item(
             LABEL_NO_VIDEO,
@@ -107,5 +82,6 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         Metric::accent(METRIC_MIRRORS, form.build_mirrors().len().to_string()),
     ]));
 
+    let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
 }

@@ -41,48 +41,23 @@ const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
-    let mut items: Vec<ListItem<'static>> = Vec::new();
-    let mut focused_index = 0usize;
     let focus = form.focus;
-
-    let push = |items: &mut Vec<ListItem<'static>>,
-                idx: &mut usize,
-                field: ConfigField,
-                item: ListItem<'static>| {
-        if focus == field {
-            *idx = items.len();
-        }
-        items.push(item);
-    };
+    let mut items = widgets::FormItems::new(focus);
 
     items.push(widgets::disclosure_row(TOP_BANNER, "", false, false));
     items.push(widgets::spacer());
 
     items.push(login_section_header(&form.login_state));
-    push(
-        &mut items,
-        &mut focused_index,
-        ConfigField::LoginEntry,
-        login_entry_item(form),
-    );
-    push(
-        &mut items,
-        &mut focused_index,
-        ConfigField::LogoutEntry,
-        logout_entry_item(form),
-    );
+    items.push_focusable(ConfigField::LoginEntry, login_entry_item(form));
+    items.push_focusable(ConfigField::LogoutEntry, logout_entry_item(form));
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_DOWNLOAD));
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::DownloadThreads,
         widgets::input_item(&form.threads, focus == ConfigField::DownloadThreads),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::DownloadNoVideo,
         widgets::row_item(
             LABEL_SKIP_VIDEOS,
@@ -91,9 +66,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             focus == ConfigField::DownloadNoVideo,
         ),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::DownloadVerifyZipEocd,
         widgets::row_item(
             LABEL_VERIFY_INTEGRITY,
@@ -112,16 +85,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         (ConfigField::MirrorNekoha, form.nekoha),
     ];
     for ((label, url), (field, on)) in MIRRORS.iter().zip(mirror_states) {
-        push(
-            &mut items,
-            &mut focused_index,
+        items.push_focusable(
             field,
             widgets::row_item(label, Some(url), on, focus == field),
         );
     }
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::MirrorCustomUrl,
         widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
     );
@@ -129,9 +98,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_LOGGING));
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::LoggingEnabled,
         widgets::row_item(
             LABEL_LOGGING_ENABLED,
@@ -140,9 +107,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             focus == ConfigField::LoggingEnabled,
         ),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::LoggingLevel,
         widgets::cycle_item(
             LABEL_LOGGING_LEVEL,
@@ -151,9 +116,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             focus == ConfigField::LoggingLevel,
         ),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::LoggingFormat,
         widgets::cycle_item(
             LABEL_LOGGING_FORMAT,
@@ -162,13 +125,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             focus == ConfigField::LoggingFormat,
         ),
     );
-    push(
-        &mut items,
-        &mut focused_index,
+    items.push_focusable(
         ConfigField::LoggingDirectory,
         widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
     );
 
+    let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
 }
 
