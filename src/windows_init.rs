@@ -1,10 +1,13 @@
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
 use windows_sys::Win32::System::Console::{
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_OUTPUT_HANDLE,
     SetConsoleMode,
 };
+
+#[cfg(windows)]
+const TARGET_COLS: u16 = 115;
 
 #[cfg(windows)]
 pub fn enable_ansi_support() {
@@ -28,34 +31,27 @@ pub fn enable_ansi_support() {
 pub fn enable_ansi_support() {}
 
 #[cfg(windows)]
-pub fn relaunch_if_needed() {
-    use std::os::windows::process::CommandExt;
+pub fn widen_window_if_needed() {
+    use std::io::Write;
 
     if !is_launched_from_explorer() {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let path = exe.to_string_lossy().replace('\'', "''");
-    // CREATE_NEW_CONSOLE: give PowerShell its own window before we exit
-    if std::process::Command::new("powershell.exe")
-        .args(["-NoExit", "-Command", &format!("& '{path}'")])
-        .creation_flags(0x00000010)
-        .spawn()
-        .is_ok()
-    {
-        std::process::exit(0);
-    }
+
+    // xterm window manipulation: CSI 8 ; rows ; cols t. rows = 0 keeps current rows.
+    // Windows Terminal honours this and resizes the host window; conhost ignores it.
+    // Requires ENABLE_VIRTUAL_TERMINAL_PROCESSING — caller must enable ANSI first.
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b[8;0;{TARGET_COLS}t");
+    let _ = out.flush();
 }
 
 #[cfg(not(windows))]
-pub fn relaunch_if_needed() {}
+pub fn widen_window_if_needed() {}
 
 #[cfg(windows)]
 fn is_launched_from_explorer() -> bool {
     use std::mem;
-    use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,

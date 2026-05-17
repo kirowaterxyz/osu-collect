@@ -7,13 +7,19 @@ use osu_collect::utils;
 #[cfg(windows)]
 use osu_collect::windows_init;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(windows)]
-    windows_init::relaunch_if_needed();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     windows_init::enable_ansi_support();
+    #[cfg(windows)]
+    windows_init::widen_window_if_needed();
 
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     let cmd = match cli::parse_args() {
         Ok(c) => c,
         Err(e) => {
