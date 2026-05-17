@@ -1,4 +1,6 @@
-use osu_collect::{app::home::HomeTab, config::Config, mirrors::MirrorKind};
+use osu_collect::{
+    app::home::HomeTab, config::Config, download::ArchiveValidation, mirrors::MirrorKind,
+};
 
 fn home_all_off(config: &Config) -> HomeTab {
     let mut home = HomeTab::new(config);
@@ -70,18 +72,21 @@ fn build_request_uses_same_mirrors_as_build_mirrors() {
     home.collection.value = "12345".to_string();
 
     let standalone = home.build_mirrors();
-    let request = home.build_request(false).unwrap();
+    let request = home.build_request(ArchiveValidation::Magic).unwrap();
     let request_kinds: Vec<_> = request.config.mirrors.iter().map(|m| m.kind()).collect();
     let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind()).collect();
     assert_eq!(request_kinds, standalone_kinds);
 }
 
 #[test]
-fn build_request_passes_verify_zip_eocd_argument() {
+fn build_request_passes_archive_validation_argument() {
     let config = Config::default();
     let mut home = HomeTab::new(&config);
     home.collection.value = "12345".to_string();
 
-    assert!(!home.build_request(false).unwrap().config.verify_zip_eocd);
-    assert!(home.build_request(true).unwrap().config.verify_zip_eocd);
+    let magic = home.build_request(ArchiveValidation::Magic).unwrap();
+    assert_eq!(magic.config.archive_validation, ArchiveValidation::Magic);
+
+    let eocd = home.build_request(ArchiveValidation::Eocd).unwrap();
+    assert_eq!(eocd.config.archive_validation, ArchiveValidation::Eocd);
 }

@@ -12,6 +12,7 @@ use crate::{
     },
     downloader::{BeatmapsetStatusEvent, DownloadItem},
     mirrors::MirrorPool,
+    validation::ArchiveValidation,
     DownloadEvent, DownloadSummary, SkipReason,
 };
 use std::{
@@ -25,8 +26,7 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone)]
 pub(crate) struct BatchConfig {
     pub(crate) concurrent_downloads: usize,
-    pub(crate) verify_archives: bool,
-    pub(crate) verify_zip_eocd: bool,
+    pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
     pub(crate) network_retry_attempts: usize,
 }
@@ -258,8 +258,7 @@ async fn process_one(
             output_dir,
             client,
             mirror_pool,
-            verify_archive: config.verify_archives,
-            verify_zip_eocd: config.verify_zip_eocd,
+            archive_validation: config.archive_validation,
             progress_timeout: config.progress_timeout,
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(progress_callback.clone()),
@@ -371,8 +370,7 @@ mod tests {
         let mirror_pool = Arc::new(MirrorPool::new(vec![Mirror::nerinyan()]));
         let config = BatchConfig {
             concurrent_downloads: 2,
-            verify_archives: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             network_retry_attempts: 0,
         };

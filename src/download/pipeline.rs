@@ -339,7 +339,7 @@ async fn run_pipeline_core(
     let downloader = Downloader::builder()
         .mirrors(config.mirrors.iter().cloned())
         .concurrent_downloads(config.concurrent.max(1) as usize)
-        .verify_zip_eocd(config.verify_zip_eocd)
+        .archive_validation(config.archive_validation)
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
         .network_retry_attempts(NETWORK_RETRY_CAP as usize)
         .build()

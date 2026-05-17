@@ -7,7 +7,7 @@ use crate::{
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
     downloader::{BeatmapsetStatusEvent, FileExistsPolicy},
     mirrors::{Mirror, MirrorKind, MirrorPool},
-    validation,
+    validation::{self, ArchiveValidation},
     worker::stream_download,
     SkipReason,
 };
@@ -72,8 +72,7 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) output_dir: &'a Path,
     pub(crate) client: &'a reqwest::Client,
     pub(crate) mirror_pool: &'a MirrorPool,
-    pub(crate) verify_archive: bool,
-    pub(crate) verify_zip_eocd: bool,
+    pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
     pub(crate) options: BeatmapsetDownloadOptions,
@@ -692,9 +691,9 @@ async fn write_archive(
     );
 
     let verify_start = Instant::now();
-    if params.verify_archive {
+    if params.archive_validation != ArchiveValidation::Off {
         if let Some(validate_result) = run_cancelable(
-            validation::ensure_valid_archive(&stream.temp_path, params.verify_zip_eocd),
+            validation::ensure_valid_archive(&stream.temp_path, params.archive_validation),
             &params.cancel_rx,
         )
         .await
@@ -1075,8 +1074,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1141,8 +1139,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1196,8 +1193,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(Arc::new(move |downloaded, total| {
@@ -1256,8 +1252,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: None,
@@ -1380,8 +1375,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: false,
-            verify_zip_eocd: false,
+            archive_validation: ArchiveValidation::Off,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),
@@ -1429,8 +1423,7 @@ mod tests {
             output_dir: dir.path(),
             client: &client,
             mirror_pool: &mirror_pool,
-            verify_archive: true,
-            verify_zip_eocd: true,
+            archive_validation: ArchiveValidation::Eocd,
             progress_timeout: Duration::from_secs(1),
             callbacks: BeatmapsetDownloadCallbacks::default(),
             options: BeatmapsetDownloadOptions::default(),

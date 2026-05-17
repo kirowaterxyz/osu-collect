@@ -9,6 +9,7 @@ use crate::{
     event::DownloadSummary,
     http,
     mirrors::{Mirror, MirrorKind, MirrorPool},
+    validation::ArchiveValidation,
     DownloadEvent, Error, Result,
 };
 use futures_util::Stream;
@@ -20,8 +21,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 pub struct DownloaderBuilder {
     mirrors: Vec<Mirror>,
     concurrent_downloads: Option<usize>,
-    verify_archives: Option<bool>,
-    verify_zip_eocd: Option<bool>,
+    archive_validation: Option<ArchiveValidation>,
     progress_timeout: Option<Duration>,
     user_agent: Option<String>,
     no_video: bool,
@@ -36,8 +36,7 @@ impl DownloaderBuilder {
         Self {
             mirrors: Vec::new(),
             concurrent_downloads: None,
-            verify_archives: None,
-            verify_zip_eocd: None,
+            archive_validation: None,
             progress_timeout: None,
             user_agent: None,
             no_video: false,
@@ -78,20 +77,12 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Toggle ZIP archive verification (default true). When enabled, every
-    /// downloaded archive is sanity-checked for the ZIP local-file-header
-    /// signature. Disable only in tests that stream non-archive bytes.
+    /// Archive validation strictness (default [`ArchiveValidation::Magic`]).
+    /// `Off` skips validation; `Magic` checks the ZIP local-file-header
+    /// signature; `Eocd` additionally checks the end-of-central-directory footer.
     #[must_use]
-    pub fn verify_archives(mut self, verify: bool) -> Self {
-        self.verify_archives = Some(verify);
-        self
-    }
-
-    /// Additionally verify the ZIP end-of-central-directory footer (default false).
-    /// Has no effect when [`verify_archives`](Self::verify_archives) is `false`.
-    #[must_use]
-    pub fn verify_zip_eocd(mut self, verify: bool) -> Self {
-        self.verify_zip_eocd = Some(verify);
+    pub fn archive_validation(mut self, mode: ArchiveValidation) -> Self {
+        self.archive_validation = Some(mode);
         self
     }
 
@@ -150,8 +141,7 @@ impl DownloaderBuilder {
 
         let config = DownloadConfig {
             concurrent_downloads,
-            verify_archives: self.verify_archives.unwrap_or(true),
-            verify_zip_eocd: self.verify_zip_eocd.unwrap_or(false),
+            archive_validation: self.archive_validation.unwrap_or(ArchiveValidation::Magic),
             progress_timeout: self.progress_timeout.unwrap_or(Duration::from_secs(30)),
             user_agent: self
                 .user_agent
@@ -305,8 +295,7 @@ impl Downloader {
         let task = tokio::spawn(async move {
             let batch_config = BatchConfig {
                 concurrent_downloads: config.concurrent_downloads,
-                verify_archives: config.verify_archives,
-                verify_zip_eocd: config.verify_zip_eocd,
+                archive_validation: config.archive_validation,
                 progress_timeout: config.progress_timeout,
                 network_retry_attempts: config.network_retry_attempts,
             };

@@ -9,6 +9,7 @@ pub use lock::ActiveDownloadRegistry;
 pub use pipeline::{spawn_download, spawn_selective_download};
 
 pub use crate::config::constants::status;
+pub use osu_downloader::ArchiveValidation;
 
 use crate::mirrors::Mirror;
 use tokio::{sync::watch, task::JoinHandle};
@@ -40,7 +41,7 @@ pub struct DownloadConfig {
     pub directory: String,
     pub mirrors: Vec<Mirror>,
     pub concurrent: u8,
-    pub verify_zip_eocd: bool,
+    pub archive_validation: ArchiveValidation,
 }
 
 #[derive(Debug, Clone)]

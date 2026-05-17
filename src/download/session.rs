@@ -232,7 +232,7 @@ impl DownloadSession {
             config.concurrent.max(1) as usize,
             PrecheckOptions {
                 notify_verified: true,
-                verify_zip_eocd: config.verify_zip_eocd,
+                archive_validation: config.archive_validation,
             },
             &cancel_rx,
             emit,

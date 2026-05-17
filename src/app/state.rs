@@ -14,8 +14,8 @@ use crate::{
         save_config,
     },
     download::{
-        DownloadConfig, DownloadEvent, DownloadId, DownloadRequest, DownloadStage,
-        SelectiveDownloadCollection, SelectiveDownloadRequest,
+        ArchiveValidation, DownloadConfig, DownloadEvent, DownloadId, DownloadRequest,
+        DownloadStage, SelectiveDownloadCollection, SelectiveDownloadRequest,
     },
     utils,
 };
@@ -195,8 +195,16 @@ impl App {
         STATIC_TABS + self.downloads.len()
     }
 
+    fn archive_validation(&self) -> ArchiveValidation {
+        if self.config.verify_zip_eocd {
+            ArchiveValidation::Eocd
+        } else {
+            ArchiveValidation::Magic
+        }
+    }
+
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
-        match self.home.build_request(self.config.verify_zip_eocd) {
+        match self.home.build_request(self.archive_validation()) {
             Ok(request) => {
                 if self.downloads.len() >= usize::MAX - 1 {
                     set_error_message(&mut self.home.message, "Too many downloads queued");
@@ -292,7 +300,7 @@ impl App {
             directory,
             mirrors,
             concurrent,
-            verify_zip_eocd: self.config.verify_zip_eocd,
+            archive_validation: self.archive_validation(),
         };
 
         let beatmapsets: Vec<_> = self

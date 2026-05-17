@@ -60,6 +60,7 @@ pub use error::{DownloadError, Error, Result};
 pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};
 pub use mirrors::{Mirror, MirrorKind};
 pub use validation::{
-    ensure_valid_archive, validate_archive, ArchiveValidationOptions, ArchiveValidationResult,
+    ensure_valid_archive, validate_archive, ArchiveValidation, ArchiveValidationOptions,
+    ArchiveValidationResult,
 };
 pub use worker::{stream_download, DownloadStreamResult};

@@ -1,7 +1,9 @@
 use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
 use crate::{
     config::constants::VALIDATION_CACHE_LIMIT,
-    worker::io::{ArchiveValidationOptions, ArchiveValidationResult, validate_archive},
+    worker::io::{
+        ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
+    },
 };
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
@@ -91,7 +93,7 @@ pub(crate) struct PrecheckReport {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PrecheckOptions {
     pub(crate) notify_verified: bool,
-    pub(crate) verify_zip_eocd: bool,
+    pub(crate) archive_validation: ArchiveValidation,
 }
 
 pub(crate) async fn verify_existing_beatmapsets(
@@ -453,7 +455,7 @@ async fn validate_existing_candidate(
     }
 
     let opts = ArchiveValidationOptions {
-        verify_zip_eocd: options.verify_zip_eocd,
+        mode: options.archive_validation,
         remove_on_invalid: true,
     };
     let mut validation_error = None;

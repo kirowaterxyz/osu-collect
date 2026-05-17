@@ -1,7 +1,7 @@
 use super::{messages::AppMessage, next_field, prev_field};
 use crate::{
     config::Config,
-    download::{DownloadConfig, DownloadRequest},
+    download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
 };
 use std::{env, str::FromStr};
@@ -231,7 +231,10 @@ impl HomeTab {
         mirrors
     }
 
-    pub fn build_request(&self, verify_zip_eocd: bool) -> Result<DownloadRequest, String> {
+    pub fn build_request(
+        &self,
+        archive_validation: ArchiveValidation,
+    ) -> Result<DownloadRequest, String> {
         let collection_input = self.collection.value.trim();
         if collection_input.is_empty() {
             return Err("Collection ID or URL is required".to_string());
@@ -262,7 +265,7 @@ impl HomeTab {
             directory,
             mirrors,
             concurrent: threads_value,
-            verify_zip_eocd,
+            archive_validation,
         };
 
         Ok(DownloadRequest {

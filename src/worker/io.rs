@@ -1,10 +1,10 @@
 use crate::utils::{AppError, Result};
 use std::path::Path;
 
-pub use osu_downloader::{ArchiveValidationOptions, ArchiveValidationResult};
+pub use osu_downloader::{ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult};
 
-pub async fn ensure_valid_archive(path: &Path, verify_zip_eocd: bool) -> Result<()> {
-    osu_downloader::ensure_valid_archive(path, verify_zip_eocd)
+pub async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -> Result<()> {
+    osu_downloader::ensure_valid_archive(path, mode)
         .await
         .map_err(to_app_error)
 }
