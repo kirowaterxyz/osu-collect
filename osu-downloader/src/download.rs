@@ -510,13 +510,6 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
         return MirrorAttempt::Definitive(format!("HTTP {status}"));
     }
 
-    emit_status(
-        &params.callbacks,
-        BeatmapsetStatusEvent::Downloading {
-            mirror: mirror.kind(),
-        },
-    );
-
     match process_mirror_response(mirror, response, params, probed_size).await {
         Ok(outcome) => MirrorAttempt::Done(outcome),
         Err(reason) => MirrorAttempt::Definitive(reason),
@@ -636,6 +629,13 @@ async fn process_mirror_response(
     } else {
         return Ok(BeatmapsetDownloadOutcome::Aborted);
     }
+
+    emit_status(
+        &params.callbacks,
+        BeatmapsetStatusEvent::Downloading {
+            mirror: mirror.kind(),
+        },
+    );
 
     write_archive(
         mirror,
@@ -1213,6 +1213,71 @@ mod tests {
                 ..
             }
         ));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn skip_existing_file_does_not_emit_downloading() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            sync::{Arc, Mutex},
+            thread,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=custom.osz\r\nContent-Length: 0\r\n\r\n",
+                )
+                .unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let mirror = Mirror::custom(format!("http://{addr}/download/{{id}}")).unwrap();
+        let mirror_pool = MirrorPool::new(vec![mirror]);
+        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let status_events = statuses.clone();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("custom.osz"), b"existing").unwrap();
+
+        let (outcome, _) = download_beatmapset(DownloadParams {
+            beatmapset_id: 42,
+            output_dir: dir.path(),
+            client: &client,
+            mirror_pool: &mirror_pool,
+            verify_archive: false,
+            progress_timeout: Duration::from_secs(1),
+            callbacks: BeatmapsetDownloadCallbacks {
+                progress: None,
+                status: Some(Arc::new(move |status| {
+                    status_events.lock().unwrap().push(status);
+                })),
+            },
+            options: BeatmapsetDownloadOptions {
+                file_exists_policy: FileExistsPolicy::Skip,
+            },
+            cancel_rx,
+        })
+        .await;
+
+        assert!(matches!(
+            outcome,
+            BeatmapsetDownloadOutcome::Skipped {
+                reason: SkipReason::AlreadyExists
+            }
+        ));
+        assert!(!statuses
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|status| matches!(status, BeatmapsetStatusEvent::Downloading { .. })));
         server.join().unwrap();
     }
 
