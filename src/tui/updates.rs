@@ -79,7 +79,7 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     }
     items.push(collections_header(form));
     if form.selection.in_collection_list {
-        let selected_idx = form.selection.collections_state.selected().unwrap_or(0);
+        let selected_idx = form.selection.collections_state.unwrap_or(0);
         for (i, collection) in form.selection.local_collections.iter().enumerate() {
             let is_sel = i == selected_idx;
             if is_sel && focus == UpdatesField::Collections {
@@ -96,7 +96,7 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     }
     items.push(beatmaps_header(form));
     if form.selection.in_beatmap_list {
-        let selected_idx = form.selection.beatmaps_state.selected().unwrap_or(0);
+        let selected_idx = form.selection.beatmaps_state.unwrap_or(0);
         for (i, item) in form.selection.display_items.iter().enumerate() {
             let is_sel = i == selected_idx;
             if is_sel && focus == UpdatesField::BeatmapList {

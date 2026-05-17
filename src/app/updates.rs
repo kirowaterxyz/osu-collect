@@ -4,7 +4,6 @@ use super::{
     next_field, prev_field,
 };
 use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
-use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use tracing::{debug, info};
@@ -132,8 +131,8 @@ pub struct SelectionState {
     pub cached_missing_sets: Vec<MissingBeatmapset>,
     pub visible_missing: Vec<usize>,
     pub display_items: Vec<BeatmapDisplayItem>,
-    pub collections_state: ListState,
-    pub beatmaps_state: ListState,
+    pub collections_state: Option<usize>,
+    pub beatmaps_state: Option<usize>,
     pub in_collection_list: bool,
     pub in_beatmap_list: bool,
     pub focus: UpdatesField,
@@ -146,8 +145,8 @@ impl SelectionState {
             cached_missing_sets: Vec::new(),
             visible_missing: Vec::new(),
             display_items: Vec::new(),
-            collections_state: ListState::default(),
-            beatmaps_state: ListState::default(),
+            collections_state: None,
+            beatmaps_state: None,
             in_collection_list: false,
             in_beatmap_list: false,
             focus: UpdatesField::ClientType,
@@ -233,8 +232,8 @@ impl UpdatesTab {
                 self.selection.cached_missing_sets.clear();
                 self.selection.visible_missing.clear();
                 self.selection.display_items.clear();
-                self.selection.collections_state = ListState::default();
-                self.selection.beatmaps_state = ListState::default();
+                self.selection.collections_state = None;
+                self.selection.beatmaps_state = None;
                 self.selection.in_collection_list = false;
                 self.selection.in_beatmap_list = false;
                 self.scan.scan_status = ScanStatus::Idle;
@@ -321,7 +320,7 @@ impl UpdatesTab {
     }
 
     fn toggle_collection_at_scroll(&mut self) {
-        if let Some(idx) = self.selection.collections_state.selected()
+        if let Some(idx) = self.selection.collections_state
             && let Some(collection) = self.selection.local_collections.get_mut(idx)
         {
             collection.selected = !collection.selected;
@@ -329,7 +328,7 @@ impl UpdatesTab {
     }
 
     fn toggle_beatmap_at_scroll(&mut self) {
-        let Some(idx) = self.selection.beatmaps_state.selected() else {
+        let Some(idx) = self.selection.beatmaps_state else {
             return;
         };
         let Some(item) = self.selection.display_items.get(idx) else {
@@ -426,7 +425,7 @@ impl UpdatesTab {
             "Finished filtering updatable collections"
         );
 
-        self.selection.collections_state.select(Some(0));
+        self.selection.collections_state = Some(0);
     }
 
     pub fn set_error(&mut self, message: impl Into<String>) {
@@ -543,7 +542,7 @@ impl UpdatesTab {
             .collect();
 
         self.rebuild_display_items();
-        self.selection.beatmaps_state.select(Some(0));
+        self.selection.beatmaps_state = Some(0);
     }
 
     fn rebuild_display_items(&mut self) {
@@ -594,13 +593,13 @@ impl UpdatesTab {
     }
 }
 
-fn scroll_list(state: &mut ListState, len: usize, delta: i64) {
+fn scroll_list(state: &mut Option<usize>, len: usize, delta: i64) {
     if len == 0 {
         return;
     }
-    let i = state.selected().unwrap_or(0) as i64;
+    let i = state.unwrap_or(0) as i64;
     let next = (i + delta).clamp(0, len.saturating_sub(1) as i64) as usize;
-    state.select(Some(next));
+    *state = Some(next);
 }
 
 fn collection_id_patterns() -> &'static [regex_lite::Regex; 4] {
@@ -631,5 +630,35 @@ pub fn extract_collection_id(name: &str) -> Option<u64> {
 impl Default for UpdatesTab {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_list;
+
+    #[test]
+    fn scroll_list_clamps_within_bounds() {
+        let mut state = Some(0);
+        scroll_list(&mut state, 3, -1);
+        assert_eq!(state, Some(0));
+        scroll_list(&mut state, 3, 1);
+        assert_eq!(state, Some(1));
+        scroll_list(&mut state, 3, 10);
+        assert_eq!(state, Some(2));
+    }
+
+    #[test]
+    fn scroll_list_empty_leaves_state() {
+        let mut state: Option<usize> = None;
+        scroll_list(&mut state, 0, 1);
+        assert_eq!(state, None);
+    }
+
+    #[test]
+    fn scroll_list_none_starts_at_zero() {
+        let mut state: Option<usize> = None;
+        scroll_list(&mut state, 5, 1);
+        assert_eq!(state, Some(1));
     }
 }
