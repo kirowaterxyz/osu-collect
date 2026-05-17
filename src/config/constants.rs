@@ -8,10 +8,10 @@ pub const GB: f64 = MB * 1024.0;
 pub const MAX_TRUNCATED_CHARS: usize = 80;
 
 pub mod status {
-    pub const RATE_LIMITED: &str = "Rate limited";
-    pub const ABORTED: &str = "Aborted";
-    pub const RECHECKING_PREFIX: &str = "Rechecking";
-    pub const DOWNLOADING: &str = "Downloading";
+    pub const RATE_LIMITED: &str = "rate limited";
+    pub const ABORTED: &str = "aborted";
+    pub const RECHECKING_PREFIX: &str = "rechecking";
+    pub const DOWNLOADING: &str = "downloading";
 }
 
 pub const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;

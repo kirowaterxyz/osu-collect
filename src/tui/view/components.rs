@@ -354,51 +354,80 @@ pub fn status_style(stage: DownloadStage) -> Style {
 pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'static> {
     const BAR_WIDTH: u16 = 12;
     const LABEL_WIDTH: u16 = 5;
-    const RESERVED_RIGHT: u16 = BAR_WIDTH + 1 + LABEL_WIDTH;
+    const GAP: u16 = 1;
+    const RESERVED_RIGHT: u16 = BAR_WIDTH + GAP + LABEL_WIDTH;
 
     let prefix = format!("  #{:<7} ", line.beatmapset_id);
     let prefix_w = prefix.chars().count() as u16;
-    let message = line.displayed_message();
-    let message_w = message.chars().count() as u16;
     let rate_limited = line.displayed_rate_limited();
+    let show_bar = line.should_show_bar();
+
+    // Reserve the bar columns when we plan to render it so the bar stays at a fixed
+    // right-aligned column regardless of how the message length changes. Without this
+    // reservation a long retry/mirror-failed message would push past the threshold and
+    // the bar would vanish between status updates — that was the visible flicker.
+    let message_budget = if show_bar {
+        width
+            .saturating_sub(prefix_w)
+            .saturating_sub(RESERVED_RIGHT)
+            .saturating_sub(GAP)
+    } else {
+        width.saturating_sub(prefix_w)
+    };
+    let message = truncate_to_width(&line.displayed_message(), message_budget);
+    let message_w = message.chars().count() as u16;
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
         Span::styled(message.clone(), thread_style_for(&message, rate_limited)),
     ];
 
-    if line.should_show_bar() {
+    if show_bar {
         let used = prefix_w.saturating_add(message_w);
-        if width >= used + RESERVED_RIGHT {
-            let pad = (width - used - RESERVED_RIGHT) as usize;
-            spans.push(Span::raw(" ".repeat(pad)));
+        let pad = width.saturating_sub(used).saturating_sub(RESERVED_RIGHT) as usize;
+        spans.push(Span::raw(" ".repeat(pad)));
 
-            let (filled, label) = match line.progress_ratio() {
-                Some(ratio) => {
-                    let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
-                    (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
-                }
-                None => (0, "  --".to_string()),
-            };
-            let empty = BAR_WIDTH - filled;
+        let (filled, label) = match line.progress_ratio() {
+            Some(ratio) => {
+                let f = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
+                (f, format!("{:>3}%", (ratio * 100.0).round() as u16))
+            }
+            None => (0, "  --".to_string()),
+        };
+        let empty = BAR_WIDTH - filled;
 
-            let bar_color = if rate_limited { WARNING } else { ACCENT };
-            spans.push(Span::styled(
-                "█".repeat(filled as usize),
-                Style::default().fg(bar_color),
-            ));
-            spans.push(Span::styled(
-                "░".repeat(empty as usize),
-                Style::default().fg(LINE_SOFT),
-            ));
-            spans.push(Span::styled(
-                format!(" {label}"),
-                Style::default().fg(TEXT_FAINT),
-            ));
-        }
+        let bar_color = if rate_limited { WARNING } else { ACCENT };
+        spans.push(Span::styled(
+            "█".repeat(filled as usize),
+            Style::default().fg(bar_color),
+        ));
+        spans.push(Span::styled(
+            "░".repeat(empty as usize),
+            Style::default().fg(LINE_SOFT),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}"),
+            Style::default().fg(TEXT_FAINT),
+        ));
     }
 
     ListItem::new(Line::from(spans))
+}
+
+fn truncate_to_width(message: &str, budget: u16) -> String {
+    let budget = budget as usize;
+    if budget == 0 {
+        return String::new();
+    }
+    if message.chars().count() <= budget {
+        return message.to_string();
+    }
+    if budget == 1 {
+        return "…".to_string();
+    }
+    let mut out: String = message.chars().take(budget.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 pub fn focused_label_style(focused: bool) -> Style {

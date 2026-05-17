@@ -452,8 +452,6 @@ fn translate_event(
         }
         LibEvent::BeatmapsetCompleted {
             beatmapset_id,
-            filename,
-            md5_hash,
             mirror_used,
             verify_duration_us,
             ..
@@ -463,12 +461,11 @@ fn translate_event(
             if tally.unverified > 0 {
                 tally.unverified = tally.unverified.saturating_sub(1);
             }
-            let hash = md5_hash.unwrap_or_else(|| "unknown".into());
             emit(DownloadEvent::BeatmapStatus {
                 id,
                 beatmapset_id,
                 stage: BeatmapStage::Success,
-                message: format!("{filename} (md5: {hash}) via {}", mirror_used.label()),
+                message: format!("downloaded from {}", mirror_used.label()),
                 rate_limited: false,
             });
             emit(DownloadEvent::BeatmapVerified {
@@ -555,7 +552,12 @@ fn emit_status(
     emit: &(dyn Fn(DownloadEvent) + Send + Sync),
 ) {
     let (message, stage, rate_limited) = match event {
-        BeatmapsetStatusEvent::Contacting { .. } => return,
+        // dont remove this
+        BeatmapsetStatusEvent::Contacting { mirror } => (
+            format!("checking {}", mirror.label()),
+            BeatmapStage::Downloading,
+            false,
+        ),
         BeatmapsetStatusEvent::Downloading { mirror } => (
             format!("{} from {}", status::DOWNLOADING, mirror.label()),
             BeatmapStage::Downloading,

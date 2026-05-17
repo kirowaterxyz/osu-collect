@@ -157,6 +157,15 @@ pub enum BeatmapStage {
     Aborted,
 }
 
+impl BeatmapStage {
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Success | Self::Skipped | Self::Failed | Self::Aborted
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DownloadStage {
     Pending,

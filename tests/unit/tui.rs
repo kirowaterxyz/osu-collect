@@ -336,7 +336,114 @@ fn active_view_renders_progress_bar_when_downloading() {
 }
 
 #[test]
-fn active_view_omits_progress_bar_when_fetching() {
+fn active_panel_height_is_constant_across_completion_and_start() {
+    use osu_collect::download::BeatmapStage;
+
+    fn count_id_prefixes(output: &str) -> usize {
+        output.matches("  #").count()
+    }
+
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked".into(), 3);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.register_beatmaps(&[10, 11, 12, 13]);
+    for id in [10u32, 11, 12] {
+        page.update_active_status(
+            id,
+            BeatmapStage::Downloading,
+            &format!("Downloading #{id} from mirror"),
+            false,
+        );
+    }
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let baseline = render_app(&app, 120, 30);
+    let baseline_total = app.downloads[0].thread_total_items.get();
+    assert_eq!(baseline_total, 3, "concurrent=3 means 3 active rows");
+    assert_eq!(count_id_prefixes(&baseline), 3);
+
+    // complete the middle slot — total row count stays the same and the slot keeps
+    // rendering its terminal message ("done") instead of going blank until the next
+    // beatmapset arrives
+    app.downloads[0].update_active_status(11, BeatmapStage::Success, "done", false);
+    let after_complete = render_app(&app, 120, 30);
+    assert_eq!(
+        app.downloads[0].thread_total_items.get(),
+        baseline_total,
+        "freed slot must not collapse the panel height"
+    );
+    assert_eq!(
+        count_id_prefixes(&after_complete),
+        3,
+        "terminal slot must keep rendering its row so it never flashes blank"
+    );
+    assert!(
+        after_complete.contains("done"),
+        "terminal message must remain visible until the slot is reused"
+    );
+
+    // refill — the lingering terminal slot is reused, ids stay at 3
+    app.downloads[0].update_active_status(
+        99,
+        BeatmapStage::Downloading,
+        "Downloading #99 from mirror",
+        false,
+    );
+    let after_refill = render_app(&app, 120, 30);
+    assert_eq!(app.downloads[0].thread_total_items.get(), baseline_total);
+    assert_eq!(count_id_prefixes(&after_refill), 3);
+    assert!(
+        after_refill.contains("#99"),
+        "new beatmapset must take the lingering terminal slot"
+    );
+
+    // and an all-empty active panel still keeps `concurrent` rows so the stage transition
+    // from rechecking to first lib status can't flash a placeholder for a single frame
+    app.downloads[0].clear_active_downloads();
+    let _ = render_app(&app, 120, 30);
+    assert_eq!(app.downloads[0].thread_total_items.get(), baseline_total);
+}
+
+#[test]
+fn long_message_does_not_drop_the_progress_bar() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked".into(), 1);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 1;
+    page.download_target = 1;
+    page.register_beatmaps(&[42]);
+    page.update_active_status(
+        42,
+        BeatmapStage::Downloading,
+        "retrying nerinyan-extra-long-mirror-name after Connection timed out (attempt 3/3)",
+        false,
+    );
+    page.update_active_progress(42, 7_000_000, 10_000_000);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 60, 24);
+    assert!(
+        output.contains("█") && output.contains("░"),
+        "bar must remain visible even when the message would otherwise overflow"
+    );
+    assert!(
+        output.contains("70%"),
+        "percent label must still render after truncation"
+    );
+}
+
+#[test]
+fn active_view_shows_bar_for_active_download_regardless_of_message() {
+    // The bar is keyed on the beatmap's `BeatmapStage`, not on the message string, so
+    // sub-state transitions (retrying, mirror failed, verifying) keep the bar visible
+    // and don't flicker on every status update.
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.stage = DownloadStage::Downloading;
@@ -346,19 +453,24 @@ fn active_view_omits_progress_bar_when_fetching() {
     page.update_active_status(
         42,
         osu_collect::download::BeatmapStage::Downloading,
-        "Fetching #42 from mirror",
+        "retrying nerinyan after timeout (attempt 2/3)",
         false,
     );
+    page.update_active_progress(42, 3_000_000, 6_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
     app.downloads.push(page);
     app.active_tab = 3;
 
     let output = render_app(&app, 100, 24);
 
-    assert!(output.contains("Fetching"), "fetching status must render");
+    assert!(output.contains("retrying"), "transient status must render");
     assert!(
-        !output.contains("█") && !output.contains("░"),
-        "bar must not render while status is not Downloading"
+        output.contains("█") && output.contains("░"),
+        "bar must remain visible across in-flight sub-states"
+    );
+    assert!(
+        output.contains("50%"),
+        "percent label must reflect latest progress"
     );
 }
 
@@ -606,7 +718,7 @@ fn rechecking_stage_uses_warning_color_on_gauge() {
 
 #[test]
 fn active_progress_is_per_beatmapset() {
-    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 2);
     page.update_active_status(
         100,
         osu_collect::download::BeatmapStage::Downloading,
@@ -622,19 +734,151 @@ fn active_progress_is_per_beatmapset() {
     );
 
     let line_100 = page
-        .active_downloads
-        .iter()
+        .active_lines()
         .find(|l| l.beatmapset_id == 100)
         .expect("100 still active");
     assert_eq!(line_100.downloaded, 1_000_000);
 
     let line_101 = page
-        .active_downloads
-        .iter()
+        .active_lines()
         .find(|l| l.beatmapset_id == 101)
         .expect("101 inserted");
     assert!(line_101.displayed_message().contains("Fetching"));
     assert_eq!(line_101.progress_ratio(), None);
+}
+
+#[test]
+fn precheck_pending_status_does_not_consume_active_slot() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "ranked".into(), 2);
+    // a flood of precheck "file changed" notifications must not pile up in the active panel
+    for id in 0u32..50 {
+        page.update_active_status(
+            id,
+            BeatmapStage::Pending,
+            "file changed during precheck; re-downloading",
+            false,
+        );
+    }
+    assert_eq!(
+        page.active_line_count(),
+        0,
+        "precheck Pending events must not allocate active slots"
+    );
+
+    // a real download then claims a slot
+    page.update_active_status(
+        7,
+        BeatmapStage::Downloading,
+        "Downloading #7 from mirror",
+        false,
+    );
+    assert_eq!(page.active_line_count(), 1);
+}
+
+#[test]
+fn active_slot_count_is_capped_at_thread_count() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "ranked".into(), 2);
+    for id in [10u32, 11, 12, 13] {
+        page.update_active_status(
+            id,
+            BeatmapStage::Downloading,
+            &format!("Downloading #{id}"),
+            false,
+        );
+    }
+    assert_eq!(
+        page.active_line_count(),
+        2,
+        "active slots must not exceed concurrent thread count"
+    );
+
+    // when one terminates the freed slot can be reused
+    page.update_active_status(10, BeatmapStage::Success, "done", false);
+    page.update_active_status(12, BeatmapStage::Downloading, "Downloading #12", false);
+    let ids: std::collections::BTreeSet<u32> =
+        page.active_lines().map(|l| l.beatmapset_id).collect();
+    assert_eq!(ids, [11, 12].into_iter().collect());
+}
+
+#[test]
+fn freed_slot_position_is_reused_for_stability() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "ranked".into(), 3);
+    for id in [20u32, 21, 22] {
+        page.update_active_status(
+            id,
+            BeatmapStage::Downloading,
+            &format!("Downloading #{id}"),
+            false,
+        );
+    }
+    let position_of = |page: &CollectionPage, target: u32| -> Option<usize> {
+        page.active_downloads.iter().position(|slot| {
+            slot.as_ref()
+                .is_some_and(|line| line.beatmapset_id == target)
+        })
+    };
+    let pos_22 = position_of(&page, 22).expect("22 placed");
+
+    // the middle slot frees; a new download must take that exact slot so the bottom row
+    // doesn't shift visually.
+    page.update_active_status(21, BeatmapStage::Success, "done", false);
+    page.update_active_status(99, BeatmapStage::Downloading, "Downloading #99", false);
+
+    assert_eq!(position_of(&page, 99), Some(1));
+    assert_eq!(
+        position_of(&page, 22),
+        Some(pos_22),
+        "untouched neighbours must keep their slot index"
+    );
+}
+
+#[test]
+fn progress_alone_must_not_allocate_an_empty_slot() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "ranked".into(), 2);
+    // a progress event without a preceding status event must not create a blank-message
+    // slot — the lib always emits Contacting/Downloading first, and creating a line with
+    // empty `displayed_message` is exactly the flicker source we're avoiding
+    page.update_active_progress(42, 1_024, 4_096);
+    assert_eq!(page.active_line_count(), 0);
+
+    // once the status event lands the slot allocates with a real message; subsequent
+    // progress updates land on the same slot.
+    page.update_active_status(42, BeatmapStage::Downloading, "contacting nerinyan", false);
+    page.update_active_progress(42, 1_024, 4_096);
+    let line = page
+        .active_lines()
+        .find(|l| l.beatmapset_id == 42)
+        .expect("slot held");
+    assert!(!line.displayed_message().is_empty());
+    assert_eq!(line.downloaded, 1_024);
+}
+
+#[test]
+fn bar_hidden_during_contacting_visible_once_bytes_flow() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "ranked".into(), 1);
+    page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
+    let line = page.active_lines().next().expect("slot allocated");
+    assert!(
+        !line.should_show_bar(),
+        "no bytes yet — bar must stay hidden during contacting"
+    );
+
+    page.update_active_progress(7, 4_096, 8_192);
+    let line = page.active_lines().next().expect("slot allocated");
+    assert!(
+        line.should_show_bar(),
+        "bar must appear once real progress data is available"
+    );
 }
 
 #[test]
@@ -648,7 +892,10 @@ fn thread_status_change_is_debounced_except_for_downloading() {
         "Downloading #200 ...",
         false,
     );
-    let initial = page.active_downloads[0].displayed_message();
+    let initial = page.active_downloads[0]
+        .as_ref()
+        .expect("slot must be allocated")
+        .displayed_message();
     assert!(
         initial.starts_with("Downloading"),
         "Downloading must promote immediately, got {initial:?}"
@@ -661,21 +908,61 @@ fn thread_status_change_is_debounced_except_for_downloading() {
         "Rate limited on X, ...",
         true,
     );
+    let debounced = page.active_downloads[0]
+        .as_ref()
+        .expect("slot must be allocated")
+        .displayed_message();
     assert!(
-        page.active_downloads[0]
-            .displayed_message()
-            .starts_with("Downloading"),
+        debounced.starts_with("Downloading"),
         "non-Downloading transition must stay debounced for 100ms"
     );
 
     // after the debounce window, the pending message becomes visible
     std::thread::sleep(std::time::Duration::from_millis(120));
-    let visible = page.active_downloads[0].displayed_message();
+    let line = page.active_downloads[0]
+        .as_ref()
+        .expect("slot must be allocated");
+    let visible = line.displayed_message();
     assert!(
         visible.starts_with("Rate limited"),
         "debounced message must promote after 100ms, got {visible:?}"
     );
-    assert!(page.active_downloads[0].displayed_rate_limited());
+    assert!(line.displayed_rate_limited());
+}
+
+#[test]
+fn rapid_non_downloading_transitions_share_one_debounce_window() {
+    use osu_collect::download::BeatmapStage;
+
+    let mut page = CollectionPage::new(1, "x".into(), 1);
+    // first message shows immediately so the slot is never blank
+    page.update_active_status(
+        400,
+        BeatmapStage::Downloading,
+        "downloading from nerinyan",
+        false,
+    );
+
+    // first non-downloading transition starts the debounce timer
+    page.update_active_status(400, BeatmapStage::Downloading, "checking nerinyan", false);
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    // a second non-downloading transition must not restart the timer — otherwise rapid
+    // transitions would indefinitely delay any message from being promoted
+    page.update_active_status(
+        400,
+        BeatmapStage::Downloading,
+        "rate limited on nerinyan, waiting 5s",
+        true,
+    );
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    let line = page.active_downloads[0]
+        .as_ref()
+        .expect("slot must be allocated");
+    let visible = line.displayed_message();
+    assert!(
+        visible.starts_with("rate limited"),
+        "latest pending must promote once the original timer elapses, got {visible:?}"
+    );
 }
 
 #[test]
@@ -694,8 +981,9 @@ fn terminal_stage_clears_active_downloads() {
         id: 1,
         message: "boom".into(),
     });
-    assert!(
-        app.downloads[0].active_downloads.is_empty(),
+    assert_eq!(
+        app.downloads[0].active_line_count(),
+        0,
         "active_downloads must be cleared on Failed"
     );
 
@@ -709,8 +997,9 @@ fn terminal_stage_clears_active_downloads() {
         id: 1,
         stage: DownloadStage::Completed,
     });
-    assert!(
-        app.downloads[0].active_downloads.is_empty(),
+    assert_eq!(
+        app.downloads[0].active_line_count(),
+        0,
         "active_downloads must be cleared on StageChanged Completed"
     );
 }

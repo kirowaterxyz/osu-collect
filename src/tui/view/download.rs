@@ -500,30 +500,29 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let row_width = inner.width;
     let mut items: Vec<ListItem> = Vec::new();
 
-    for line in page.active_downloads.iter() {
-        items.push(components::active_download_item(line, row_width));
-    }
-
-    if items.is_empty() && page.failed_maps.is_empty() {
+    // During the Downloading stage render exactly `concurrent` slot rows. Empty slots
+    // become blank lines so the panel height stays fixed while beatmaps come and go.
+    // This kills the flicker that used to fire each time a completing beatmap left a
+    // gap and a new one filled it: previously the rendered row count would drop to 0
+    // (or shrink past `last_occupied`) and the "no active threads" placeholder could
+    // also flash for a single frame between Rechecking → first lib status.
+    if matches!(page.stage, DownloadStage::Downloading) {
+        for slot in &page.active_downloads {
+            match slot {
+                Some(line) => items.push(components::active_download_item(line, row_width)),
+                None => items.push(ListItem::new("")),
+            }
+        }
+    } else if items.is_empty() && page.failed_maps.is_empty() {
         let (text, color) = match page.stage {
-            DownloadStage::Rechecking => {
-                let total = page.total_maps.max(1);
-                let verified =
-                    (page.stats.downloaded as usize + page.stats.skipped as usize).min(total);
-                (
-                    format!("verifying existing archives — {verified}/{total}"),
-                    components::WARNING,
-                )
-            }
-            DownloadStage::Pending | DownloadStage::Resolving => {
-                let text = match page.resolve_progress {
-                    Some((current, total)) if total > 0 => {
-                        format!("fetching collection {current}/{total}...")
-                    }
-                    _ => "fetching collection metadata...".to_string(),
-                };
-                (text, components::INFO)
-            }
+            DownloadStage::Rechecking => (
+                "verifying existing archives...".to_string(),
+                components::WARNING,
+            ),
+            DownloadStage::Pending | DownloadStage::Resolving => (
+                "fetching collection metadata...".to_string(),
+                components::INFO,
+            ),
             _ => ("no active threads".to_string(), components::TEXT_FAINT),
         };
         items.push(ListItem::new(Line::from(vec![

@@ -622,7 +622,7 @@ impl App {
                     }
                     page.stage = stage;
                     if matches!(stage, DownloadStage::Completed | DownloadStage::Failed) {
-                        page.active_downloads.clear();
+                        page.clear_active_downloads();
                     }
                 }
             }
@@ -650,7 +650,7 @@ impl App {
                     page.stage = DownloadStage::Failed;
                     page.push_log(&format!("Error: {message}"));
                     page.summary = None;
-                    page.active_downloads.clear();
+                    page.clear_active_downloads();
                 }
             }
         }

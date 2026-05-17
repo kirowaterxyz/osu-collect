@@ -11,6 +11,12 @@ use crate::config::constants::{
 
 const STATUS_DEBOUNCE: Duration = Duration::from_millis(100);
 
+#[derive(Debug, Clone, Default)]
+struct DisplayedStatus {
+    message: String,
+    rate_limited: bool,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct DownloadStats {
     pub downloaded: u32,
@@ -40,11 +46,10 @@ pub struct FailedBeatmap {
 #[derive(Debug, Clone)]
 pub struct ActiveDownloadLine {
     pub beatmapset_id: u32,
-    pending_message: String,
-    pending_rate_limited: bool,
-    displayed_message: RefCell<String>,
-    displayed_rate_limited: Cell<bool>,
-    status_changed_at: Cell<Option<Instant>>,
+    pub stage: BeatmapStage,
+    pending: DisplayedStatus,
+    displayed: RefCell<DisplayedStatus>,
+    debounce_at: Cell<Option<Instant>>,
     pub downloaded: u64,
     pub total: u64,
     bytes_for_speed: u64,
@@ -56,11 +61,10 @@ impl ActiveDownloadLine {
     fn new(beatmapset_id: u32) -> Self {
         Self {
             beatmapset_id,
-            pending_message: String::new(),
-            pending_rate_limited: false,
-            displayed_message: RefCell::new(String::new()),
-            displayed_rate_limited: Cell::new(false),
-            status_changed_at: Cell::new(None),
+            stage: BeatmapStage::Downloading,
+            pending: DisplayedStatus::default(),
+            displayed: RefCell::default(),
+            debounce_at: Cell::new(None),
             downloaded: 0,
             total: 0,
             bytes_for_speed: 0,
@@ -70,50 +74,60 @@ impl ActiveDownloadLine {
     }
 
     pub fn speed_bytes_per_sec(&self) -> f64 {
-        match self.last_update {
-            Some(last) if last.elapsed() <= SPEED_STALE_AFTER => self.speed_bytes_per_sec,
-            _ => 0.0,
-        }
+        self.last_update
+            .filter(|last| last.elapsed() <= SPEED_STALE_AFTER)
+            .map_or(0.0, |_| self.speed_bytes_per_sec)
     }
 
     pub fn is_completion_message(message: &str) -> bool {
-        COMPLETION_PREFIXES
-            .iter()
-            .any(|prefix| message.starts_with(prefix))
+        COMPLETION_PREFIXES.iter().any(|p| message.starts_with(p))
     }
 
+    /// Show the per-line progress bar once bytes have actually started flowing. Keyed on
+    /// `downloaded`/`total` (not stage) so the bar stays hidden during pre-stream phases
+    /// (contacting, mirror rotation) and stays visible across retries / rate-limits once
+    /// data has arrived.
     pub fn should_show_bar(&self) -> bool {
-        self.displayed_message().starts_with(status::DOWNLOADING)
+        matches!(self.stage, BeatmapStage::Downloading) && (self.downloaded > 0 || self.total > 0)
+    }
+
+    fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
+        self.stage = stage;
+        self.pending = DisplayedStatus {
+            message: message.to_string(),
+            rate_limited,
+        };
+        let first = self.displayed.borrow().message.is_empty();
+        if first || stage.is_terminal() || message.starts_with(status::DOWNLOADING) {
+            *self.displayed.borrow_mut() = self.pending.clone();
+            self.debounce_at.set(None);
+        } else if self.debounce_at.get().is_none() {
+            self.debounce_at.set(Some(Instant::now()));
+        }
     }
 
     pub fn progress_ratio(&self) -> Option<f32> {
-        if self.total == 0 {
-            return None;
-        }
-        let ratio = self.downloaded as f32 / self.total as f32;
-        Some(ratio.clamp(0.0, 1.0))
+        (self.total > 0).then(|| (self.downloaded as f32 / self.total as f32).clamp(0.0, 1.0))
     }
 
     /// Resolved message shown to the user. Non-Downloading transitions are debounced
     /// for [`STATUS_DEBOUNCE`] so quick handshake → retry → download flickers coalesce.
     pub fn displayed_message(&self) -> String {
         self.resolve_pending();
-        self.displayed_message.borrow().clone()
+        self.displayed.borrow().message.clone()
     }
 
     pub fn displayed_rate_limited(&self) -> bool {
         self.resolve_pending();
-        self.displayed_rate_limited.get()
+        self.displayed.borrow().rate_limited
     }
 
     fn resolve_pending(&self) {
-        let Some(changed_at) = self.status_changed_at.get() else {
-            return;
-        };
-        if changed_at.elapsed() >= STATUS_DEBOUNCE {
-            *self.displayed_message.borrow_mut() = self.pending_message.clone();
-            self.displayed_rate_limited.set(self.pending_rate_limited);
-            self.status_changed_at.set(None);
+        if let Some(at) = self.debounce_at.get()
+            && at.elapsed() >= STATUS_DEBOUNCE
+        {
+            *self.displayed.borrow_mut() = self.pending.clone();
+            self.debounce_at.set(None);
         }
     }
 }
@@ -128,7 +142,10 @@ pub struct CollectionPage {
     pub output_dir: Option<String>,
     pub uploader: Option<String>,
     pub beatmaps: Vec<BeatmapRow>,
-    pub active_downloads: Vec<ActiveDownloadLine>,
+    /// Fixed-size slot list — one slot per worker thread. Free slots are `None`.
+    /// Slot positions are stable for the lifetime of the page so completing
+    /// downloads don't shift their neighbours up in the UI.
+    pub active_downloads: Vec<Option<ActiveDownloadLine>>,
     pub concurrent: usize,
     index: HashMap<u32, usize>,
     pub logs: VecDeque<String>,
@@ -148,6 +165,7 @@ pub struct CollectionPage {
 
 impl CollectionPage {
     pub fn new(id: DownloadId, title: String, concurrent: usize) -> Self {
+        let slot_count = concurrent.max(1);
         Self {
             id,
             title,
@@ -158,7 +176,7 @@ impl CollectionPage {
             output_dir: None,
             uploader: None,
             beatmaps: Vec::new(),
-            active_downloads: Vec::new(),
+            active_downloads: (0..slot_count).map(|_| None).collect(),
             concurrent,
             index: HashMap::new(),
             logs: VecDeque::new(),
@@ -177,12 +195,24 @@ impl CollectionPage {
         }
     }
 
+    pub fn active_lines(&self) -> impl Iterator<Item = &ActiveDownloadLine> {
+        self.active_downloads
+            .iter()
+            .flatten()
+            .filter(|line| !line.stage.is_terminal())
+    }
+
+    pub fn active_line_count(&self) -> usize {
+        self.active_lines().count()
+    }
+
+    pub fn clear_active_downloads(&mut self) {
+        self.active_downloads.fill(None);
+    }
+
     pub fn all_active_rate_limited(&self) -> bool {
-        !self.active_downloads.is_empty()
-            && self
-                .active_downloads
-                .iter()
-                .all(|line| line.displayed_rate_limited())
+        let mut lines = self.active_lines().peekable();
+        lines.peek().is_some() && lines.all(|l| l.displayed_rate_limited())
     }
 
     pub fn register_beatmaps(&mut self, ids: &[u32]) {
@@ -219,13 +249,7 @@ impl CollectionPage {
         {
             row.stage = stage;
             row.message = message.to_string();
-            if matches!(
-                stage,
-                BeatmapStage::Success
-                    | BeatmapStage::Skipped
-                    | BeatmapStage::Failed
-                    | BeatmapStage::Aborted
-            ) {
+            if stage.is_terminal() {
                 row.progress = None;
             }
         }
@@ -245,99 +269,91 @@ impl CollectionPage {
         message: &str,
         rate_limited: bool,
     ) {
-        let terminal = matches!(
-            stage,
-            BeatmapStage::Success
-                | BeatmapStage::Skipped
-                | BeatmapStage::Failed
-                | BeatmapStage::Aborted
-        );
-
-        if terminal {
-            self.active_downloads
-                .retain(|line| line.beatmapset_id != beatmapset_id);
+        // terminal stages keep the line in place so the slot keeps rendering the final
+        // message ("done via nerinyan") until another beatmapset reuses it — otherwise
+        // the row would flash blank between completion and reuse
+        if let Some(line) = self.find_active_line_mut(beatmapset_id) {
+            line.apply_status(stage, message, rate_limited);
             return;
         }
 
-        let line = self.active_or_insert(beatmapset_id);
-        let first_message = line.displayed_message.borrow().is_empty();
-        let immediate = first_message || message.starts_with(status::DOWNLOADING);
-        line.pending_message = message.to_string();
-        line.pending_rate_limited = rate_limited;
-        if immediate {
-            *line.displayed_message.borrow_mut() = message.to_string();
-            line.displayed_rate_limited.set(rate_limited);
-            line.status_changed_at.set(None);
-        } else {
-            line.status_changed_at.set(Some(Instant::now()));
+        // Only an in-flight download stage may claim a free slot — precheck transitions
+        // (`Pending`) update the underlying beatmap row but must not consume an active
+        // slot, otherwise the panel grows past the worker count.
+        if !matches!(stage, BeatmapStage::Downloading) {
+            return;
         }
+        let Some(slot_idx) = self.first_free_slot() else {
+            return;
+        };
+        let mut line = ActiveDownloadLine::new(beatmapset_id);
+        line.apply_status(stage, message, rate_limited);
+        self.active_downloads[slot_idx] = Some(line);
     }
 
     pub fn update_active_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
-        let line = self.active_or_insert(beatmapset_id);
+        // Slot allocation is the status path's job — by the time progress arrives the lib
+        // has already emitted `Contacting`/`Downloading` and the slot exists with a real
+        // message. Allocating here would render a slot with an empty `displayed_message`.
+        let Some(line) = self.find_active_line_mut(beatmapset_id) else {
+            return;
+        };
         line.downloaded = downloaded;
         if total > 0 {
             line.total = total;
         }
         let now = Instant::now();
         match line.last_update {
-            Some(last) => {
-                let elapsed = now.duration_since(last);
-                if elapsed > SPEED_UPDATE_INTERVAL {
-                    let delta = downloaded.saturating_sub(line.bytes_for_speed);
-                    let speed = delta as f64 / elapsed.as_secs_f64();
-                    line.speed_bytes_per_sec = line.speed_bytes_per_sec * 0.7 + speed * 0.3;
-                    line.bytes_for_speed = downloaded;
-                    line.last_update = Some(now);
-                }
+            Some(last) if now.duration_since(last) > SPEED_UPDATE_INTERVAL => {
+                let elapsed = now.duration_since(last).as_secs_f64();
+                let delta = downloaded.saturating_sub(line.bytes_for_speed) as f64;
+                line.speed_bytes_per_sec = line.speed_bytes_per_sec * 0.7 + delta / elapsed * 0.3;
+                line.bytes_for_speed = downloaded;
+                line.last_update = Some(now);
             }
             None => {
                 line.bytes_for_speed = downloaded;
                 line.last_update = Some(now);
             }
+            _ => {}
         }
     }
 
-    fn active_or_insert(&mut self, beatmapset_id: u32) -> &mut ActiveDownloadLine {
-        if let Some(idx) = self
-            .active_downloads
-            .iter()
-            .position(|line| line.beatmapset_id == beatmapset_id)
-        {
-            return &mut self.active_downloads[idx];
-        }
+    fn find_active_line_mut(&mut self, beatmapset_id: u32) -> Option<&mut ActiveDownloadLine> {
         self.active_downloads
-            .push(ActiveDownloadLine::new(beatmapset_id));
-        self.active_downloads.last_mut().unwrap()
+            .iter_mut()
+            .flatten()
+            .find(|line| line.beatmapset_id == beatmapset_id)
+    }
+
+    fn first_free_slot(&self) -> Option<usize> {
+        // a terminal-stage slot counts as free — it's still rendered so the row isn't
+        // blank, but a new beatmapset is welcome to overwrite it
+        self.active_downloads
+            .iter()
+            .position(|slot| slot.as_ref().is_none_or(|line| line.stage.is_terminal()))
     }
 
     pub fn cumulative_speed(&self) -> f64 {
         let now = Instant::now();
-        let should_update = match self.last_speed_update.get() {
-            Some(last) => now.duration_since(last) >= SPEED_UPDATE_INTERVAL,
-            None => true,
-        };
-
-        if should_update {
-            let new_speed: f64 = self
-                .active_downloads
-                .iter()
-                .map(|line| line.speed_bytes_per_sec())
-                .sum();
-            self.cached_cumulative_speed.set(new_speed);
+        let stale = self
+            .last_speed_update
+            .get()
+            .is_none_or(|last| now.duration_since(last) >= SPEED_UPDATE_INTERVAL);
+        if stale {
+            let speed = self.active_lines().map(|l| l.speed_bytes_per_sec()).sum();
+            self.cached_cumulative_speed.set(speed);
             self.last_speed_update.set(Some(now));
         }
-
         self.cached_cumulative_speed.get()
     }
 
     pub fn set_failed_maps(&mut self, failures: Vec<(u32, String)>) {
-        let mut entries: Vec<FailedBeatmap> = failures
+        self.failed_maps = failures
             .into_iter()
             .map(|(id, reason)| FailedBeatmap { id, reason })
             .collect();
-        entries.sort_by_key(|a| a.id);
-        self.failed_maps = entries;
+        self.failed_maps.sort_by_key(|f| f.id);
     }
 
     pub fn scroll_threads_up(&mut self) {
