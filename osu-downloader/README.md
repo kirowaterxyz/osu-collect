@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut session = downloader.download_many([123456u32, 789012, 345678], "./downloads");
-    let mut events = session.events();
+    let mut events = session.events().expect("first events() call");
 
     while let Some(event) = events.next().await {
         match event {
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`download_many` accepts anything iterable over `u32`. `session.cancel()` aborts running downloads at the next checkpoint. `.default_mirrors()` adds every built-in in one call. `.on_existing(FileExistsPolicy::Overwrite)` controls what happens when a beatmapset's archive is already on disk (default: skip).
+`download_many` accepts anything iterable over `u32`. `session.cancel()` aborts running downloads at the next checkpoint. `Downloader::with_builtins()` is a one-call shortcut for "every built-in mirror at defaults". `.builtins()` on the builder adds them all in one call. `.on_exists(OnExists::Overwrite)` controls what happens when a beatmapset's archive is already on disk (default: skip).
 
 ## Mirrors
 
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Nekoha** — https://mirror.nekoha.moe
 - **Custom** — `Mirror::custom("https://your.mirror/d/{id}")?`
 
-`Mirror::all_builtins()` returns every built-in. `Mirror::from_kind(MirrorKind::Sayobot)` constructs a single built-in by tag (returns `None` for `Custom`). `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors).
+`Mirror::builtins()` returns every built-in as a `Vec`. `Mirror::builtin(MirrorKind::Sayobot)` constructs a single built-in by tag (returns `None` for `Custom`). `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors).
 
 ## Collections
 
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use osu_downloader::{collection::CollectionClient, Downloader};
 
 let collection = CollectionClient::new().fetch_with_retries(12345, 3).await?;
-let downloader = Downloader::builder().default_mirrors().build()?;
+let downloader = Downloader::with_builtins()?;
 let mut session = downloader.download_many(collection.beatmapset_ids(), "./downloads");
 // consume events, then:
 collection.write_db("./downloads/collection.db".as_ref())?;
@@ -79,7 +79,12 @@ collection.write_db("./downloads/collection.db".as_ref())?;
 - `CollectionClient::fetch(id)` does a single request and surfaces errors verbatim.
 - `CollectionClient::fetch_with_retries(id, attempts)` adds the library's built-in retry policy (rate-limit-aware sleeps + exponential backoff for transient network errors).
 - `CollectionClient::fetch_input(input)` accepts either a numeric ID or a `https://osucollector.com/collections/<id>` URL.
-- For multi-collection bundles use `collection::write_collections_db(&[CollectionDbEntry { … }], path)`.
+- For multi-collection bundles use `collection::write_collections_db(&[CollectionEntry { … }], path)`.
+- `parse_collection_id(input)` is at the crate root and handles ID-or-URL parsing with strict `osucollector.com` HTTPS validation.
+
+## Events and summary
+
+`Event::BeatmapsetFailed` covers every failure path, including transient/network failures that exhausted every mirror — those arrive with `Error::Network(_)` (or another `Error::is_transient()` variant) and `mirror: None`. `Summary::failed` is `Vec<(u32, Error)>`; there is no separate "network errors" bucket.
 
 ## Errors
 
@@ -127,9 +132,27 @@ match classify_output_entry(&entry.file_name()) {
 }
 ```
 
+## Availability checks
+
+The `size-fetch` feature exposes `SizeFetcher::check_availability` for cheap "is this id reachable on any mirror" probes. It accepts `Mirror` objects directly, so the typical call is:
+
+```rust
+use osu_downloader::{Mirror, size::SizeFetcher};
+
+let fetcher = SizeFetcher::new();
+let mirrors = Mirror::builtins();
+let result = fetcher
+    .check_availability(&[123, 456, 789], &mirrors, |checked, total| {
+        println!("checked {checked}/{total}");
+    })
+    .await;
+
+println!("available: {:?}, unavailable: {:?}", result.available, result.unavailable);
+```
+
 ## Feature flags
 
-- `collection` (default) — `CollectionClient`, `Collection`, `write_collections_db`
+- `collection` (default) — `CollectionClient`, `Collection`, `CollectionEntry`, `write_collections_db`
 - `size-fetch` (default) — `SizeFetcher` for beatmapset size estimates and mirror availability probes
 
 ## License
