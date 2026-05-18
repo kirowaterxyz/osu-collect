@@ -13,9 +13,7 @@ use crate::{
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
-use osu_downloader::{
-    DownloadSession as LibDownloadSession, Downloader, Event as LibEvent, FileExistsPolicy,
-};
+use osu_downloader::{Downloader, Event as LibEvent, OnExists, Session as LibDownloadSession};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -301,10 +299,10 @@ async fn run_pipeline_core(
         return Ok(Some(tally));
     }
 
-    let on_existing = if auto_overwrite {
-        FileExistsPolicy::Overwrite
+    let on_exists = if auto_overwrite {
+        OnExists::Overwrite
     } else {
-        FileExistsPolicy::Skip
+        OnExists::Skip
     };
 
     let downloader = Downloader::builder()
@@ -313,7 +311,7 @@ async fn run_pipeline_core(
         .archive_validation(config.archive_validation)
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
         .network_retry_attempts(NETWORK_RETRY_CAP as usize)
-        .on_existing(on_existing)
+        .on_exists(on_exists)
         .build()
         .map_err(|err| DownloadError::internal(err.to_string()))?;
 
@@ -321,7 +319,9 @@ async fn run_pipeline_core(
         session.pending_ids.iter().copied(),
         &session.output.output_dir,
     );
-    let mut events = session_handle.events();
+    let mut events = session_handle
+        .events()
+        .expect("events() called once per session");
     let mut cancel_signal = cancel_rx;
 
     let cancelled = drive_session(

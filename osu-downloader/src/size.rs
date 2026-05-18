@@ -207,11 +207,7 @@ async fn fetch_single_size(client: &Client, beatmapset_id: u32) -> Option<u64> {
     }
 }
 
-async fn check_on_any_mirror(
-    client: &Client,
-    beatmapset_id: u32,
-    templates: &[&str],
-) -> bool {
+async fn check_on_any_mirror(client: &Client, beatmapset_id: u32, templates: &[&str]) -> bool {
     let mut probes: FuturesUnordered<_> = templates
         .iter()
         .map(|template| probe_template(client, beatmapset_id, template))

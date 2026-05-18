@@ -1,6 +1,6 @@
 use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
 use crate::config::constants::status;
-use osu_downloader::{Event as LibEvent, SkipReason, StatusEvent};
+use osu_downloader::{Event as LibEvent, Skip, Status};
 use std::collections::HashSet;
 use tracing::warn;
 
@@ -47,11 +47,11 @@ impl Tally {
 
 pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit: Emit<'_>) {
     match event {
-        LibEvent::SessionStarted { total_beatmapsets } => emit(DownloadEvent::Log {
+        LibEvent::SessionStarted { total } => emit(DownloadEvent::Log {
             id,
-            message: format!("downloading {total_beatmapsets} beatmapsets"),
+            message: format!("downloading {total} beatmapsets"),
         }),
-        LibEvent::BeatmapsetStarted { .. } | LibEvent::SessionCompleted { .. } => {}
+        LibEvent::SessionCompleted { .. } => {}
         LibEvent::BeatmapsetStatus {
             beatmapset_id,
             status,
@@ -91,7 +91,7 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
             beatmapset_id,
             reason,
         } => match reason {
-            SkipReason::AlreadyExists => {
+            Skip::AlreadyExists => {
                 tally.record_skipped();
                 emit_terminal_status(
                     id,
@@ -102,7 +102,7 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
                 );
                 emit_overall_progress(id, tally, emit);
             }
-            SkipReason::UnavailableOnMirrors => {
+            Skip::UnavailableOnMirrors => {
                 record_and_emit_failed(
                     id,
                     beatmapset_id,
@@ -116,19 +116,19 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
             beatmapset_id,
             error,
             ..
-        } => record_and_emit_failed(id, beatmapset_id, error.to_string(), tally, emit),
-        LibEvent::BeatmapsetNetworkError {
-            beatmapset_id,
-            reason,
         } => {
-            warn!(beatmapset_id, %reason, "network error, all mirrors exhausted");
-            record_and_emit_failed(
-                id,
-                beatmapset_id,
-                format!("network error: {reason}"),
-                tally,
-                emit,
-            );
+            if error.is_transient() {
+                warn!(beatmapset_id, %error, "network error, all mirrors exhausted");
+                record_and_emit_failed(
+                    id,
+                    beatmapset_id,
+                    format!("network error: {error}"),
+                    tally,
+                    emit,
+                );
+            } else {
+                record_and_emit_failed(id, beatmapset_id, error.to_string(), tally, emit);
+            }
         }
     }
 }
@@ -161,25 +161,25 @@ fn emit_terminal_status(
     });
 }
 
-fn emit_status(id: DownloadId, beatmapset_id: u32, event: StatusEvent, emit: Emit<'_>) {
+fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>) {
     let (message, stage, rate_limited) = match event {
         // dont remove this
-        StatusEvent::Contacting { mirror } => (
+        Status::Contacting { mirror } => (
             format!("checking {}", mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
-        StatusEvent::Downloading { mirror } => (
+        Status::Downloading { mirror } => (
             format!("{} from {}", status::DOWNLOADING, mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
-        StatusEvent::Verifying { mirror } => (
+        Status::Verifying { mirror } => (
             format!("verifying from {}", mirror.label()),
             BeatmapStage::Verifying,
             false,
         ),
-        StatusEvent::RateLimited { cooldown } => (
+        Status::RateLimited { cooldown } => (
             format!(
                 "{} on all mirrors, waiting {}s",
                 status::RATE_LIMITED,
@@ -188,7 +188,7 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: StatusEvent, emit: Emi
             BeatmapStage::Downloading,
             true,
         ),
-        StatusEvent::RetryingTransient {
+        Status::RetryingTransient {
             mirror,
             attempt,
             max_attempts,

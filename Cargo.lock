@@ -1536,7 +1536,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "url",
  "whoami",
  "windows-sys 0.61.2",
 ]

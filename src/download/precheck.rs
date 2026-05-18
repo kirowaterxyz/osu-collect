@@ -6,6 +6,7 @@ use osu_downloader::{
     ArchiveValidation, ArchiveValidationResult, OutputEntry, classify_output_entry,
     validate_and_remove,
 };
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},

@@ -1,5 +1,5 @@
 use super::{create_collection_db, write_entries};
-use crate::core::collection::{CollectionDbEntry, test_beatmapset, test_collection};
+use crate::core::collection::{CollectionEntry, test_beatmapset, test_collection};
 use tempfile::tempdir;
 
 #[test]
@@ -57,11 +57,11 @@ fn no_duplicates_collection_unchanged() {
 fn multiple_collections_are_written() {
     let dir = tempdir().unwrap();
     let entries = [
-        CollectionDbEntry {
+        CollectionEntry {
             name: "renamed collection - 10".to_string(),
             beatmap_hashes: vec!["hash1".to_string(), "hash2".to_string()],
         },
-        CollectionDbEntry {
+        CollectionEntry {
             name: "other collection - 20".to_string(),
             beatmap_hashes: vec!["hash2".to_string(), "hash3".to_string()],
         },

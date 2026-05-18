@@ -3,7 +3,7 @@ pub mod api_client;
 pub use api_client::{CollectionService, HttpCollectionService};
 
 pub use osu_downloader::collection::{
-    Beatmap, Beatmapset, Collection, CollectionDbEntry, Uploader, write_collections_db,
+    Beatmap, Beatmapset, Collection, CollectionEntry, Uploader, write_collections_db,
 };
 
 #[cfg(test)]

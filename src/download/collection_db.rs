@@ -1,5 +1,5 @@
 use super::{DownloadError, DownloadEvent, DownloadId, Emit, SelectiveDownloadCollection};
-use crate::core::collection::{Collection, CollectionDbEntry, write_collections_db};
+use crate::core::collection::{Collection, CollectionEntry, write_collections_db};
 use crate::utils::AppError;
 use std::{collections::HashSet, path::Path, path::PathBuf};
 use tracing::error;
@@ -81,7 +81,7 @@ pub fn create_collection_db(
     output_dir: &Path,
 ) -> Result<(), AppError> {
     write_entries(
-        &[CollectionDbEntry {
+        &[CollectionEntry {
             name: collection_name.to_string(),
             beatmap_hashes: collection
                 .beatmapsets
@@ -111,7 +111,7 @@ pub fn create_selective_collection_database(
                 })
                 .flat_map(|beatmapset| beatmapset.beatmaps.iter().map(|b| b.checksum.clone()))
                 .collect();
-            (!hashes.is_empty()).then(|| CollectionDbEntry {
+            (!hashes.is_empty()).then(|| CollectionEntry {
                 name: selected.name.clone(),
                 beatmap_hashes: hashes,
             })
@@ -125,7 +125,7 @@ pub fn create_selective_collection_database(
 }
 
 pub(crate) fn write_entries(
-    entries: &[CollectionDbEntry],
+    entries: &[CollectionEntry],
     output_dir: &Path,
 ) -> Result<(), AppError> {
     let db_path = output_dir.join(COLLECTION_DB_FILENAME);

@@ -16,10 +16,7 @@ fn builder_rejects_zero_concurrency() {
 
 #[test]
 fn default_mirrors_include_every_builtin_mirror() {
-    let downloader = crate::Downloader::builder()
-        .builtins()
-        .build()
-        .unwrap();
+    let downloader = crate::Downloader::builder().builtins().build().unwrap();
 
     let mirror_kinds: Vec<_> = downloader
         .mirror_pool_mirrors()

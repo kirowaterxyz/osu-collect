@@ -3,7 +3,7 @@ use crate::core::collection::{test_beatmapset, test_collection};
 use crate::download::collection_db::create_selective_collection_database;
 use crate::download::events::{Tally, translate_event};
 use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
-use osu_downloader::{Event as LibEvent, MirrorKind, SkipReason};
+use osu_downloader::{Event as LibEvent, MirrorKind, Skip};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -79,9 +79,10 @@ fn missing_progress_total_translates_to_zero_total() {
 
 #[test]
 fn network_error_counts_as_failed() {
-    let (tally, events) = drive_translate(vec![LibEvent::BeatmapsetNetworkError {
+    let (tally, events) = drive_translate(vec![LibEvent::BeatmapsetFailed {
         beatmapset_id: 77,
-        reason: "timeout".into(),
+        error: osu_downloader::Error::Network("timeout".into()),
+        mirror: None,
     }]);
     assert_eq!(tally.failed, 1);
     assert!(tally.failures.iter().any(|(id, _)| *id == 77));
@@ -103,7 +104,7 @@ fn network_error_counts_as_failed() {
 fn unavailable_on_mirrors_counts_as_failed_not_skipped() {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
         beatmapset_id: 5,
-        reason: SkipReason::UnavailableOnMirrors,
+        reason: Skip::UnavailableOnMirrors,
     }]);
     assert_eq!(tally.failed, 1);
     assert_eq!(tally.skipped, 0);
@@ -113,7 +114,7 @@ fn unavailable_on_mirrors_counts_as_failed_not_skipped() {
 fn already_exists_still_counts_as_skipped() {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
         beatmapset_id: 5,
-        reason: SkipReason::AlreadyExists,
+        reason: Skip::AlreadyExists,
     }]);
     assert_eq!(tally.skipped, 1);
     assert_eq!(tally.failed, 0);
@@ -184,7 +185,7 @@ fn duplicate_completed_events_dedupe_in_successful_set() {
 fn unavailable_on_mirrors_is_recorded_as_failure() {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
         beatmapset_id: 7,
-        reason: SkipReason::UnavailableOnMirrors,
+        reason: Skip::UnavailableOnMirrors,
     }]);
     assert_eq!(tally.failed, 1);
     assert_eq!(tally.skipped, 0);

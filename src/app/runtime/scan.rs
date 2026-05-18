@@ -377,10 +377,9 @@ pub(super) fn spawn_failed_map_recheck_task(
     let handle = tokio::spawn(async move {
         let fetcher = osu_downloader::size::SizeFetcher::new();
         let progress_tx = tx.clone();
-        let templates = osu_downloader::Mirror::builtin_templates();
-        let template_refs: Vec<&str> = templates.to_vec();
+        let mirrors = osu_downloader::Mirror::builtins();
         let result = fetcher
-            .check_availability(&ids, &template_refs, |checked, total| {
+            .check_availability(&ids, &mirrors, |checked, total| {
                 let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
                     generation,
                     checked,

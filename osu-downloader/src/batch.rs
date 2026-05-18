@@ -8,8 +8,8 @@ use crate::{
     Error, Event, Summary,
     config::NETWORK_RETRY_BACKOFF,
     download::{self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, download_beatmapset},
-    event::{Skip, Status},
     downloader::OnExists,
+    event::{Skip, Status},
     mirrors::MirrorPool,
     validation::ArchiveValidation,
 };
@@ -137,18 +137,9 @@ fn finalize(mut summary: Summary, event_tx: &mpsc::UnboundedSender<Event>, start
 }
 
 enum DownloadOutcome {
-    Success {
-        beatmapset_id: u32,
-        size_bytes: u64,
-    },
-    Skipped {
-        beatmapset_id: u32,
-        reason: Skip,
-    },
-    Failed {
-        beatmapset_id: u32,
-        error: Error,
-    },
+    Success { beatmapset_id: u32, size_bytes: u64 },
+    Skipped { beatmapset_id: u32, reason: Skip },
+    Failed { beatmapset_id: u32, error: Error },
     Aborted,
 }
 

@@ -22,7 +22,6 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
 semver = "1.0.28"
-url = "2.5.8"
 toml = "1.1.2"
 dirs = "6.0.0"
 time = { version = "0.3.47", features = ["formatting"] }
