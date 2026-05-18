@@ -1,8 +1,7 @@
 use super::{
-    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
-    DownloadParams, FinalizeResult, download_beatmapset, finalize_download,
-    is_archive_content_type, matches_beatmapset, probe_download_size, sanitize_filename,
-    size_from_content_range, sleep_cancelable,
+    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, DownloadParams, FinalizeResult,
+    download_beatmapset, finalize_download, is_archive_content_type, matches_beatmapset,
+    probe_download_size, sanitize_filename, size_from_content_range, sleep_cancelable,
 };
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
@@ -26,8 +25,8 @@ fn default_params<'a>(
         archive_validation: ArchiveValidation::Off,
         progress_timeout: Duration::from_secs(1),
         sanitize_filenames: true,
+        on_existing: FileExistsPolicy::Skip,
         callbacks: BeatmapsetDownloadCallbacks::default(),
-        options: BeatmapsetDownloadOptions::default(),
         cancel_rx,
     }
 }
@@ -331,9 +330,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
                 status_events.lock().unwrap().push(status);
             })),
         },
-        options: BeatmapsetDownloadOptions {
-            file_exists_policy: FileExistsPolicy::Skip,
-        },
+        on_existing: FileExistsPolicy::Skip,
         ..default_params(42, dir.path(), &client, &mirror_pool, cancel_rx)
     })
     .await;

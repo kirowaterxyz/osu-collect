@@ -8,10 +8,9 @@ use crate::{
     Event, SkipReason, StatusEvent, Summary,
     config::NETWORK_RETRY_BACKOFF,
     download::{
-        self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
-        download_beatmapset,
+        self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, download_beatmapset,
     },
-    downloader::DownloadItem,
+    downloader::FileExistsPolicy,
     mirrors::MirrorPool,
     validation::ArchiveValidation,
 };
@@ -30,10 +29,11 @@ pub(crate) struct BatchConfig {
     pub(crate) progress_timeout: Duration,
     pub(crate) network_retry_attempts: usize,
     pub(crate) sanitize_filenames: bool,
+    pub(crate) on_existing: FileExistsPolicy,
 }
 
 pub(crate) async fn download_batch(
-    items: Vec<DownloadItem>,
+    ids: Vec<u32>,
     output_dir: &Path,
     client: reqwest::Client,
     mirror_pool: Arc<MirrorPool>,
@@ -42,13 +42,13 @@ pub(crate) async fn download_batch(
     cancel_rx: watch::Receiver<bool>,
 ) -> Summary {
     let start_time = Instant::now();
-    let total = items.len();
+    let total = ids.len();
     let mut summary = Summary::new(total);
     let _ = event_tx.send(Event::SessionStarted {
         total_beatmapsets: total,
     });
 
-    if items.is_empty() {
+    if ids.is_empty() {
         finalize(summary, &event_tx, start_time);
         return summary_dummy_returned();
     }
@@ -58,11 +58,11 @@ pub(crate) async fn download_batch(
     let feed_cancel = cancel_rx.clone();
     let feed_handle = tokio::spawn(async move {
         let cancel = feed_cancel;
-        for item in items {
+        for id in ids {
             if *cancel.borrow() {
                 break;
             }
-            if job_tx.send(item).await.is_err() {
+            if job_tx.send(id).await.is_err() {
                 break;
             }
         }
@@ -168,7 +168,7 @@ enum DownloadOutcome {
 
 #[allow(clippy::too_many_arguments)]
 async fn worker_loop(
-    job_rx: AsyncBoundedReceiver<DownloadItem>,
+    job_rx: AsyncBoundedReceiver<u32>,
     result_tx: mpsc::UnboundedSender<DownloadOutcome>,
     client: reqwest::Client,
     mirror_pool: Arc<MirrorPool>,
@@ -181,11 +181,11 @@ async fn worker_loop(
         if *cancel_rx.borrow() {
             break;
         }
-        let Ok(item) = job_rx.recv().await else {
+        let Ok(beatmapset_id) = job_rx.recv().await else {
             break;
         };
         let outcome = process_one(
-            item,
+            beatmapset_id,
             &output_dir,
             &client,
             &mirror_pool,
@@ -202,7 +202,7 @@ async fn worker_loop(
 
 #[allow(clippy::too_many_arguments)]
 async fn process_one(
-    item: DownloadItem,
+    beatmapset_id: u32,
     output_dir: &Path,
     client: &reqwest::Client,
     mirror_pool: &MirrorPool,
@@ -210,7 +210,6 @@ async fn process_one(
     event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
 ) -> DownloadOutcome {
-    let beatmapset_id = item.beatmapset_id;
     debug!(beatmapset_id, "starting download");
 
     let _ = event_tx.send(Event::BeatmapsetStarted { beatmapset_id });
@@ -258,12 +257,10 @@ async fn process_one(
             archive_validation: config.archive_validation,
             progress_timeout: config.progress_timeout,
             sanitize_filenames: config.sanitize_filenames,
+            on_existing: config.on_existing,
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(progress_callback.clone()),
                 status: Some(status_callback.clone()),
-            },
-            options: BeatmapsetDownloadOptions {
-                file_exists_policy: item.policy,
             },
             cancel_rx: cancel_rx.clone(),
         })

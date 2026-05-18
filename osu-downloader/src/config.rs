@@ -1,5 +1,6 @@
 //! Configuration types for the downloader
 
+use crate::downloader::FileExistsPolicy;
 use crate::validation::ArchiveValidation;
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ pub(crate) struct DownloadConfig {
     pub(crate) user_agent: String,
     pub(crate) network_retry_attempts: usize,
     pub(crate) sanitize_filenames: bool,
+    pub(crate) on_existing: FileExistsPolicy,
 }
 
 impl Default for DownloadConfig {
@@ -27,6 +29,7 @@ impl Default for DownloadConfig {
             user_agent: format!("osu-downloader/{}", env!("CARGO_PKG_VERSION")),
             network_retry_attempts: 0,
             sanitize_filenames: true,
+            on_existing: FileExistsPolicy::Skip,
         }
     }
 }

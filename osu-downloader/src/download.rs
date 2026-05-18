@@ -8,6 +8,7 @@ use crate::{
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
     downloader::FileExistsPolicy,
     mirrors::{Mirror, MirrorKind, MirrorPool},
+    output_entry::parse_beatmapset_filename,
     validation::{self, ArchiveValidation},
     worker::stream_download,
 };
@@ -27,19 +28,6 @@ const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
 pub(crate) struct BeatmapsetDownloadCallbacks {
     pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
     pub(crate) status: Option<Arc<dyn Fn(StatusEvent) + Send + Sync>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct BeatmapsetDownloadOptions {
-    pub(crate) file_exists_policy: FileExistsPolicy,
-}
-
-impl Default for BeatmapsetDownloadOptions {
-    fn default() -> Self {
-        Self {
-            file_exists_policy: FileExistsPolicy::Skip,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -72,8 +60,8 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
     pub(crate) sanitize_filenames: bool,
+    pub(crate) on_existing: FileExistsPolicy,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
-    pub(crate) options: BeatmapsetDownloadOptions,
     pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -201,21 +189,7 @@ fn decode_quoted_string(s: &str) -> String {
 }
 
 fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
-    parse_beatmapset_id(name) == Some(beatmapset_id)
-}
-
-fn parse_beatmapset_id(name: &str) -> Option<u32> {
-    let digits: String = name.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() {
-        return None;
-    }
-    let id: u32 = digits.parse().ok()?;
-    let rest = &name[digits.len()..];
-    if rest == ".osz" || (rest.starts_with(' ') && rest.ends_with(".osz")) {
-        Some(id)
-    } else {
-        None
-    }
+    parse_beatmapset_filename(name) == Some(beatmapset_id)
 }
 
 pub(crate) async fn download_beatmapset(
@@ -236,7 +210,7 @@ pub(crate) async fn download_beatmapset(
     }
 
     match find_existing_beatmapset(params.beatmapset_id, params.output_dir, &cancel_rx).await {
-        ExistingCheck::Exists => match params.options.file_exists_policy {
+        ExistingCheck::Exists => match params.on_existing {
             FileExistsPolicy::Skip => {
                 return (
                     BeatmapsetDownloadOutcome::Skipped {
@@ -245,7 +219,7 @@ pub(crate) async fn download_beatmapset(
                     0,
                 );
             }
-            FileExistsPolicy::OverwriteTarget => {}
+            FileExistsPolicy::Overwrite => {}
         },
         ExistingCheck::Missing => {}
         ExistingCheck::Aborted => return (BeatmapsetDownloadOutcome::Aborted, 0),
@@ -592,13 +566,13 @@ async fn process_mirror_response(
         run_cancelable(tokio::fs::metadata(&output_path), &params.cancel_rx).await
     {
         match metadata_result {
-            Ok(_) => match params.options.file_exists_policy {
+            Ok(_) => match params.on_existing {
                 FileExistsPolicy::Skip => {
                     return Ok(BeatmapsetDownloadOutcome::Skipped {
                         reason: SkipReason::AlreadyExists,
                     });
                 }
-                FileExistsPolicy::OverwriteTarget => {
+                FileExistsPolicy::Overwrite => {
                     if let Some(remove_result) =
                         run_cancelable(tokio::fs::remove_file(&output_path), &params.cancel_rx)
                             .await

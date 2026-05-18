@@ -1,10 +1,10 @@
 # osu-downloader
 
-A vibecoded Rust library for downloading osu! beatmapsets in bulk from multiple mirrors, with failover, rate-limit backoff, MD5 + ZIP validation, and a streaming event API. Build a `Downloader`, hand it a list of beatmapset IDs and an output directory, then consume `Event`s off the session until it finishes.
+A vibecoded Rust library for downloading osu! beatmapsets in bulk from multiple mirrors, with failover, rate-limit backoff, MD5 + ZIP validation, and a streaming event API. Build a `Downloader`, hand it beatmapset IDs and an output directory, then consume `Event`s off the session until it finishes.
 
 ```toml
 [dependencies]
-osu-downloader = "0.6"
+osu-downloader = "0.7"
 ```
 
 ## Features
@@ -19,7 +19,7 @@ osu-downloader = "0.6"
 ## Quick start
 
 ```rust
-use osu_downloader::{Downloader, DownloadItem, Event, Mirror};
+use osu_downloader::{Downloader, Event, Mirror};
 use futures_util::StreamExt;
 
 #[tokio::main]
@@ -31,8 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .network_retry_attempts(2)
         .build()?;
 
-    let items = [123456u32, 789012, 345678].map(DownloadItem::skip_if_present);
-    let mut session = downloader.download_many(items, "./downloads");
+    let mut session = downloader.download_many([123456u32, 789012, 345678], "./downloads");
     let mut events = session.events();
 
     while let Some(event) = events.next().await {
@@ -53,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`session.cancel()` aborts running downloads at the next checkpoint. `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors). `.default_mirrors()` adds every built-in in one call.
+`download_many` accepts anything iterable over `u32`. `session.cancel()` aborts running downloads at the next checkpoint. `.default_mirrors()` adds every built-in in one call. `.on_existing(FileExistsPolicy::Overwrite)` controls what happens when a beatmapset's archive is already on disk (default: skip).
 
 ## Mirrors
 
@@ -63,19 +62,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Nekoha** — https://mirror.nekoha.moe
 - **Custom** — `Mirror::custom("https://your.mirror/d/{id}")?`
 
-`Mirror::all_builtins()` returns every built-in mirror; `Mirror::builtin_templates()` gives just the URL templates if you only need to probe availability.
+`Mirror::all_builtins()` returns every built-in. `Mirror::from_kind(MirrorKind::Sayobot)` constructs a single built-in by tag (returns `None` for `Custom`). `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors).
 
 ## Collections
 
 ```rust
-use osu_downloader::{collection::CollectionClient, DownloadItem, Downloader};
+use osu_downloader::{collection::CollectionClient, Downloader};
 
 let collection = CollectionClient::new().fetch_with_retries(12345, 3).await?;
 let downloader = Downloader::builder().default_mirrors().build()?;
-let mut session = downloader.download_many(
-    collection.beatmapset_ids().into_iter().map(DownloadItem::skip_if_present),
-    "./downloads",
-);
+let mut session = downloader.download_many(collection.beatmapset_ids(), "./downloads");
 // consume events, then:
 collection.write_db("./downloads/collection.db".as_ref())?;
 ```
@@ -115,6 +111,20 @@ match validate_archive(path, ArchiveValidation::Eocd).await? {
 
 // or, to delete the file on validation failure:
 validate_and_remove(path, ArchiveValidation::Eocd).await?;
+```
+
+## Output directory scanning
+
+When walking the directory the downloader writes into, `classify_output_entry(name)` tells you which entries belong to the library:
+
+```rust
+use osu_downloader::{classify_output_entry, OutputEntry};
+
+match classify_output_entry(&entry.file_name()) {
+    OutputEntry::Archive { beatmapset_id } => …,
+    OutputEntry::OrphanTemp => /* leftover from a cancelled download — safe to delete */,
+    OutputEntry::Other => /* foreign file */,
+}
 ```
 
 ## Feature flags

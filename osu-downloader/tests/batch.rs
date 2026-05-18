@@ -1,6 +1,6 @@
 use super::{BatchConfig, download_batch};
 use crate::mirrors::pool::MirrorPool;
-use crate::{ArchiveValidation, DownloadItem, Mirror};
+use crate::{ArchiveValidation, FileExistsPolicy, Mirror};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
@@ -18,6 +18,7 @@ async fn cancel_mid_batch_does_not_panic() {
         progress_timeout: Duration::from_secs(1),
         network_retry_attempts: 0,
         sanitize_filenames: true,
+        on_existing: FileExistsPolicy::Skip,
     };
 
     tokio::spawn(async move {
@@ -25,9 +26,9 @@ async fn cancel_mid_batch_does_not_panic() {
         let _ = cancel_tx.send(true);
     });
 
-    let items: Vec<DownloadItem> = (1u32..=5).map(DownloadItem::skip_if_present).collect();
+    let ids: Vec<u32> = (1u32..=5).collect();
     let summary = download_batch(
-        items,
+        ids,
         dir.path(),
         client,
         mirror_pool,

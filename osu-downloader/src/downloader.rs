@@ -16,6 +16,19 @@ use std::{path::Path, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+/// How to handle a beatmapset whose target archive already exists on disk.
+///
+/// Applies to every item in a [`Downloader::download_many`] call. Set on the
+/// builder via [`DownloaderBuilder::on_existing`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FileExistsPolicy {
+    /// Skip if any matching archive is already present (default).
+    #[default]
+    Skip,
+    /// Overwrite the exact target filename.
+    Overwrite,
+}
+
 /// Builder for a [`Downloader`].
 pub struct DownloaderBuilder {
     mirrors: Vec<Mirror>,
@@ -25,6 +38,7 @@ pub struct DownloaderBuilder {
     user_agent: Option<String>,
     network_retry_attempts: usize,
     sanitize_filenames: bool,
+    on_existing: FileExistsPolicy,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
 }
@@ -40,6 +54,7 @@ impl DownloaderBuilder {
             user_agent: None,
             network_retry_attempts: 0,
             sanitize_filenames: true,
+            on_existing: FileExistsPolicy::Skip,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
         }
@@ -59,13 +74,10 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Add the built-in mirrors.
+    /// Add every built-in mirror.
     #[must_use]
     pub fn default_mirrors(mut self) -> Self {
-        self.mirrors.push(Mirror::nerinyan());
-        self.mirrors.push(Mirror::osu_direct());
-        self.mirrors.push(Mirror::sayobot());
-        self.mirrors.push(Mirror::nekoha());
+        self.mirrors.extend(Mirror::all_builtins());
         self
     }
 
@@ -121,6 +133,14 @@ impl DownloaderBuilder {
         self
     }
 
+    /// What to do when a beatmapset archive already exists in the output
+    /// directory. Default [`FileExistsPolicy::Skip`].
+    #[must_use]
+    pub fn on_existing(mut self, policy: FileExistsPolicy) -> Self {
+        self.on_existing = policy;
+        self
+    }
+
     /// Override the HTTP client (test helper).
     #[cfg(any(test, feature = "test-helpers"))]
     #[must_use]
@@ -153,6 +173,7 @@ impl DownloaderBuilder {
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
             network_retry_attempts: self.network_retry_attempts,
             sanitize_filenames: self.sanitize_filenames,
+            on_existing: self.on_existing,
         };
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -178,48 +199,6 @@ impl Default for DownloaderBuilder {
     }
 }
 
-/// How to handle a beatmapset whose target archive already exists on disk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileExistsPolicy {
-    /// Skip if any matching archive is already present.
-    Skip,
-    /// Overwrite the exact target filename.
-    OverwriteTarget,
-}
-
-/// A single item the [`Downloader`] should attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DownloadItem {
-    /// Beatmapset ID to fetch.
-    pub beatmapset_id: u32,
-    /// Behaviour when the target file already exists.
-    pub policy: FileExistsPolicy,
-}
-
-impl DownloadItem {
-    /// Skip if already present (the common case).
-    pub fn skip_if_present(beatmapset_id: u32) -> Self {
-        Self {
-            beatmapset_id,
-            policy: FileExistsPolicy::Skip,
-        }
-    }
-
-    /// Overwrite any existing target file.
-    pub fn overwrite(beatmapset_id: u32) -> Self {
-        Self {
-            beatmapset_id,
-            policy: FileExistsPolicy::OverwriteTarget,
-        }
-    }
-}
-
-impl From<u32> for DownloadItem {
-    fn from(beatmapset_id: u32) -> Self {
-        Self::skip_if_present(beatmapset_id)
-    }
-}
-
 /// The downloader. Cheap to clone via `Arc` if desired.
 pub struct Downloader {
     config: Arc<DownloadConfig>,
@@ -238,13 +217,14 @@ impl Downloader {
         self.mirror_pool.mirrors()
     }
 
-    /// Start a batch download. Returns a [`DownloadSession`] for events + cancel.
+    /// Start a batch download for the given beatmapset IDs into `output_dir`.
+    /// Returns a [`DownloadSession`] for events + cancel.
     pub fn download_many(
         &self,
-        items: impl IntoIterator<Item = impl Into<DownloadItem>>,
+        ids: impl IntoIterator<Item = u32>,
         output_dir: impl AsRef<Path>,
     ) -> DownloadSession {
-        let items: Vec<DownloadItem> = items.into_iter().map(Into::into).collect();
+        let ids: Vec<u32> = ids.into_iter().collect();
         let output_dir = output_dir.as_ref().to_path_buf();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -260,9 +240,10 @@ impl Downloader {
                 progress_timeout: config.progress_timeout,
                 network_retry_attempts: config.network_retry_attempts,
                 sanitize_filenames: config.sanitize_filenames,
+                on_existing: config.on_existing,
             };
             batch::download_batch(
-                items,
+                ids,
                 &output_dir,
                 client,
                 mirror_pool,

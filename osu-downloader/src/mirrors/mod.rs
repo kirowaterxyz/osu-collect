@@ -123,6 +123,17 @@ impl Mirror {
         })
     }
 
+    /// Construct a built-in mirror from its [`MirrorKind`].
+    ///
+    /// Returns `None` for [`MirrorKind::Custom`] since custom mirrors have no
+    /// predefined template — use [`Mirror::custom`] for those.
+    pub fn from_kind(kind: MirrorKind) -> Option<Self> {
+        match kind {
+            MirrorKind::Custom => None,
+            other => Some(Self::builtin(other)),
+        }
+    }
+
     /// Nerinyan mirror (<https://api.nerinyan.moe>).
     pub fn nerinyan() -> Self {
         Self::builtin(MirrorKind::Nerinyan)

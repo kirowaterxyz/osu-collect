@@ -5,7 +5,7 @@
 //! ## quick start
 //!
 //! ```rust,no_run
-//! use osu_downloader::{Downloader, DownloadItem, Mirror};
+//! use osu_downloader::{Downloader, Mirror};
 //! use futures_util::StreamExt;
 //!
 //! # async fn example() -> Result<(), osu_downloader::Error> {
@@ -15,8 +15,7 @@
 //!     .concurrent_downloads(8)
 //!     .build()?;
 //!
-//! let items = [123456u32, 789012].map(DownloadItem::skip_if_present);
-//! let mut session = downloader.download_many(items, "./downloads");
+//! let mut session = downloader.download_many([123456u32, 789012], "./downloads");
 //! let mut events = session.events();
 //! while let Some(_event) = events.next().await {
 //!     // handle event
@@ -47,6 +46,7 @@ mod error;
 mod event;
 pub(crate) mod http;
 mod mirrors;
+mod output_entry;
 pub(crate) mod validation;
 pub(crate) mod worker;
 
@@ -57,12 +57,11 @@ pub mod collection;
 pub mod size;
 
 pub use download::sanitize_filename;
-pub use downloader::{
-    DownloadItem, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy,
-};
+pub use downloader::{DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy};
 pub use error::{Error, Result};
 pub use event::{Event, SkipReason, StatusEvent, Summary};
 pub use mirrors::{Mirror, MirrorKind};
+pub use output_entry::{OutputEntry, classify_output_entry};
 pub use validation::{
     ArchiveValidation, ArchiveValidationResult, validate_and_remove, validate_archive,
 };
