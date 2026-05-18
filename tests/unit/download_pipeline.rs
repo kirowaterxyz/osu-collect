@@ -1,11 +1,9 @@
 use osu_collect::{
     core::collection::model::{test_beatmapset, test_collection},
     download::{
-        BeatmapStage, DownloadEvent, SelectiveDownloadCollection,
-        pipeline::{
-            Tally, create_selective_collection_database, translate_event,
-            try_remove_empty_output_dir,
-        },
+        BeatmapStage, DownloadEvent, SelectiveDownloadCollection, Tally,
+        create_selective_collection_database, pipeline::try_remove_empty_output_dir,
+        translate_event,
     },
 };
 use osu_downloader::{DownloadEvent as LibEvent, MirrorKind, SkipReason};
@@ -140,6 +138,100 @@ async fn empty_output_dir_is_removed_after_cancel() {
 
     try_remove_empty_output_dir(7, &occupied, &noop).await;
     assert!(occupied.exists(), "non-empty output dir must remain");
+}
+
+#[test]
+fn finish_emits_summary_and_completed_stage() {
+    use osu_collect::download::{DownloadStage, DownloadSummary, events::emit_finish};
+
+    let events: Arc<Mutex<Vec<DownloadEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let emit = move |event: DownloadEvent| events_clone.lock().unwrap().push(event);
+
+    emit_finish(
+        99,
+        &emit,
+        DownloadSummary {
+            downloaded: 3,
+            skipped: 1,
+            failed: 0,
+            unverified: 0,
+        },
+    );
+
+    let collected = events.lock().unwrap().clone();
+    assert!(matches!(
+        collected.as_slice(),
+        [
+            DownloadEvent::Finished {
+                id: 99,
+                summary: DownloadSummary { downloaded: 3, .. }
+            },
+            DownloadEvent::StageChanged {
+                id: 99,
+                stage: DownloadStage::Completed
+            },
+        ]
+    ));
+}
+
+#[test]
+fn duplicate_completed_events_dedupe_in_successful_set() {
+    let (tally, _events) = drive_translate(vec![completed(10), completed(10)]);
+    assert_eq!(tally.downloaded, 2);
+    assert_eq!(tally.successful.len(), 1);
+}
+
+#[test]
+fn invalid_beatmapset_id_is_recorded_as_failure() {
+    let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
+        beatmapset_id: 7,
+        reason: SkipReason::InvalidBeatmapsetId,
+    }]);
+    assert_eq!(tally.failed, 1);
+    assert_eq!(tally.skipped, 0);
+    assert!(
+        tally
+            .failures
+            .iter()
+            .any(|(id, msg)| *id == 7 && msg.contains("invalid beatmapset id"))
+    );
+}
+
+#[test]
+fn completed_event_decrements_unverified_when_present() {
+    let mut tally = Tally {
+        unverified: 2,
+        ..Tally::default()
+    };
+    let captured: Arc<Mutex<Vec<DownloadEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let captured_clone = Arc::clone(&captured);
+    let emit = move |event| captured_clone.lock().unwrap().push(event);
+    translate_event(1, completed(123), &mut tally, &emit);
+    assert_eq!(tally.unverified, 1);
+}
+
+#[tokio::test]
+async fn write_selective_collection_db_skips_empty_set() {
+    use osu_collect::download::collection_db::write_selective_collection_db;
+    use std::collections::HashSet;
+
+    let dir = tempdir().unwrap();
+    let collection = test_collection(1, vec![test_beatmapset(10, &["hash"])]);
+    let noop = |_event: DownloadEvent| {};
+
+    write_selective_collection_db(
+        1,
+        collection,
+        Vec::new(),
+        HashSet::new(),
+        dir.path().to_path_buf(),
+        &noop,
+    )
+    .await
+    .expect("empty verified set must succeed without writing a db");
+
+    assert!(!dir.path().join("collection.db").exists());
 }
 
 #[test]

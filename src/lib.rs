@@ -12,4 +12,3 @@ pub mod tui;
 pub mod utils;
 #[cfg(windows)]
 pub mod windows_init;
-pub mod worker;

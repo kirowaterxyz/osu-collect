@@ -1,23 +1,19 @@
 use super::{
-    BeatmapStage, DownloadConfig, DownloadError, DownloadEvent, DownloadHandle, DownloadId,
-    DownloadRequest, DownloadStage, DownloadSummary, SelectiveDownloadCollection,
-    SelectiveDownloadRequest,
+    DownloadConfig, DownloadError, DownloadEvent, DownloadHandle, DownloadId, DownloadRequest,
+    DownloadStage, Emit, SelectiveDownloadRequest,
+    collection_db::{write_collection_db, write_selective_collection_db},
+    events::{Tally, emit_finish, translate_event},
+    fetch_collection_sizes,
     lock::ActiveDownloadRegistry,
     session::{DownloadSession, PrepareParams, PrepareTarget},
+    warn_low_disk_space,
 };
 use crate::{
     app::snapshots,
-    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP, status},
-    core::collection::{
-        CollectionDbEntry, create_collection_db, model::Collection, write_db_entries,
-    },
-    utils::{AppError, check_available_space, is_low_disk_space},
+    config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
-use osu_downloader::{
-    BeatmapsetStatusEvent, DownloadEvent as LibEvent, DownloadItem, Downloader, FileExistsPolicy,
-    SkipReason, size::SizeFetcher,
-};
+use osu_downloader::{DownloadEvent as LibEvent, DownloadItem, Downloader, FileExistsPolicy};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -29,6 +25,9 @@ use tracing::{Instrument, error, info, info_span, warn};
 
 static DOWNLOAD_REGISTRY: LazyLock<ActiveDownloadRegistry> =
     LazyLock::new(ActiveDownloadRegistry::new);
+
+const ABORTED_LOG: &str = "download aborted before completion";
+const ABORTED_FAIL: &str = "Download aborted by user";
 
 pub fn spawn_download(
     id: DownloadId,
@@ -63,6 +62,8 @@ pub fn spawn_selective_download(
     })
 }
 
+type EmitArc = Arc<dyn Fn(DownloadEvent) + Send + Sync>;
+
 fn spawn<F, Fut>(
     id: DownloadId,
     span: tracing::Span,
@@ -70,17 +71,14 @@ fn spawn<F, Fut>(
     runner: F,
 ) -> DownloadHandle
 where
-    F: FnOnce(watch::Receiver<bool>, Arc<dyn Fn(DownloadEvent) + Send + Sync>) -> Fut
-        + Send
-        + 'static,
+    F: FnOnce(watch::Receiver<bool>, EmitArc) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<(), DownloadError>> + Send,
 {
     let (cancel_tx, cancel_rx) = watch::channel(false);
-    let emit_tx = tx.clone();
-    let emit: Arc<dyn Fn(DownloadEvent) + Send + Sync> = Arc::new(move |event: DownloadEvent| {
-        let _ = emit_tx.send(event);
+    let failure_tx = tx.clone();
+    let emit: EmitArc = Arc::new(move |event: DownloadEvent| {
+        let _ = tx.send(event);
     });
-    let failure_tx = tx;
 
     let join = tokio::spawn(
         async move {
@@ -101,11 +99,18 @@ where
     DownloadHandle::new(cancel_tx, join)
 }
 
+fn emit_resolving(id: DownloadId, emit: Emit<'_>) {
+    emit(DownloadEvent::StageChanged {
+        id,
+        stage: DownloadStage::Resolving,
+    });
+}
+
 async fn run_collection(
     id: DownloadId,
     request: DownloadRequest,
     cancel_rx: watch::Receiver<bool>,
-    emit: Arc<dyn Fn(DownloadEvent) + Send + Sync>,
+    emit: EmitArc,
 ) -> Result<(), DownloadError> {
     let DownloadRequest {
         collection_input,
@@ -113,12 +118,9 @@ async fn run_collection(
         auto_overwrite,
     } = request;
 
-    emit(DownloadEvent::StageChanged {
-        id,
-        stage: DownloadStage::Resolving,
-    });
+    emit_resolving(id, emit.as_ref());
 
-    let session = DownloadSession::prepare(PrepareParams {
+    let Some(session) = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
         config: &config,
@@ -128,16 +130,15 @@ async fn run_collection(
             collection_input: &collection_input,
         },
     })
-    .await?;
-
-    let Some(session) = session else {
+    .await?
+    else {
         return Ok(());
     };
 
-    let collection_for_db = session.target.collection().clone();
+    let collection = session.target.collection().clone();
     let output_dir = session.output.output_dir.clone();
 
-    let outcome = run_pipeline_core(
+    let Some(tally) = run_pipeline_core(
         id,
         &session,
         &config,
@@ -145,9 +146,8 @@ async fn run_collection(
         cancel_rx,
         emit.as_ref(),
     )
-    .await?;
-
-    let Some(tally) = outcome else {
+    .await?
+    else {
         drop(session);
         try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
@@ -155,7 +155,6 @@ async fn run_collection(
 
     // collection.db reflects the full collection regardless of partial failures so that
     // saved state matches the user's intent even when some maps couldn't be downloaded.
-    let collection = collection_for_db;
     let db_collection_name = format!("{}-{}", collection.name, collection.id);
     write_collection_db(
         id,
@@ -166,7 +165,7 @@ async fn run_collection(
     )
     .await?;
 
-    finish(id, emit.as_ref(), tally.to_summary());
+    emit_finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
 }
 
@@ -174,7 +173,7 @@ async fn run_selective(
     id: DownloadId,
     request: SelectiveDownloadRequest,
     cancel_rx: watch::Receiver<bool>,
-    emit: Arc<dyn Fn(DownloadEvent) + Send + Sync>,
+    emit: EmitArc,
 ) -> Result<(), DownloadError> {
     let SelectiveDownloadRequest {
         collection_ids,
@@ -189,12 +188,9 @@ async fn run_selective(
         return Err(DownloadError::NoBeatmapsets);
     }
 
-    emit(DownloadEvent::StageChanged {
-        id,
-        stage: DownloadStage::Resolving,
-    });
+    emit_resolving(id, emit.as_ref());
 
-    let session = DownloadSession::prepare(PrepareParams {
+    let Some(session) = DownloadSession::prepare(PrepareParams {
         id,
         cancel_rx: cancel_rx.clone(),
         config: &config,
@@ -206,9 +202,8 @@ async fn run_selective(
             beatmapset_ids: &beatmapset_ids,
         },
     })
-    .await?;
-
-    let Some(session) = session else {
+    .await?
+    else {
         return Ok(());
     };
 
@@ -222,9 +217,9 @@ async fn run_selective(
     let initial_satisfied = session.initial_satisfied.clone();
     let target_ids = session.beatmapset_ids.clone();
 
-    let outcome = run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?;
-
-    let Some(tally) = outcome else {
+    let Some(tally) =
+        run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?
+    else {
         drop(session);
         try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
         return Ok(());
@@ -238,71 +233,54 @@ async fn run_selective(
         .collect();
 
     if !verified_now.is_empty() {
-        let collection_clone = collection.clone();
-        let selective_clone = selective_collections.clone();
-        let dir_clone = output_dir.clone();
-        let verified_clone = verified_now.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            create_selective_collection_database(
-                &collection_clone,
-                &selective_clone,
-                &verified_clone,
-                &dir_clone,
-            )
-        })
-        .await
-        .map_err(|e| DownloadError::internal(format!("spawn_blocking panicked: {e}")))
-        .and_then(|r| r.map_err(|e| DownloadError::internal(e.to_string())));
-        match result {
-            Ok(()) => emit(DownloadEvent::Log {
-                id,
-                message: "collection.db created successfully".into(),
-            }),
-            Err(err) => {
-                let message = format!("failed to create collection.db: {err}");
-                emit(DownloadEvent::Log {
-                    id,
-                    message: message.clone(),
-                });
-                return Err(DownloadError::internal(message));
-            }
-        }
+        write_selective_collection_db(
+            id,
+            collection,
+            selective_collections,
+            verified_now.clone(),
+            output_dir.clone(),
+            emit.as_ref(),
+        )
+        .await?;
     }
 
     let all_targets_satisfied = target_ids.iter().all(|id| verified_now.contains(id));
     if all_targets_satisfied && let Some(snapshot_dir) = snapshot_dir {
-        tokio::task::spawn_blocking(move || {
-            for snapshot in snapshot_files {
-                let Ok(collection_id) = snapshot.collection_id.parse() else {
-                    continue;
-                };
-                snapshots::save(
-                    &snapshot,
-                    &snapshots::snapshot_path(&snapshot_dir, collection_id),
-                );
-            }
-        })
-        .await
-        .map_err(|err| DownloadError::internal(format!("snapshot save task panicked: {err}")))?;
+        persist_snapshots(snapshot_dir, snapshot_files).await?;
     }
 
-    finish(id, emit.as_ref(), tally.to_summary());
+    emit_finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
 }
 
-/// Outcome of [`run_pipeline_core`]: either the final tally, or `None` if the run was cancelled.
-type PipelineOutcome = Option<Tally>;
+async fn persist_snapshots(
+    snapshot_dir: PathBuf,
+    snapshot_files: Vec<snapshots::CollectionSnapshotFile>,
+) -> Result<(), DownloadError> {
+    tokio::task::spawn_blocking(move || {
+        for snapshot in snapshot_files {
+            let Ok(collection_id) = snapshot.collection_id.parse() else {
+                continue;
+            };
+            snapshots::save(
+                &snapshot,
+                &snapshots::snapshot_path(&snapshot_dir, collection_id),
+            );
+        }
+    })
+    .await
+    .map_err(|err| DownloadError::internal(format!("snapshot save task panicked: {err}")))
+}
 
-/// Drives the [`Downloader`] for the prepared session and emits app events.
-/// Returns `None` if the run was cancelled; otherwise the final [`Tally`].
+/// Drives the [`Downloader`] for the prepared session. Returns `None` if cancelled.
 async fn run_pipeline_core(
     id: DownloadId,
     session: &DownloadSession,
     config: &DownloadConfig,
     auto_overwrite: bool,
     cancel_rx: watch::Receiver<bool>,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) -> Result<PipelineOutcome, DownloadError> {
+    emit: Emit<'_>,
+) -> Result<Option<Tally>, DownloadError> {
     if config.mirrors.is_empty() {
         return Err(DownloadError::NoMirrors);
     }
@@ -315,7 +293,7 @@ async fn run_pipeline_core(
         unverified: session.initial_unverified.len() as u32,
         ..Tally::default()
     };
-    emit_overall_progress(id, &tally, emit);
+    super::events::emit_overall_progress(id, &tally, emit);
 
     if session.pending_ids.is_empty() {
         return Ok(Some(tally));
@@ -347,38 +325,26 @@ async fn run_pipeline_core(
 
     let mut session_handle = downloader.download_many(items, &session.output.output_dir);
     let mut events = session_handle.events();
-
     let mut cancel_signal = cancel_rx;
 
-    let cancelled = loop {
-        tokio::select! {
-            biased;
-            changed = cancel_signal.changed() => {
-                if changed.is_err() { break false; }
-                if *cancel_signal.borrow() {
-                    session_handle.cancel();
-                    break true;
-                }
-            }
-            event = events.next() => {
-                match event {
-                    Some(lib_event) => translate_event(id, lib_event, &mut tally, emit),
-                    None => break false,
-                }
-            }
-        }
-    };
+    let cancelled = drive_session(
+        &mut session_handle,
+        &mut events,
+        &mut cancel_signal,
+        |lib_event| translate_event(id, lib_event, &mut tally, emit),
+    )
+    .await;
 
     let _ = session_handle.wait().await;
 
     if cancelled {
         emit(DownloadEvent::Log {
             id,
-            message: "download aborted before completion".into(),
+            message: ABORTED_LOG.into(),
         });
         emit(DownloadEvent::Failed {
             id,
-            message: "Download aborted by user".into(),
+            message: ABORTED_FAIL.into(),
         });
         return Ok(None);
     }
@@ -397,327 +363,35 @@ async fn run_pipeline_core(
     Ok(Some(tally))
 }
 
-#[derive(Default)]
-pub struct Tally {
-    pub downloaded: u32,
-    pub skipped: u32,
-    pub failed: u32,
-    pub unverified: u32,
-    pub failures: Vec<(u32, String)>,
-    /// Beatmapset IDs that this run downloaded successfully.
-    pub successful: HashSet<u32>,
-}
-
-impl Tally {
-    pub fn to_summary(&self) -> DownloadSummary {
-        DownloadSummary {
-            downloaded: self.downloaded,
-            skipped: self.skipped,
-            failed: self.failed,
-            unverified: self.unverified,
-        }
-    }
-}
-
-pub fn translate_event(
-    id: DownloadId,
-    event: LibEvent,
-    tally: &mut Tally,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
-    match event {
-        LibEvent::SessionStarted { total_beatmapsets } => {
-            emit(DownloadEvent::Log {
-                id,
-                message: format!("downloading {total_beatmapsets} beatmapsets"),
-            });
-        }
-        LibEvent::BeatmapsetStarted { .. } => {}
-        LibEvent::BeatmapsetStatus {
-            beatmapset_id,
-            status,
-        } => emit_status(id, beatmapset_id, status, emit),
-        LibEvent::Progress {
-            beatmapset_id,
-            downloaded_bytes,
-            total_bytes,
-            ..
-        } => {
-            emit(DownloadEvent::BeatmapProgress {
-                id,
-                beatmapset_id,
-                downloaded: downloaded_bytes,
-                total: total_bytes.unwrap_or(0),
-            });
-        }
-        LibEvent::BeatmapsetCompleted {
-            beatmapset_id,
-            mirror_used,
-            verify_duration_us,
-            ..
-        } => {
-            tally.downloaded = tally.downloaded.saturating_add(1);
-            tally.successful.insert(beatmapset_id);
-            if tally.unverified > 0 {
-                tally.unverified = tally.unverified.saturating_sub(1);
+async fn drive_session<F, S>(
+    session_handle: &mut osu_downloader::DownloadSession,
+    events: &mut S,
+    cancel_signal: &mut watch::Receiver<bool>,
+    mut on_event: F,
+) -> bool
+where
+    F: FnMut(LibEvent),
+    S: futures_util::Stream<Item = LibEvent> + Unpin,
+{
+    loop {
+        tokio::select! {
+            biased;
+            changed = cancel_signal.changed() => {
+                if changed.is_err() { return false; }
+                if *cancel_signal.borrow() {
+                    session_handle.cancel();
+                    return true;
+                }
             }
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Success,
-                message: format!("downloaded from {}", mirror_used.label()),
-                rate_limited: false,
-            });
-            emit(DownloadEvent::BeatmapVerified {
-                id,
-                duration_us: verify_duration_us,
-            });
-            emit_overall_progress(id, tally, emit);
-        }
-        LibEvent::BeatmapsetSkipped {
-            beatmapset_id,
-            reason,
-        } => match reason {
-            SkipReason::AlreadyExists => {
-                tally.skipped = tally.skipped.saturating_add(1);
-                emit(DownloadEvent::BeatmapStatus {
-                    id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Skipped,
-                    message: "skipped: already exists".to_string(),
-                    rate_limited: false,
-                });
-                emit_overall_progress(id, tally, emit);
-            }
-            SkipReason::UnavailableOnMirrors | SkipReason::InvalidBeatmapsetId => {
-                let message = match reason {
-                    SkipReason::UnavailableOnMirrors => "unavailable on all mirrors".to_string(),
-                    SkipReason::InvalidBeatmapsetId => "invalid beatmapset id".to_string(),
-                    SkipReason::AlreadyExists => unreachable!(),
-                };
-                tally.failed = tally.failed.saturating_add(1);
-                tally.failures.push((beatmapset_id, message.clone()));
-                emit(DownloadEvent::BeatmapStatus {
-                    id,
-                    beatmapset_id,
-                    stage: BeatmapStage::Failed,
-                    message,
-                    rate_limited: false,
-                });
-                emit_overall_progress(id, tally, emit);
-            }
-        },
-        LibEvent::BeatmapsetFailed {
-            beatmapset_id,
-            error,
-            ..
-        } => {
-            let reason = error.to_string();
-            tally.failed = tally.failed.saturating_add(1);
-            tally.failures.push((beatmapset_id, reason.clone()));
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Failed,
-                message: reason,
-                rate_limited: false,
-            });
-            emit_overall_progress(id, tally, emit);
-        }
-        LibEvent::BeatmapsetNetworkError {
-            beatmapset_id,
-            reason,
-        } => {
-            warn!(beatmapset_id, %reason, "network error, all mirrors exhausted");
-            let message = format!("network error: {reason}");
-            tally.failed = tally.failed.saturating_add(1);
-            tally.failures.push((beatmapset_id, message.clone()));
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Failed,
-                message,
-                rate_limited: false,
-            });
-            emit_overall_progress(id, tally, emit);
-        }
-        LibEvent::SessionCompleted { .. } => {}
-    }
-}
-
-fn emit_status(
-    id: DownloadId,
-    beatmapset_id: u32,
-    event: BeatmapsetStatusEvent,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
-    let (message, stage, rate_limited) = match event {
-        // dont remove this
-        BeatmapsetStatusEvent::Contacting { mirror } => (
-            format!("checking {}", mirror.label()),
-            BeatmapStage::Downloading,
-            false,
-        ),
-        BeatmapsetStatusEvent::Downloading { mirror } => (
-            format!("{} from {}", status::DOWNLOADING, mirror.label()),
-            BeatmapStage::Downloading,
-            false,
-        ),
-        BeatmapsetStatusEvent::Verifying { mirror } => (
-            format!("verifying from {}", mirror.label()),
-            BeatmapStage::Verifying,
-            false,
-        ),
-        BeatmapsetStatusEvent::RateLimited { mirror, cooldown } => (
-            format!(
-                "{} on {}, waiting {}s",
-                status::RATE_LIMITED,
-                mirror.label(),
-                cooldown.as_secs().max(1)
-            ),
-            BeatmapStage::Downloading,
-            true,
-        ),
-        BeatmapsetStatusEvent::RetryingTransient {
-            mirror,
-            attempt,
-            max_attempts,
-            reason,
-        } => (
-            format!(
-                "retrying {} after {reason} (attempt {attempt}/{max_attempts})",
-                mirror.label()
-            ),
-            BeatmapStage::Downloading,
-            false,
-        ),
-        BeatmapsetStatusEvent::MirrorFailed { mirror, reason } => (
-            format!("{} failed: {reason}", mirror.label()),
-            BeatmapStage::Downloading,
-            false,
-        ),
-    };
-    emit(DownloadEvent::BeatmapStatus {
-        id,
-        beatmapset_id,
-        stage,
-        message,
-        rate_limited,
-    });
-}
-
-fn emit_overall_progress(
-    id: DownloadId,
-    tally: &Tally,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
-    emit(DownloadEvent::OverallProgress {
-        id,
-        downloaded: tally.downloaded,
-        skipped: tally.skipped,
-        failed: tally.failed,
-        unverified: tally.unverified,
-    });
-}
-
-fn finish(id: DownloadId, emit: &(dyn Fn(DownloadEvent) + Send + Sync), summary: DownloadSummary) {
-    emit(DownloadEvent::Finished { id, summary });
-    emit(DownloadEvent::StageChanged {
-        id,
-        stage: DownloadStage::Completed,
-    });
-}
-
-fn warn_low_disk_space(
-    id: DownloadId,
-    output_dir: &Path,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
-    if is_low_disk_space(output_dir)
-        && let Some(available) = check_available_space(output_dir)
-    {
-        warn!(
-            available_bytes = available,
-            output_dir = %output_dir.display(),
-            "low disk space detected"
-        );
-        emit(DownloadEvent::LowDiskSpace {
-            id,
-            available_bytes: available,
-        });
-    }
-}
-
-async fn fetch_collection_sizes(
-    id: DownloadId,
-    beatmapset_ids: &[u32],
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
-    emit(DownloadEvent::Log {
-        id,
-        message: "fetching collection size from nekoha".into(),
-    });
-    let fetcher = match SizeFetcher::with_default_client() {
-        Ok(f) => f,
-        Err(err) => {
-            warn!(error = %err, "failed to create size fetcher");
-            return;
-        }
-    };
-    let result = fetcher.fetch_sizes(beatmapset_ids).await;
-    emit(DownloadEvent::CollectionSizeResolved {
-        id,
-        total_bytes: result.total_bytes,
-    });
-    if result.missing_count > 0 {
-        emit(DownloadEvent::Log {
-            id,
-            message: format!(
-                "size info unavailable for {} beatmapsets",
-                result.missing_count
-            ),
-        });
-    }
-}
-
-async fn write_collection_db(
-    id: DownloadId,
-    collection: Collection,
-    db_collection_name: String,
-    output_dir: PathBuf,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) -> Result<(), DownloadError> {
-    let result = tokio::task::spawn_blocking(move || {
-        create_collection_db(&collection, &db_collection_name, &output_dir)
-    })
-    .await
-    .map_err(|e| AppError::other_dynamic(format!("spawn_blocking panicked: {e}").into_boxed_str()))
-    .and_then(|r| r);
-    match result {
-        Ok(()) => {
-            emit(DownloadEvent::Log {
-                id,
-                message: "collection.db created successfully".into(),
-            });
-            Ok(())
-        }
-        Err(err) => {
-            let message = format!("failed to create collection.db: {err}");
-            emit(DownloadEvent::Log {
-                id,
-                message: message.clone(),
-            });
-            error!(error = %err, "failed to create collection.db");
-            Err(DownloadError::internal(message))
+            event = events.next() => match event {
+                Some(lib_event) => on_event(lib_event),
+                None => return false,
+            },
         }
     }
 }
 
-pub async fn try_remove_empty_output_dir(
-    id: DownloadId,
-    output_dir: &Path,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
-) {
+pub async fn try_remove_empty_output_dir(id: DownloadId, output_dir: &Path, emit: Emit<'_>) {
     let Ok(mut entries) = tokio::fs::read_dir(output_dir).await else {
         return;
     };
@@ -732,44 +406,4 @@ pub async fn try_remove_empty_output_dir(
         id,
         message: format!("removed empty directory {}", output_dir.display()),
     });
-}
-
-pub fn create_selective_collection_database(
-    collection: &Collection,
-    collections: &[SelectiveDownloadCollection],
-    newly_downloaded: &HashSet<u32>,
-    output_dir: &Path,
-) -> Result<(), AppError> {
-    let entries = collections
-        .iter()
-        .filter_map(|selected| {
-            let hashes: Vec<String> = collection
-                .beatmapsets
-                .iter()
-                .filter(|beatmapset| {
-                    selected.beatmapset_ids.contains(&beatmapset.id)
-                        && newly_downloaded.contains(&beatmapset.id)
-                })
-                .flat_map(|beatmapset| {
-                    beatmapset
-                        .beatmaps
-                        .iter()
-                        .map(|beatmap| beatmap.checksum.to_string())
-                })
-                .collect();
-            if hashes.is_empty() {
-                None
-            } else {
-                Some(CollectionDbEntry {
-                    name: selected.name.clone(),
-                    beatmap_hashes: hashes,
-                })
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if entries.is_empty() {
-        return Ok(());
-    }
-    write_db_entries(&entries, output_dir)
 }

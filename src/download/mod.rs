@@ -1,20 +1,32 @@
+pub mod collection_db;
 pub mod error;
+pub mod events;
 pub mod lock;
 pub mod pipeline;
 pub mod precheck;
 pub mod session;
 
+pub use collection_db::create_selective_collection_database;
 pub use error::DownloadError;
+pub use events::{Tally, translate_event};
 pub use lock::ActiveDownloadRegistry;
-pub use pipeline::{spawn_download, spawn_selective_download};
+pub use pipeline::{spawn_download, spawn_selective_download, try_remove_empty_output_dir};
 
 pub use crate::config::constants::status;
 pub use osu_downloader::ArchiveValidation;
 
 use crate::mirrors::Mirror;
+use osu_downloader::size::SizeFetcher;
+use std::path::Path;
 use tokio::{sync::watch, task::JoinHandle};
+use tracing::warn;
+
+use crate::utils::{check_available_space, is_low_disk_space};
 
 pub type DownloadId = u64;
+
+/// Borrow-only emit reference used throughout pipeline/event code.
+pub type Emit<'a> = &'a (dyn Fn(DownloadEvent) + Send + Sync);
 
 /// Handle to a running download task.
 pub struct DownloadHandle {
@@ -185,4 +197,48 @@ pub struct DownloadSummary {
     pub skipped: u32,
     pub failed: u32,
     pub unverified: u32,
+}
+
+pub(crate) fn warn_low_disk_space(id: DownloadId, output_dir: &Path, emit: Emit<'_>) {
+    if is_low_disk_space(output_dir)
+        && let Some(available) = check_available_space(output_dir)
+    {
+        warn!(
+            available_bytes = available,
+            output_dir = %output_dir.display(),
+            "low disk space detected"
+        );
+        emit(DownloadEvent::LowDiskSpace {
+            id,
+            available_bytes: available,
+        });
+    }
+}
+
+pub(crate) async fn fetch_collection_sizes(id: DownloadId, beatmapset_ids: &[u32], emit: Emit<'_>) {
+    emit(DownloadEvent::Log {
+        id,
+        message: "fetching collection size from nekoha".into(),
+    });
+    let fetcher = match SizeFetcher::with_default_client() {
+        Ok(f) => f,
+        Err(err) => {
+            warn!(error = %err, "failed to create size fetcher");
+            return;
+        }
+    };
+    let result = fetcher.fetch_sizes(beatmapset_ids).await;
+    emit(DownloadEvent::CollectionSizeResolved {
+        id,
+        total_bytes: result.total_bytes,
+    });
+    if result.missing_count > 0 {
+        emit(DownloadEvent::Log {
+            id,
+            message: format!(
+                "size info unavailable for {} beatmapsets",
+                result.missing_count
+            ),
+        });
+    }
 }

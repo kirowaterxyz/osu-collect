@@ -138,7 +138,7 @@ pub(crate) struct PrepareParams<'a> {
     pub(crate) cancel_rx: watch::Receiver<bool>,
     pub(crate) config: &'a DownloadConfig,
     pub(crate) registry: &'a ActiveDownloadRegistry,
-    pub(crate) emit: &'a (dyn Fn(DownloadEvent) + Send + Sync),
+    pub(crate) emit: super::Emit<'a>,
     pub(crate) target: PrepareTarget<'a>,
 }
 
@@ -213,7 +213,7 @@ impl DownloadSession {
         output: OutputPreparation,
         lock_guard: DownloadLockGuard,
         config: &DownloadConfig,
-        emit: &(dyn Fn(DownloadEvent) + Send + Sync),
+        emit: super::Emit<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let expectations = target.expectation_index(&beatmapset_ids);
         emit(DownloadEvent::Log {
@@ -305,7 +305,7 @@ impl DownloadSession {
     }
 }
 
-pub(crate) async fn prepare_output_dir_common(
+async fn prepare_output_dir_common(
     base_path: &str,
     folder_name: &str,
 ) -> Result<OutputPreparation, DownloadError> {
@@ -336,7 +336,7 @@ async fn prepare_output_directory(
     prepare_output_dir_common(directory, &folder_name).await
 }
 
-pub(crate) async fn prepare_selective_output(
+async fn prepare_selective_output(
     directory: &str,
     collection_ids: &[u32],
 ) -> Result<OutputPreparation, DownloadError> {
@@ -375,7 +375,7 @@ pub(crate) async fn resolve_selective_collections(
     requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
     id: DownloadId,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
+    emit: super::Emit<'_>,
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
     let service = HttpCollectionService::create()?;
     resolve_selective_with(
@@ -395,7 +395,7 @@ pub async fn resolve_selective_with<S>(
     requested_collections: Vec<SelectiveDownloadCollection>,
     beatmapset_ids: &[u32],
     id: DownloadId,
-    emit: &(dyn Fn(DownloadEvent) + Send + Sync),
+    emit: super::Emit<'_>,
 ) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError>
 where
     S: CollectionService,

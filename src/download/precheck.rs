@@ -1,12 +1,10 @@
 use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
-use crate::{
-    config::constants::VALIDATION_CACHE_LIMIT,
-    worker::io::{
-        ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
-    },
-};
+use crate::config::constants::VALIDATION_CACHE_LIMIT;
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
+use osu_downloader::{
+    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
+};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
@@ -475,8 +473,8 @@ async fn validate_existing_candidate(
         | Ok(ArchiveValidationResult::Removed(reason)) => {
             validation_error = Some(reason);
         }
-        Err(e) => {
-            return Err((candidate.path.clone(), e.to_string()));
+        Err(err) => {
+            return Err((candidate.path.clone(), err.to_string()));
         }
     }
 
