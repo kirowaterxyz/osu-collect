@@ -237,11 +237,10 @@ pub enum BeatmapsetStatusEvent {
         /// Mirror that served the archive.
         mirror: MirrorKind,
     },
-    /// A mirror returned a rate-limit response.
+    /// Every untried mirror is currently rate-limited; the attempt is paused
+    /// until the shortest cooldown elapses.
     RateLimited {
-        /// Rate-limited mirror.
-        mirror: MirrorKind,
-        /// Cooldown before that mirror will be retried.
+        /// Cooldown before any rate-limited mirror becomes eligible again.
         cooldown: Duration,
     },
     /// A transient error will be retried on the same mirror.
@@ -252,13 +251,6 @@ pub enum BeatmapsetStatusEvent {
         attempt: u32,
         /// Maximum attempts for this mirror.
         max_attempts: u32,
-        /// Failure reason.
-        reason: String,
-    },
-    /// A mirror cannot serve this beatmapset for this attempt.
-    MirrorFailed {
-        /// Failed mirror.
-        mirror: MirrorKind,
         /// Failure reason.
         reason: String,
     },

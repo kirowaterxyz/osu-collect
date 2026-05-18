@@ -380,6 +380,148 @@ async fn finalize_download_preserves_existing_output() {
 }
 
 #[tokio::test]
+async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let n = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..n]);
+            if request.starts_with("GET /rate/") {
+                stream
+                    .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                    .unwrap();
+            } else {
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=321.osz\r\nContent-Length: 4\r\n\r\ndata").unwrap();
+            }
+        }
+    });
+
+    let rate_limited =
+        Mirror::with_kind_and_template(MirrorKind::Nerinyan, format!("http://{addr}/rate/{{id}}"));
+    let healthy = Mirror::with_kind_and_template(
+        MirrorKind::OsuDirect,
+        format!("http://{addr}/ok/{{id}}"),
+    );
+    let mirror_pool = MirrorPool::new(vec![rate_limited, healthy]);
+    let dir = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::new();
+    let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    let statuses: Arc<Mutex<Vec<BeatmapsetStatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = statuses.clone();
+    let callbacks = BeatmapsetDownloadCallbacks {
+        progress: None,
+        status: Some(Arc::new(move |event| {
+            recorder.lock().unwrap().push(event);
+        })),
+    };
+
+    let (outcome, _) = download_beatmapset(DownloadParams {
+        callbacks,
+        ..default_params(321, dir.path(), &client, &mirror_pool, cancel_rx)
+    })
+    .await;
+
+    assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
+    let recorded = statuses.lock().unwrap();
+    assert!(
+        !recorded
+            .iter()
+            .any(|event| matches!(event, BeatmapsetStatusEvent::RateLimited { .. })),
+        "rate-limit status must not flash when a sibling mirror succeeds: {recorded:?}"
+    );
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::atomic::{AtomicUsize, Ordering},
+        thread,
+    };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let rate_a_hits = Arc::new(AtomicUsize::new(0));
+    let rate_b_hits = Arc::new(AtomicUsize::new(0));
+    let server_a = rate_a_hits.clone();
+    let server_b = rate_b_hits.clone();
+    let server = thread::spawn(move || {
+        loop {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let n = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..n]);
+            if request.starts_with("GET /a/") {
+                let hit = server_a.fetch_add(1, Ordering::SeqCst);
+                if hit >= 1 {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=555.osz\r\nContent-Length: 4\r\n\r\ndata").unwrap();
+                    break;
+                }
+                stream
+                    .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                    .unwrap();
+            } else if request.starts_with("GET /b/") {
+                server_b.fetch_add(1, Ordering::SeqCst);
+                stream
+                    .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                    .unwrap();
+            }
+        }
+    });
+
+    let mirror_a =
+        Mirror::with_kind_and_template(MirrorKind::Nerinyan, format!("http://{addr}/a/{{id}}"));
+    let mirror_b = Mirror::with_kind_and_template(
+        MirrorKind::OsuDirect,
+        format!("http://{addr}/b/{{id}}"),
+    );
+    let mirror_pool = MirrorPool::new(vec![mirror_a, mirror_b]);
+    let dir = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::new();
+    let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    let statuses: Arc<Mutex<Vec<BeatmapsetStatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorder = statuses.clone();
+    let callbacks = BeatmapsetDownloadCallbacks {
+        progress: None,
+        status: Some(Arc::new(move |event| {
+            recorder.lock().unwrap().push(event);
+        })),
+    };
+
+    let (outcome, _) = download_beatmapset(DownloadParams {
+        callbacks,
+        ..default_params(555, dir.path(), &client, &mirror_pool, cancel_rx)
+    })
+    .await;
+
+    assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
+    let recorded = statuses.lock().unwrap();
+    let rate_limit_events: Vec<_> = recorded
+        .iter()
+        .filter(|event| matches!(event, BeatmapsetStatusEvent::RateLimited { .. }))
+        .collect();
+    assert_eq!(
+        rate_limit_events.len(),
+        1,
+        "exactly one rate-limit event expected once every mirror is throttled: {recorded:?}"
+    );
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn rate_limited_mirror_is_retried_after_other_mirrors_fail() {
     use std::{
         io::{Read, Write},

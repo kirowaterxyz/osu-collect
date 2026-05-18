@@ -179,11 +179,10 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: BeatmapsetStatusEvent,
             BeatmapStage::Verifying,
             false,
         ),
-        BeatmapsetStatusEvent::RateLimited { mirror, cooldown } => (
+        BeatmapsetStatusEvent::RateLimited { cooldown } => (
             format!(
-                "{} on {}, waiting {}s",
+                "{} on all mirrors, waiting {}s",
                 status::RATE_LIMITED,
-                mirror.label(),
                 cooldown.as_secs().max(1)
             ),
             BeatmapStage::Downloading,
@@ -199,11 +198,6 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: BeatmapsetStatusEvent,
                 "retrying {} after {reason} (attempt {attempt}/{max_attempts})",
                 mirror.label()
             ),
-            BeatmapStage::Downloading,
-            false,
-        ),
-        BeatmapsetStatusEvent::MirrorFailed { mirror, reason } => (
-            format!("{} failed: {reason}", mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),

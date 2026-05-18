@@ -264,50 +264,20 @@ pub(crate) async fn download_beatmapset(
                 MirrorAttempt::NotFound => {
                     all_transient = false;
                     not_found.insert(mirror.kind());
-                    let reason = "not found (404)".to_string();
-                    emit_status(
-                        &params.callbacks,
-                        BeatmapsetStatusEvent::MirrorFailed {
-                            mirror: mirror.kind(),
-                            reason: reason.clone(),
-                        },
-                    );
-                    last_error = Some(failed(Some(mirror.kind()), reason));
+                    last_error = Some(failed(Some(mirror.kind()), "not found (404)"));
                 }
                 MirrorAttempt::RateLimited => {
                     all_transient = false;
                     deferred_rate_limited.push(mirror.clone());
                     params.mirror_pool.mark_rate_limited(mirror.kind());
-                    let cooldown = mirror.kind().rate_limit_backoff();
-                    emit_status(
-                        &params.callbacks,
-                        BeatmapsetStatusEvent::RateLimited {
-                            mirror: mirror.kind(),
-                            cooldown,
-                        },
-                    );
                     last_error = Some(failed(Some(mirror.kind()), "rate limited"));
                 }
                 MirrorAttempt::Transient(reason) => {
                     last_transient_reason = reason.clone();
-                    emit_status(
-                        &params.callbacks,
-                        BeatmapsetStatusEvent::MirrorFailed {
-                            mirror: mirror.kind(),
-                            reason: reason.clone(),
-                        },
-                    );
                     last_error = Some(failed(Some(mirror.kind()), reason));
                 }
                 MirrorAttempt::Definitive(reason) => {
                     all_transient = false;
-                    emit_status(
-                        &params.callbacks,
-                        BeatmapsetStatusEvent::MirrorFailed {
-                            mirror: mirror.kind(),
-                            reason: reason.clone(),
-                        },
-                    );
                     last_error = Some(failed(Some(mirror.kind()), reason));
                 }
             }
@@ -322,6 +292,13 @@ pub(crate) async fn download_beatmapset(
             .filter_map(|mirror| params.mirror_pool.penalty_remaining(mirror.kind()))
             .min()
             .unwrap_or(Duration::ZERO);
+
+        emit_status(
+            &params.callbacks,
+            BeatmapsetStatusEvent::RateLimited {
+                cooldown: wait_duration,
+            },
+        );
 
         if !wait_duration.is_zero() && sleep_cancelable(wait_duration, &cancel_rx).await {
             return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
