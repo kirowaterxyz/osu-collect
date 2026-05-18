@@ -1,49 +1,6 @@
-use super::{
-    CacheKey, ValidationCache, extract_beatmapset_id, is_orphan_temp_name, scan_candidates,
-};
-use std::{collections::HashSet, ffi::OsStr, path::Path};
+use super::{CacheKey, ValidationCache, scan_candidates};
+use std::collections::HashSet;
 use tokio::sync::watch;
-
-#[test]
-fn detects_orphan_temp_files() {
-    let yes = [
-        "123.osz.download-12345-0.tmp",
-        "abc.osz.download-1-9.tmp",
-        "1 artist.osz.download-99999-42.tmp",
-    ];
-    let no = [
-        "123.osz",
-        "123.osz.download-12345-0",
-        "123.osz.download.tmp",
-        "123.osz.download-abc-9.tmp",
-        "123.osz.download-9-abc.tmp",
-        "123.osz.download-9.tmp",
-        "random.txt",
-    ];
-    for name in yes {
-        assert!(
-            is_orphan_temp_name(OsStr::new(name)),
-            "expected match: {name}"
-        );
-    }
-    for name in no {
-        assert!(
-            !is_orphan_temp_name(OsStr::new(name)),
-            "expected no match: {name}"
-        );
-    }
-}
-
-#[test]
-fn extracts_exact_prefixed_beatmapset_ids() {
-    assert_eq!(extract_beatmapset_id(Path::new("123.osz")), Some(123));
-    assert_eq!(
-        extract_beatmapset_id(Path::new("123 artist.osz")),
-        Some(123)
-    );
-    assert_eq!(extract_beatmapset_id(Path::new("1234.osz")), Some(1234));
-    assert_eq!(extract_beatmapset_id(Path::new("123abc.osz")), None);
-}
 
 #[test]
 fn validation_cache_marks_and_lookups_by_metadata() {

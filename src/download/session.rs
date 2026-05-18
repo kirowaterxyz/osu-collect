@@ -5,9 +5,7 @@ use super::{
     precheck::{PrecheckOptions, PrecheckReport, verify_existing_beatmapsets},
 };
 use crate::{
-    core::collection::{
-        Collection, CollectionService, HttpCollectionService, Uploader, folder_name,
-    },
+    core::collection::{Collection, CollectionService, HttpCollectionService, Uploader},
     utils::{self, prepare_directory},
 };
 use futures_util::{StreamExt, stream};
@@ -331,8 +329,7 @@ async fn prepare_output_directory(
     directory: &str,
     collection: &Collection,
 ) -> Result<OutputPreparation, DownloadError> {
-    let folder_name = folder_name(collection);
-    prepare_output_dir_common(directory, &folder_name).await
+    prepare_output_dir_common(directory, &collection.folder_name()).await
 }
 
 async fn prepare_selective_output(

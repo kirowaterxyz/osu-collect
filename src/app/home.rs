@@ -216,7 +216,7 @@ impl HomeTab {
                 if !enabled {
                     return None;
                 }
-                let mirror = crate::mirrors::from_kind(kind)?;
+                let mirror = Mirror::from_kind(kind)?;
                 Some(if self.no_video {
                     mirror.no_video()
                 } else {

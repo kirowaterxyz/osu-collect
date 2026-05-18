@@ -14,8 +14,7 @@ use crate::{
 };
 use futures_util::StreamExt;
 use osu_downloader::{
-    DownloadItem, DownloadSession as LibDownloadSession, Downloader, Event as LibEvent,
-    FileExistsPolicy,
+    DownloadSession as LibDownloadSession, Downloader, Event as LibEvent, FileExistsPolicy,
 };
 use std::{
     collections::HashSet,
@@ -302,20 +301,11 @@ async fn run_pipeline_core(
         return Ok(Some(tally));
     }
 
-    let policy = if auto_overwrite {
-        FileExistsPolicy::OverwriteTarget
+    let on_existing = if auto_overwrite {
+        FileExistsPolicy::Overwrite
     } else {
         FileExistsPolicy::Skip
     };
-    let items: Vec<DownloadItem> = session
-        .pending_ids
-        .iter()
-        .copied()
-        .map(|beatmapset_id| DownloadItem {
-            beatmapset_id,
-            policy,
-        })
-        .collect();
 
     let downloader = Downloader::builder()
         .mirrors(config.mirrors.iter().cloned())
@@ -323,10 +313,14 @@ async fn run_pipeline_core(
         .archive_validation(config.archive_validation)
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
         .network_retry_attempts(NETWORK_RETRY_CAP as usize)
+        .on_existing(on_existing)
         .build()
         .map_err(|err| DownloadError::internal(err.to_string()))?;
 
-    let mut session_handle = downloader.download_many(items, &session.output.output_dir);
+    let mut session_handle = downloader.download_many(
+        session.pending_ids.iter().copied(),
+        &session.output.output_dir,
+    );
     let mut events = session_handle.events();
     let mut cancel_signal = cancel_rx;
 

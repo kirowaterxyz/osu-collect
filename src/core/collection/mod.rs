@@ -6,11 +6,6 @@ pub use osu_downloader::collection::{
     Beatmap, Beatmapset, Collection, CollectionDbEntry, Uploader, write_collections_db,
 };
 
-/// Generate the folder name that will host the downloaded beatmaps.
-pub fn folder_name(collection: &Collection) -> String {
-    collection.folder_name()
-}
-
 #[cfg(test)]
 pub(crate) fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
     Collection {

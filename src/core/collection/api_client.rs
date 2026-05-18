@@ -45,14 +45,14 @@ fn map_collection_error(err: Error) -> AppError {
             AppError::api("rate limited by osucollector.com (429). please try again later.")
         }
         Error::NotFound => AppError::api("collection not found (404)"),
-        Error::HttpStatus(status) => {
-            AppError::api_dynamic(format!("failed to fetch collection: HTTP {status}").into_boxed_str())
-        }
+        Error::HttpStatus(status) => AppError::api_dynamic(
+            format!("failed to fetch collection: HTTP {status}").into_boxed_str(),
+        ),
         Error::Timeout => AppError::api("request timed out"),
         Error::Network(msg) => AppError::api_dynamic(msg.into_boxed_str()),
-        Error::Parse(msg) => {
-            AppError::api_dynamic(format!("failed to parse collection JSON: {msg}").into_boxed_str())
-        }
+        Error::Parse(msg) => AppError::api_dynamic(
+            format!("failed to parse collection JSON: {msg}").into_boxed_str(),
+        ),
         Error::InvalidUrl(msg) => AppError::api_dynamic(msg.into_boxed_str()),
         other => AppError::api_dynamic(other.to_string().into_boxed_str()),
     }

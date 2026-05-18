@@ -380,17 +380,13 @@ pub(super) fn spawn_failed_map_recheck_task(
         let templates = osu_downloader::Mirror::builtin_templates();
         let template_refs: Vec<&str> = templates.to_vec();
         let result = fetcher
-            .check_availability(
-                &ids,
-                &template_refs,
-                |checked, total| {
-                    let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
-                        generation,
-                        checked,
-                        total,
-                    });
-                },
-            )
+            .check_availability(&ids, &template_refs, |checked, total| {
+                let _ = progress_tx.send(UpdatesEvent::FailedMapRecheckProgress {
+                    generation,
+                    checked,
+                    total,
+                });
+            })
             .await;
         failed_maps::remove_available(&path, &result.available);
         let _ = tx.send(UpdatesEvent::FailedMapRecheckComplete {

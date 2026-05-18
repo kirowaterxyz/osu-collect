@@ -2,10 +2,12 @@ use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
 use crate::config::constants::VALIDATION_CACHE_LIMIT;
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
-use osu_downloader::{ArchiveValidation, ArchiveValidationResult, validate_and_remove};
+use osu_downloader::{
+    ArchiveValidation, ArchiveValidationResult, OutputEntry, classify_output_entry,
+    validate_and_remove,
+};
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsStr,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -371,26 +373,17 @@ async fn scan_candidates(
             });
         }
 
-        let file_name = entry.file_name();
-        if is_orphan_temp_name(&file_name) {
-            orphan_temp_count += remove_orphan_temp(entry.path()).await as usize;
-            continue;
-        }
-        if !is_osz_name(&file_name) {
-            continue;
-        }
-
-        let path = entry.path();
-        let Some(beatmapset_id) = extract_beatmapset_id(&path) else {
-            debug!(file = %path.display(), "could not extract beatmapset id from filename");
-            continue;
-        };
-
-        if expectations.contains(&beatmapset_id) {
-            candidates.push(Candidate {
-                path,
-                beatmapset_id,
-            });
+        match classify_output_entry(&entry.file_name()) {
+            OutputEntry::OrphanTemp => {
+                orphan_temp_count += remove_orphan_temp(entry.path()).await as usize;
+            }
+            OutputEntry::Archive { beatmapset_id } if expectations.contains(&beatmapset_id) => {
+                candidates.push(Candidate {
+                    path: entry.path(),
+                    beatmapset_id,
+                });
+            }
+            _ => {}
         }
     }
 
@@ -483,6 +476,7 @@ async fn validate_existing_candidate(
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct OszSnapshotEntry {
     name: Box<str>,
+    beatmapset_id: u32,
     size: u64,
     modified_micros: Option<u128>,
 }
@@ -493,16 +487,16 @@ async fn capture_osz_snapshot(dir: &Path) -> Result<Vec<OszSnapshotEntry>, Downl
 
     while let Some(entry) = entries.next_entry().await? {
         let file_name = entry.file_name();
-        if !is_osz_name(&file_name) {
+        let OutputEntry::Archive { beatmapset_id } = classify_output_entry(&file_name) else {
             continue;
-        }
+        };
 
         let metadata = entry.metadata().await?;
-        let file_name = file_name.to_string_lossy().into_owned().into_boxed_str();
         let modified_micros = metadata.modified().ok().and_then(system_time_to_micros);
 
         snapshot.push(OszSnapshotEntry {
-            name: file_name,
+            name: file_name.to_string_lossy().into_owned().into_boxed_str(),
+            beatmapset_id,
             size: metadata.len(),
             modified_micros,
         });
@@ -536,89 +530,25 @@ fn detect_changed_beatmapsets(
     for (name, previous) in &initial_map {
         match final_map.get(name) {
             Some(current) => {
-                if (previous.size != current.size
-                    || previous.modified_micros != current.modified_micros)
-                    && let Some(id) = extract_beatmapset_id(Path::new(name))
+                if previous.size != current.size
+                    || previous.modified_micros != current.modified_micros
                 {
-                    changes.insert(id);
+                    changes.insert(previous.beatmapset_id);
                 }
             }
             None => {
-                if let Some(id) = extract_beatmapset_id(Path::new(name)) {
-                    changes.insert(id);
-                }
+                changes.insert(previous.beatmapset_id);
             }
         }
     }
 
-    for name in final_map.keys() {
-        if !initial_map.contains_key(name)
-            && let Some(id) = extract_beatmapset_id(Path::new(name))
-        {
-            changes.insert(id);
+    for (name, current) in &final_map {
+        if !initial_map.contains_key(name) {
+            changes.insert(current.beatmapset_id);
         }
     }
 
     changes
-}
-
-#[inline]
-fn is_osz_file(path: &Path) -> bool {
-    path.extension().is_some_and(is_osz_extension)
-}
-
-#[inline]
-fn is_osz_name(name: &OsStr) -> bool {
-    is_osz_file(Path::new(name))
-}
-
-#[inline]
-fn is_osz_extension(ext: &OsStr) -> bool {
-    ext.eq_ignore_ascii_case("osz")
-}
-
-#[inline]
-fn is_orphan_temp_name(name: &OsStr) -> bool {
-    name.to_str()
-        .map(|s| {
-            // matches temp files produced by `temp_path_for` in osu-downloader::worker:
-            // `<original_name>.download-<pid>-<counter>.tmp`
-            let Some(stem) = s.strip_suffix(".tmp") else {
-                return false;
-            };
-            let Some(idx) = stem.find(".download-") else {
-                return false;
-            };
-            let tail = &stem[idx + ".download-".len()..];
-            let mut parts = tail.splitn(2, '-');
-            let pid = parts.next().unwrap_or("");
-            let counter = parts.next().unwrap_or("");
-            !pid.is_empty()
-                && !counter.is_empty()
-                && pid.bytes().all(|b| b.is_ascii_digit())
-                && counter.bytes().all(|b| b.is_ascii_digit())
-        })
-        .unwrap_or(false)
-}
-
-#[inline]
-fn extract_beatmapset_id(path: &Path) -> Option<u32> {
-    let filename = path.file_stem()?.to_str()?;
-    let mut chars = filename.chars().peekable();
-    let mut id = String::new();
-
-    while let Some(ch) = chars.next_if(|ch| ch.is_ascii_digit()) {
-        id.push(ch);
-    }
-
-    if id.is_empty() {
-        return None;
-    }
-
-    match chars.peek() {
-        None | Some(' ') => id.parse().ok(),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

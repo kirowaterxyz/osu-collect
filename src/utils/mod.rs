@@ -62,4 +62,3 @@ pub fn parse_collection_id(input: &str) -> Result<u32> {
         )
     })
 }
-
