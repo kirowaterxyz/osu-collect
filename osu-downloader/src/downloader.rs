@@ -4,12 +4,11 @@
 //! [`Downloader::download_many`] to start a session and consume its event stream.
 
 use crate::{
-    DownloadEvent, Error, Result,
+    Error, Event, Result, Summary,
     batch::{self, BatchConfig},
     config::DownloadConfig,
-    event::DownloadSummary,
     http,
-    mirrors::{Mirror, MirrorKind, MirrorPool},
+    mirrors::{Mirror, MirrorPool},
     validation::ArchiveValidation,
 };
 use futures_util::Stream;
@@ -24,7 +23,6 @@ pub struct DownloaderBuilder {
     archive_validation: Option<ArchiveValidation>,
     progress_timeout: Option<Duration>,
     user_agent: Option<String>,
-    no_video: bool,
     network_retry_attempts: usize,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
@@ -39,7 +37,6 @@ impl DownloaderBuilder {
             archive_validation: None,
             progress_timeout: None,
             user_agent: None,
-            no_video: false,
             network_retry_attempts: 0,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
@@ -100,13 +97,6 @@ impl DownloaderBuilder {
         self
     }
 
-    /// Strip video from beatmapsets where the mirror supports it.
-    #[must_use]
-    pub fn no_video(mut self, no_video: bool) -> Self {
-        self.no_video = no_video;
-        self
-    }
-
     /// Maximum number of additional passes through the mirror pool after every
     /// mirror has exhausted its transient retries. Each retry waits 5 seconds
     /// (cancellable) before the next pass. Default `0` (no retry).
@@ -148,11 +138,6 @@ impl DownloaderBuilder {
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
             network_retry_attempts: self.network_retry_attempts,
         };
-        let mirrors: Vec<Mirror> = self
-            .mirrors
-            .into_iter()
-            .map(|mirror| mirror.video(self.no_video))
-            .collect();
 
         #[cfg(any(test, feature = "test-helpers"))]
         let http_client = if let Some(client) = self.http_client_override {
@@ -166,7 +151,7 @@ impl DownloaderBuilder {
         Ok(Downloader {
             config: Arc::new(config),
             http_client,
-            mirror_pool: Arc::new(MirrorPool::new(mirrors)),
+            mirror_pool: Arc::new(MirrorPool::new(self.mirrors)),
         })
     }
 }
@@ -217,43 +202,6 @@ impl From<u32> for DownloadItem {
     fn from(beatmapset_id: u32) -> Self {
         Self::skip_if_present(beatmapset_id)
     }
-}
-
-/// Status update emitted while a single beatmapset is being attempted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BeatmapsetStatusEvent {
-    /// A mirror is being contacted.
-    Contacting {
-        /// Mirror being contacted.
-        mirror: MirrorKind,
-    },
-    /// A mirror started streaming the archive.
-    Downloading {
-        /// Mirror serving the archive.
-        mirror: MirrorKind,
-    },
-    /// The archive is being verified.
-    Verifying {
-        /// Mirror that served the archive.
-        mirror: MirrorKind,
-    },
-    /// Every untried mirror is currently rate-limited; the attempt is paused
-    /// until the shortest cooldown elapses.
-    RateLimited {
-        /// Cooldown before any rate-limited mirror becomes eligible again.
-        cooldown: Duration,
-    },
-    /// A transient error will be retried on the same mirror.
-    RetryingTransient {
-        /// Mirror being retried.
-        mirror: MirrorKind,
-        /// Attempt about to run.
-        attempt: u32,
-        /// Maximum attempts for this mirror.
-        max_attempts: u32,
-        /// Failure reason.
-        reason: String,
-    },
 }
 
 /// The downloader. Cheap to clone via `Arc` if desired.
@@ -318,14 +266,14 @@ impl Downloader {
 
 /// Handle to a running batch session.
 pub struct DownloadSession {
-    events: Option<mpsc::UnboundedReceiver<DownloadEvent>>,
+    events: Option<mpsc::UnboundedReceiver<Event>>,
     cancel: watch::Sender<bool>,
-    task: tokio::task::JoinHandle<DownloadSummary>,
+    task: tokio::task::JoinHandle<Summary>,
 }
 
 impl DownloadSession {
     /// Consume the event stream. Can only be called once per session.
-    pub fn events(&mut self) -> impl Stream<Item = DownloadEvent> + Unpin + Send + 'static {
+    pub fn events(&mut self) -> impl Stream<Item = Event> + Unpin + Send + 'static {
         let rx = self
             .events
             .take()
@@ -338,8 +286,8 @@ impl DownloadSession {
         let _ = self.cancel.send(true);
     }
 
-    /// Wait for the task to finish and return the [`DownloadSummary`]. Drops any remaining events.
-    pub async fn wait(mut self) -> Result<DownloadSummary> {
+    /// Wait for the task to finish and return the [`Summary`]. Drops any remaining events.
+    pub async fn wait(mut self) -> Result<Summary> {
         if let Some(mut rx) = self.events.take() {
             while rx.recv().await.is_some() {}
         }

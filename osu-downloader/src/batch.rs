@@ -5,13 +5,13 @@
 //! `concurrent_downloads` tasks that pull from it.
 
 use crate::{
-    DownloadEvent, DownloadSummary, SkipReason,
+    Event, SkipReason, StatusEvent, Summary,
     config::NETWORK_RETRY_BACKOFF,
     download::{
         self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
         download_beatmapset,
     },
-    downloader::{BeatmapsetStatusEvent, DownloadItem},
+    downloader::DownloadItem,
     mirrors::MirrorPool,
     validation::ArchiveValidation,
 };
@@ -37,13 +37,13 @@ pub(crate) async fn download_batch(
     client: reqwest::Client,
     mirror_pool: Arc<MirrorPool>,
     config: BatchConfig,
-    event_tx: mpsc::UnboundedSender<DownloadEvent>,
+    event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
-) -> DownloadSummary {
+) -> Summary {
     let start_time = Instant::now();
     let total = items.len();
-    let mut summary = DownloadSummary::new(total);
-    let _ = event_tx.send(DownloadEvent::SessionStarted {
+    let mut summary = Summary::new(total);
+    let _ = event_tx.send(Event::SessionStarted {
         total_beatmapsets: total,
     });
 
@@ -137,17 +137,13 @@ pub(crate) async fn download_batch(
     summary
 }
 
-fn finalize(
-    mut summary: DownloadSummary,
-    event_tx: &mpsc::UnboundedSender<DownloadEvent>,
-    start_time: Instant,
-) {
+fn finalize(mut summary: Summary, event_tx: &mpsc::UnboundedSender<Event>, start_time: Instant) {
     summary.duration = start_time.elapsed();
-    let _ = event_tx.send(DownloadEvent::SessionCompleted { summary });
+    let _ = event_tx.send(Event::SessionCompleted { summary });
 }
 
-fn summary_dummy_returned() -> DownloadSummary {
-    DownloadSummary::new(0)
+fn summary_dummy_returned() -> Summary {
+    Summary::new(0)
 }
 
 enum DownloadOutcome {
@@ -176,7 +172,7 @@ async fn worker_loop(
     client: reqwest::Client,
     mirror_pool: Arc<MirrorPool>,
     config: BatchConfig,
-    event_tx: mpsc::UnboundedSender<DownloadEvent>,
+    event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
     output_dir: std::path::PathBuf,
 ) {
@@ -210,13 +206,13 @@ async fn process_one(
     client: &reqwest::Client,
     mirror_pool: &MirrorPool,
     config: &BatchConfig,
-    event_tx: mpsc::UnboundedSender<DownloadEvent>,
+    event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
 ) -> DownloadOutcome {
     let beatmapset_id = item.beatmapset_id;
     debug!(beatmapset_id, "starting download");
 
-    let _ = event_tx.send(DownloadEvent::BeatmapsetStarted { beatmapset_id });
+    let _ = event_tx.send(Event::BeatmapsetStarted { beatmapset_id });
 
     let event_tx_progress = event_tx.clone();
     let progress_state = Arc::new(Mutex::new((0u64, Instant::now())));
@@ -234,7 +230,7 @@ async fn process_one(
             *state = (downloaded, now);
             speed
         };
-        let _ = event_tx_progress.send(DownloadEvent::Progress {
+        let _ = event_tx_progress.send(Event::Progress {
             beatmapset_id,
             downloaded_bytes: downloaded,
             total_bytes: if total > 0 { Some(total) } else { None },
@@ -243,8 +239,8 @@ async fn process_one(
     });
 
     let event_tx_status = event_tx.clone();
-    let status_callback = Arc::new(move |status: BeatmapsetStatusEvent| {
-        let _ = event_tx_status.send(DownloadEvent::BeatmapsetStatus {
+    let status_callback = Arc::new(move |status: StatusEvent| {
+        let _ = event_tx_status.send(Event::BeatmapsetStatus {
             beatmapset_id,
             status,
         });
@@ -300,7 +296,7 @@ async fn process_one(
             size_bytes,
             verify_duration_us,
         } => {
-            let _ = event_tx.send(DownloadEvent::BeatmapsetCompleted {
+            let _ = event_tx.send(Event::BeatmapsetCompleted {
                 beatmapset_id,
                 filename,
                 size_bytes,
@@ -314,7 +310,7 @@ async fn process_one(
             }
         }
         BeatmapsetDownloadOutcome::Skipped { reason } => {
-            let _ = event_tx.send(DownloadEvent::BeatmapsetSkipped {
+            let _ = event_tx.send(Event::BeatmapsetSkipped {
                 beatmapset_id,
                 reason: reason.clone(),
             });
@@ -324,7 +320,7 @@ async fn process_one(
             }
         }
         BeatmapsetDownloadOutcome::Failed { mirror, reason } => {
-            let _ = event_tx.send(DownloadEvent::BeatmapsetFailed {
+            let _ = event_tx.send(Event::BeatmapsetFailed {
                 beatmapset_id,
                 error: crate::DownloadError::worker_error(reason.clone()),
                 mirror,
@@ -335,7 +331,7 @@ async fn process_one(
             }
         }
         BeatmapsetDownloadOutcome::NetworkError { reason } => {
-            let _ = event_tx.send(DownloadEvent::BeatmapsetNetworkError {
+            let _ = event_tx.send(Event::BeatmapsetNetworkError {
                 beatmapset_id,
                 reason,
             });

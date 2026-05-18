@@ -6,25 +6,26 @@ use crate::error::{Error, Result};
 use reqwest::header::HeaderMap;
 use std::time::Duration;
 
-/// Mirror type identifier
+/// Mirror type identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MirrorKind {
-    /// Nerinyan mirror
+    /// Nerinyan mirror.
     Nerinyan,
-    /// osu.direct mirror
+    /// osu.direct mirror.
     OsuDirect,
-    /// Sayobot mirror
+    /// Sayobot mirror.
     Sayobot,
-    /// Nekoha mirror
+    /// Nekoha mirror.
     Nekoha,
-    /// Official osu! API v2 mirror (requires OAuth)
+    /// Official osu! API v2 mirror (requires OAuth).
     Official,
-    /// Custom mirror with user-provided URL template
+    /// Custom mirror with user-provided URL template.
     Custom,
 }
 
 struct ProviderMeta {
     label: &'static str,
+    #[cfg_attr(test, allow(dead_code))]
     backoff_secs: u64,
     template: &'static str,
     template_no_video: &'static str,
@@ -67,7 +68,7 @@ impl MirrorKind {
         }
     }
 
-    /// Get the display label for this mirror
+    /// Display label for this mirror.
     #[inline]
     pub fn label(&self) -> &'static str {
         match self {
@@ -91,36 +92,34 @@ impl MirrorKind {
         }
     }
 
-    pub(crate) fn download_template(&self, no_video: bool) -> Option<String> {
+    fn download_template(&self, no_video: bool) -> Option<&'static str> {
         match self {
             MirrorKind::Custom => None,
             other => {
                 let meta = other.meta().expect("builtin mirror has meta");
-                Some(
-                    if no_video {
-                        meta.template_no_video
-                    } else {
-                        meta.template
-                    }
-                    .to_string(),
-                )
+                Some(if no_video {
+                    meta.template_no_video
+                } else {
+                    meta.template
+                })
             }
         }
     }
 }
 
-/// Mirror endpoint for downloading beatmapsets
+/// Mirror endpoint for downloading beatmapsets.
 #[derive(Debug, Clone)]
 pub struct Mirror {
     pub(crate) kind: MirrorKind,
     pub(crate) template: Box<str>,
     pub(crate) headers: Option<HeaderMap>,
+    pub(crate) no_video: bool,
 }
 
 impl Mirror {
-    /// Create a custom mirror with a URL template
+    /// Custom mirror with a URL template.
     ///
-    /// Template must contain `{id}` placeholder and start with `http://` or `https://`
+    /// Template must contain `{id}` and start with `http://` or `https://`.
     pub fn custom(template: impl Into<String>) -> Result<Self> {
         let template = template.into();
         validate_template(&template)?;
@@ -128,69 +127,71 @@ impl Mirror {
             kind: MirrorKind::Custom,
             template: template.into_boxed_str(),
             headers: None,
+            no_video: false,
         })
     }
 
-    /// Nerinyan mirror (<https://api.nerinyan.moe>)
+    /// Nerinyan mirror (<https://api.nerinyan.moe>).
     pub fn nerinyan() -> Self {
-        Self::builtin(MirrorKind::Nerinyan, false).expect("nerinyan has template")
+        Self::builtin(MirrorKind::Nerinyan)
     }
 
-    /// osu.direct mirror
+    /// osu.direct mirror.
     pub fn osu_direct() -> Self {
-        Self::builtin(MirrorKind::OsuDirect, false).expect("osu.direct has template")
+        Self::builtin(MirrorKind::OsuDirect)
     }
 
-    /// Sayobot mirror
+    /// Sayobot mirror.
     pub fn sayobot() -> Self {
-        Self::builtin(MirrorKind::Sayobot, false).expect("sayobot has template")
+        Self::builtin(MirrorKind::Sayobot)
     }
 
-    /// Nekoha mirror (<https://nekoha.cc>)
+    /// Nekoha mirror.
     pub fn nekoha() -> Self {
-        Self::builtin(MirrorKind::Nekoha, false).expect("nekoha has template")
+        Self::builtin(MirrorKind::Nekoha)
     }
 
-    /// Create a mirror from a [`MirrorKind`] with optional no-video support.
-    ///
-    /// Returns `None` for [`MirrorKind::Custom`] since custom mirrors require a user-provided template.
-    /// For named constructors without no-video, use [`Mirror::nerinyan`], [`Mirror::osu_direct`], etc.
-    pub fn builtin(kind: MirrorKind, no_video: bool) -> Option<Self> {
-        kind.download_template(no_video).map(|template| Self {
+    fn builtin(kind: MirrorKind) -> Self {
+        let template = kind
+            .download_template(false)
+            .expect("builtin mirror has template");
+        Self {
             kind,
-            template: template.into_boxed_str(),
+            template: template.to_string().into_boxed_str(),
             headers: None,
-        })
+            no_video: false,
+        }
     }
 
     /// Attach HTTP headers to requests sent through this mirror.
-    pub fn set_headers(mut self, headers: HeaderMap) -> Self {
+    #[must_use]
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
         self.headers = Some(headers);
         self
     }
 
-    pub(crate) fn video(self, no_video: bool) -> Self {
-        match Self::builtin(self.kind, no_video) {
-            Some(mut mirror) => {
-                mirror.headers = self.headers;
-                mirror
-            }
-            None => self,
+    /// Strip video from the served archive where the mirror supports it.
+    /// No-op for custom mirrors and for mirrors without a no-video variant.
+    #[must_use]
+    pub fn no_video(mut self) -> Self {
+        self.no_video = true;
+        if let Some(template) = self.kind.download_template(true) {
+            self.template = template.to_string().into_boxed_str();
         }
+        self
     }
 
-    pub(crate) fn headers(&self) -> Option<&HeaderMap> {
-        self.headers.as_ref()
-    }
-
-    /// Get the mirror kind
+    /// Mirror kind.
     pub fn kind(&self) -> MirrorKind {
         self.kind
     }
 
-    /// Get the display name for this mirror
-    pub fn display_name(&self) -> &'static str {
+    pub(crate) fn display_name(&self) -> &'static str {
         self.kind.label()
+    }
+
+    pub(crate) fn headers(&self) -> Option<&HeaderMap> {
+        self.headers.as_ref()
     }
 
     #[inline]
@@ -204,6 +205,7 @@ impl Mirror {
             kind,
             template: template.into().into_boxed_str(),
             headers: None,
+            no_video: false,
         }
     }
 

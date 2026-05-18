@@ -17,33 +17,14 @@ A vibecoded Rust library for downloading osu! beatmaps from multiple mirrors.
 
 ```toml
 [dependencies]
-osu-downloader = "0.1"
-```
-
-### Download a Single Beatmapset
-
-```rust
-use osu_downloader::{Downloader, Mirror};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let downloader = Downloader::builder()
-        .mirror(Mirror::nerinyan())
-        .build()?;
-
-    let result = downloader
-        .download_one(123456, "./downloads")
-        .await?;
-
-    println!("Downloaded: {:?}", result);
-    Ok(())
-}
+osu-downloader = "0.6"
 ```
 
 ### Batch Downloads with Progress
 
 ```rust
-use osu_downloader::{Downloader, Mirror, DownloadEvent};
+use osu_downloader::{Downloader, DownloadItem, Event, Mirror};
+use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,35 +32,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .mirror(Mirror::nerinyan())
         .mirror(Mirror::osu_direct())
         .concurrent_downloads(8)
-        .max_retries(3)
+        .network_retry_attempts(2)
         .build()?;
 
-    let ids = vec![123456, 789012, 345678];
-    let mut session = downloader
-        .download_many(ids, "./downloads")
-        .await;
+    let items = [123456u32, 789012, 345678].map(DownloadItem::skip_if_present);
+    let mut session = downloader.download_many(items, "./downloads");
+    let mut events = session.events();
 
-    while let Some(event) = session.next_event().await {
+    while let Some(event) = events.next().await {
         match event {
-            DownloadEvent::Progress { beatmapset_id, downloaded_bytes, total_bytes, .. } => {
-                println!("#{}: {} / {:?} bytes", beatmapset_id, downloaded_bytes, total_bytes);
+            Event::Progress { beatmapset_id, downloaded_bytes, total_bytes, .. } => {
+                println!("#{beatmapset_id}: {downloaded_bytes} / {total_bytes:?} bytes");
             }
-            DownloadEvent::BeatmapsetCompleted { beatmapset_id, filename, .. } => {
-                println!("✓ #{}: {}", beatmapset_id, filename);
+            Event::BeatmapsetCompleted { beatmapset_id, filename, .. } => {
+                println!("ok  #{beatmapset_id}: {filename}");
             }
-            DownloadEvent::BeatmapsetFailed { beatmapset_id, error, .. } => {
-                eprintln!("✗ #{}: {}", beatmapset_id, error);
+            Event::BeatmapsetFailed { beatmapset_id, error, .. } => {
+                eprintln!("err #{beatmapset_id}: {error}");
             }
             _ => {}
         }
     }
 
     let summary = session.wait().await?;
-    println!("Downloaded {} / {} beatmapsets",
-             summary.downloaded.len(),
-             summary.total);
+    println!(
+        "downloaded {} / {} beatmapsets",
+        summary.downloaded.len(),
+        summary.total
+    );
     Ok(())
 }
+```
+
+### Strip Video Per Mirror
+
+```rust
+let downloader = Downloader::builder()
+    .mirror(Mirror::nerinyan().no_video())
+    .mirror(Mirror::sayobot().no_video())
+    .build()?;
+```
+
+`no_video()` is a no-op for mirrors that don't have a no-video variant (including custom mirrors).
+
+### Download an osucollector Collection
+
+```rust
+use osu_downloader::{collection::CollectionClient, Downloader, DownloadItem, Mirror};
+
+let client = CollectionClient::new();
+let collection = client.fetch(12345).await?;
+
+let downloader = Downloader::builder().default_mirrors().build()?;
+let items = collection
+    .beatmapset_ids()
+    .into_iter()
+    .map(DownloadItem::skip_if_present);
+let mut session = downloader.download_many(items, "./downloads");
+// consume events as above
+let _summary = session.wait().await?;
+
+// persist the collection metadata to osu!'s collection.db format
+collection.write_db("./downloads/collection.db".as_ref())?;
+```
+
+For multi-collection bundles, use [`collection::write_collections_db`] with an explicit `[CollectionDbEntry]` list.
+
+`CollectionClient::fetch` returns a typed `CollectionError` so callers can recognise `NotFound`, `RateLimited { retry_after }`, transport errors, etc. and retry on their own terms.
+
+### Cancellation
+
+```rust
+let mut session = downloader.download_many(ids, "./downloads");
+let events = session.events();
+
+// from anywhere with a handle:
+session.cancel(); // running attempts abort at the next checkpoint
 ```
 
 ## Supported Mirrors
@@ -88,23 +116,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **osu.direct** - https://osu.direct
 - **Sayobot** - https://dl.sayobot.cn
 - **Nekoha** - https://mirror.nekoha.moe
-- **Custom** - Your own mirror with URL template
+- **Custom** - your own mirror with a URL template containing `{id}`
 
 ## Feature Flags
 
 ```toml
 [dependencies]
-osu-downloader = { version = "0.1", features = ["full"] }
+osu-downloader = { version = "0.6", features = ["collection", "size-fetch"] }
 ```
 
-- `collection` (default) - Collection API and `collection.db` writer
-- `size-fetch` - Beatmapset size fetching from Nekoha API
-- `full` - Enable all features
+- `collection` (default) - osucollector.com client and `collection.db` writer
+- `size-fetch` (default) - Nekoha-backed beatmapset size and availability probes
+
+## Public API At a Glance
+
+Top level:
+
+- `Downloader`, `DownloaderBuilder`, `DownloadItem`, `DownloadSession`, `FileExistsPolicy`
+- `Event`, `StatusEvent`, `Summary`, `SkipReason`
+- `Mirror`, `MirrorKind`
+- `ArchiveValidation`, `ArchiveValidationOptions`, `ArchiveValidationResult`, `validate_archive`
+- `Error`, `DownloadError`, `Result`
+
+Optional modules:
+
+- `osu_downloader::collection` (feature `collection`) — `CollectionClient`, `Collection`, `CollectionDbEntry`, `CollectionError`, `write_collections_db`
+- `osu_downloader::size` (feature `size-fetch`) — `SizeFetcher`, `SizeFetchResult`, `MirrorAvailabilityResult`
 
 ## Architecture
 
 - No file I/O except downloads, no config file reading
-- All configuration via builder pattern
+- All configuration via the builder pattern
 - Built on tokio, async throughout
 - Events via `tokio::sync::mpsc`
 - No TUI or app-specific dependencies

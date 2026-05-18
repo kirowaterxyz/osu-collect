@@ -1,10 +1,8 @@
 use super::{
     EOCD_SIGNATURE, LOCAL_HEADER_SIGNATURE, find_eocd_position, minimal_zip_bytes_for_test,
 };
-use crate::{
-    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, ensure_valid_archive,
-    validate_archive,
-};
+use super::ensure_valid_archive;
+use crate::{ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive};
 use std::io::Write;
 use tempfile::NamedTempFile;
 

@@ -40,18 +40,31 @@ pub struct SizeFetcher {
     concurrency: usize,
 }
 
+impl Default for SizeFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SizeFetcher {
-    /// Create a new fetcher reusing the caller's `reqwest::Client`.
-    pub fn new(client: Client) -> Self {
+    /// New fetcher backed by the library's default API client.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying reqwest client builder fails — which only
+    /// happens if the system's TLS backend cannot initialise.
+    pub fn new() -> Self {
+        Self::with_client(
+            http::create_api_client().expect("failed to build default reqwest client"),
+        )
+    }
+
+    /// New fetcher reusing the caller's [`reqwest::Client`].
+    pub fn with_client(client: Client) -> Self {
         Self {
             client,
             concurrency: DEFAULT_CONCURRENT_REQUESTS,
         }
-    }
-
-    /// Build a fetcher with the library's default API client.
-    pub fn with_default_client() -> crate::Result<Self> {
-        Ok(Self::new(http::create_api_client()?))
     }
 
     /// Override the maximum number of concurrent requests.

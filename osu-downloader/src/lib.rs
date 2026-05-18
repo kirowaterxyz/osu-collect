@@ -1,8 +1,8 @@
 //! # osu-downloader
 //!
-//! Library for downloading osu! beatmapsets from multiple mirrors.
+//! library for downloading osu! beatmapsets from multiple mirrors.
 //!
-//! ## Quick start
+//! ## quick start
 //!
 //! ```rust,no_run
 //! use osu_downloader::{Downloader, DownloadItem, Mirror};
@@ -27,7 +27,7 @@
 //! # }
 //! ```
 //!
-//! ## Features
+//! ## features
 //!
 //! - `collection` — osucollector.com client and `collection.db` writer
 //! - `size-fetch` — Nekoha-backed beatmapset size and availability probes
@@ -39,7 +39,7 @@ pub(crate) mod download;
 mod downloader;
 mod error;
 mod event;
-pub mod http;
+pub(crate) mod http;
 mod mirrors;
 pub(crate) mod validation;
 pub(crate) mod worker;
@@ -50,15 +50,10 @@ pub mod collection;
 #[cfg(feature = "size-fetch")]
 pub mod size;
 
-pub use downloader::{
-    BeatmapsetStatusEvent, DownloadItem, DownloadSession, Downloader, DownloaderBuilder,
-    FileExistsPolicy,
-};
+pub use downloader::{DownloadItem, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy};
 pub use error::{DownloadError, Error, Result};
-pub use event::{DownloadEvent, DownloadResult, DownloadSummary, SkipReason};
+pub use event::{Event, SkipReason, StatusEvent, Summary};
 pub use mirrors::{Mirror, MirrorKind};
 pub use validation::{
-    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, ensure_valid_archive,
-    validate_archive,
+    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
 };
-pub use worker::{DownloadStreamResult, stream_download};

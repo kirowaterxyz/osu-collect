@@ -1,5 +1,4 @@
-use super::{MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard};
-use crate::stream_download;
+use super::{MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard, stream_download};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

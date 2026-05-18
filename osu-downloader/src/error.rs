@@ -27,11 +27,6 @@ pub enum Error {
     #[error("Download failed: {0}")]
     Download(#[from] DownloadError),
 
-    /// Collection API error (feature: collection)
-    #[cfg(feature = "collection")]
-    #[error("Collection API error: {0}")]
-    Collection(String),
-
     /// JSON parsing error
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
@@ -98,11 +93,6 @@ impl Error {
 
     pub(crate) fn config(msg: impl Into<String>) -> Self {
         Error::Config(msg.into())
-    }
-
-    #[cfg(feature = "collection")]
-    pub(crate) fn collection(msg: impl Into<String>) -> Self {
-        Error::Collection(msg.into())
     }
 }
 

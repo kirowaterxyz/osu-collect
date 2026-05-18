@@ -1,11 +1,11 @@
 //! Event types emitted during a download session.
 
-use crate::{DownloadError, MirrorKind, downloader::BeatmapsetStatusEvent};
+use crate::{DownloadError, MirrorKind};
 use std::time::Duration;
 
 /// Events emitted while a [`DownloadSession`](crate::DownloadSession) is running.
 #[derive(Debug, Clone)]
-pub enum DownloadEvent {
+pub enum Event {
     /// Session has started.
     SessionStarted {
         /// Total number of beatmapsets in the session.
@@ -23,7 +23,7 @@ pub enum DownloadEvent {
         /// Beatmapset ID.
         beatmapset_id: u32,
         /// Underlying status event.
-        status: BeatmapsetStatusEvent,
+        status: StatusEvent,
     },
 
     /// Download progress update.
@@ -83,7 +83,44 @@ pub enum DownloadEvent {
     /// Session has finished.
     SessionCompleted {
         /// Aggregate summary.
-        summary: DownloadSummary,
+        summary: Summary,
+    },
+}
+
+/// Per-attempt status update emitted while a single beatmapset is being attempted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusEvent {
+    /// A mirror is being contacted.
+    Contacting {
+        /// Mirror being contacted.
+        mirror: MirrorKind,
+    },
+    /// A mirror started streaming the archive.
+    Downloading {
+        /// Mirror serving the archive.
+        mirror: MirrorKind,
+    },
+    /// The archive is being verified.
+    Verifying {
+        /// Mirror that served the archive.
+        mirror: MirrorKind,
+    },
+    /// Every untried mirror is currently rate-limited; the attempt is paused
+    /// until the shortest cooldown elapses.
+    RateLimited {
+        /// Cooldown before any rate-limited mirror becomes eligible again.
+        cooldown: Duration,
+    },
+    /// A transient error will be retried on the same mirror.
+    RetryingTransient {
+        /// Mirror being retried.
+        mirror: MirrorKind,
+        /// Attempt about to run.
+        attempt: u32,
+        /// Maximum attempts for this mirror.
+        max_attempts: u32,
+        /// Failure reason.
+        reason: String,
     },
 }
 
@@ -100,7 +137,7 @@ pub enum SkipReason {
 
 /// Summary of a completed download session.
 #[derive(Debug, Clone, Default)]
-pub struct DownloadSummary {
+pub struct Summary {
     /// Total number of beatmapsets requested.
     pub total: usize,
     /// IDs of successful downloads.
@@ -117,7 +154,7 @@ pub struct DownloadSummary {
     pub duration: Duration,
 }
 
-impl DownloadSummary {
+impl Summary {
     pub(crate) fn new(total: usize) -> Self {
         Self {
             total,
@@ -129,25 +166,4 @@ impl DownloadSummary {
     pub fn all_succeeded(&self) -> bool {
         self.failed.is_empty() && self.network_errors.is_empty()
     }
-}
-
-/// Per-beatmapset result returned by single-download helpers and from the summary.
-#[derive(Debug, Clone)]
-pub enum DownloadResult {
-    /// Download succeeded.
-    Success {
-        /// On-disk filename.
-        filename: String,
-        /// File size in bytes.
-        size_bytes: u64,
-        /// MD5 hash if computed.
-        md5_hash: Option<String>,
-        /// Mirror that served the archive.
-        mirror_used: MirrorKind,
-    },
-    /// Download was skipped.
-    Skipped {
-        /// Reason for skipping.
-        reason: SkipReason,
-    },
 }

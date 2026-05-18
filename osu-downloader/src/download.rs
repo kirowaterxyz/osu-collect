@@ -4,9 +4,9 @@
 //! translated into the public [`DownloadEvent`](crate::DownloadEvent) stream there.
 
 use crate::{
-    SkipReason,
+    SkipReason, StatusEvent,
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
-    downloader::{BeatmapsetStatusEvent, FileExistsPolicy},
+    downloader::FileExistsPolicy,
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation::{self, ArchiveValidation},
     worker::stream_download,
@@ -26,7 +26,7 @@ const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
 #[derive(Clone, Default)]
 pub(crate) struct BeatmapsetDownloadCallbacks {
     pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    pub(crate) status: Option<Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync>>,
+    pub(crate) status: Option<Arc<dyn Fn(StatusEvent) + Send + Sync>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,7 +103,7 @@ fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
 /// Extract filename from Content-Disposition header.
 ///
 /// Handles `filename*=UTF-8''...` and `filename="..."`.
-pub fn extract_filename_from_header(header_value: &str) -> Option<String> {
+pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String> {
     let mut filename = None;
     let mut extended_filename = None;
 
@@ -295,7 +295,7 @@ pub(crate) async fn download_beatmapset(
 
         emit_status(
             &params.callbacks,
-            BeatmapsetStatusEvent::RateLimited {
+            StatusEvent::RateLimited {
                 cooldown: wait_duration,
             },
         );
@@ -409,7 +409,7 @@ async fn try_mirror_retry(
                 );
                 emit_status(
                     &params.callbacks,
-                    BeatmapsetStatusEvent::RetryingTransient {
+                    StatusEvent::RetryingTransient {
                         mirror: mirror.kind(),
                         attempt: retry + 1,
                         max_attempts: TRANSIENT_RETRY_ATTEMPTS,
@@ -428,7 +428,7 @@ async fn try_mirror_retry(
 async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> MirrorAttempt {
     emit_status(
         &params.callbacks,
-        BeatmapsetStatusEvent::Contacting {
+        StatusEvent::Contacting {
             mirror: mirror.kind(),
         },
     );
@@ -602,7 +602,7 @@ async fn process_mirror_response(
 
     emit_status(
         &params.callbacks,
-        BeatmapsetStatusEvent::Downloading {
+        StatusEvent::Downloading {
             mirror: mirror.kind(),
         },
     );
@@ -655,7 +655,7 @@ async fn write_archive(
 
     emit_status(
         &params.callbacks,
-        BeatmapsetStatusEvent::Verifying {
+        StatusEvent::Verifying {
             mirror: mirror.kind(),
         },
     );
@@ -857,7 +857,7 @@ fn failed(mirror: Option<MirrorKind>, reason: impl Into<String>) -> BeatmapsetDo
     }
 }
 
-fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: BeatmapsetStatusEvent) {
+fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: StatusEvent) {
     if let Some(callback) = &callbacks.status {
         callback(event);
     }

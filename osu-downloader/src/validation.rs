@@ -47,7 +47,7 @@ pub enum ArchiveValidationResult {
 }
 
 /// Validate that a file looks like an osu! beatmap archive.
-pub async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -> Result<()> {
+pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -> Result<()> {
     if mode == ArchiveValidation::Off {
         return Ok(());
     }

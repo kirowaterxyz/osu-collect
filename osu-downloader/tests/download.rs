@@ -7,7 +7,7 @@ use super::{
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
 use crate::{
-    ArchiveValidation, BeatmapsetStatusEvent, FileExistsPolicy, Mirror, MirrorKind, SkipReason,
+    ArchiveValidation, FileExistsPolicy, Mirror, MirrorKind, SkipReason, StatusEvent,
 };
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -350,7 +350,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
             .lock()
             .unwrap()
             .iter()
-            .any(|status| matches!(status, BeatmapsetStatusEvent::Downloading { .. }))
+            .any(|status| matches!(status, StatusEvent::Downloading { .. }))
     );
     server.join().unwrap();
 }
@@ -416,7 +416,7 @@ async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
     let client = reqwest::Client::new();
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-    let statuses: Arc<Mutex<Vec<BeatmapsetStatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let statuses: Arc<Mutex<Vec<StatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let recorder = statuses.clone();
     let callbacks = BeatmapsetDownloadCallbacks {
         progress: None,
@@ -436,7 +436,7 @@ async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
     assert!(
         !recorded
             .iter()
-            .any(|event| matches!(event, BeatmapsetStatusEvent::RateLimited { .. })),
+            .any(|event| matches!(event, StatusEvent::RateLimited { .. })),
         "rate-limit status must not flash when a sibling mirror succeeds: {recorded:?}"
     );
     server.join().unwrap();
@@ -492,7 +492,7 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
     let client = reqwest::Client::new();
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-    let statuses: Arc<Mutex<Vec<BeatmapsetStatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let statuses: Arc<Mutex<Vec<StatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let recorder = statuses.clone();
     let callbacks = BeatmapsetDownloadCallbacks {
         progress: None,
@@ -511,7 +511,7 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
     let recorded = statuses.lock().unwrap();
     let rate_limit_events: Vec<_> = recorded
         .iter()
-        .filter(|event| matches!(event, BeatmapsetStatusEvent::RateLimited { .. }))
+        .filter(|event| matches!(event, StatusEvent::RateLimited { .. }))
         .collect();
     assert_eq!(
         rate_limit_events.len(),

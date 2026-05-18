@@ -38,11 +38,10 @@ fn default_mirrors_include_every_builtin_mirror() {
 }
 
 #[test]
-fn builder_applies_no_video_to_builtin_mirrors() {
+fn per_mirror_no_video_switches_template() {
     let downloader = crate::Downloader::builder()
-        .mirror(Mirror::nerinyan())
-        .mirror(Mirror::custom("https://example.com/d/{id}").unwrap())
-        .no_video(true)
+        .mirror(Mirror::nerinyan().no_video())
+        .mirror(Mirror::custom("https://example.com/d/{id}").unwrap().no_video())
         .build()
         .unwrap();
 
@@ -51,5 +50,6 @@ fn builder_applies_no_video_to_builtin_mirrors() {
         mirrors[0].url_for_id(123),
         "https://api.nerinyan.moe/d/123?nv=1"
     );
+    // Custom mirrors don't have a no-video variant; their template stays as-is.
     assert_eq!(mirrors[1].url_for_id(123), "https://example.com/d/123");
 }
