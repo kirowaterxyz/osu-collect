@@ -389,7 +389,7 @@ pub(crate) async fn resolve_selective_collections(
     .await
 }
 
-pub async fn resolve_selective_with<S>(
+pub(crate) async fn resolve_selective_with<S>(
     service: &S,
     collection_ids: &[u32],
     requested_collections: Vec<SelectiveDownloadCollection>,
@@ -502,3 +502,7 @@ fn selective_collection_name(collection_names: &[String]) -> Box<str> {
         format!("update: {} collections", collection_names.len()).into_boxed_str()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/download_session.rs"]
+mod tests;

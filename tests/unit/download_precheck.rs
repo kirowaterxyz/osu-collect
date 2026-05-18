@@ -1,4 +1,4 @@
-use osu_collect::download::precheck::{
+use super::{
     CacheKey, ValidationCache, extract_beatmapset_id, is_orphan_temp_name, scan_candidates,
 };
 use std::{collections::HashSet, ffi::OsStr, path::Path};

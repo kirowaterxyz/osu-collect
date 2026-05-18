@@ -1,4 +1,4 @@
-use osu_collect::app::messages::{AppMessage, MESSAGE_TTL};
+use super::{AppMessage, MESSAGE_TTL};
 use std::time::{Duration, Instant};
 
 #[test]

@@ -1,11 +1,10 @@
-use osu_collect::{
-    core::collection::{
-        CollectionService,
-        model::{Beatmap, Beatmapset, Collection, Uploader},
-    },
-    download::{DownloadEvent, SelectiveDownloadCollection, session::resolve_selective_with},
-    utils,
+use super::resolve_selective_with;
+use crate::core::collection::{
+    CollectionService,
+    model::{Beatmap, Beatmapset, Collection, Uploader},
 };
+use crate::download::{DownloadEvent, SelectiveDownloadCollection};
+use crate::utils;
 use std::sync::{Arc, Mutex};
 
 struct MockService {

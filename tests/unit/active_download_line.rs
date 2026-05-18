@@ -1,6 +1,6 @@
-use osu_collect::app::collection::{ActiveDownloadLine, STATUS_DEBOUNCE};
-use osu_collect::download::BeatmapStage;
-use osu_collect::tui::{ACCENT, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING};
+use super::{ActiveDownloadLine, STATUS_DEBOUNCE};
+use crate::download::BeatmapStage;
+use crate::tui::{ACCENT, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING};
 use std::thread::sleep;
 use std::time::Duration;
 

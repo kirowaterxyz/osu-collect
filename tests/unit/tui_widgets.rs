@@ -1,4 +1,4 @@
-use osu_collect::tui::widgets::{scroll_window, truncate_to_width};
+use super::{scroll_window, truncate_to_width};
 
 #[test]
 fn scroll_window_keeps_focus_centered() {

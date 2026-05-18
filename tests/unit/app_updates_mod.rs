@@ -1,4 +1,4 @@
-use osu_collect::app::updates::{ScanStatus, UpdatesTab, scroll_list};
+use super::{ScanStatus, UpdatesTab, scroll_list};
 
 #[test]
 fn needs_initial_scan_reflects_cache_state() {

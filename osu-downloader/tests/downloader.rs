@@ -1,13 +1,13 @@
-use osu_downloader::{Error, Mirror, MirrorKind};
+use crate::{Error, Mirror, MirrorKind};
 
 #[test]
 fn builder_requires_at_least_one_mirror() {
-    assert!(osu_downloader::Downloader::builder().build().is_err());
+    assert!(crate::Downloader::builder().build().is_err());
 }
 
 #[test]
 fn builder_rejects_zero_concurrency() {
-    let result = osu_downloader::Downloader::builder()
+    let result = crate::Downloader::builder()
         .mirror(Mirror::nerinyan())
         .concurrent_downloads(0)
         .build();
@@ -16,7 +16,7 @@ fn builder_rejects_zero_concurrency() {
 
 #[test]
 fn default_mirrors_include_every_builtin_mirror() {
-    let downloader = osu_downloader::Downloader::builder()
+    let downloader = crate::Downloader::builder()
         .default_mirrors()
         .build()
         .unwrap();
@@ -39,7 +39,7 @@ fn default_mirrors_include_every_builtin_mirror() {
 
 #[test]
 fn builder_applies_no_video_to_builtin_mirrors() {
-    let downloader = osu_downloader::Downloader::builder()
+    let downloader = crate::Downloader::builder()
         .mirror(Mirror::nerinyan())
         .mirror(Mirror::custom("https://example.com/d/{id}").unwrap())
         .no_video(true)

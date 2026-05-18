@@ -5,18 +5,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Mirror penalty pool shared across concurrent workers.
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct MirrorPool {
+pub(crate) struct MirrorPool {
     mirrors: Arc<Vec<Mirror>>,
     penalties: Arc<Mutex<HashMap<MirrorKind, Instant>>>,
 }
 
 impl MirrorPool {
-    /// Create a new pool from a list of mirrors.
-    #[doc(hidden)]
-    pub fn new(mirrors: Vec<Mirror>) -> Self {
+    pub(crate) fn new(mirrors: Vec<Mirror>) -> Self {
         Self {
             mirrors: Arc::new(mirrors),
             penalties: Arc::new(Mutex::new(HashMap::new())),
@@ -27,16 +22,12 @@ impl MirrorPool {
         self.mirrors.len()
     }
 
-    /// Record a rate-limit penalty for the given mirror kind.
-    #[doc(hidden)]
-    pub fn mark_rate_limited(&self, kind: MirrorKind) {
+    pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
         let mut penalties = self.penalties.lock().unwrap();
         penalties.insert(kind, Instant::now() + kind.rate_limit_backoff());
     }
 
-    /// Return the remaining penalty duration for the given mirror kind.
-    #[doc(hidden)]
-    pub fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
+    pub(crate) fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
         let now = Instant::now();
         let penalties = self.penalties.lock().unwrap();
         penalties
@@ -48,3 +39,7 @@ impl MirrorPool {
         &self.mirrors
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/pool.rs"]
+mod tests;

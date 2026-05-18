@@ -1,8 +1,5 @@
-use osu_collect::core::collection::{
-    CollectionDbEntry, create_collection_db,
-    model::{test_beatmapset, test_collection},
-    write_db_entries,
-};
+use super::super::model::{test_beatmapset, test_collection};
+use super::{CollectionDbEntry, create_collection_db, write_db_entries};
 use tempfile::tempdir;
 
 #[test]

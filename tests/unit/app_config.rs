@@ -1,11 +1,7 @@
-use osu_collect::{
-    app::{
-        config::{AuthLoginState, ConfigField, ConfigTab},
-        messages::{MessageKind, set_info_message},
-    },
-    config::Config,
-    download::ArchiveValidation,
-};
+use super::{AuthLoginState, ConfigField, ConfigTab};
+use crate::app::messages::{MessageKind, set_info_message};
+use crate::config::Config;
+use crate::download::ArchiveValidation;
 
 fn tab_logged_out() -> ConfigTab {
     let mut tab = ConfigTab::new(&Config::default());

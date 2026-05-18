@@ -1,5 +1,6 @@
-use osu_downloader::__test_exports::{download_batch, BatchConfig, MirrorPool};
-use osu_downloader::{ArchiveValidation, DownloadItem, Mirror};
+use super::{BatchConfig, download_batch};
+use crate::mirrors::pool::MirrorPool;
+use crate::{ArchiveValidation, DownloadItem, Mirror};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};

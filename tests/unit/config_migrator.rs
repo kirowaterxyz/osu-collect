@@ -1,4 +1,4 @@
-use osu_collect::config::migrator::{migrate_in_place, strip_obsolete_fields};
+use super::{migrate_in_place, strip_obsolete_fields};
 use std::fs;
 
 fn parse(contents: &str) -> toml::Table {

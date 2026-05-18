@@ -272,7 +272,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     spans
 }
 
-pub fn format_speed(bytes_per_sec: f64) -> String {
+fn format_speed(bytes_per_sec: f64) -> String {
     if bytes_per_sec >= MB {
         format!("{:.2} MB/s", bytes_per_sec / MB)
     } else if bytes_per_sec >= KB {
@@ -286,7 +286,7 @@ fn format_bytes_progress(downloaded: u64, total: u64) -> String {
     format!("{:.2}/{:.2} GB", downloaded as f64 / GB, total as f64 / GB)
 }
 
-pub fn format_avg_verify(avg_us: u64) -> String {
+fn format_avg_verify(avg_us: u64) -> String {
     if avg_us < 1_000 {
         format!("{avg_us}us")
     } else if avg_us < 1_000_000 {
@@ -614,7 +614,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     );
 }
 
-pub fn summarize_failure(reason: &str) -> String {
+fn summarize_failure(reason: &str) -> String {
     if reason.is_empty() {
         return FAILED_UNKNOWN.to_string();
     }
@@ -628,3 +628,7 @@ pub fn summarize_failure(reason: &str) -> String {
     }
     truncated
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui_download.rs"]
+mod tests;

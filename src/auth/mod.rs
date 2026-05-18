@@ -421,3 +421,7 @@ pub fn parse_callback_query(request_line: &str) -> Result<(String, String)> {
         ))),
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/auth_mod.rs"]
+mod tests;

@@ -407,3 +407,7 @@ pub async fn try_remove_empty_output_dir(id: DownloadId, output_dir: &Path, emit
         message: format!("removed empty directory {}", output_dir.display()),
     });
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/download_pipeline.rs"]
+mod tests;

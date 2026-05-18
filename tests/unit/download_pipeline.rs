@@ -1,11 +1,8 @@
-use osu_collect::{
-    core::collection::model::{test_beatmapset, test_collection},
-    download::{
-        BeatmapStage, DownloadEvent, SelectiveDownloadCollection, Tally,
-        create_selective_collection_database, pipeline::try_remove_empty_output_dir,
-        translate_event,
-    },
-};
+use super::try_remove_empty_output_dir;
+use crate::core::collection::model::{test_beatmapset, test_collection};
+use crate::download::collection_db::create_selective_collection_database;
+use crate::download::events::{Tally, translate_event};
+use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
 use osu_downloader::{DownloadEvent as LibEvent, MirrorKind, SkipReason};
 use std::{
     collections::HashSet,
@@ -142,7 +139,8 @@ async fn empty_output_dir_is_removed_after_cancel() {
 
 #[test]
 fn finish_emits_summary_and_completed_stage() {
-    use osu_collect::download::{DownloadStage, DownloadSummary, events::emit_finish};
+    use crate::download::events::emit_finish;
+    use crate::download::{DownloadStage, DownloadSummary};
 
     let events: Arc<Mutex<Vec<DownloadEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&events);
@@ -213,7 +211,7 @@ fn completed_event_decrements_unverified_when_present() {
 
 #[tokio::test]
 async fn write_selective_collection_db_skips_empty_set() {
-    use osu_collect::download::collection_db::write_selective_collection_db;
+    use crate::download::collection_db::write_selective_collection_db;
     use std::collections::HashSet;
 
     let dir = tempdir().unwrap();

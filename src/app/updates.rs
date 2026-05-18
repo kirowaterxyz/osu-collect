@@ -600,7 +600,7 @@ impl UpdatesTab {
     }
 }
 
-pub fn scroll_list(state: &mut Option<usize>, len: usize, delta: i64) {
+fn scroll_list(state: &mut Option<usize>, len: usize, delta: i64) {
     if len == 0 {
         return;
     }
@@ -639,3 +639,7 @@ impl Default for UpdatesTab {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app_updates_mod.rs"]
+mod tests;

@@ -1,9 +1,9 @@
-use osu_downloader::__test_exports::{
-    find_eocd_position, minimal_zip_bytes_for_test, EOCD_SIGNATURE, LOCAL_HEADER_SIGNATURE,
+use super::{
+    EOCD_SIGNATURE, LOCAL_HEADER_SIGNATURE, find_eocd_position, minimal_zip_bytes_for_test,
 };
-use osu_downloader::{
-    ensure_valid_archive, validate_archive, ArchiveValidation, ArchiveValidationOptions,
-    ArchiveValidationResult,
+use crate::{
+    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, ensure_valid_archive,
+    validate_archive,
 };
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -12,30 +12,38 @@ use tempfile::NamedTempFile;
 async fn valid_zip_passes() {
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(&minimal_zip_bytes_for_test()).unwrap();
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-        .await
-        .is_ok());
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
 async fn lenient_validation_allows_header_only_archive() {
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(LOCAL_HEADER_SIGNATURE).unwrap();
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Magic)
-        .await
-        .is_ok());
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-        .await
-        .is_err());
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Magic)
+            .await
+            .is_ok()
+    );
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
 async fn off_mode_skips_all_checks() {
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(b"not a zip at all").unwrap();
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Off)
-        .await
-        .is_ok());
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Off)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -64,9 +72,11 @@ async fn zip_with_odd_eocd_offset_still_passes() {
 
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(&data).unwrap();
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-        .await
-        .is_ok());
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -77,9 +87,11 @@ async fn zeros_with_eocd_tail_fails_local_header_check() {
 
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(&data).unwrap();
-    assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-        .await
-        .is_err());
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
+            .await
+            .is_err()
+    );
 }
 
 #[test]

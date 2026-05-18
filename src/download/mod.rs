@@ -2,9 +2,9 @@ pub mod collection_db;
 pub mod error;
 pub mod events;
 pub mod lock;
-pub mod pipeline;
-pub mod precheck;
-pub mod session;
+mod pipeline;
+mod precheck;
+mod session;
 
 pub use collection_db::create_selective_collection_database;
 pub use error::DownloadError;

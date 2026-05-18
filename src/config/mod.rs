@@ -1,5 +1,5 @@
 pub mod constants;
-pub mod migrator;
+mod migrator;
 mod model;
 mod service;
 

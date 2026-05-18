@@ -168,7 +168,7 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     }
 }
 
-pub fn hint_line(hint: &str) -> Line<'static> {
+fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(TEXT_FAINT);
     let key_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
@@ -195,3 +195,7 @@ pub fn hint_line(hint: &str) -> Line<'static> {
 
     Line::from(spans)
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui_footer.rs"]
+mod tests;

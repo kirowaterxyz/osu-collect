@@ -350,3 +350,7 @@ fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -
         .map(|idx| values[(idx + 1) % values.len()])
         .unwrap_or(values[0])
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app_config.rs"]
+mod tests;

@@ -1,7 +1,5 @@
-use osu_collect::{
-    config::constants::MAX_TRUNCATED_CHARS,
-    tui::download::{format_avg_verify, format_speed, summarize_failure},
-};
+use super::{format_avg_verify, format_speed, summarize_failure};
+use crate::config::constants::MAX_TRUNCATED_CHARS;
 
 #[test]
 fn format_avg_verify_us_boundary() {

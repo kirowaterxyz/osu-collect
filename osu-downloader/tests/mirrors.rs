@@ -1,4 +1,4 @@
-use osu_downloader::Mirror;
+use crate::Mirror;
 
 #[test]
 fn mirror_templates() {

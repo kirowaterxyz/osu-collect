@@ -1,4 +1,5 @@
-use osu_collect::tui::{SPINNER_FRAMES, footer::hint_line, spinner_char};
+use super::super::{SPINNER_FRAMES, spinner_char};
+use super::hint_line;
 
 #[test]
 fn spinner_wraps_correctly() {

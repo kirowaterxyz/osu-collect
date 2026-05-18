@@ -1,4 +1,4 @@
-use osu_downloader::http::create_download_client;
+use super::create_download_client;
 
 #[test]
 fn create_download_client_succeeds() {
@@ -13,6 +13,6 @@ fn create_download_client_with_user_agent() {
 #[cfg(feature = "collection")]
 #[test]
 fn create_api_client_succeeds() {
-    use osu_downloader::http::create_api_client;
+    use super::create_api_client;
     assert!(create_api_client().is_ok());
 }

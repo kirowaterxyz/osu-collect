@@ -5,15 +5,15 @@
 //! `concurrent_downloads` tasks that pull from it.
 
 use crate::{
+    DownloadEvent, DownloadSummary, SkipReason,
     config::NETWORK_RETRY_BACKOFF,
     download::{
-        self, download_beatmapset, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions,
-        BeatmapsetDownloadOutcome,
+        self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
+        download_beatmapset,
     },
     downloader::{BeatmapsetStatusEvent, DownloadItem},
     mirrors::MirrorPool,
     validation::ArchiveValidation,
-    DownloadEvent, DownloadSummary, SkipReason,
 };
 use std::{
     path::Path,
@@ -23,27 +23,15 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
 
-/// Configuration for a batch download run.
-#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub struct BatchConfig {
-    /// number of concurrent download workers.
-    #[doc(hidden)]
-    pub concurrent_downloads: usize,
-    /// archive validation mode.
-    #[doc(hidden)]
-    pub archive_validation: ArchiveValidation,
-    /// per-chunk progress timeout.
-    #[doc(hidden)]
-    pub progress_timeout: Duration,
-    /// network-level retry attempts before giving up.
-    #[doc(hidden)]
-    pub network_retry_attempts: usize,
+pub(crate) struct BatchConfig {
+    pub(crate) concurrent_downloads: usize,
+    pub(crate) archive_validation: ArchiveValidation,
+    pub(crate) progress_timeout: Duration,
+    pub(crate) network_retry_attempts: usize,
 }
 
-/// Run a batch download.
-#[doc(hidden)]
-pub async fn download_batch(
+pub(crate) async fn download_batch(
     items: Vec<DownloadItem>,
     output_dir: &Path,
     client: reqwest::Client,
@@ -367,3 +355,7 @@ type AsyncBoundedReceiver<T> = async_channel::Receiver<T>;
 fn async_bounded_channel<T>(capacity: usize) -> (AsyncBoundedSender<T>, AsyncBoundedReceiver<T>) {
     async_channel::bounded(capacity)
 }
+
+#[cfg(test)]
+#[path = "../tests/batch.rs"]
+mod tests;

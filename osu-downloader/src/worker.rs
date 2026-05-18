@@ -4,11 +4,12 @@ use crate::{DownloadError, Result};
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::{
-    future::{pending, Future},
+    future::{Future, pending},
     path::{Path, PathBuf},
     sync::{
+        Arc,
         atomic::{AtomicU64, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
     time::{Duration, Instant},
 };
@@ -19,14 +20,10 @@ use tokio::{
     time::timeout,
 };
 
-/// minimum byte delta that triggers a progress event.
-#[doc(hidden)]
-pub const MIN_PROGRESS_DELTA: u64 = 131_072;
+const MIN_PROGRESS_DELTA: u64 = 131_072;
 const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
-/// monotonic counter used to generate unique temp-file names.
-#[doc(hidden)]
-pub static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Streamed download output.
 pub struct DownloadStreamResult {
@@ -87,25 +84,17 @@ impl HashWorker {
     }
 }
 
-/// RAII guard that removes its file on drop unless disarmed.
-#[doc(hidden)]
-pub struct TempFileGuard {
-    /// path to the guarded file.
-    #[doc(hidden)]
-    pub path: PathBuf,
+struct TempFileGuard {
+    path: PathBuf,
     armed: bool,
 }
 
 impl TempFileGuard {
-    /// Create a new armed guard.
-    #[doc(hidden)]
-    pub fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf) -> Self {
         Self { path, armed: true }
     }
 
-    /// Disarm the guard so it won't remove the file on drop.
-    #[doc(hidden)]
-    pub fn disarm(&mut self) {
+    fn disarm(&mut self) {
         self.armed = false;
     }
 }
@@ -327,3 +316,7 @@ async fn wait_until_cancelled(cancel_rx: &mut tokio::sync::watch::Receiver<bool>
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/worker.rs"]
+mod tests;

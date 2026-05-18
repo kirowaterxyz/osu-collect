@@ -63,6 +63,10 @@ pub fn reset_terminal_bg<W: Write>(out: &mut W) -> io::Result<()> {
     out.flush()
 }
 
+#[cfg(test)]
+#[path = "../../tests/unit/tui_terminal.rs"]
+mod tests;
+
 pub fn spawn_input_thread(tx: mpsc::UnboundedSender<InputEvent>) -> Option<thread::JoinHandle<()>> {
     let tick_rate = Duration::from_millis(50);
     thread::Builder::new()

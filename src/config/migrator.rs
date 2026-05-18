@@ -25,7 +25,7 @@ pub fn migrate_in_place(path: &Path) {
     }
 }
 
-pub fn strip_obsolete_fields(table: &mut toml::Table) -> bool {
+fn strip_obsolete_fields(table: &mut toml::Table) -> bool {
     let Some(toml::Value::Table(download)) = table.get_mut("download") else {
         return false;
     };
@@ -39,3 +39,7 @@ pub fn strip_obsolete_fields(table: &mut toml::Table) -> bool {
     }
     dirty
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/config_migrator.rs"]
+mod tests;

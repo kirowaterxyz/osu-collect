@@ -7,12 +7,8 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt},
 };
 
-/// ZIP local-file-header magic bytes.
-#[doc(hidden)]
-pub const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
-/// ZIP end-of-central-directory magic bytes.
-#[doc(hidden)]
-pub const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
+const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
+const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 
 /// Archive validation strictness.
@@ -170,18 +166,14 @@ fn trim_leading_whitespace(data: &[u8]) -> &[u8] {
     &data[start..]
 }
 
-/// Find the last EOCD signature in `buffer`.
-#[doc(hidden)]
-pub fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
+fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(EOCD_SIGNATURE.len())
         .rposition(|window| window == EOCD_SIGNATURE)
 }
 
-/// Build a minimal valid ZIP file for use in tests.
-#[cfg(any(test, feature = "test-helpers"))]
-#[doc(hidden)]
-pub fn minimal_zip_bytes_for_test() -> Vec<u8> {
+#[cfg(test)]
+fn minimal_zip_bytes_for_test() -> Vec<u8> {
     let local_header: &[u8] = &[
         0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, b'a',
@@ -206,3 +198,7 @@ pub fn minimal_zip_bytes_for_test() -> Vec<u8> {
     zip.extend_from_slice(&eocd);
     zip
 }
+
+#[cfg(test)]
+#[path = "../tests/validation.rs"]
+mod tests;

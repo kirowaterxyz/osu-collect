@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-pub const MESSAGE_TTL: Duration = Duration::from_secs(5);
+const MESSAGE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageKind {
@@ -12,7 +12,7 @@ pub enum MessageKind {
 pub struct AppMessage {
     pub kind: MessageKind,
     pub text: String,
-    pub created_at: Instant,
+    created_at: Instant,
 }
 
 impl AppMessage {
@@ -45,7 +45,7 @@ pub(crate) fn set_error_message(slot: &mut Option<AppMessage>, message: impl Int
     *slot = Some(AppMessage::error(message));
 }
 
-pub fn set_info_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
+pub(crate) fn set_info_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
     *slot = Some(AppMessage::info(message));
 }
 
@@ -62,3 +62,7 @@ pub(crate) fn clear_expired_message(slot: &mut Option<AppMessage>) {
         *slot = None;
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app_messages.rs"]
+mod tests;

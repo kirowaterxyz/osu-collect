@@ -169,17 +169,6 @@ impl Mirror {
         self
     }
 
-    #[cfg(feature = "test-helpers")]
-    #[doc(hidden)]
-    /// Create a mirror with an explicit kind and URL template (for testing only).
-    pub fn with_kind_and_template(kind: MirrorKind, template: impl Into<String>) -> Self {
-        Self {
-            kind,
-            template: template.into().into_boxed_str(),
-            headers: None,
-        }
-    }
-
     pub(crate) fn video(self, no_video: bool) -> Self {
         match Self::builtin(self.kind, no_video) {
             Some(mut mirror) => {
@@ -209,13 +198,24 @@ impl Mirror {
         self.template.replace("{id}", &beatmapset_id.to_string())
     }
 
-    /// Build the download URL for a beatmapset ID.
-    #[cfg(feature = "test-helpers")]
-    #[doc(hidden)]
-    pub fn url_for_id(&self, beatmapset_id: u32) -> String {
+    #[cfg(test)]
+    pub(crate) fn with_kind_and_template(kind: MirrorKind, template: impl Into<String>) -> Self {
+        Self {
+            kind,
+            template: template.into().into_boxed_str(),
+            headers: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn url_for_id(&self, beatmapset_id: u32) -> String {
         self.url_for(beatmapset_id)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/mirrors.rs"]
+mod tests;
 
 fn validate_template(template: &str) -> Result<()> {
     if !template.contains("{id}") {

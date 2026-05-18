@@ -1,5 +1,5 @@
-use osu_downloader::__test_exports::MirrorPool;
-use osu_downloader::{Mirror, MirrorKind};
+use super::MirrorPool;
+use crate::{Mirror, MirrorKind};
 
 #[test]
 fn rate_limit_records_penalty() {

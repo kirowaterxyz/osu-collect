@@ -10,9 +10,8 @@ use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
 
-/// minimum time between text updates on a single active-download slot. test access.
-#[doc(hidden)]
-pub const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
+/// minimum time between text updates on a single active-download slot.
+const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Default)]
 struct DisplayedStatus {
@@ -82,9 +81,7 @@ pub struct ActiveDownloadLine {
 }
 
 impl ActiveDownloadLine {
-    /// create a new slot for `beatmapset_id`. test access.
-    #[doc(hidden)]
-    pub fn new(beatmapset_id: u32) -> Self {
+    fn new(beatmapset_id: u32) -> Self {
         Self {
             beatmapset_id,
             stage: BeatmapStage::Downloading,
@@ -127,9 +124,7 @@ impl ActiveDownloadLine {
         }
     }
 
-    /// apply a new status, debouncing the text update. test access.
-    #[doc(hidden)]
-    pub fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
+    fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
         // stage is structural (bar / slot reuse) and updates immediately. the *text* shown to
         // the user is rate-limited to one write per STATUS_DEBOUNCE for all stages — rapid
         // changes (download → verify → success in <50ms) coalesce to the last write.
@@ -429,3 +424,7 @@ impl CollectionPage {
         (avg > 0).then_some(avg)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/active_download_line.rs"]
+mod tests;

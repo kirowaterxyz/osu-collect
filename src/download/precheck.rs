@@ -16,7 +16,7 @@ use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
-pub enum CacheKey {
+pub(crate) enum CacheKey {
     #[cfg(unix)]
     FileId { device: u64, inode: u64, size: u64 },
     #[cfg(not(unix))]
@@ -61,7 +61,7 @@ impl CacheKey {
 /// In-memory cache of previously-validated `.osz` archives. Hits skip the
 /// expensive ZIP/EOCD re-read on the next precheck run.
 #[derive(Default)]
-pub struct ValidationCache {
+pub(crate) struct ValidationCache {
     entries: DashMap<CacheKey, ()>,
 }
 
@@ -335,15 +335,15 @@ impl PrecheckState {
 }
 
 #[derive(Clone)]
-pub struct Candidate {
-    pub path: PathBuf,
-    pub beatmapset_id: u32,
+struct Candidate {
+    path: PathBuf,
+    beatmapset_id: u32,
 }
 
-pub struct CandidateScan {
-    pub candidates: Vec<Candidate>,
-    pub orphan_temp_count: usize,
-    pub aborted: bool,
+struct CandidateScan {
+    candidates: Vec<Candidate>,
+    orphan_temp_count: usize,
+    aborted: bool,
 }
 
 #[derive(Debug)]
@@ -355,7 +355,7 @@ struct FileRecord {
     duration_us: u64,
 }
 
-pub async fn scan_candidates(
+async fn scan_candidates(
     output_dir: &Path,
     expectations: &HashSet<u32>,
     cancel_rx: &watch::Receiver<bool>,
@@ -585,7 +585,7 @@ fn is_osz_extension(ext: &OsStr) -> bool {
 }
 
 #[inline]
-pub fn is_orphan_temp_name(name: &OsStr) -> bool {
+fn is_orphan_temp_name(name: &OsStr) -> bool {
     name.to_str()
         .map(|s| {
             // matches temp files produced by `temp_path_for` in osu-downloader::worker:
@@ -607,7 +607,7 @@ pub fn is_orphan_temp_name(name: &OsStr) -> bool {
 }
 
 #[inline]
-pub fn extract_beatmapset_id(path: &Path) -> Option<u32> {
+fn extract_beatmapset_id(path: &Path) -> Option<u32> {
     let filename = path.file_stem()?.to_str()?;
     let mut chars = filename.chars().peekable();
     let mut id = String::new();
@@ -625,3 +625,7 @@ pub fn extract_beatmapset_id(path: &Path) -> Option<u32> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/download_precheck.rs"]
+mod tests;

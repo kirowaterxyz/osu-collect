@@ -1,4 +1,4 @@
-use osu_collect::tui::terminal::{reset_terminal_bg, set_terminal_bg};
+use super::{reset_terminal_bg, set_terminal_bg};
 use ratatui::style::Color;
 
 #[test]

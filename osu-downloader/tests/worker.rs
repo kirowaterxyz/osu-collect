@@ -1,5 +1,5 @@
-use osu_downloader::__test_exports::{TempFileGuard, MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER};
-use osu_downloader::stream_download;
+use super::{MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard};
+use crate::stream_download;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -84,10 +84,12 @@ async fn final_chunk_does_not_emit_complete_progress() {
     .unwrap();
 
     assert!(!result.aborted);
-    assert!(!progress
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|&(downloaded, total)| downloaded == total));
+    assert!(
+        !progress
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|&(downloaded, total)| downloaded == total)
+    );
     server.join().unwrap();
 }

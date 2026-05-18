@@ -442,3 +442,7 @@ fn message_style(message: &str, rate_limited: bool) -> Style {
     }
     Style::default().fg(TEXT_DIM)
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui_widgets.rs"]
+mod tests;

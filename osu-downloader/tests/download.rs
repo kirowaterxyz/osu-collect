@@ -1,10 +1,12 @@
-use osu_downloader::__test_exports::{
-    download_beatmapset, finalize_download, is_archive_content_type, matches_beatmapset,
-    minimal_zip_bytes_for_test, probe_download_size, sanitize_filename, size_from_content_range,
-    sleep_cancelable, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions,
-    BeatmapsetDownloadOutcome, DownloadParams, FinalizeResult, MirrorPool,
+use super::{
+    BeatmapsetDownloadCallbacks, BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome,
+    DownloadParams, FinalizeResult, download_beatmapset, finalize_download,
+    is_archive_content_type, matches_beatmapset, probe_download_size, sanitize_filename,
+    size_from_content_range, sleep_cancelable,
 };
-use osu_downloader::{
+use crate::mirrors::pool::MirrorPool;
+use crate::validation::minimal_zip_bytes_for_test;
+use crate::{
     ArchiveValidation, BeatmapsetStatusEvent, FileExistsPolicy, Mirror, MirrorKind, SkipReason,
 };
 use std::sync::{Arc, Mutex};
@@ -34,7 +36,7 @@ fn test_sanitize_filename() {
 
 #[test]
 fn test_extract_filename() {
-    use osu_downloader::__test_exports::extract_filename_from_header;
+    use super::extract_filename_from_header;
     assert_eq!(
         extract_filename_from_header("attachment; filename=\"test.osz\""),
         Some("test.osz".to_string())
@@ -355,11 +357,13 @@ async fn skip_existing_file_does_not_emit_downloading() {
             reason: SkipReason::AlreadyExists
         }
     ));
-    assert!(!statuses
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|status| matches!(status, BeatmapsetStatusEvent::Downloading { .. })));
+    assert!(
+        !statuses
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|status| matches!(status, BeatmapsetStatusEvent::Downloading { .. }))
+    );
     server.join().unwrap();
 }
 

@@ -1,6 +1,6 @@
 //! Event types emitted during a download session.
 
-use crate::{downloader::BeatmapsetStatusEvent, DownloadError, MirrorKind};
+use crate::{DownloadError, MirrorKind, downloader::BeatmapsetStatusEvent};
 use std::time::Duration;
 
 /// Events emitted while a [`DownloadSession`](crate::DownloadSession) is running.

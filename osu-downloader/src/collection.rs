@@ -190,12 +190,14 @@ impl CollectionClient {
     }
 }
 
-/// Parse collection ID from osucollector.com URL
-#[doc(hidden)]
-pub fn parse_collection_id_from_url(url: &str) -> Result<u32> {
+fn parse_collection_id_from_url(url: &str) -> Result<u32> {
     // URL format: https://osucollector.com/collections/12345
     url.split('/')
         .next_back()
         .and_then(|s| s.parse::<u32>().ok())
         .ok_or_else(|| Error::collection("Invalid collection URL"))
 }
+
+#[cfg(test)]
+#[path = "../tests/collection.rs"]
+mod tests;

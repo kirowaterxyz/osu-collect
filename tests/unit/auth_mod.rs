@@ -1,4 +1,4 @@
-use osu_collect::auth::{
+use super::{
     OAUTH_SCOPES, StoredAuth, authorization_code_params, build_authorize_url,
     client_credentials_params, parse_callback_query, refresh_params, token_request_failed,
 };

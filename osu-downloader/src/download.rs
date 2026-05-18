@@ -4,16 +4,16 @@
 //! translated into the public [`DownloadEvent`](crate::DownloadEvent) stream there.
 
 use crate::{
+    SkipReason,
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
     downloader::{BeatmapsetStatusEvent, FileExistsPolicy},
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation::{self, ArchiveValidation},
     worker::stream_download,
-    SkipReason,
 };
 use std::{
     collections::HashSet,
-    future::{pending, Future},
+    future::{Future, pending},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -23,25 +23,15 @@ use tracing::{debug, trace};
 
 const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
 
-/// Internal callback bundle for a single beatmapset attempt.
-#[doc(hidden)]
 #[derive(Clone, Default)]
-pub struct BeatmapsetDownloadCallbacks {
-    /// optional progress callback.
-    #[doc(hidden)]
-    pub progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    /// optional status callback.
-    #[doc(hidden)]
-    pub status: Option<Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync>>,
+pub(crate) struct BeatmapsetDownloadCallbacks {
+    pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
+    pub(crate) status: Option<Arc<dyn Fn(BeatmapsetStatusEvent) + Send + Sync>>,
 }
 
-/// Internal per-attempt options.
-#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
-pub struct BeatmapsetDownloadOptions {
-    /// what to do if the file already exists.
-    #[doc(hidden)]
-    pub file_exists_policy: FileExistsPolicy,
+pub(crate) struct BeatmapsetDownloadOptions {
+    pub(crate) file_exists_policy: FileExistsPolicy,
 }
 
 impl Default for BeatmapsetDownloadOptions {
@@ -52,84 +42,41 @@ impl Default for BeatmapsetDownloadOptions {
     }
 }
 
-/// Internal outcome for a single beatmapset attempt.
-#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub enum BeatmapsetDownloadOutcome {
-    /// download succeeded.
-    #[doc(hidden)]
+pub(crate) enum BeatmapsetDownloadOutcome {
     Success {
-        /// saved filename.
         filename: String,
-        /// MD5 hash.
         hash: String,
-        /// mirror that served the file.
         mirror: MirrorKind,
-        /// bytes downloaded.
         size_bytes: u64,
-        /// verification duration in microseconds.
         verify_duration_us: u64,
     },
-    /// beatmapset was skipped.
-    #[doc(hidden)]
     Skipped {
-        /// skip reason.
         reason: SkipReason,
     },
-    /// download failed.
-    #[doc(hidden)]
     Failed {
-        /// mirror that failed, if known.
         mirror: Option<MirrorKind>,
-        /// failure reason.
         reason: String,
     },
-    /// transient network error.
-    #[doc(hidden)]
     NetworkError {
-        /// error description.
         reason: String,
     },
-    /// download was cancelled.
-    #[doc(hidden)]
     Aborted,
 }
 
-/// Parameters for a single beatmapset download.
-#[doc(hidden)]
-pub struct DownloadParams<'a> {
-    /// beatmapset ID to download.
-    #[doc(hidden)]
-    pub beatmapset_id: u32,
-    /// directory to save the file into.
-    #[doc(hidden)]
-    pub output_dir: &'a Path,
-    /// HTTP client.
-    #[doc(hidden)]
-    pub client: &'a reqwest::Client,
-    /// mirror pool.
-    #[doc(hidden)]
-    pub mirror_pool: &'a MirrorPool,
-    /// archive validation mode.
-    #[doc(hidden)]
-    pub archive_validation: ArchiveValidation,
-    /// per-chunk progress timeout.
-    #[doc(hidden)]
-    pub progress_timeout: Duration,
-    /// event callbacks.
-    #[doc(hidden)]
-    pub callbacks: BeatmapsetDownloadCallbacks,
-    /// download options.
-    #[doc(hidden)]
-    pub options: BeatmapsetDownloadOptions,
-    /// cancellation signal.
-    #[doc(hidden)]
-    pub cancel_rx: tokio::sync::watch::Receiver<bool>,
+pub(crate) struct DownloadParams<'a> {
+    pub(crate) beatmapset_id: u32,
+    pub(crate) output_dir: &'a Path,
+    pub(crate) client: &'a reqwest::Client,
+    pub(crate) mirror_pool: &'a MirrorPool,
+    pub(crate) archive_validation: ArchiveValidation,
+    pub(crate) progress_timeout: Duration,
+    pub(crate) callbacks: BeatmapsetDownloadCallbacks,
+    pub(crate) options: BeatmapsetDownloadOptions,
+    pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
-/// Sanitize a filename for writing to disk.
-#[doc(hidden)]
-pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
+fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
     let fallback = || format!("{beatmapset_id}.osz");
 
     let Some(name) = raw else {
@@ -150,11 +97,7 @@ pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
         && !sanitized.starts_with('.')
         && std::path::Path::new(&sanitized).file_name() == Some(std::ffi::OsStr::new(&sanitized));
 
-    if is_safe {
-        sanitized
-    } else {
-        fallback()
-    }
+    if is_safe { sanitized } else { fallback() }
 }
 
 /// Extract filename from Content-Disposition header.
@@ -245,9 +188,7 @@ fn decode_quoted_string(s: &str) -> String {
     out
 }
 
-/// Check if a filename matches a beatmapset ID.
-#[doc(hidden)]
-pub fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
+fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
     parse_beatmapset_id(name) == Some(beatmapset_id)
 }
 
@@ -265,9 +206,9 @@ fn parse_beatmapset_id(name: &str) -> Option<u32> {
     }
 }
 
-/// Download a single beatmapset through the mirror pool.
-#[doc(hidden)]
-pub async fn download_beatmapset(params: DownloadParams<'_>) -> (BeatmapsetDownloadOutcome, u32) {
+pub(crate) async fn download_beatmapset(
+    params: DownloadParams<'_>,
+) -> (BeatmapsetDownloadOutcome, u32) {
     let mut cancel_rx = params.cancel_rx.clone();
     if *cancel_rx.borrow_and_update() {
         return (BeatmapsetDownloadOutcome::Aborted, 0);
@@ -527,16 +468,16 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
     let response = match response {
         Ok(response) => response,
         Err(err) if err.is_timeout() => {
-            return MirrorAttempt::Transient("connection timeout".to_string())
+            return MirrorAttempt::Transient("connection timeout".to_string());
         }
         Err(err) if err.is_connect() => {
-            return MirrorAttempt::Transient("connection failed".to_string())
+            return MirrorAttempt::Transient("connection failed".to_string());
         }
         Err(err) => {
             return MirrorAttempt::Transient(format!(
                 "request failed on {}: {err}",
                 mirror.display_name()
-            ))
+            ));
         }
     };
     let probed_size = if response.content_length().is_none() {
@@ -568,9 +509,7 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
     }
 }
 
-/// Probe the total download size via a range request.
-#[doc(hidden)]
-pub async fn probe_download_size(mirror: &Mirror, params: &DownloadParams<'_>) -> Option<u64> {
+async fn probe_download_size(mirror: &Mirror, params: &DownloadParams<'_>) -> Option<u64> {
     let mut url = mirror.url_for(params.beatmapset_id);
 
     for _ in 0..=SIZE_PROBE_REDIRECT_LIMIT {
@@ -627,9 +566,7 @@ fn size_from_headers(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         })
 }
 
-/// Parse the total file size from a `Content-Range` header value.
-#[doc(hidden)]
-pub fn size_from_content_range(value: &str) -> Option<u64> {
+fn size_from_content_range(value: &str) -> Option<u64> {
     value.rsplit_once('/')?.1.parse().ok()
 }
 
@@ -791,9 +728,7 @@ async fn write_archive(
     })
 }
 
-/// Check if a content-type string indicates an archive.
-#[doc(hidden)]
-pub fn is_archive_content_type(raw: &str) -> bool {
+fn is_archive_content_type(raw: &str) -> bool {
     let mime = raw.split(';').next().map(str::trim).unwrap_or("");
     matches!(
         mime,
@@ -823,9 +758,7 @@ fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> String 
     }
 }
 
-/// Move the temp file to the final output path.
-#[doc(hidden)]
-pub async fn finalize_download(
+pub(crate) async fn finalize_download(
     temp_path: &Path,
     output_path: &Path,
     cancel_rx: &tokio::sync::watch::Receiver<bool>,
@@ -933,20 +866,10 @@ async fn copy_download(
     FinalizeResult::Done
 }
 
-/// Outcome of a finalize-download operation.
-#[doc(hidden)]
-pub enum FinalizeResult {
-    /// file was successfully written.
-    #[doc(hidden)]
+pub(crate) enum FinalizeResult {
     Done,
-    /// output path already existed.
-    #[doc(hidden)]
     AlreadyExists,
-    /// operation was cancelled.
-    #[doc(hidden)]
     Aborted,
-    /// operation failed with this message.
-    #[doc(hidden)]
     Failed(String),
 }
 
@@ -963,9 +886,7 @@ fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: BeatmapsetStatusE
     }
 }
 
-/// Sleep for `duration`, returning `true` if cancelled before it expires.
-#[doc(hidden)]
-pub async fn sleep_cancelable(
+async fn sleep_cancelable(
     duration: Duration,
     cancel_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> bool {
@@ -994,3 +915,7 @@ async fn wait_until_cancelled(cancel_rx: &mut tokio::sync::watch::Receiver<bool>
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/download.rs"]
+mod tests;

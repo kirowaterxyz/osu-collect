@@ -6,9 +6,9 @@ use crate::{
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use std::{collections::HashSet, path::Path};
 
-pub struct CollectionDbEntry {
-    pub name: String,
-    pub beatmap_hashes: Vec<String>,
+pub(crate) struct CollectionDbEntry {
+    pub(crate) name: String,
+    pub(crate) beatmap_hashes: Vec<String>,
 }
 
 /// Persist collection metadata to osu!'s collection.db format.
@@ -26,7 +26,7 @@ pub fn create_collection_db(
     )
 }
 
-pub fn write_db_entries(entries: &[CollectionDbEntry], output_dir: &Path) -> Result<()> {
+pub(crate) fn write_db_entries(entries: &[CollectionDbEntry], output_dir: &Path) -> Result<()> {
     let collections = entries
         .iter()
         .map(|entry| {
@@ -85,3 +85,7 @@ pub fn folder_name(collection: &Collection) -> String {
     let sanitized_name = sanitize_filename(&collection.name);
     format!("{}-{}", sanitized_name, collection.id)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/core_db_writer.rs"]
+mod tests;

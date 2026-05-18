@@ -3,7 +3,7 @@
 //! Behind the `size-fetch` feature.
 
 use crate::http;
-use futures_util::{stream, stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt, stream, stream::FuturesUnordered};
 use reqwest::Client;
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};

@@ -4,13 +4,13 @@
 //! [`Downloader::download_many`] to start a session and consume its event stream.
 
 use crate::{
+    DownloadEvent, Error, Result,
     batch::{self, BatchConfig},
     config::DownloadConfig,
     event::DownloadSummary,
     http,
     mirrors::{Mirror, MirrorKind, MirrorPool},
     validation::ArchiveValidation,
-    DownloadEvent, Error, Result,
 };
 use futures_util::Stream;
 use std::{path::Path, sync::Arc, time::Duration};
@@ -277,9 +277,8 @@ impl Downloader {
         DownloaderBuilder::new()
     }
 
-    #[cfg(any(test, feature = "test-helpers"))]
-    #[doc(hidden)]
-    pub fn mirror_pool_mirrors(&self) -> &[Mirror] {
+    #[cfg(test)]
+    pub(crate) fn mirror_pool_mirrors(&self) -> &[Mirror] {
         self.mirror_pool.mirrors()
     }
 
@@ -357,3 +356,7 @@ impl DownloadSession {
             .map_err(|err| Error::config(format!("download task panicked: {err}")))
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/downloader.rs"]
+mod tests;
