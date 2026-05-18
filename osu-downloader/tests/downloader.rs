@@ -41,7 +41,11 @@ fn default_mirrors_include_every_builtin_mirror() {
 fn per_mirror_no_video_switches_template() {
     let downloader = crate::Downloader::builder()
         .mirror(Mirror::nerinyan().no_video())
-        .mirror(Mirror::custom("https://example.com/d/{id}").unwrap().no_video())
+        .mirror(
+            Mirror::custom("https://example.com/d/{id}")
+                .unwrap()
+                .no_video(),
+        )
         .build()
         .unwrap();
 

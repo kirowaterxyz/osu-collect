@@ -214,6 +214,7 @@ impl std::error::Error for CollectionError {
 }
 
 /// Client for fetching collections from osucollector.com.
+#[derive(Debug, Clone)]
 pub struct CollectionClient {
     client: reqwest::Client,
 }

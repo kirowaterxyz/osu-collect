@@ -6,9 +6,7 @@ use super::{
 };
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
-use crate::{
-    ArchiveValidation, FileExistsPolicy, Mirror, MirrorKind, SkipReason, StatusEvent,
-};
+use crate::{ArchiveValidation, FileExistsPolicy, Mirror, MirrorKind, SkipReason, StatusEvent};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -407,10 +405,8 @@ async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
 
     let rate_limited =
         Mirror::with_kind_and_template(MirrorKind::Nerinyan, format!("http://{addr}/rate/{{id}}"));
-    let healthy = Mirror::with_kind_and_template(
-        MirrorKind::OsuDirect,
-        format!("http://{addr}/ok/{{id}}"),
-    );
+    let healthy =
+        Mirror::with_kind_and_template(MirrorKind::OsuDirect, format!("http://{addr}/ok/{{id}}"));
     let mirror_pool = MirrorPool::new(vec![rate_limited, healthy]);
     let dir = tempfile::tempdir().unwrap();
     let client = reqwest::Client::new();
@@ -483,10 +479,8 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
 
     let mirror_a =
         Mirror::with_kind_and_template(MirrorKind::Nerinyan, format!("http://{addr}/a/{{id}}"));
-    let mirror_b = Mirror::with_kind_and_template(
-        MirrorKind::OsuDirect,
-        format!("http://{addr}/b/{{id}}"),
-    );
+    let mirror_b =
+        Mirror::with_kind_and_template(MirrorKind::OsuDirect, format!("http://{addr}/b/{{id}}"));
     let mirror_pool = MirrorPool::new(vec![mirror_a, mirror_b]);
     let dir = tempfile::tempdir().unwrap();
     let client = reqwest::Client::new();

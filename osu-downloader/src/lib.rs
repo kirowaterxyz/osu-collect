@@ -50,7 +50,9 @@ pub mod collection;
 #[cfg(feature = "size-fetch")]
 pub mod size;
 
-pub use downloader::{DownloadItem, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy};
+pub use downloader::{
+    DownloadItem, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy,
+};
 pub use error::{DownloadError, Error, Result};
 pub use event::{Event, SkipReason, StatusEvent, Summary};
 pub use mirrors::{Mirror, MirrorKind};
