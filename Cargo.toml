@@ -15,8 +15,8 @@ doctest = false
 
 [dependencies]
 osu-downloader = { path = "osu-downloader" }
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "default-tls", "blocking", "form"] }
-open = "5"
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "stream", "default-tls", "blocking", "form"] }
+open = "5.3.5"
 bytes = "1.11.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -25,24 +25,24 @@ semver = "1.0.28"
 url = "2.5.8"
 toml = "1.1.2"
 dirs = "6.0.0"
-time = { version = "0.3.44", features = ["formatting"] }
-tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time", "net"] }
-async-channel = "2"
+time = { version = "0.3.47", features = ["formatting"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time", "net"] }
+async-channel = "2.5.0"
 futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
 osu-db = "0.3.0"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm"] }
 crossterm = "0.29.0"
 md-5 = "0.11.0"
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "json", "ansi", "tracing-log"] }
-tracing-appender = "0.2.4"
+tracing-appender = "0.2.5"
 regex-lite = "0.1.9"
-whoami = "2.1.1"
+whoami = "2.1.2"
 cxx = "1.0.194"
 # Suppress link-cplusplus's unconditional `-lstdc++`; build.rs owns C++ runtime linking
 # so Windows mingw builds can statically pull libstdc++.a instead of libstdc++-6.dll.
-link-cplusplus = { version = "1", features = ["nothing"] }
+link-cplusplus = { version = "1.0.12", features = ["nothing"] }
 fs2 = "0.4.3"
 smallvec = "1.15.1"
 sha2 = "0.11.0"
@@ -52,8 +52,9 @@ name = "tests"
 path = "tests/mod.rs"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "3.27.0"
 osu-downloader = { path = "osu-downloader", features = ["test-helpers"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [build-dependencies]
 cxx-build = "1.0.194"

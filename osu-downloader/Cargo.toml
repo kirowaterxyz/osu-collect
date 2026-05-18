@@ -11,10 +11,10 @@ keywords = ["osu", "beatmap", "download", "mirror"]
 categories = ["api-bindings", "network-programming"]
 
 [dependencies]
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "default-tls"] }
-tokio = { version = "1.51.0", features = ["rt", "fs", "io-util", "sync", "time", "macros"] }
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "stream", "default-tls"] }
+tokio = { version = "1.52.3", features = ["rt", "fs", "io-util", "sync", "time", "macros"] }
 tokio-stream = "0.1.18"
-async-channel = "2"
+async-channel = "2.5.0"
 futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -27,9 +27,10 @@ tracing = "0.1.44"
 osu-db = { version = "0.3.0", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
 tokio-test = "0.4.5"
 tempfile = "3.27.0"
+criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [features]
 default = ["collection", "size-fetch"]
