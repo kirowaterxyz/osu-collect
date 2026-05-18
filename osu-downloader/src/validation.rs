@@ -7,8 +7,12 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt},
 };
 
-const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
-const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
+/// ZIP local-file-header magic bytes.
+#[doc(hidden)]
+pub const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
+/// ZIP end-of-central-directory magic bytes.
+#[doc(hidden)]
+pub const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 
 /// Archive validation strictness.
@@ -166,127 +170,39 @@ fn trim_leading_whitespace(data: &[u8]) -> &[u8] {
     &data[start..]
 }
 
-fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
+/// Find the last EOCD signature in `buffer`.
+#[doc(hidden)]
+pub fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(EOCD_SIGNATURE.len())
         .rposition(|window| window == EOCD_SIGNATURE)
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
+/// Build a minimal valid ZIP file for use in tests.
+#[cfg(any(test, feature = "test-helpers"))]
+#[doc(hidden)]
+pub fn minimal_zip_bytes_for_test() -> Vec<u8> {
+    let local_header: &[u8] = &[
+        0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, b'a',
+    ];
+    let cd_header: &[u8] = &[
+        0x50, 0x4B, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, b'a',
+    ];
+    let local_len = local_header.len() as u32;
+    let cd_len = cd_header.len() as u32;
+    let mut eocd = vec![
+        0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    ];
+    eocd.extend_from_slice(&cd_len.to_le_bytes());
+    eocd.extend_from_slice(&local_len.to_le_bytes());
+    eocd.extend_from_slice(&[0x00, 0x00]);
 
-    pub(crate) fn minimal_zip_bytes_for_test() -> Vec<u8> {
-        minimal_zip_bytes()
-    }
-
-    fn minimal_zip_bytes() -> Vec<u8> {
-        let local_header: &[u8] = &[
-            0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, b'a',
-        ];
-        let cd_header: &[u8] = &[
-            0x50, 0x4B, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, b'a',
-        ];
-        let local_len = local_header.len() as u32;
-        let cd_len = cd_header.len() as u32;
-        let mut eocd = vec![
-            0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
-        ];
-        eocd.extend_from_slice(&cd_len.to_le_bytes());
-        eocd.extend_from_slice(&local_len.to_le_bytes());
-        eocd.extend_from_slice(&[0x00, 0x00]);
-
-        let mut zip = Vec::new();
-        zip.extend_from_slice(local_header);
-        zip.extend_from_slice(cd_header);
-        zip.extend_from_slice(&eocd);
-        zip
-    }
-
-    #[tokio::test]
-    async fn valid_zip_passes() {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(&minimal_zip_bytes()).unwrap();
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-            .await
-            .is_ok());
-    }
-
-    #[tokio::test]
-    async fn lenient_validation_allows_header_only_archive() {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(LOCAL_HEADER_SIGNATURE).unwrap();
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Magic)
-            .await
-            .is_ok());
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-            .await
-            .is_err());
-    }
-
-    #[tokio::test]
-    async fn off_mode_skips_all_checks() {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(b"not a zip at all").unwrap();
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Off)
-            .await
-            .is_ok());
-    }
-
-    #[tokio::test]
-    async fn validate_archive_removes_invalid_files() {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(b"not a zip").unwrap();
-        let path = tmp.path().to_path_buf();
-        let result = validate_archive(
-            &path,
-            ArchiveValidationOptions {
-                mode: ArchiveValidation::Magic,
-                remove_on_invalid: true,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(matches!(result, ArchiveValidationResult::Removed(_)));
-        assert!(!path.exists());
-    }
-
-    #[tokio::test]
-    async fn zip_with_odd_eocd_offset_still_passes() {
-        let mut data = minimal_zip_bytes();
-        let eocd_pos = find_eocd_position(&data).unwrap();
-        data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&(u32::MAX).to_le_bytes());
-
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(&data).unwrap();
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-            .await
-            .is_ok());
-    }
-
-    #[tokio::test]
-    async fn zeros_with_eocd_tail_fails_local_header_check() {
-        let mut data = vec![0u8; 64];
-        let tail = data.len() - EOCD_SIGNATURE.len();
-        data[tail..].copy_from_slice(EOCD_SIGNATURE);
-
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(&data).unwrap();
-        assert!(ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
-            .await
-            .is_err());
-    }
-
-    #[test]
-    fn find_eocd_returns_last_occurrence() {
-        let mut buf = vec![0u8; 64];
-        buf[10..14].copy_from_slice(EOCD_SIGNATURE);
-        buf[40..44].copy_from_slice(EOCD_SIGNATURE);
-        assert_eq!(find_eocd_position(&buf), Some(40));
-    }
+    let mut zip = Vec::new();
+    zip.extend_from_slice(local_header);
+    zip.extend_from_slice(cd_header);
+    zip.extend_from_slice(&eocd);
+    zip
 }

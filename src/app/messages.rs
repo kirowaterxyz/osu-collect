@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-const MESSAGE_TTL: Duration = Duration::from_secs(5);
+pub const MESSAGE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageKind {
@@ -12,7 +12,7 @@ pub enum MessageKind {
 pub struct AppMessage {
     pub kind: MessageKind,
     pub text: String,
-    created_at: Instant,
+    pub created_at: Instant,
 }
 
 impl AppMessage {
@@ -45,7 +45,7 @@ pub(crate) fn set_error_message(slot: &mut Option<AppMessage>, message: impl Int
     *slot = Some(AppMessage::error(message));
 }
 
-pub(crate) fn set_info_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
+pub fn set_info_message(slot: &mut Option<AppMessage>, message: impl Into<String>) {
     *slot = Some(AppMessage::info(message));
 }
 
@@ -60,26 +60,5 @@ pub(crate) fn clear_app_message(slot: &mut Option<AppMessage>) {
 pub(crate) fn clear_expired_message(slot: &mut Option<AppMessage>) {
     if slot.as_ref().is_some_and(AppMessage::is_expired) {
         *slot = None;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn info_message_expires_after_ttl() {
-        let mut message = AppMessage::info("saved");
-        message.created_at = Instant::now() - MESSAGE_TTL - Duration::from_millis(1);
-
-        assert!(message.is_expired());
-    }
-
-    #[test]
-    fn loading_message_does_not_expire() {
-        let mut message = AppMessage::loading("loading");
-        message.created_at = Instant::now() - MESSAGE_TTL - Duration::from_millis(1);
-
-        assert!(!message.is_expired());
     }
 }

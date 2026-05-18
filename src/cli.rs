@@ -285,21 +285,3 @@ pub async fn run_update_collections(
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    async fn spawn_blocking_join_error_is_not_silently_dropped() {
-        // A panicking spawn_blocking task yields a JoinError; verify it is
-        // surfaced (not silently .ok()'d) by matching the Err arm.
-        let result = tokio::task::spawn_blocking(|| {
-            panic!("simulated save failure");
-        })
-        .await;
-
-        assert!(result.is_err(), "panicking task must yield JoinError");
-        let err = result.unwrap_err();
-        assert!(err.is_panic());
-        // The fix logs warn! for this; we only assert the error is reachable.
-    }
-}

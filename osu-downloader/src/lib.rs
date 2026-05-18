@@ -64,3 +64,25 @@ pub use validation::{
     ArchiveValidationResult,
 };
 pub use worker::{stream_download, DownloadStreamResult};
+
+/// Internal items exposed for downstream integration tests.
+///
+/// Gated on the `test-helpers` feature — not part of the public API.
+#[cfg(feature = "test-helpers")]
+#[doc(hidden)]
+pub mod __test_exports {
+    pub use crate::batch::{download_batch, BatchConfig};
+    #[cfg(feature = "collection")]
+    pub use crate::collection::parse_collection_id_from_url;
+    pub use crate::download::{
+        download_beatmapset, extract_filename_from_header, finalize_download,
+        is_archive_content_type, matches_beatmapset, probe_download_size, sanitize_filename,
+        size_from_content_range, sleep_cancelable, BeatmapsetDownloadCallbacks,
+        BeatmapsetDownloadOptions, BeatmapsetDownloadOutcome, DownloadParams, FinalizeResult,
+    };
+    pub use crate::mirrors::pool::MirrorPool;
+    pub use crate::validation::{
+        find_eocd_position, minimal_zip_bytes_for_test, EOCD_SIGNATURE, LOCAL_HEADER_SIGNATURE,
+    };
+    pub use crate::worker::{TempFileGuard, MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER};
+}

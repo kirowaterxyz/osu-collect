@@ -168,7 +168,7 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     }
 }
 
-fn hint_line(hint: &str) -> Line<'static> {
+pub fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(TEXT_FAINT);
     let key_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
@@ -194,27 +194,4 @@ fn hint_line(hint: &str) -> Line<'static> {
     }
 
     Line::from(spans)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spinner_wraps_correctly() {
-        for tick in 0u64..30 {
-            let frame = spinner_char(tick);
-            assert!(super::super::SPINNER_FRAMES.contains(&frame));
-        }
-    }
-
-    #[test]
-    fn hint_line_has_key_and_label_spans() {
-        let line = hint_line("↑↓ move  ·  q quit");
-        let full: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(full.contains("↑↓"));
-        assert!(full.contains("move"));
-        assert!(full.contains("q"));
-        assert!(full.contains("quit"));
-    }
 }

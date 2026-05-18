@@ -191,50 +191,11 @@ impl CollectionClient {
 }
 
 /// Parse collection ID from osucollector.com URL
-fn parse_collection_id_from_url(url: &str) -> Result<u32> {
+#[doc(hidden)]
+pub fn parse_collection_id_from_url(url: &str) -> Result<u32> {
     // URL format: https://osucollector.com/collections/12345
     url.split('/')
         .next_back()
         .and_then(|s| s.parse::<u32>().ok())
         .ok_or_else(|| Error::collection("Invalid collection URL"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_collection_id() {
-        assert_eq!(
-            parse_collection_id_from_url("https://osucollector.com/collections/12345").unwrap(),
-            12345
-        );
-        assert!(parse_collection_id_from_url("invalid").is_err());
-    }
-
-    #[test]
-    fn test_beatmapset_ids() {
-        let collection = Collection {
-            id: 1,
-            name: "Test".to_string(),
-            description: None,
-            uploader: Uploader {
-                id: 1,
-                username: "test".to_string(),
-            },
-            beatmapsets: vec![
-                Beatmapset {
-                    id: 100,
-                    beatmaps: vec![],
-                },
-                Beatmapset {
-                    id: 200,
-                    beatmaps: vec![],
-                },
-            ],
-            favourites: 0,
-        };
-
-        assert_eq!(collection.beatmapset_ids(), vec![100, 200]);
-    }
 }

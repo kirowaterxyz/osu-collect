@@ -272,7 +272,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     spans
 }
 
-fn format_speed(bytes_per_sec: f64) -> String {
+pub fn format_speed(bytes_per_sec: f64) -> String {
     if bytes_per_sec >= MB {
         format!("{:.2} MB/s", bytes_per_sec / MB)
     } else if bytes_per_sec >= KB {
@@ -286,7 +286,7 @@ fn format_bytes_progress(downloaded: u64, total: u64) -> String {
     format!("{:.2}/{:.2} GB", downloaded as f64 / GB, total as f64 / GB)
 }
 
-fn format_avg_verify(avg_us: u64) -> String {
+pub fn format_avg_verify(avg_us: u64) -> String {
     if avg_us < 1_000 {
         format!("{avg_us}us")
     } else if avg_us < 1_000_000 {
@@ -614,7 +614,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     );
 }
 
-fn summarize_failure(reason: &str) -> String {
+pub fn summarize_failure(reason: &str) -> String {
     if reason.is_empty() {
         return FAILED_UNKNOWN.to_string();
     }
@@ -627,41 +627,4 @@ fn summarize_failure(reason: &str) -> String {
         truncated.push_str("...");
     }
     truncated
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_avg_verify_us_boundary() {
-        assert_eq!(format_avg_verify(0), "0us");
-        assert_eq!(format_avg_verify(999), "999us");
-        assert_eq!(format_avg_verify(1_000), "1.0ms");
-        assert_eq!(format_avg_verify(999_999), "1000.0ms");
-        assert_eq!(format_avg_verify(1_000_000), "1.0s");
-        assert_eq!(format_avg_verify(59_999_999), "60.0s");
-        assert_eq!(format_avg_verify(60_000_000), "1.0m");
-        assert_eq!(format_avg_verify(120_000_000), "2.0m");
-    }
-
-    #[test]
-    fn format_speed_units() {
-        assert_eq!(format_speed(500.0), "500 B/s");
-        assert_eq!(format_speed(1024.0), "1.0 KB/s");
-        assert_eq!(format_speed(1024.0 * 1024.0), "1.00 MB/s");
-    }
-
-    #[test]
-    fn summarize_failure_truncates_long() {
-        let reason = "x".repeat(200);
-        let summary = summarize_failure(&reason);
-        assert!(summary.ends_with("..."));
-        assert!(summary.chars().count() <= MAX_TRUNCATED_CHARS);
-    }
-
-    #[test]
-    fn summarize_failure_empty_returns_unknown() {
-        assert_eq!(summarize_failure(""), FAILED_UNKNOWN);
-    }
 }

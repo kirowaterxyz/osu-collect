@@ -18,7 +18,7 @@ use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
-pub(crate) enum CacheKey {
+pub enum CacheKey {
     #[cfg(unix)]
     FileId { device: u64, inode: u64, size: u64 },
     #[cfg(not(unix))]
@@ -30,7 +30,7 @@ pub(crate) enum CacheKey {
 }
 
 impl CacheKey {
-    fn from_meta(_path: &Path, meta: &std::fs::Metadata) -> Self {
+    pub fn from_meta(_path: &Path, meta: &std::fs::Metadata) -> Self {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -63,16 +63,16 @@ impl CacheKey {
 /// In-memory cache of previously-validated `.osz` archives. Hits skip the
 /// expensive ZIP/EOCD re-read on the next precheck run.
 #[derive(Default)]
-pub(crate) struct ValidationCache {
+pub struct ValidationCache {
     entries: DashMap<CacheKey, ()>,
 }
 
 impl ValidationCache {
-    fn is_valid(&self, key: &CacheKey) -> bool {
+    pub fn is_valid(&self, key: &CacheKey) -> bool {
         self.entries.contains_key(key)
     }
 
-    fn mark_valid(&self, key: CacheKey) {
+    pub fn mark_valid(&self, key: CacheKey) {
         if self.entries.len() >= VALIDATION_CACHE_LIMIT {
             self.entries.clear();
         }
@@ -337,15 +337,15 @@ impl PrecheckState {
 }
 
 #[derive(Clone)]
-struct Candidate {
-    path: PathBuf,
-    beatmapset_id: u32,
+pub struct Candidate {
+    pub path: PathBuf,
+    pub beatmapset_id: u32,
 }
 
-struct CandidateScan {
-    candidates: Vec<Candidate>,
-    orphan_temp_count: usize,
-    aborted: bool,
+pub struct CandidateScan {
+    pub candidates: Vec<Candidate>,
+    pub orphan_temp_count: usize,
+    pub aborted: bool,
 }
 
 #[derive(Debug)]
@@ -357,7 +357,7 @@ struct FileRecord {
     duration_us: u64,
 }
 
-async fn scan_candidates(
+pub async fn scan_candidates(
     output_dir: &Path,
     expectations: &HashSet<u32>,
     cancel_rx: &watch::Receiver<bool>,
@@ -587,7 +587,7 @@ fn is_osz_extension(ext: &OsStr) -> bool {
 }
 
 #[inline]
-fn is_orphan_temp_name(name: &OsStr) -> bool {
+pub fn is_orphan_temp_name(name: &OsStr) -> bool {
     name.to_str()
         .map(|s| {
             // matches temp files produced by `temp_path_for` in osu-downloader::worker:
@@ -609,7 +609,7 @@ fn is_orphan_temp_name(name: &OsStr) -> bool {
 }
 
 #[inline]
-pub(crate) fn extract_beatmapset_id(path: &Path) -> Option<u32> {
+pub fn extract_beatmapset_id(path: &Path) -> Option<u32> {
     let filename = path.file_stem()?.to_str()?;
     let mut chars = filename.chars().peekable();
     let mut id = String::new();
@@ -625,97 +625,5 @@ pub(crate) fn extract_beatmapset_id(path: &Path) -> Option<u32> {
     match chars.peek() {
         None | Some(' ') => id.parse().ok(),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detects_orphan_temp_files() {
-        let yes = [
-            "123.osz.part-12345-0",
-            "abc.osz.part-1-9",
-            "1 artist.osz.part-99999-42",
-        ];
-        let no = [
-            "123.osz",
-            "123.osz.part",
-            "123.osz.part-abc-9",
-            "123.osz.part-9-abc",
-            "123.osz.part-9",
-            "random.txt",
-        ];
-        for name in yes {
-            assert!(
-                is_orphan_temp_name(OsStr::new(name)),
-                "expected match: {name}"
-            );
-        }
-        for name in no {
-            assert!(
-                !is_orphan_temp_name(OsStr::new(name)),
-                "expected no match: {name}"
-            );
-        }
-    }
-
-    #[test]
-    fn extracts_exact_prefixed_beatmapset_ids() {
-        assert_eq!(extract_beatmapset_id(Path::new("123.osz")), Some(123));
-        assert_eq!(
-            extract_beatmapset_id(Path::new("123 artist.osz")),
-            Some(123)
-        );
-        assert_eq!(extract_beatmapset_id(Path::new("1234.osz")), Some(1234));
-        assert_eq!(extract_beatmapset_id(Path::new("123abc.osz")), None);
-    }
-
-    #[test]
-    fn validation_cache_marks_and_lookups_by_metadata() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("123.osz");
-        std::fs::write(&path, b"hello").unwrap();
-        let meta = std::fs::metadata(&path).unwrap();
-        let cache = ValidationCache::default();
-        let key = CacheKey::from_meta(&path, &meta);
-
-        assert!(!cache.is_valid(&key), "miss before insert");
-        cache.mark_valid(key.clone());
-        assert!(cache.is_valid(&key), "hit after insert");
-
-        // a rewritten file with a different size produces a different key
-        std::fs::write(&path, b"changed-bytes").unwrap();
-        let meta2 = std::fs::metadata(&path).unwrap();
-        let key2 = CacheKey::from_meta(&path, &meta2);
-        assert!(
-            !cache.is_valid(&key2),
-            "size change must invalidate the key"
-        );
-    }
-
-    #[tokio::test]
-    async fn scans_expected_osz_candidates_and_removes_orphan_temps() {
-        let dir = tempfile::tempdir().expect("create tempdir");
-        let expected = dir.path().join("123 artist.osz");
-        let unexpected = dir.path().join("456 artist.osz");
-        let orphan = dir.path().join("789 artist.osz.part-1-2");
-        std::fs::write(&expected, b"expected").unwrap();
-        std::fs::write(&unexpected, b"unexpected").unwrap();
-        std::fs::write(&orphan, b"orphan").unwrap();
-
-        let expectations: HashSet<u32> = [123].into_iter().collect();
-        let (_tx, rx) = watch::channel(false);
-        let scan = scan_candidates(dir.path(), &expectations, &rx)
-            .await
-            .expect("scan candidates");
-
-        assert!(!scan.aborted);
-        assert_eq!(scan.orphan_temp_count, 1);
-        assert_eq!(scan.candidates.len(), 1);
-        assert_eq!(scan.candidates[0].beatmapset_id, 123);
-        assert_eq!(scan.candidates[0].path, expected);
-        assert!(!orphan.exists());
     }
 }

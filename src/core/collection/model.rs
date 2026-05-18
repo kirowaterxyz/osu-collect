@@ -27,8 +27,8 @@ pub struct Beatmap {
     pub checksum: Box<str>,
 }
 
-#[cfg(test)]
-pub(crate) fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
+#[doc(hidden)]
+pub fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {
     Collection {
         id,
         name: format!("collection-{id}").into(),
@@ -40,8 +40,8 @@ pub(crate) fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collecti
     }
 }
 
-#[cfg(test)]
-pub(crate) fn test_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
+#[doc(hidden)]
+pub fn test_beatmapset(id: u32, checksums: &[&str]) -> Beatmapset {
     Beatmapset {
         id,
         beatmaps: checksums

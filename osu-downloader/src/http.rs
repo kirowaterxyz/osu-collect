@@ -38,27 +38,3 @@ pub fn create_api_client() -> Result<reqwest::Client> {
         .pool_max_idle_per_host(20)
         .build()?)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_download_client() {
-        let client = create_download_client(None);
-        assert!(client.is_ok());
-    }
-
-    #[test]
-    fn test_create_download_client_with_user_agent() {
-        let client = create_download_client(Some("test-agent".to_string()));
-        assert!(client.is_ok());
-    }
-
-    #[cfg(feature = "collection")]
-    #[test]
-    fn test_create_api_client() {
-        let client = create_api_client();
-        assert!(client.is_ok());
-    }
-}

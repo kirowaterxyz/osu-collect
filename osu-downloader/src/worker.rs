@@ -19,10 +19,14 @@ use tokio::{
     time::timeout,
 };
 
-const MIN_PROGRESS_DELTA: u64 = 131_072;
+/// minimum byte delta that triggers a progress event.
+#[doc(hidden)]
+pub const MIN_PROGRESS_DELTA: u64 = 131_072;
 const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
-static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+/// monotonic counter used to generate unique temp-file names.
+#[doc(hidden)]
+pub static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Streamed download output.
 pub struct DownloadStreamResult {
@@ -83,17 +87,25 @@ impl HashWorker {
     }
 }
 
-struct TempFileGuard {
-    path: PathBuf,
+/// RAII guard that removes its file on drop unless disarmed.
+#[doc(hidden)]
+pub struct TempFileGuard {
+    /// path to the guarded file.
+    #[doc(hidden)]
+    pub path: PathBuf,
     armed: bool,
 }
 
 impl TempFileGuard {
-    fn new(path: PathBuf) -> Self {
+    /// Create a new armed guard.
+    #[doc(hidden)]
+    pub fn new(path: PathBuf) -> Self {
         Self { path, armed: true }
     }
 
-    fn disarm(&mut self) {
+    /// Disarm the guard so it won't remove the file on drop.
+    #[doc(hidden)]
+    pub fn disarm(&mut self) {
         self.armed = false;
     }
 }
@@ -313,99 +325,5 @@ async fn wait_until_cancelled(cancel_rx: &mut tokio::sync::watch::Receiver<bool>
         if cancel_rx.changed().await.is_err() {
             pending::<()>().await;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn temp_file_guard_removes_on_drop_when_armed() {
-        let path = std::env::temp_dir().join(format!(
-            "osu-downloader-test-{}-{}.part",
-            std::process::id(),
-            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::write(&path, b"hello").unwrap();
-        {
-            let _guard = TempFileGuard::new(path.clone());
-        }
-        assert!(!path.exists(), "guard must remove file when dropped armed");
-    }
-
-    #[tokio::test]
-    async fn final_chunk_does_not_emit_complete_progress() {
-        use std::{
-            io::{Read, Write},
-            net::TcpListener,
-            sync::{Arc, Mutex},
-            thread,
-        };
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 1024];
-            let _ = stream.read(&mut request).unwrap();
-            stream
-                .write_all(
-                    format!("HTTP/1.1 200 OK\r\nContent-Length: {MIN_PROGRESS_DELTA}\r\n\r\n")
-                        .as_bytes(),
-                )
-                .unwrap();
-            stream
-                .write_all(&vec![b'a'; MIN_PROGRESS_DELTA as usize])
-                .unwrap();
-        });
-
-        let response = reqwest::Client::new()
-            .get(format!("http://{addr}/archive.osz"))
-            .send()
-            .await
-            .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let output_path = dir.path().join("archive.osz");
-        let progress = Arc::new(Mutex::new(Vec::new()));
-        let progress_events = progress.clone();
-        let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
-
-        let result = stream_download(
-            response,
-            &output_path,
-            Some(MIN_PROGRESS_DELTA),
-            Some(Arc::new(move |downloaded, total| {
-                progress_events.lock().unwrap().push((downloaded, total));
-            })),
-            Duration::from_secs(1),
-            cancel_rx,
-        )
-        .await
-        .unwrap();
-
-        assert!(!result.aborted);
-        assert!(!progress
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|&(downloaded, total)| downloaded == total));
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn temp_file_guard_keeps_file_when_disarmed() {
-        let path = std::env::temp_dir().join(format!(
-            "osu-downloader-test-{}-{}.part",
-            std::process::id(),
-            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::write(&path, b"hello").unwrap();
-        {
-            let mut guard = TempFileGuard::new(path.clone());
-            guard.disarm();
-        }
-        assert!(path.exists(), "disarmed guard must not remove the file");
-        std::fs::remove_file(&path).unwrap();
     }
 }

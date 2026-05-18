@@ -6,9 +6,9 @@ use crate::{
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use std::{collections::HashSet, path::Path};
 
-pub(crate) struct CollectionDbEntry {
-    pub(crate) name: String,
-    pub(crate) beatmap_hashes: Vec<String>,
+pub struct CollectionDbEntry {
+    pub name: String,
+    pub beatmap_hashes: Vec<String>,
 }
 
 /// Persist collection metadata to osu!'s collection.db format.
@@ -26,7 +26,7 @@ pub fn create_collection_db(
     )
 }
 
-pub(crate) fn write_db_entries(entries: &[CollectionDbEntry], output_dir: &Path) -> Result<()> {
+pub fn write_db_entries(entries: &[CollectionDbEntry], output_dir: &Path) -> Result<()> {
     let collections = entries
         .iter()
         .map(|entry| {
@@ -84,94 +84,4 @@ fn write_collection_files(collection_list: CollectionList, output_dir: &Path) ->
 pub fn folder_name(collection: &Collection) -> String {
     let sanitized_name = sanitize_filename(&collection.name);
     format!("{}-{}", sanitized_name, collection.id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::collection::model::{test_beatmapset, test_collection};
-    use tempfile::tempdir;
-
-    #[test]
-    fn duplicate_hashes_written_once() {
-        let shared_hash = "aabbccdd";
-        let collection = test_collection(
-            1,
-            vec![
-                test_beatmapset(1, &[shared_hash, "unique1"]),
-                test_beatmapset(2, &[shared_hash, "unique2"]),
-            ],
-        );
-
-        let dir = tempdir().unwrap();
-        create_collection_db(&collection, "test", dir.path()).unwrap();
-
-        let db_path = dir.path().join("collection.db");
-        let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();
-        let hashes: Vec<_> = list.collections[0]
-            .beatmap_hashes
-            .iter()
-            .flatten()
-            .collect();
-
-        let shared_count = hashes.iter().filter(|h| h.as_str() == shared_hash).count();
-        assert_eq!(shared_count, 1, "shared hash should appear exactly once");
-        assert_eq!(hashes.len(), 3, "unique hashes should all be present");
-    }
-
-    #[test]
-    fn no_duplicates_collection_unchanged() {
-        let collection = test_collection(
-            1,
-            vec![
-                test_beatmapset(1, &["hash1"]),
-                test_beatmapset(2, &["hash2"]),
-            ],
-        );
-
-        let dir = tempdir().unwrap();
-        create_collection_db(&collection, "test", dir.path()).unwrap();
-
-        let db_path = dir.path().join("collection.db");
-        let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();
-        let hashes: Vec<_> = list.collections[0]
-            .beatmap_hashes
-            .iter()
-            .flatten()
-            .collect();
-
-        assert_eq!(hashes.len(), 2);
-    }
-
-    #[test]
-    fn multiple_collections_are_written() {
-        let dir = tempdir().unwrap();
-        let entries = [
-            CollectionDbEntry {
-                name: "renamed collection - 10".to_string(),
-                beatmap_hashes: vec!["hash1".to_string(), "hash2".to_string()],
-            },
-            CollectionDbEntry {
-                name: "other collection - 20".to_string(),
-                beatmap_hashes: vec!["hash2".to_string(), "hash3".to_string()],
-            },
-        ];
-
-        write_db_entries(&entries, dir.path()).unwrap();
-
-        let db_path = dir.path().join("collection.db");
-        let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();
-        assert_eq!(list.collections.len(), 2);
-        assert_eq!(
-            list.collections[0].name.as_deref(),
-            Some("renamed collection - 10")
-        );
-        assert_eq!(
-            list.collections[1].name.as_deref(),
-            Some("other collection - 20")
-        );
-        assert_eq!(list.collections[0].beatmap_hashes.len(), 2);
-        assert_eq!(list.collections[1].beatmap_hashes.len(), 2);
-        assert!(dir.path().join("osu!.name.cfg").exists());
-    }
 }

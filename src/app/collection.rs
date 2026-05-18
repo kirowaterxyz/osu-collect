@@ -9,7 +9,9 @@ use crate::config::constants::{
     COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
 };
 
-const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
+/// minimum time between text updates on a single active-download slot. test access.
+#[doc(hidden)]
+pub const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Default)]
 struct DisplayedStatus {
@@ -79,7 +81,9 @@ pub struct ActiveDownloadLine {
 }
 
 impl ActiveDownloadLine {
-    fn new(beatmapset_id: u32) -> Self {
+    /// create a new slot for `beatmapset_id`. test access.
+    #[doc(hidden)]
+    pub fn new(beatmapset_id: u32) -> Self {
         Self {
             beatmapset_id,
             stage: BeatmapStage::Downloading,
@@ -109,7 +113,9 @@ impl ActiveDownloadLine {
         matches!(self.stage, BeatmapStage::Downloading)
     }
 
-    fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
+    /// apply a new status, debouncing the text update. test access.
+    #[doc(hidden)]
+    pub fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
         // stage is structural (bar / slot reuse) and updates immediately. the *text* shown to
         // the user is rate-limited to one write per STATUS_DEBOUNCE for all stages — rapid
         // changes (download → verify → success in <50ms) coalesce to the last write.
@@ -407,75 +413,5 @@ impl CollectionPage {
         }
         let avg = self.stats.verify_total_us / self.stats.verify_total_count as u64;
         (avg > 0).then_some(avg)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::thread::sleep;
-
-    #[test]
-    fn verifying_is_not_terminal() {
-        // slot must stay claimed during verification — Verifying is mid-flight.
-        assert!(!BeatmapStage::Verifying.is_terminal());
-    }
-
-    #[test]
-    fn first_update_applies_immediately() {
-        // freshly-claimed slot must show its first status right away, otherwise the row sits
-        // blank for STATUS_DEBOUNCE on every new beatmapset.
-        let mut line = ActiveDownloadLine::new(1);
-        line.apply_status(BeatmapStage::Downloading, "checking osu.direct", false);
-        assert_eq!(line.displayed_message(), "checking osu.direct");
-        assert!(line.should_show_bar());
-    }
-
-    #[test]
-    fn second_update_within_window_queues_text_but_stage_updates_immediately() {
-        // text is debounced (no bypass for any stage), but `stage` is structural and must
-        // reflect Verifying right away so the bar hides without a one-frame 100% flash.
-        let mut line = ActiveDownloadLine::new(1);
-        line.apply_status(
-            BeatmapStage::Downloading,
-            "downloading from osu.direct",
-            false,
-        );
-        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
-        assert_eq!(line.displayed_message(), "downloading from osu.direct");
-        assert!(
-            !line.should_show_bar(),
-            "Verifying must hide the bar instantly"
-        );
-    }
-
-    #[test]
-    fn pending_update_resolves_after_window() {
-        let mut line = ActiveDownloadLine::new(1);
-        line.apply_status(
-            BeatmapStage::Downloading,
-            "downloading from osu.direct",
-            false,
-        );
-        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
-        sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
-        assert_eq!(line.displayed_message(), "verifying from osu.direct");
-        assert!(!line.should_show_bar());
-    }
-
-    #[test]
-    fn rapid_transitions_coalesce_to_latest() {
-        // verifying → success inside the window: the intermediate text is dropped; user only
-        // sees the final state when the window expires.
-        let mut line = ActiveDownloadLine::new(1);
-        line.apply_status(
-            BeatmapStage::Downloading,
-            "downloading from osu.direct",
-            false,
-        );
-        line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
-        line.apply_status(BeatmapStage::Success, "downloaded from osu.direct", false);
-        sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
-        assert_eq!(line.displayed_message(), "downloaded from osu.direct");
     }
 }

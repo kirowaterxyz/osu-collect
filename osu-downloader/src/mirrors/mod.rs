@@ -1,4 +1,4 @@
-mod pool;
+pub(crate) mod pool;
 
 pub(crate) use pool::MirrorPool;
 
@@ -169,6 +169,17 @@ impl Mirror {
         self
     }
 
+    #[cfg(feature = "test-helpers")]
+    #[doc(hidden)]
+    /// Create a mirror with an explicit kind and URL template (for testing only).
+    pub fn with_kind_and_template(kind: MirrorKind, template: impl Into<String>) -> Self {
+        Self {
+            kind,
+            template: template.into().into_boxed_str(),
+            headers: None,
+        }
+    }
+
     pub(crate) fn video(self, no_video: bool) -> Self {
         match Self::builtin(self.kind, no_video) {
             Some(mut mirror) => {
@@ -197,6 +208,13 @@ impl Mirror {
     pub(crate) fn url_for(&self, beatmapset_id: u32) -> String {
         self.template.replace("{id}", &beatmapset_id.to_string())
     }
+
+    /// Build the download URL for a beatmapset ID.
+    #[cfg(feature = "test-helpers")]
+    #[doc(hidden)]
+    pub fn url_for_id(&self, beatmapset_id: u32) -> String {
+        self.url_for(beatmapset_id)
+    }
 }
 
 fn validate_template(template: &str) -> Result<()> {
@@ -213,33 +231,4 @@ fn validate_template(template: &str) -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mirror_templates() {
-        assert_eq!(
-            Mirror::nerinyan().url_for(123),
-            "https://api.nerinyan.moe/d/123"
-        );
-        assert_eq!(
-            Mirror::osu_direct().url_for(789),
-            "https://osu.direct/d/789"
-        );
-    }
-
-    #[test]
-    fn test_custom_mirror() {
-        let mirror = Mirror::custom("https://example.com/dl/{id}").unwrap();
-        assert_eq!(mirror.url_for(123), "https://example.com/dl/123");
-    }
-
-    #[test]
-    fn test_invalid_custom_mirror() {
-        assert!(Mirror::custom("https://example.com/dl/").is_err());
-        assert!(Mirror::custom("ftp://example.com/{id}").is_err());
-    }
 }

@@ -1,12 +1,12 @@
 pub mod terminal;
 
 mod config;
-mod download;
-mod footer;
+pub mod download;
+pub mod footer;
 mod header;
 mod home;
 mod updates;
-mod widgets;
+pub mod widgets;
 
 use crate::app::App;
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};

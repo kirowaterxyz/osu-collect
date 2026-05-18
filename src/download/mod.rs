@@ -1,8 +1,8 @@
 pub mod error;
 pub mod lock;
-mod pipeline;
-mod precheck;
-mod session;
+pub mod pipeline;
+pub mod precheck;
+pub mod session;
 
 pub use error::DownloadError;
 pub use lock::ActiveDownloadRegistry;

@@ -5,14 +5,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Mirror penalty pool shared across concurrent workers.
+#[doc(hidden)]
 #[derive(Clone)]
-pub(crate) struct MirrorPool {
+pub struct MirrorPool {
     mirrors: Arc<Vec<Mirror>>,
     penalties: Arc<Mutex<HashMap<MirrorKind, Instant>>>,
 }
 
 impl MirrorPool {
-    pub(crate) fn new(mirrors: Vec<Mirror>) -> Self {
+    /// Create a new pool from a list of mirrors.
+    #[doc(hidden)]
+    pub fn new(mirrors: Vec<Mirror>) -> Self {
         Self {
             mirrors: Arc::new(mirrors),
             penalties: Arc::new(Mutex::new(HashMap::new())),
@@ -23,12 +27,16 @@ impl MirrorPool {
         self.mirrors.len()
     }
 
-    pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
+    /// Record a rate-limit penalty for the given mirror kind.
+    #[doc(hidden)]
+    pub fn mark_rate_limited(&self, kind: MirrorKind) {
         let mut penalties = self.penalties.lock().unwrap();
         penalties.insert(kind, Instant::now() + kind.rate_limit_backoff());
     }
 
-    pub(crate) fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
+    /// Return the remaining penalty duration for the given mirror kind.
+    #[doc(hidden)]
+    pub fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
         let now = Instant::now();
         let penalties = self.penalties.lock().unwrap();
         penalties
@@ -38,17 +46,5 @@ impl MirrorPool {
 
     pub(crate) fn mirrors(&self) -> &[Mirror] {
         &self.mirrors
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rate_limit_records_penalty() {
-        let pool = MirrorPool::new(vec![Mirror::nerinyan()]);
-        pool.mark_rate_limited(MirrorKind::Nerinyan);
-        assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
     }
 }

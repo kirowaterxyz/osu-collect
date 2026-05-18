@@ -23,15 +23,27 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
 
+/// Configuration for a batch download run.
+#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub(crate) struct BatchConfig {
-    pub(crate) concurrent_downloads: usize,
-    pub(crate) archive_validation: ArchiveValidation,
-    pub(crate) progress_timeout: Duration,
-    pub(crate) network_retry_attempts: usize,
+pub struct BatchConfig {
+    /// number of concurrent download workers.
+    #[doc(hidden)]
+    pub concurrent_downloads: usize,
+    /// archive validation mode.
+    #[doc(hidden)]
+    pub archive_validation: ArchiveValidation,
+    /// per-chunk progress timeout.
+    #[doc(hidden)]
+    pub progress_timeout: Duration,
+    /// network-level retry attempts before giving up.
+    #[doc(hidden)]
+    pub network_retry_attempts: usize,
 }
 
-pub(crate) async fn download_batch(
+/// Run a batch download.
+#[doc(hidden)]
+pub async fn download_batch(
     items: Vec<DownloadItem>,
     output_dir: &Path,
     client: reqwest::Client,
@@ -354,50 +366,4 @@ type AsyncBoundedReceiver<T> = async_channel::Receiver<T>;
 
 fn async_bounded_channel<T>(capacity: usize) -> (AsyncBoundedSender<T>, AsyncBoundedReceiver<T>) {
     async_channel::bounded(capacity)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Mirror;
-
-    #[tokio::test]
-    async fn cancel_mid_batch_does_not_panic() {
-        let dir = tempfile::tempdir().unwrap();
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
-        let (cancel_tx, cancel_rx) = watch::channel(false);
-        let client = reqwest::Client::new();
-        let mirror_pool = Arc::new(MirrorPool::new(vec![Mirror::nerinyan()]));
-        let config = BatchConfig {
-            concurrent_downloads: 2,
-            archive_validation: ArchiveValidation::Off,
-            progress_timeout: Duration::from_secs(1),
-            network_retry_attempts: 0,
-        };
-
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(30)).await;
-            let _ = cancel_tx.send(true);
-        });
-
-        let items: Vec<DownloadItem> = (1u32..=5).map(DownloadItem::skip_if_present).collect();
-        let summary = download_batch(
-            items,
-            dir.path(),
-            client,
-            mirror_pool,
-            config,
-            event_tx,
-            cancel_rx,
-        )
-        .await;
-
-        assert!(
-            summary.downloaded.len()
-                + summary.skipped.len()
-                + summary.failed.len()
-                + summary.network_errors.len()
-                <= 5
-        );
-    }
 }
