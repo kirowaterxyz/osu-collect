@@ -7,9 +7,7 @@
 use crate::{
     Event, SkipReason, StatusEvent, Summary,
     config::NETWORK_RETRY_BACKOFF,
-    download::{
-        self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, download_beatmapset,
-    },
+    download::{self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, download_beatmapset},
     downloader::FileExistsPolicy,
     mirrors::MirrorPool,
     validation::ArchiveValidation,
