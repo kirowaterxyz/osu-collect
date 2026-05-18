@@ -5,7 +5,7 @@ use super::{
 };
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
-use crate::{ArchiveValidation, FileExistsPolicy, Mirror, MirrorKind, SkipReason, StatusEvent};
+use crate::{ArchiveValidation, Mirror, MirrorKind, OnExists, Skip, Status};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -25,7 +25,7 @@ fn default_params<'a>(
         archive_validation: ArchiveValidation::Off,
         progress_timeout: Duration::from_secs(1),
         sanitize_filenames: true,
-        on_existing: FileExistsPolicy::Skip,
+        on_exists: OnExists::Skip,
         callbacks: BeatmapsetDownloadCallbacks::default(),
         cancel_rx,
     }
@@ -330,7 +330,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
                 status_events.lock().unwrap().push(status);
             })),
         },
-        on_existing: FileExistsPolicy::Skip,
+        on_exists: OnExists::Skip,
         ..default_params(42, dir.path(), &client, &mirror_pool, cancel_rx)
     })
     .await;
@@ -338,7 +338,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
     assert!(matches!(
         outcome,
         BeatmapsetDownloadOutcome::Skipped {
-            reason: SkipReason::AlreadyExists
+            reason: Skip::AlreadyExists
         }
     ));
     assert!(
@@ -346,7 +346,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
             .lock()
             .unwrap()
             .iter()
-            .any(|status| matches!(status, StatusEvent::Downloading { .. }))
+            .any(|status| matches!(status, Status::Downloading { .. }))
     );
     server.join().unwrap();
 }
@@ -410,7 +410,7 @@ async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
     let client = reqwest::Client::new();
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-    let statuses: Arc<Mutex<Vec<StatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let statuses: Arc<Mutex<Vec<Status>>> = Arc::new(Mutex::new(Vec::new()));
     let recorder = statuses.clone();
     let callbacks = BeatmapsetDownloadCallbacks {
         progress: None,
@@ -430,7 +430,7 @@ async fn rate_limit_status_suppressed_when_other_mirror_succeeds() {
     assert!(
         !recorded
             .iter()
-            .any(|event| matches!(event, StatusEvent::RateLimited { .. })),
+            .any(|event| matches!(event, Status::RateLimited { .. })),
         "rate-limit status must not flash when a sibling mirror succeeds: {recorded:?}"
     );
     server.join().unwrap();
@@ -484,7 +484,7 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
     let client = reqwest::Client::new();
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-    let statuses: Arc<Mutex<Vec<StatusEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let statuses: Arc<Mutex<Vec<Status>>> = Arc::new(Mutex::new(Vec::new()));
     let recorder = statuses.clone();
     let callbacks = BeatmapsetDownloadCallbacks {
         progress: None,
@@ -503,7 +503,7 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
     let recorded = statuses.lock().unwrap();
     let rate_limit_events: Vec<_> = recorded
         .iter()
-        .filter(|event| matches!(event, StatusEvent::RateLimited { .. }))
+        .filter(|event| matches!(event, Status::RateLimited { .. }))
         .collect();
     assert_eq!(
         rate_limit_events.len(),

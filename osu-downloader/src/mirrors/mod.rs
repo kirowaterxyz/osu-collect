@@ -127,36 +127,36 @@ impl Mirror {
     ///
     /// Returns `None` for [`MirrorKind::Custom`] since custom mirrors have no
     /// predefined template — use [`Mirror::custom`] for those.
-    pub fn from_kind(kind: MirrorKind) -> Option<Self> {
+    pub fn builtin(kind: MirrorKind) -> Option<Self> {
         match kind {
             MirrorKind::Custom => None,
-            other => Some(Self::builtin(other)),
+            other => Some(Self::new_builtin(other)),
         }
     }
 
     /// Nerinyan mirror (<https://api.nerinyan.moe>).
     pub fn nerinyan() -> Self {
-        Self::builtin(MirrorKind::Nerinyan)
+        Self::new_builtin(MirrorKind::Nerinyan)
     }
 
     /// osu.direct mirror.
     pub fn osu_direct() -> Self {
-        Self::builtin(MirrorKind::OsuDirect)
+        Self::new_builtin(MirrorKind::OsuDirect)
     }
 
     /// Sayobot mirror.
     pub fn sayobot() -> Self {
-        Self::builtin(MirrorKind::Sayobot)
+        Self::new_builtin(MirrorKind::Sayobot)
     }
 
     /// Nekoha mirror.
     pub fn nekoha() -> Self {
-        Self::builtin(MirrorKind::Nekoha)
+        Self::new_builtin(MirrorKind::Nekoha)
     }
 
     /// Every built-in mirror, in the library's default preference order.
-    pub fn all_builtins() -> [Mirror; 4] {
-        [
+    pub fn builtins() -> Vec<Mirror> {
+        vec![
             Mirror::nerinyan(),
             Mirror::osu_direct(),
             Mirror::sayobot(),
@@ -164,26 +164,7 @@ impl Mirror {
         ]
     }
 
-    /// Templates for every built-in mirror. Useful when probing availability
-    /// without building a full [`Downloader`](crate::Downloader).
-    pub fn builtin_templates() -> [&'static str; 4] {
-        [
-            MirrorKind::Nerinyan
-                .download_template(false)
-                .expect("builtin"),
-            MirrorKind::OsuDirect
-                .download_template(false)
-                .expect("builtin"),
-            MirrorKind::Sayobot
-                .download_template(false)
-                .expect("builtin"),
-            MirrorKind::Nekoha
-                .download_template(false)
-                .expect("builtin"),
-        ]
-    }
-
-    fn builtin(kind: MirrorKind) -> Self {
+    fn new_builtin(kind: MirrorKind) -> Self {
         let template = kind
             .download_template(false)
             .expect("builtin mirror has template");

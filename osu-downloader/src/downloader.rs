@@ -19,9 +19,9 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 /// How to handle a beatmapset whose target archive already exists on disk.
 ///
 /// Applies to every item in a [`Downloader::download_many`] call. Set on the
-/// builder via [`DownloaderBuilder::on_existing`].
+/// builder via [`DownloaderBuilder::on_exists`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FileExistsPolicy {
+pub enum OnExists {
     /// Skip if any matching archive is already present (default).
     #[default]
     Skip,
@@ -38,7 +38,7 @@ pub struct DownloaderBuilder {
     user_agent: Option<String>,
     network_retry_attempts: usize,
     sanitize_filenames: bool,
-    on_existing: FileExistsPolicy,
+    on_exists: OnExists,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
 }
@@ -54,7 +54,7 @@ impl DownloaderBuilder {
             user_agent: None,
             network_retry_attempts: 0,
             sanitize_filenames: true,
-            on_existing: FileExistsPolicy::Skip,
+            on_exists: OnExists::Skip,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
         }
@@ -76,8 +76,8 @@ impl DownloaderBuilder {
 
     /// Add every built-in mirror.
     #[must_use]
-    pub fn default_mirrors(mut self) -> Self {
-        self.mirrors.extend(Mirror::all_builtins());
+    pub fn builtins(mut self) -> Self {
+        self.mirrors.extend(Mirror::builtins());
         self
     }
 
@@ -134,10 +134,10 @@ impl DownloaderBuilder {
     }
 
     /// What to do when a beatmapset archive already exists in the output
-    /// directory. Default [`FileExistsPolicy::Skip`].
+    /// directory. Default [`OnExists::Skip`].
     #[must_use]
-    pub fn on_existing(mut self, policy: FileExistsPolicy) -> Self {
-        self.on_existing = policy;
+    pub fn on_exists(mut self, policy: OnExists) -> Self {
+        self.on_exists = policy;
         self
     }
 
@@ -153,7 +153,7 @@ impl DownloaderBuilder {
     pub fn build(self) -> Result<Downloader> {
         if self.mirrors.is_empty() {
             return Err(Error::config(
-                "at least one mirror must be configured (use .default_mirrors() or .mirror())",
+                "at least one mirror must be configured (use .builtins() or .mirror())",
             ));
         }
 
@@ -173,7 +173,7 @@ impl DownloaderBuilder {
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
             network_retry_attempts: self.network_retry_attempts,
             sanitize_filenames: self.sanitize_filenames,
-            on_existing: self.on_existing,
+            on_exists: self.on_exists,
         };
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -199,7 +199,7 @@ impl Default for DownloaderBuilder {
     }
 }
 
-/// The downloader. Cheap to clone via `Arc` if desired.
+/// The downloader.
 pub struct Downloader {
     config: Arc<DownloadConfig>,
     http_client: reqwest::Client,
@@ -212,18 +212,24 @@ impl Downloader {
         DownloaderBuilder::new()
     }
 
+    /// Convenience constructor with every built-in mirror at defaults.
+    /// Equivalent to `Downloader::builder().builtins().build()`.
+    pub fn with_builtins() -> Result<Self> {
+        Self::builder().builtins().build()
+    }
+
     #[cfg(test)]
     pub(crate) fn mirror_pool_mirrors(&self) -> &[Mirror] {
         self.mirror_pool.mirrors()
     }
 
     /// Start a batch download for the given beatmapset IDs into `output_dir`.
-    /// Returns a [`DownloadSession`] for events + cancel.
+    /// Returns a [`Session`] for events + cancel.
     pub fn download_many(
         &self,
         ids: impl IntoIterator<Item = u32>,
         output_dir: impl AsRef<Path>,
-    ) -> DownloadSession {
+    ) -> Session {
         let ids: Vec<u32> = ids.into_iter().collect();
         let output_dir = output_dir.as_ref().to_path_buf();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -240,7 +246,7 @@ impl Downloader {
                 progress_timeout: config.progress_timeout,
                 network_retry_attempts: config.network_retry_attempts,
                 sanitize_filenames: config.sanitize_filenames,
-                on_existing: config.on_existing,
+                on_exists: config.on_exists,
             };
             batch::download_batch(
                 ids,
@@ -254,7 +260,7 @@ impl Downloader {
             .await
         });
 
-        DownloadSession {
+        Session {
             events: Some(event_rx),
             cancel: cancel_tx,
             task,
@@ -263,20 +269,16 @@ impl Downloader {
 }
 
 /// Handle to a running batch session.
-pub struct DownloadSession {
+pub struct Session {
     events: Option<mpsc::UnboundedReceiver<Event>>,
     cancel: watch::Sender<bool>,
     task: tokio::task::JoinHandle<Summary>,
 }
 
-impl DownloadSession {
-    /// Consume the event stream. Can only be called once per session.
-    pub fn events(&mut self) -> impl Stream<Item = Event> + Unpin + Send + 'static {
-        let rx = self
-            .events
-            .take()
-            .expect("events() can only be called once");
-        UnboundedReceiverStream::new(rx)
+impl Session {
+    /// Consume the event stream. Returns `None` if already taken.
+    pub fn events(&mut self) -> Option<impl Stream<Item = Event> + Unpin + Send + 'static> {
+        self.events.take().map(UnboundedReceiverStream::new)
     }
 
     /// Signal cancellation. Running downloads abort at the next checkpoint.

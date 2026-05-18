@@ -3,27 +3,21 @@
 use crate::{Error, MirrorKind};
 use std::time::Duration;
 
-/// Events emitted while a [`DownloadSession`](crate::DownloadSession) is running.
+/// Events emitted while a [`Session`](crate::Session) is running.
 #[derive(Debug, Clone)]
 pub enum Event {
     /// Session has started.
     SessionStarted {
         /// Total number of beatmapsets in the session.
-        total_beatmapsets: usize,
-    },
-
-    /// A beatmapset download has started.
-    BeatmapsetStarted {
-        /// Beatmapset ID.
-        beatmapset_id: u32,
+        total: usize,
     },
 
     /// Per-attempt status update (which mirror is being contacted, rate limits, etc.).
     BeatmapsetStatus {
         /// Beatmapset ID.
         beatmapset_id: u32,
-        /// Underlying status event.
-        status: StatusEvent,
+        /// Underlying status update.
+        status: Status,
     },
 
     /// Download progress update.
@@ -54,22 +48,18 @@ pub enum Event {
         verify_duration_us: u64,
     },
 
-    /// A beatmapset failed for a non-transient reason.
+    /// A beatmapset failed.
+    ///
+    /// Transient/network failures that exhausted every mirror also arrive here,
+    /// carrying [`Error::Network`] (with [`Error::is_transient`] returning true).
     BeatmapsetFailed {
         /// Beatmapset ID.
         beatmapset_id: u32,
         /// Underlying error.
         error: Error,
-        /// Mirror associated with the failure if known.
+        /// Mirror associated with the failure if known. `None` when every
+        /// mirror was tried (e.g. all-transient case).
         mirror: Option<MirrorKind>,
-    },
-
-    /// Every mirror failed with transient network errors only.
-    BeatmapsetNetworkError {
-        /// Beatmapset ID.
-        beatmapset_id: u32,
-        /// Last transient failure reason.
-        reason: String,
     },
 
     /// A beatmapset was skipped.
@@ -77,7 +67,7 @@ pub enum Event {
         /// Beatmapset ID.
         beatmapset_id: u32,
         /// Reason for skipping.
-        reason: SkipReason,
+        reason: Skip,
     },
 
     /// Session has finished.
@@ -89,7 +79,7 @@ pub enum Event {
 
 /// Per-attempt status update emitted while a single beatmapset is being attempted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StatusEvent {
+pub enum Status {
     /// A mirror is being contacted.
     Contacting {
         /// Mirror being contacted.
@@ -126,7 +116,7 @@ pub enum StatusEvent {
 
 /// Reason a beatmapset was skipped.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SkipReason {
+pub enum Skip {
     /// Already exists at the destination.
     AlreadyExists,
     /// Not available on any configured mirror.
@@ -141,11 +131,12 @@ pub struct Summary {
     /// IDs of successful downloads.
     pub downloaded: Vec<u32>,
     /// IDs of skipped beatmapsets with reasons.
-    pub skipped: Vec<(u32, SkipReason)>,
-    /// IDs of failed beatmapsets with error messages.
-    pub failed: Vec<(u32, String)>,
-    /// IDs of beatmapsets that gave up after all mirrors hit transient errors.
-    pub network_errors: Vec<u32>,
+    pub skipped: Vec<(u32, Skip)>,
+    /// IDs of failed beatmapsets paired with the final error.
+    /// Includes both definitive failures (404 on every mirror, validation
+    /// errors, etc.) and transient failures that exhausted every mirror —
+    /// the latter carry [`Error::Network`] / [`Error::Timeout`] / etc.
+    pub failed: Vec<(u32, Error)>,
     /// Total bytes downloaded.
     pub total_bytes: u64,
     /// Session duration.
@@ -160,8 +151,8 @@ impl Summary {
         }
     }
 
-    /// True if every beatmapset succeeded or was skipped because it already existed.
+    /// True if no beatmapset failed (only `downloaded` and `skipped` entries).
     pub fn all_succeeded(&self) -> bool {
-        self.failed.is_empty() && self.network_errors.is_empty()
+        self.failed.is_empty()
     }
 }

@@ -1,6 +1,6 @@
 use super::{BatchConfig, download_batch};
 use crate::mirrors::pool::MirrorPool;
-use crate::{ArchiveValidation, FileExistsPolicy, Mirror};
+use crate::{ArchiveValidation, Mirror, OnExists};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
@@ -18,7 +18,7 @@ async fn cancel_mid_batch_does_not_panic() {
         progress_timeout: Duration::from_secs(1),
         network_retry_attempts: 0,
         sanitize_filenames: true,
-        on_existing: FileExistsPolicy::Skip,
+        on_exists: OnExists::Skip,
     };
 
     tokio::spawn(async move {
@@ -38,11 +38,5 @@ async fn cancel_mid_batch_does_not_panic() {
     )
     .await;
 
-    assert!(
-        summary.downloaded.len()
-            + summary.skipped.len()
-            + summary.failed.len()
-            + summary.network_errors.len()
-            <= 5
-    );
+    assert!(summary.downloaded.len() + summary.skipped.len() + summary.failed.len() <= 5);
 }

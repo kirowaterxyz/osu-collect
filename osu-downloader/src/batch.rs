@@ -5,10 +5,11 @@
 //! `concurrent_downloads` tasks that pull from it.
 
 use crate::{
-    Event, SkipReason, StatusEvent, Summary,
+    Error, Event, Summary,
     config::NETWORK_RETRY_BACKOFF,
     download::{self, BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, download_beatmapset},
-    downloader::FileExistsPolicy,
+    event::{Skip, Status},
+    downloader::OnExists,
     mirrors::MirrorPool,
     validation::ArchiveValidation,
 };
@@ -27,7 +28,7 @@ pub(crate) struct BatchConfig {
     pub(crate) progress_timeout: Duration,
     pub(crate) network_retry_attempts: usize,
     pub(crate) sanitize_filenames: bool,
-    pub(crate) on_existing: FileExistsPolicy,
+    pub(crate) on_exists: OnExists,
 }
 
 pub(crate) async fn download_batch(
@@ -42,13 +43,11 @@ pub(crate) async fn download_batch(
     let start_time = Instant::now();
     let total = ids.len();
     let mut summary = Summary::new(total);
-    let _ = event_tx.send(Event::SessionStarted {
-        total_beatmapsets: total,
-    });
+    let _ = event_tx.send(Event::SessionStarted { total });
 
     if ids.is_empty() {
         finalize(summary, &event_tx, start_time);
-        return summary_dummy_returned();
+        return Summary::new(0);
     }
 
     let worker_count = config.concurrent_downloads.max(1);
@@ -110,9 +109,6 @@ pub(crate) async fn download_batch(
                 beatmapset_id,
                 error,
             } => summary.failed.push((beatmapset_id, error)),
-            DownloadOutcome::NetworkError { beatmapset_id, .. } => {
-                summary.network_errors.push(beatmapset_id)
-            }
             DownloadOutcome::Aborted => {}
         }
     }
@@ -129,7 +125,6 @@ pub(crate) async fn download_batch(
         downloaded = summary.downloaded.len(),
         skipped = summary.skipped.len(),
         failed = summary.failed.len(),
-        network_errors = summary.network_errors.len(),
         total,
         "batch complete"
     );
@@ -141,10 +136,6 @@ fn finalize(mut summary: Summary, event_tx: &mpsc::UnboundedSender<Event>, start
     let _ = event_tx.send(Event::SessionCompleted { summary });
 }
 
-fn summary_dummy_returned() -> Summary {
-    Summary::new(0)
-}
-
 enum DownloadOutcome {
     Success {
         beatmapset_id: u32,
@@ -152,14 +143,11 @@ enum DownloadOutcome {
     },
     Skipped {
         beatmapset_id: u32,
-        reason: SkipReason,
+        reason: Skip,
     },
     Failed {
         beatmapset_id: u32,
-        error: String,
-    },
-    NetworkError {
-        beatmapset_id: u32,
+        error: Error,
     },
     Aborted,
 }
@@ -210,8 +198,6 @@ async fn process_one(
 ) -> DownloadOutcome {
     debug!(beatmapset_id, "starting download");
 
-    let _ = event_tx.send(Event::BeatmapsetStarted { beatmapset_id });
-
     let event_tx_progress = event_tx.clone();
     let progress_state = Arc::new(Mutex::new((0u64, Instant::now())));
     let progress_callback = Arc::new(move |downloaded: u64, total: u64| {
@@ -237,7 +223,7 @@ async fn process_one(
     });
 
     let event_tx_status = event_tx.clone();
-    let status_callback = Arc::new(move |status: StatusEvent| {
+    let status_callback = Arc::new(move |status: Status| {
         let _ = event_tx_status.send(Event::BeatmapsetStatus {
             beatmapset_id,
             status,
@@ -255,7 +241,7 @@ async fn process_one(
             archive_validation: config.archive_validation,
             progress_timeout: config.progress_timeout,
             sanitize_filenames: config.sanitize_filenames,
-            on_existing: config.on_existing,
+            on_exists: config.on_exists,
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(progress_callback.clone()),
                 status: Some(status_callback.clone()),
@@ -317,22 +303,28 @@ async fn process_one(
             }
         }
         BeatmapsetDownloadOutcome::Failed { mirror, reason } => {
+            let error = Error::validation(reason);
             let _ = event_tx.send(Event::BeatmapsetFailed {
                 beatmapset_id,
-                error: crate::Error::validation(reason.clone()),
+                error: error.clone(),
                 mirror,
             });
             DownloadOutcome::Failed {
                 beatmapset_id,
-                error: reason,
+                error,
             }
         }
         BeatmapsetDownloadOutcome::NetworkError { reason } => {
-            let _ = event_tx.send(Event::BeatmapsetNetworkError {
+            let error = Error::network(reason);
+            let _ = event_tx.send(Event::BeatmapsetFailed {
                 beatmapset_id,
-                reason,
+                error: error.clone(),
+                mirror: None,
             });
-            DownloadOutcome::NetworkError { beatmapset_id }
+            DownloadOutcome::Failed {
+                beatmapset_id,
+                error,
+            }
         }
         BeatmapsetDownloadOutcome::Aborted => {
             warn!(beatmapset_id, "download aborted");

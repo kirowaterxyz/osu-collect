@@ -16,7 +16,7 @@
 //!     .build()?;
 //!
 //! let mut session = downloader.download_many([123456u32, 789012], "./downloads");
-//! let mut events = session.events();
+//! let mut events = session.events().expect("first events() call");
 //! while let Some(_event) = events.next().await {
 //!     // handle event
 //! }
@@ -57,11 +57,14 @@ pub mod collection;
 pub mod size;
 
 pub use download::sanitize_filename;
-pub use downloader::{DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy};
+pub use downloader::{Downloader, DownloaderBuilder, OnExists, Session};
 pub use error::{Error, Result};
-pub use event::{Event, SkipReason, StatusEvent, Summary};
+pub use event::{Event, Skip, Status, Summary};
 pub use mirrors::{Mirror, MirrorKind};
 pub use output_entry::{OutputEntry, classify_output_entry};
 pub use validation::{
     ArchiveValidation, ArchiveValidationResult, validate_and_remove, validate_archive,
 };
+
+mod url_parse;
+pub use url_parse::parse_collection_id;

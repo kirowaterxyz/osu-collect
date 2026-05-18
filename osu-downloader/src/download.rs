@@ -4,9 +4,9 @@
 //! translated into the public [`DownloadEvent`](crate::DownloadEvent) stream there.
 
 use crate::{
-    SkipReason, StatusEvent,
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
-    downloader::FileExistsPolicy,
+    downloader::OnExists,
+    event::{Skip, Status},
     mirrors::{Mirror, MirrorKind, MirrorPool},
     output_entry::parse_beatmapset_filename,
     validation::{self, ArchiveValidation},
@@ -27,7 +27,7 @@ const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
 #[derive(Clone, Default)]
 pub(crate) struct BeatmapsetDownloadCallbacks {
     pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
-    pub(crate) status: Option<Arc<dyn Fn(StatusEvent) + Send + Sync>>,
+    pub(crate) status: Option<Arc<dyn Fn(Status) + Send + Sync>>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ pub(crate) enum BeatmapsetDownloadOutcome {
         verify_duration_us: u64,
     },
     Skipped {
-        reason: SkipReason,
+        reason: Skip,
     },
     Failed {
         mirror: Option<MirrorKind>,
@@ -60,7 +60,7 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
     pub(crate) sanitize_filenames: bool,
-    pub(crate) on_existing: FileExistsPolicy,
+    pub(crate) on_exists: OnExists,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
     pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -210,16 +210,16 @@ pub(crate) async fn download_beatmapset(
     }
 
     match find_existing_beatmapset(params.beatmapset_id, params.output_dir, &cancel_rx).await {
-        ExistingCheck::Exists => match params.on_existing {
-            FileExistsPolicy::Skip => {
+        ExistingCheck::Exists => match params.on_exists {
+            OnExists::Skip => {
                 return (
                     BeatmapsetDownloadOutcome::Skipped {
-                        reason: SkipReason::AlreadyExists,
+                        reason: Skip::AlreadyExists,
                     },
                     0,
                 );
             }
-            FileExistsPolicy::Overwrite => {}
+            OnExists::Overwrite => {}
         },
         ExistingCheck::Missing => {}
         ExistingCheck::Aborted => return (BeatmapsetDownloadOutcome::Aborted, 0),
@@ -281,7 +281,7 @@ pub(crate) async fn download_beatmapset(
 
         emit_status(
             &params.callbacks,
-            StatusEvent::RateLimited {
+            Status::RateLimited {
                 cooldown: wait_duration,
             },
         );
@@ -296,7 +296,7 @@ pub(crate) async fn download_beatmapset(
     if not_found.len() == params.mirror_pool.mirrors_len() && params.mirror_pool.mirrors_len() > 0 {
         return (
             BeatmapsetDownloadOutcome::Skipped {
-                reason: SkipReason::UnavailableOnMirrors,
+                reason: Skip::UnavailableOnMirrors,
             },
             total_attempts,
         );
@@ -395,7 +395,7 @@ async fn try_mirror_retry(
                 );
                 emit_status(
                     &params.callbacks,
-                    StatusEvent::RetryingTransient {
+                    Status::RetryingTransient {
                         mirror: mirror.kind(),
                         attempt: retry + 1,
                         max_attempts: TRANSIENT_RETRY_ATTEMPTS,
@@ -414,7 +414,7 @@ async fn try_mirror_retry(
 async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> MirrorAttempt {
     emit_status(
         &params.callbacks,
-        StatusEvent::Contacting {
+        Status::Contacting {
             mirror: mirror.kind(),
         },
     );
@@ -566,13 +566,13 @@ async fn process_mirror_response(
         run_cancelable(tokio::fs::metadata(&output_path), &params.cancel_rx).await
     {
         match metadata_result {
-            Ok(_) => match params.on_existing {
-                FileExistsPolicy::Skip => {
+            Ok(_) => match params.on_exists {
+                OnExists::Skip => {
                     return Ok(BeatmapsetDownloadOutcome::Skipped {
-                        reason: SkipReason::AlreadyExists,
+                        reason: Skip::AlreadyExists,
                     });
                 }
-                FileExistsPolicy::Overwrite => {
+                OnExists::Overwrite => {
                     if let Some(remove_result) =
                         run_cancelable(tokio::fs::remove_file(&output_path), &params.cancel_rx)
                             .await
@@ -592,7 +592,7 @@ async fn process_mirror_response(
 
     emit_status(
         &params.callbacks,
-        StatusEvent::Downloading {
+        Status::Downloading {
             mirror: mirror.kind(),
         },
     );
@@ -645,7 +645,7 @@ async fn write_archive(
 
     emit_status(
         &params.callbacks,
-        StatusEvent::Verifying {
+        Status::Verifying {
             mirror: mirror.kind(),
         },
     );
@@ -676,7 +676,7 @@ async fn write_archive(
         FinalizeResult::Done => {}
         FinalizeResult::AlreadyExists => {
             return Ok(BeatmapsetDownloadOutcome::Skipped {
-                reason: SkipReason::AlreadyExists,
+                reason: Skip::AlreadyExists,
             });
         }
         FinalizeResult::Aborted => return Ok(BeatmapsetDownloadOutcome::Aborted),
@@ -847,7 +847,7 @@ fn failed(mirror: Option<MirrorKind>, reason: impl Into<String>) -> BeatmapsetDo
     }
 }
 
-fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: StatusEvent) {
+fn emit_status(callbacks: &BeatmapsetDownloadCallbacks, event: Status) {
     if let Some(callback) = &callbacks.status {
         callback(event);
     }

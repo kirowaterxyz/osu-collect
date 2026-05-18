@@ -2,7 +2,7 @@
 //!
 //! Behind the `collection` feature.
 
-use crate::{Error, Result, http};
+use crate::{Error, Result, http, parse_collection_id};
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use serde::{Deserialize, Serialize};
 use std::{io, path::Path, time::Duration};
@@ -85,14 +85,9 @@ impl Collection {
     /// Uses `<name>-<id>` as the entry name.
     pub fn write_db(&self, output_path: &Path) -> io::Result<()> {
         let name = format!("{}-{}", self.name, self.id);
-        self.write_db_as(&name, output_path)
-    }
-
-    /// Write this collection to `<output_path>` with a custom entry name.
-    pub fn write_db_as(&self, name: &str, output_path: &Path) -> io::Result<()> {
         write_collections_db(
-            &[CollectionDbEntry {
-                name: name.to_string(),
+            &[CollectionEntry {
+                name,
                 beatmap_hashes: collection_hashes(self),
             }],
             output_path,
@@ -102,7 +97,7 @@ impl Collection {
 
 /// Named set of beatmap hashes for [`write_collections_db`].
 #[derive(Debug, Clone)]
-pub struct CollectionDbEntry {
+pub struct CollectionEntry {
     /// Collection entry name as it will appear in osu!.
     pub name: String,
     /// Beatmap MD5 hashes. Duplicates within an entry are dropped on write.
@@ -110,7 +105,7 @@ pub struct CollectionDbEntry {
 }
 
 /// Write one or more named collection entries to `<output_path>` in osu! `collection.db` format.
-pub fn write_collections_db(entries: &[CollectionDbEntry], output_path: &Path) -> io::Result<()> {
+pub fn write_collections_db(entries: &[CollectionEntry], output_path: &Path) -> io::Result<()> {
     let collections = entries
         .iter()
         .map(|entry| {
@@ -217,6 +212,7 @@ impl CollectionClient {
 
     /// Fetch a collection from either a numeric ID (as a string) or an
     /// `https://osucollector.com/collections/<id>` URL.
+    /// See [`parse_collection_id`](crate::parse_collection_id) for accepted forms.
     pub async fn fetch_input(&self, input: &str) -> Result<Collection> {
         let collection_id = parse_collection_id(input)?;
         self.fetch(collection_id).await
@@ -271,31 +267,6 @@ impl Default for CollectionClient {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Parse a numeric collection ID or a `https://osucollector.com/collections/<id>` URL.
-pub fn parse_collection_id(input: &str) -> Result<u32> {
-    let trimmed = input.trim();
-
-    if trimmed.is_empty() {
-        return Err(Error::invalid_url("collection ID or URL cannot be empty"));
-    }
-
-    if trimmed.bytes().all(|b| b.is_ascii_digit()) {
-        return trimmed
-            .parse::<u32>()
-            .map_err(|_| Error::invalid_url(format!("invalid collection ID: {trimmed}")));
-    }
-
-    parse_collection_id_from_url(trimmed)
-}
-
-fn parse_collection_id_from_url(url: &str) -> Result<u32> {
-    url.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .and_then(|tail| tail.parse::<u32>().ok())
-        .ok_or_else(|| Error::invalid_url(format!("invalid collection URL: {url}")))
 }
 
 #[cfg(test)]

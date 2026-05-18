@@ -17,7 +17,7 @@ fn builder_rejects_zero_concurrency() {
 #[test]
 fn default_mirrors_include_every_builtin_mirror() {
     let downloader = crate::Downloader::builder()
-        .default_mirrors()
+        .builtins()
         .build()
         .unwrap();
 

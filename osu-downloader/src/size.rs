@@ -2,7 +2,7 @@
 //!
 //! Behind the `size-fetch` feature.
 
-use crate::http;
+use crate::{Mirror, http};
 use futures_util::{StreamExt, TryStreamExt, stream, stream::FuturesUnordered};
 use reqwest::Client;
 use serde::Deserialize;
@@ -27,7 +27,7 @@ pub struct SizeFetchResult {
 
 /// Aggregated result for a multi-mirror availability check.
 #[derive(Debug, Clone)]
-pub struct MirrorAvailabilityResult {
+pub struct AvailabilityResult {
     /// Beatmapsets available on at least one mirror.
     pub available: HashSet<u32>,
     /// Beatmapsets unavailable on every mirror.
@@ -113,16 +113,17 @@ impl SizeFetcher {
         }
     }
 
-    /// Probe `mirror_url_templates` (each containing `{id}`) for each beatmapset.
+    /// Probe each beatmapset against every supplied mirror.
     ///
     /// `report_progress(checked, total)` fires after each completed beatmapset.
     pub async fn check_availability(
         &self,
         beatmapset_ids: &[u32],
-        mirror_url_templates: &[&str],
+        mirrors: &[Mirror],
         mut report_progress: impl FnMut(usize, usize),
-    ) -> MirrorAvailabilityResult {
+    ) -> AvailabilityResult {
         let total = beatmapset_ids.len();
+        let templates: Vec<&str> = mirrors.iter().map(Mirror::template).collect();
         let mut available = HashSet::new();
         let mut unavailable = HashSet::new();
         let mut checked = 0usize;
@@ -130,12 +131,8 @@ impl SizeFetcher {
         let mut results = stream::iter(beatmapset_ids.iter().copied())
             .map(|id| {
                 let client = self.client.clone();
-                async move {
-                    (
-                        id,
-                        check_on_any_mirror(&client, id, mirror_url_templates).await,
-                    )
-                }
+                let templates = templates.clone();
+                async move { (id, check_on_any_mirror(&client, id, &templates).await) }
             })
             .buffer_unordered(self.concurrency);
 
@@ -149,7 +146,7 @@ impl SizeFetcher {
             report_progress(checked, total);
         }
 
-        MirrorAvailabilityResult {
+        AvailabilityResult {
             available,
             unavailable,
         }
@@ -210,7 +207,11 @@ async fn fetch_single_size(client: &Client, beatmapset_id: u32) -> Option<u64> {
     }
 }
 
-async fn check_on_any_mirror(client: &Client, beatmapset_id: u32, templates: &[&str]) -> bool {
+async fn check_on_any_mirror(
+    client: &Client,
+    beatmapset_id: u32,
+    templates: &[&str],
+) -> bool {
     let mut probes: FuturesUnordered<_> = templates
         .iter()
         .map(|template| probe_template(client, beatmapset_id, template))
