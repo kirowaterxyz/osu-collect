@@ -6,8 +6,7 @@ use super::{
 };
 use crate::{
     core::collection::{
-        CollectionService, HttpCollectionService, folder_name,
-        model::{Collection, Uploader},
+        Collection, CollectionService, HttpCollectionService, Uploader, folder_name,
     },
     utils::{self, prepare_directory},
 };
@@ -431,12 +430,14 @@ where
     let mut resolved_collections = Vec::with_capacity(fetch_results.len());
     let mut selected_collection = Collection {
         id: collection_ids.first().copied().unwrap_or_default(),
-        name: "updates".into(),
+        name: "updates".to_string(),
+        description: None,
         uploader: Uploader {
             id: 0,
-            username: "updates".into(),
+            username: "updates".to_string(),
         },
         beatmapsets: Vec::new(),
+        favourites: 0,
     };
     let mut seen_beatmapset_ids: HashSet<u32> = HashSet::new();
 
@@ -495,11 +496,11 @@ where
     Ok((selected_collection, resolved_collections, collection_names))
 }
 
-fn selective_collection_name(collection_names: &[String]) -> Box<str> {
+fn selective_collection_name(collection_names: &[String]) -> String {
     if collection_names.len() == 1 {
-        format!("update: {}", collection_names[0]).into_boxed_str()
+        format!("update: {}", collection_names[0])
     } else {
-        format!("update: {} collections", collection_names.len()).into_boxed_str()
+        format!("update: {} collections", collection_names.len())
     }
 }
 

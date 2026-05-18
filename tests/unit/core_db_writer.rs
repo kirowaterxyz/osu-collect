@@ -1,5 +1,5 @@
-use super::super::model::{test_beatmapset, test_collection};
-use super::{CollectionDbEntry, create_collection_db, write_db_entries};
+use super::{create_collection_db, write_entries};
+use crate::core::collection::{CollectionDbEntry, test_beatmapset, test_collection};
 use tempfile::tempdir;
 
 #[test]
@@ -67,7 +67,7 @@ fn multiple_collections_are_written() {
         },
     ];
 
-    write_db_entries(&entries, dir.path()).unwrap();
+    write_entries(&entries, dir.path()).unwrap();
 
     let db_path = dir.path().join("collection.db");
     let list = osu_db::collection::CollectionList::from_file(&db_path).unwrap();

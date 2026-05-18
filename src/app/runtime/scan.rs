@@ -375,13 +375,7 @@ pub(super) fn spawn_failed_map_recheck_task(
     );
 
     let handle = tokio::spawn(async move {
-        let fetcher = match osu_downloader::size::SizeFetcher::with_default_client() {
-            Ok(f) => f,
-            Err(err) => {
-                let _ = tx.send(UpdatesEvent::Error(err.to_string()));
-                return;
-            }
-        };
+        let fetcher = osu_downloader::size::SizeFetcher::new();
         let progress_tx = tx.clone();
         let result = fetcher
             .check_availability(
@@ -521,7 +515,7 @@ pub async fn fetch_missing_beatmapsets(
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
     settings: FetchCompareSettings,
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
-    let client = osu_downloader::http::create_api_client().map_err(|e| e.to_string())?;
+    let client = osu_downloader::collection::CollectionClient::new();
     let mut candidates_to_check: Vec<(CollectionBeatmapset, u32, String)> = Vec::new();
     let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
 
@@ -585,7 +579,7 @@ pub async fn fetch_missing_beatmapsets(
             let api_checksums: Vec<&str> = beatmapset
                 .beatmaps
                 .iter()
-                .map(|bm| bm.checksum.as_ref())
+                .map(|bm| bm.checksum.as_str())
                 .filter(|cs| !cs.is_empty())
                 .collect();
 

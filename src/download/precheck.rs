@@ -589,19 +589,21 @@ fn is_orphan_temp_name(name: &OsStr) -> bool {
     name.to_str()
         .map(|s| {
             // matches temp files produced by `temp_path_for` in osu-downloader::worker:
-            // `<original_name>.part-<pid>-<counter>`
-            if let Some(idx) = s.find(".part-") {
-                let tail = &s[idx + ".part-".len()..];
-                let mut parts = tail.splitn(2, '-');
-                let pid = parts.next().unwrap_or("");
-                let counter = parts.next().unwrap_or("");
-                !pid.is_empty()
-                    && !counter.is_empty()
-                    && pid.bytes().all(|b| b.is_ascii_digit())
-                    && counter.bytes().all(|b| b.is_ascii_digit())
-            } else {
-                false
-            }
+            // `<original_name>.download-<pid>-<counter>.tmp`
+            let Some(stem) = s.strip_suffix(".tmp") else {
+                return false;
+            };
+            let Some(idx) = stem.find(".download-") else {
+                return false;
+            };
+            let tail = &stem[idx + ".download-".len()..];
+            let mut parts = tail.splitn(2, '-');
+            let pid = parts.next().unwrap_or("");
+            let counter = parts.next().unwrap_or("");
+            !pid.is_empty()
+                && !counter.is_empty()
+                && pid.bytes().all(|b| b.is_ascii_digit())
+                && counter.bytes().all(|b| b.is_ascii_digit())
         })
         .unwrap_or(false)
 }

@@ -1,8 +1,9 @@
-use super::model::Collection;
+use super::Collection;
 use crate::{
     config::constants::API_MAX_RETRIES,
     utils::{AppError, Result},
 };
+use osu_downloader::collection::{CollectionClient, CollectionError};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, warn};
@@ -15,19 +16,16 @@ pub trait CollectionService: Send + Sync {
 }
 
 pub struct HttpCollectionService {
-    client: reqwest::Client,
+    client: CollectionClient,
 }
 
 impl HttpCollectionService {
-    pub fn new(client: reqwest::Client) -> Self {
+    pub fn new(client: CollectionClient) -> Self {
         Self { client }
     }
 
     pub fn create() -> Result<Self> {
-        let client = osu_downloader::http::create_api_client().map_err(|e| {
-            AppError::other_dynamic(format!("failed to create API client: {e}").into_boxed_str())
-        })?;
-        Ok(Self::new(client))
+        Ok(Self::new(CollectionClient::new()))
     }
 }
 
@@ -37,15 +35,16 @@ impl CollectionService for HttpCollectionService {
     }
 }
 
-pub async fn fetch_collection(client: &reqwest::Client, collection_id: u32) -> Result<Collection> {
-    let url = format!("https://osucollector.com/api/collections/{collection_id}");
-    let mut last_error = None;
+pub async fn fetch_collection(client: &CollectionClient, collection_id: u32) -> Result<Collection> {
+    let mut last_error: Option<AppError> = None;
 
     for attempt in 1..=API_MAX_RETRIES {
-        match try_fetch_collection(client, &url, collection_id).await {
+        match client.fetch(collection_id).await {
             Ok(collection) => return Ok(collection),
-            Err(FetchError::RateLimited(retry_after)) => {
-                let delay = retry_after.min(Duration::from_secs(60));
+            Err(CollectionError::RateLimited { retry_after }) => {
+                let delay = retry_after
+                    .unwrap_or(Duration::from_secs(30))
+                    .min(Duration::from_secs(60));
                 warn!(
                     attempt,
                     delay_secs = delay.as_secs(),
@@ -56,90 +55,51 @@ pub async fn fetch_collection(client: &reqwest::Client, collection_id: u32) -> R
                     "rate limited by osucollector.com (429). please try again later.",
                 ));
             }
-            Err(FetchError::App(err)) => {
-                let should_retry = matches!(err, AppError::Network(_));
-
+            Err(CollectionError::NotFound) => {
+                return Err(AppError::api_dynamic(
+                    format!("collection {collection_id} not found (404)").into_boxed_str(),
+                ));
+            }
+            Err(CollectionError::Status(status)) => {
+                return Err(AppError::api_dynamic(
+                    format!("failed to fetch collection: HTTP {status}").into_boxed_str(),
+                ));
+            }
+            Err(CollectionError::Network(err)) => {
+                let mapped = if err.is_timeout() {
+                    AppError::api("request timed out after 30 seconds")
+                } else if err.is_connect() {
+                    AppError::api("failed to connect to osucollector.com")
+                } else {
+                    AppError::from(err)
+                };
+                let should_retry = matches!(mapped, AppError::Network(_));
                 if should_retry && attempt < API_MAX_RETRIES {
                     let delay_secs = 2_u64.pow((attempt - 1) as u32);
                     warn!(
                         attempt,
                         remaining_attempts = API_MAX_RETRIES - attempt,
                         delay_secs,
-                        error = %err,
+                        error = %mapped,
                         "fetch collection attempt failed; retrying"
                     );
                     sleep(Duration::from_secs(delay_secs)).await;
-                    last_error = Some(err);
+                    last_error = Some(mapped);
                 } else {
-                    return Err(err);
+                    return Err(mapped);
                 }
+            }
+            Err(CollectionError::Parse(err)) => {
+                return Err(AppError::api_dynamic(
+                    format!("failed to parse collection JSON: {err}").into_boxed_str(),
+                ));
+            }
+            Err(err @ CollectionError::InvalidUrl(_)) => {
+                debug!(error = %err, "invalid collection URL");
+                return Err(AppError::api_dynamic(err.to_string().into_boxed_str()));
             }
         }
     }
 
     Err(last_error.unwrap_or_else(|| AppError::api("all retry attempts failed")))
-}
-
-enum FetchError {
-    RateLimited(Duration),
-    App(AppError),
-}
-
-impl From<AppError> for FetchError {
-    fn from(e: AppError) -> Self {
-        Self::App(e)
-    }
-}
-
-async fn try_fetch_collection(
-    client: &reqwest::Client,
-    url: &str,
-    collection_id: u32,
-) -> std::result::Result<Collection, FetchError> {
-    let response = client.get(url).send().await.map_err(|err| {
-        FetchError::App(if err.is_timeout() {
-            AppError::api("request timed out after 30 seconds")
-        } else if err.is_connect() {
-            AppError::api("failed to connect to osucollector.com")
-        } else {
-            AppError::from(err)
-        })
-    })?;
-
-    let status = response.status();
-
-    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(Duration::from_secs)
-            .unwrap_or(Duration::from_secs(30));
-        debug!(
-            retry_after_secs = retry_after.as_secs(),
-            "got 429 from osucollector"
-        );
-        return Err(FetchError::RateLimited(retry_after));
-    }
-
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Err(FetchError::App(AppError::api_dynamic(
-            format!("collection {collection_id} not found (404)").into_boxed_str(),
-        )));
-    }
-
-    if !status.is_success() {
-        return Err(FetchError::App(AppError::api_dynamic(
-            format!("failed to fetch collection: HTTP {status}").into_boxed_str(),
-        )));
-    }
-
-    let collection: Collection = response.json().await.map_err(|err| {
-        FetchError::App(AppError::api_dynamic(
-            format!("failed to parse collection JSON: {err}").into_boxed_str(),
-        ))
-    })?;
-
-    Ok(collection)
 }

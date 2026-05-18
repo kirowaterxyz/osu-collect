@@ -1,4 +1,4 @@
-use super::{Mirror, MirrorKind};
+use super::{Mirror, MirrorKind, from_kind};
 use crate::config::Config;
 
 #[test]
@@ -13,13 +13,13 @@ fn config_defaults_to_every_builtin_mirror() {
 
 #[test]
 fn builtin_nerinyan_is_constructible() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan, false).unwrap();
+    let mirror = from_kind(MirrorKind::Nerinyan).unwrap();
     assert_eq!(mirror.kind(), MirrorKind::Nerinyan);
 }
 
 #[test]
-fn builtin_nerinyan_no_video_is_constructible() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan, true).unwrap();
+fn nerinyan_no_video_switches_template() {
+    let mirror = from_kind(MirrorKind::Nerinyan).unwrap().no_video();
     assert_eq!(mirror.kind(), MirrorKind::Nerinyan);
 }
 
@@ -40,7 +40,7 @@ fn custom_mirror_valid() {
 }
 
 #[test]
-fn display_name_returns_static_str() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan, false).unwrap();
-    assert!(!mirror.display_name().is_empty());
+fn kind_label_returns_static_str() {
+    let mirror = from_kind(MirrorKind::Nerinyan).unwrap();
+    assert!(!mirror.kind().label().is_empty());
 }

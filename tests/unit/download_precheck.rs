@@ -7,16 +7,17 @@ use tokio::sync::watch;
 #[test]
 fn detects_orphan_temp_files() {
     let yes = [
-        "123.osz.part-12345-0",
-        "abc.osz.part-1-9",
-        "1 artist.osz.part-99999-42",
+        "123.osz.download-12345-0.tmp",
+        "abc.osz.download-1-9.tmp",
+        "1 artist.osz.download-99999-42.tmp",
     ];
     let no = [
         "123.osz",
-        "123.osz.part",
-        "123.osz.part-abc-9",
-        "123.osz.part-9-abc",
-        "123.osz.part-9",
+        "123.osz.download-12345-0",
+        "123.osz.download.tmp",
+        "123.osz.download-abc-9.tmp",
+        "123.osz.download-9-abc.tmp",
+        "123.osz.download-9.tmp",
         "random.txt",
     ];
     for name in yes {
@@ -71,7 +72,7 @@ async fn scans_expected_osz_candidates_and_removes_orphan_temps() {
     let dir = tempfile::tempdir().expect("create tempdir");
     let expected = dir.path().join("123 artist.osz");
     let unexpected = dir.path().join("456 artist.osz");
-    let orphan = dir.path().join("789 artist.osz.part-1-2");
+    let orphan = dir.path().join("789 artist.osz.download-1-2.tmp");
     std::fs::write(&expected, b"expected").unwrap();
     std::fs::write(&unexpected, b"unexpected").unwrap();
     std::fs::write(&orphan, b"orphan").unwrap();

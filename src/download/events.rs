@@ -1,6 +1,6 @@
 use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
 use crate::config::constants::status;
-use osu_downloader::{BeatmapsetStatusEvent, DownloadEvent as LibEvent, SkipReason};
+use osu_downloader::{Event as LibEvent, SkipReason, StatusEvent};
 use std::collections::HashSet;
 use tracing::warn;
 
@@ -161,25 +161,25 @@ fn emit_terminal_status(
     });
 }
 
-fn emit_status(id: DownloadId, beatmapset_id: u32, event: BeatmapsetStatusEvent, emit: Emit<'_>) {
+fn emit_status(id: DownloadId, beatmapset_id: u32, event: StatusEvent, emit: Emit<'_>) {
     let (message, stage, rate_limited) = match event {
         // dont remove this
-        BeatmapsetStatusEvent::Contacting { mirror } => (
+        StatusEvent::Contacting { mirror } => (
             format!("checking {}", mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
-        BeatmapsetStatusEvent::Downloading { mirror } => (
+        StatusEvent::Downloading { mirror } => (
             format!("{} from {}", status::DOWNLOADING, mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
-        BeatmapsetStatusEvent::Verifying { mirror } => (
+        StatusEvent::Verifying { mirror } => (
             format!("verifying from {}", mirror.label()),
             BeatmapStage::Verifying,
             false,
         ),
-        BeatmapsetStatusEvent::RateLimited { cooldown } => (
+        StatusEvent::RateLimited { cooldown } => (
             format!(
                 "{} on all mirrors, waiting {}s",
                 status::RATE_LIMITED,
@@ -188,7 +188,7 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: BeatmapsetStatusEvent,
             BeatmapStage::Downloading,
             true,
         ),
-        BeatmapsetStatusEvent::RetryingTransient {
+        StatusEvent::RetryingTransient {
             mirror,
             attempt,
             max_attempts,

@@ -1,5 +1,5 @@
 use crate::{
-    core::collection::model::Beatmapset,
+    core::collection::Beatmapset,
     osu_db::{LocalBeatmapset, LocalCollection, OsuClient},
 };
 use serde::{Deserialize, Serialize};
@@ -216,7 +216,7 @@ pub fn in_deleted_snapshot(
             beatmapset
                 .beatmaps
                 .iter()
-                .map(|beatmap| beatmap.checksum.as_ref())
+                .map(|beatmap| beatmap.checksum.as_str())
                 .any(|checksum| !checksum.is_empty() && deleted_hashes.contains(checksum))
         }
         OsuClient::Lazer => deleted.lazer_ids.contains(&u64::from(beatmapset.id)),

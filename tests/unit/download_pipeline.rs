@@ -1,9 +1,9 @@
 use super::try_remove_empty_output_dir;
-use crate::core::collection::model::{test_beatmapset, test_collection};
+use crate::core::collection::{test_beatmapset, test_collection};
 use crate::download::collection_db::create_selective_collection_database;
 use crate::download::events::{Tally, translate_event};
 use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
-use osu_downloader::{DownloadEvent as LibEvent, MirrorKind, SkipReason};
+use osu_downloader::{Event as LibEvent, MirrorKind, SkipReason};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},

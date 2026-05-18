@@ -1,8 +1,5 @@
 use super::resolve_selective_with;
-use crate::core::collection::{
-    CollectionService,
-    model::{Beatmap, Beatmapset, Collection, Uploader},
-};
+use crate::core::collection::{Beatmap, Beatmapset, Collection, CollectionService, Uploader};
 use crate::download::{DownloadEvent, SelectiveDownloadCollection};
 use crate::utils;
 use std::sync::{Arc, Mutex};
@@ -36,12 +33,14 @@ fn beatmapset(id: u32) -> Beatmapset {
 fn collection(id: u32, name: &str, ids: &[u32]) -> Collection {
     Collection {
         id,
-        name: name.into(),
+        name: name.to_string(),
+        description: None,
         uploader: Uploader {
             id: 0,
-            username: "u".into(),
+            username: "u".to_string(),
         },
         beatmapsets: ids.iter().copied().map(beatmapset).collect(),
+        favourites: 0,
     }
 }
 

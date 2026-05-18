@@ -220,13 +220,7 @@ pub(crate) async fn fetch_collection_sizes(id: DownloadId, beatmapset_ids: &[u32
         id,
         message: "fetching collection size from nekoha".into(),
     });
-    let fetcher = match SizeFetcher::with_default_client() {
-        Ok(f) => f,
-        Err(err) => {
-            warn!(error = %err, "failed to create size fetcher");
-            return;
-        }
-    };
+    let fetcher = SizeFetcher::new();
     let result = fetcher.fetch_sizes(beatmapset_ids).await;
     emit(DownloadEvent::CollectionSizeResolved {
         id,

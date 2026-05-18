@@ -13,7 +13,10 @@ use crate::{
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
-use osu_downloader::{DownloadEvent as LibEvent, DownloadItem, Downloader, FileExistsPolicy};
+use osu_downloader::{
+    DownloadItem, DownloadSession as LibDownloadSession, Downloader, Event as LibEvent,
+    FileExistsPolicy,
+};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -364,7 +367,7 @@ async fn run_pipeline_core(
 }
 
 async fn drive_session<F, S>(
-    session_handle: &mut osu_downloader::DownloadSession,
+    session_handle: &mut LibDownloadSession,
     events: &mut S,
     cancel_signal: &mut watch::Receiver<bool>,
     mut on_event: F,

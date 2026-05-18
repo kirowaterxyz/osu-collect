@@ -213,11 +213,15 @@ impl HomeTab {
         let mut mirrors: Vec<Mirror> = builtin_checks
             .iter()
             .filter_map(|&(enabled, kind)| {
-                if enabled {
-                    Mirror::builtin(kind, self.no_video)
-                } else {
-                    None
+                if !enabled {
+                    return None;
                 }
+                let mirror = crate::mirrors::from_kind(kind)?;
+                Some(if self.no_video {
+                    mirror.no_video()
+                } else {
+                    mirror
+                })
             })
             .collect();
 
