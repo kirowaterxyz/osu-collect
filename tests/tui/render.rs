@@ -16,14 +16,20 @@ fn render_to_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buff
     terminal.backend().buffer().clone()
 }
 
+fn render_content(app: &App, width: u16, height: u16) -> String {
+    render_to_buffer(app, width, height)
+        .content()
+        .iter()
+        .map(|c| c.symbol())
+        .collect()
+}
+
 // ── home view ────────────────────────────────────────────────────────────────
 
 #[test]
 fn home_renders_without_panic_standard() {
     let app = make_app();
-    let buf = render_to_buffer(&app, 120, 40);
-    // header should contain the brand name
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
     assert!(content.contains("osu-collect"));
 }
 
@@ -44,16 +50,14 @@ fn home_renders_without_panic_compact() {
 #[test]
 fn home_renders_collection_label() {
     let app = make_app();
-    let buf = render_to_buffer(&app, 120, 40);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
     assert!(content.contains("collection"));
 }
 
 #[test]
 fn home_renders_mirrors_section() {
     let app = make_app();
-    let buf = render_to_buffer(&app, 120, 40);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
     assert!(content.contains("MIRRORS") || content.contains("mirrors"));
 }
 
@@ -72,8 +76,7 @@ fn updates_tab_shows_recheck_failed_control() {
     let mut app = make_app();
     app.next_tab();
     app.updates.set_failed_beatmapset_count(2);
-    let buf = render_to_buffer(&app, 120, 40);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
 
     assert!(
         content.contains("failed"),
@@ -89,8 +92,7 @@ fn updates_tab_shows_recheck_failed_control() {
 fn updates_tab_shows_client_toggle() {
     let mut app = make_app();
     app.next_tab();
-    let buf = render_to_buffer(&app, 120, 40);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
     // client toggle shows either "lazer" or "stable"
     assert!(content.contains("lazer") || content.contains("stable"));
 }
@@ -110,8 +112,7 @@ fn config_tab_shows_login_section() {
     let mut app = make_app();
     app.next_tab();
     app.next_tab();
-    let buf = render_to_buffer(&app, 120, 40);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 40);
     assert!(content.contains("login") || content.contains("LOGIN"));
 }
 
@@ -140,14 +141,8 @@ fn download_tab_renders_without_panic() {
 
 #[test]
 fn footer_shows_hint_line() {
-    use ratatui::{Terminal, backend::TestBackend};
-
     let app = make_app();
-    let backend = TestBackend::new(120, 24);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| draw(frame, &app)).unwrap();
-    let buf = terminal.backend().buffer().clone();
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     // footer should contain the hint line keys
     assert!(content.contains("move") || content.contains("quit") || content.contains("↑↓"));
 }
@@ -158,8 +153,7 @@ fn home_footer_hides_space_on_text_input_focus() {
 
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
-    let buf = render_to_buffer(&app, 120, 24);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     assert!(
         !content.contains("space toggle"),
         "space toggle hint must be hidden while a text field is focused"
@@ -172,8 +166,7 @@ fn home_footer_shows_space_on_toggle_focus() {
 
     let mut app = make_app();
     app.home.focus = HomeField::AutoOverwrite;
-    let buf = render_to_buffer(&app, 120, 24);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     assert!(content.contains("space toggle"));
 }
 
@@ -181,8 +174,7 @@ fn home_footer_shows_space_on_toggle_focus() {
 fn updates_footer_hides_recheck_without_failed_maps() {
     let mut app = make_app();
     app.next_tab();
-    let buf = render_to_buffer(&app, 120, 24);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     assert!(!content.contains("recheck"));
 }
 
@@ -191,8 +183,7 @@ fn updates_footer_in_list_shows_scroll_and_back() {
     let mut app = make_app();
     app.next_tab();
     app.updates.selection.in_collection_list = true;
-    let buf = render_to_buffer(&app, 120, 24);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     assert!(content.contains("scroll"));
     assert!(content.contains("esc"));
 }
@@ -214,8 +205,7 @@ fn config_footer_omits_space_on_text_input() {
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
     app.config.focus = ConfigField::MirrorCustomUrl;
 
-    let buf = render_to_buffer(&app, 120, 24);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 24);
     assert!(!content.contains("space change"));
     assert!(!content.contains("space confirm"));
 }
@@ -262,8 +252,7 @@ fn config_tab_shows_download_section_before_mirrors() {
     let mut app = make_app();
     app.next_tab();
     app.next_tab();
-    let buf = render_to_buffer(&app, 120, 60);
-    let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+    let content = render_content(&app, 120, 60);
     // both sections should be present
     assert!(content.contains("download") || content.contains("DOWNLOAD"));
     assert!(content.contains("mirrors") || content.contains("MIRRORS"));

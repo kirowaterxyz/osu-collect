@@ -9,8 +9,29 @@ use crate::validation::minimal_zip_bytes_for_test;
 use crate::{
     ArchiveValidation, BeatmapsetStatusEvent, FileExistsPolicy, Mirror, MirrorKind, SkipReason,
 };
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+fn default_params<'a>(
+    beatmapset_id: u32,
+    output_dir: &'a Path,
+    client: &'a reqwest::Client,
+    mirror_pool: &'a MirrorPool,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
+) -> DownloadParams<'a> {
+    DownloadParams {
+        beatmapset_id,
+        output_dir,
+        client,
+        mirror_pool,
+        archive_validation: ArchiveValidation::Off,
+        progress_timeout: Duration::from_secs(1),
+        callbacks: BeatmapsetDownloadCallbacks::default(),
+        options: BeatmapsetDownloadOptions::default(),
+        cancel_rx,
+    }
+}
 
 #[test]
 fn test_sanitize_filename() {
@@ -155,17 +176,7 @@ async fn range_probe_discovers_redirected_download_size() {
     let mirror_pool = MirrorPool::new(vec![mirror.clone()]);
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     let dir = tempfile::tempdir().unwrap();
-    let params = DownloadParams {
-        beatmapset_id: 42,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
-        archive_validation: ArchiveValidation::Off,
-        progress_timeout: Duration::from_secs(1),
-        callbacks: BeatmapsetDownloadCallbacks::default(),
-        options: BeatmapsetDownloadOptions::default(),
-        cancel_rx,
-    };
+    let params = default_params(42, dir.path(), &client, &mirror_pool, cancel_rx);
 
     assert_eq!(
         probe_download_size(&mirror, &params).await,
@@ -220,17 +231,7 @@ async fn probe_preserves_range_across_multiple_redirects() {
     let mirror_pool = MirrorPool::new(vec![mirror.clone()]);
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     let dir = tempfile::tempdir().unwrap();
-    let params = DownloadParams {
-        beatmapset_id: 997762,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
-        archive_validation: ArchiveValidation::Off,
-        progress_timeout: Duration::from_secs(1),
-        callbacks: BeatmapsetDownloadCallbacks::default(),
-        options: BeatmapsetDownloadOptions::default(),
-        cancel_rx,
-    };
+    let params = default_params(997762, dir.path(), &client, &mirror_pool, cancel_rx);
 
     assert_eq!(
         probe_download_size(&mirror, &params).await,
@@ -274,20 +275,13 @@ async fn completion_uses_probed_size_when_download_is_chunked() {
     let dir = tempfile::tempdir().unwrap();
 
     let (outcome, _) = download_beatmapset(DownloadParams {
-        beatmapset_id: 42,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
-        archive_validation: ArchiveValidation::Off,
-        progress_timeout: Duration::from_secs(1),
         callbacks: BeatmapsetDownloadCallbacks {
             progress: Some(Arc::new(move |downloaded, total| {
                 progress_events.lock().unwrap().push((downloaded, total));
             })),
             status: None,
         },
-        options: BeatmapsetDownloadOptions::default(),
-        cancel_rx,
+        ..default_params(42, dir.path(), &client, &mirror_pool, cancel_rx)
     })
     .await;
 
@@ -332,12 +326,6 @@ async fn skip_existing_file_does_not_emit_downloading() {
     std::fs::write(dir.path().join("custom.osz"), b"existing").unwrap();
 
     let (outcome, _) = download_beatmapset(DownloadParams {
-        beatmapset_id: 42,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
-        archive_validation: ArchiveValidation::Off,
-        progress_timeout: Duration::from_secs(1),
         callbacks: BeatmapsetDownloadCallbacks {
             progress: None,
             status: Some(Arc::new(move |status| {
@@ -347,7 +335,7 @@ async fn skip_existing_file_does_not_emit_downloading() {
         options: BeatmapsetDownloadOptions {
             file_exists_policy: FileExistsPolicy::Skip,
         },
-        cancel_rx,
+        ..default_params(42, dir.path(), &client, &mirror_pool, cancel_rx)
     })
     .await;
 
@@ -445,17 +433,13 @@ async fn rate_limited_mirror_is_retried_after_other_mirrors_fail() {
     let client = reqwest::Client::new();
     let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
-    let (outcome, _) = download_beatmapset(DownloadParams {
-        beatmapset_id: 123,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
-        archive_validation: ArchiveValidation::Off,
-        progress_timeout: Duration::from_secs(1),
-        callbacks: BeatmapsetDownloadCallbacks::default(),
-        options: BeatmapsetDownloadOptions::default(),
+    let (outcome, _) = download_beatmapset(default_params(
+        123,
+        dir.path(),
+        &client,
+        &mirror_pool,
         cancel_rx,
-    })
+    ))
     .await;
 
     assert!(matches!(outcome, BeatmapsetDownloadOutcome::Success { .. }));
@@ -494,15 +478,8 @@ async fn verify_archive_records_nonzero_duration_when_enabled() {
     let dir = tempfile::tempdir().unwrap();
 
     let (outcome, _) = download_beatmapset(DownloadParams {
-        beatmapset_id: 99,
-        output_dir: dir.path(),
-        client: &client,
-        mirror_pool: &mirror_pool,
         archive_validation: ArchiveValidation::Eocd,
-        progress_timeout: Duration::from_secs(1),
-        callbacks: BeatmapsetDownloadCallbacks::default(),
-        options: BeatmapsetDownloadOptions::default(),
-        cancel_rx,
+        ..default_params(99, dir.path(), &client, &mirror_pool, cancel_rx)
     })
     .await;
 

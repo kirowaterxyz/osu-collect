@@ -9,6 +9,17 @@ use crate::app::{
 use crate::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
 use std::collections::HashSet;
 
+fn missing(id: u32, selected: bool, previously_deleted: bool) -> MissingBeatmapset {
+    MissingBeatmapset {
+        id,
+        status: MissingStatus::NotInstalled,
+        collection_id: 100,
+        collection_name: "coll".to_string(),
+        selected,
+        previously_deleted,
+    }
+}
+
 #[test]
 fn set_collections_hides_entries_without_ids() {
     let mut tab = UpdatesTab::new();
@@ -172,24 +183,7 @@ fn checksum_fallback_marks_installed() {
 fn missing_beatmap_selection_preserved_across_refresh() {
     let mut tab = UpdatesTab::new();
 
-    let first_batch = vec![
-        MissingBeatmapset {
-            id: 1,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
-        MissingBeatmapset {
-            id: 2,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
-    ];
+    let first_batch = vec![missing(1, true, false), missing(2, true, false)];
 
     tab.set_collections(vec![LocalCollection {
         name: "coll - 100".to_string(),
@@ -203,30 +197,9 @@ fn missing_beatmap_selection_preserved_across_refresh() {
 
     // Refresh with same + new entry
     let second_batch = vec![
-        MissingBeatmapset {
-            id: 1,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
-        MissingBeatmapset {
-            id: 2,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
-        MissingBeatmapset {
-            id: 3,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
+        missing(1, true, false),
+        missing(2, true, false),
+        missing(3, true, false),
     ];
 
     tab.set_missing_beatmaps(second_batch);
@@ -269,24 +242,7 @@ fn previously_deleted_items_are_deselected_by_default() {
         beatmap_checksums: vec![],
     }]);
 
-    let batch = vec![
-        MissingBeatmapset {
-            id: 10,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: false,
-            previously_deleted: true,
-        },
-        MissingBeatmapset {
-            id: 20,
-            status: MissingStatus::NotInstalled,
-            collection_id: 100,
-            collection_name: "coll".to_string(),
-            selected: true,
-            previously_deleted: false,
-        },
-    ];
+    let batch = vec![missing(10, false, true), missing(20, true, false)];
 
     tab.set_missing_beatmaps(batch);
 
@@ -316,28 +272,14 @@ fn previously_deleted_can_be_reselected_and_survives_refresh() {
         beatmap_checksums: vec![],
     }]);
 
-    let first = vec![MissingBeatmapset {
-        id: 10,
-        status: MissingStatus::NotInstalled,
-        collection_id: 100,
-        collection_name: "coll".to_string(),
-        selected: false,
-        previously_deleted: true,
-    }];
+    let first = vec![missing(10, false, true)];
     tab.set_missing_beatmaps(first);
 
     // User manually re-selects the previously deleted item
     tab.selection.cached_missing_sets[0].selected = true;
 
     // Second scan arrives: same item still marked previously_deleted
-    let second = vec![MissingBeatmapset {
-        id: 10,
-        status: MissingStatus::NotInstalled,
-        collection_id: 100,
-        collection_name: "coll".to_string(),
-        selected: false,
-        previously_deleted: true,
-    }];
+    let second = vec![missing(10, false, true)];
     tab.set_missing_beatmaps(second);
 
     let item = tab

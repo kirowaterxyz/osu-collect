@@ -18,20 +18,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_realm_reading() {
+    fn open_realm_or_skip() -> Option<LazerReader> {
         let path = PathBuf::from("realm");
         let realm_file = path.join("client.realm");
-
         if !realm_file.exists() {
             println!(
-                "Skipping test: realm file not found at {}",
+                "skipping test: realm file not found at {}",
                 realm_file.display()
             );
-            return;
+            return None;
         }
+        Some(LazerReader::new(path))
+    }
 
-        let reader = LazerReader::new(path);
+    #[test]
+    fn test_realm_reading() {
+        let Some(reader) = open_realm_or_skip() else {
+            return;
+        };
 
         // Test collections
         let collections = reader
@@ -102,18 +106,9 @@ mod tests {
     /// than using only checksums from `list_beatmapsets()`.
     #[test]
     fn test_all_checksums_recovers_more_matches() {
-        let path = PathBuf::from("realm");
-        let realm_file = path.join("client.realm");
-
-        if !realm_file.exists() {
-            println!(
-                "Skipping test: realm file not found at {}",
-                realm_file.display()
-            );
+        let Some(reader) = open_realm_or_skip() else {
             return;
-        }
-
-        let reader = LazerReader::new(path);
+        };
 
         // Get beatmapsets (only includes beatmaps with valid OnlineIDs)
         let beatmapsets = reader
@@ -178,18 +173,9 @@ mod tests {
     /// This checks if any collection checksums are in all_checksums but not in beatmapset checksums.
     #[test]
     fn test_collection_checksums_recovery() {
-        let path = PathBuf::from("realm");
-        let realm_file = path.join("client.realm");
-
-        if !realm_file.exists() {
-            println!(
-                "Skipping test: realm file not found at {}",
-                realm_file.display()
-            );
+        let Some(reader) = open_realm_or_skip() else {
             return;
-        }
-
-        let reader = LazerReader::new(path);
+        };
 
         // Get collections
         let collections = reader
@@ -263,18 +249,9 @@ mod tests {
     /// causing them to be incorrectly marked as "Not Installed".
     #[test]
     fn test_phantom_beatmapsets_detection() {
-        let path = PathBuf::from("realm");
-        let realm_file = path.join("client.realm");
-
-        if !realm_file.exists() {
-            println!(
-                "Skipping test: realm file not found at {}",
-                realm_file.display()
-            );
+        let Some(reader) = open_realm_or_skip() else {
             return;
-        }
-
-        let reader = LazerReader::new(path);
+        };
 
         // Get beatmapsets (only includes beatmaps with valid OnlineIDs)
         let beatmapsets = reader
