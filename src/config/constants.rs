@@ -32,7 +32,8 @@ pub const TRANSIENT_RETRY_ATTEMPTS: u8 = 3;
 pub const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(800);
 /// Maximum number of additional passes through the mirror pool after every mirror has
 /// exhausted its transient retries. The library waits 5 seconds between passes
-/// (cancellable). Beyond this cap the beatmapset is reported as `BeatmapsetNetworkError`.
+/// (cancellable). Beyond this cap the beatmapset is reported as `BeatmapsetFailed`
+/// carrying a transient `Error` (e.g. `Error::Network`).
 pub const NETWORK_RETRY_CAP: u32 = 1000;
 
 pub const CONFIG_SUBDIR: &str = "osu-collect";

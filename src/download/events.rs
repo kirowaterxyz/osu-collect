@@ -1,6 +1,6 @@
 use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
 use crate::config::constants::status;
-use osu_downloader::{Event as LibEvent, Skip, Status};
+use osu_downloader::{Error as LibError, Event as LibEvent, Skip, Status};
 use std::collections::HashSet;
 use tracing::warn;
 
@@ -118,11 +118,15 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
             ..
         } => {
             if error.is_transient() {
-                warn!(beatmapset_id, %error, "network error, all mirrors exhausted");
+                let reason = match &error {
+                    LibError::Network(msg) => msg.clone(),
+                    other => other.to_string(),
+                };
+                warn!(beatmapset_id, %reason, "network error, all mirrors exhausted");
                 record_and_emit_failed(
                     id,
                     beatmapset_id,
-                    format!("network error: {error}"),
+                    format!("network error: {reason}"),
                     tally,
                     emit,
                 );
