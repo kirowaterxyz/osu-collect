@@ -102,14 +102,14 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
                 );
                 emit_overall_progress(id, tally, emit);
             }
-            SkipReason::UnavailableOnMirrors | SkipReason::InvalidBeatmapsetId => {
-                let message = match reason {
-                    SkipReason::UnavailableOnMirrors => "unavailable on all mirrors",
-                    SkipReason::InvalidBeatmapsetId => "invalid beatmapset id",
-                    SkipReason::AlreadyExists => unreachable!(),
-                }
-                .to_string();
-                record_and_emit_failed(id, beatmapset_id, message, tally, emit);
+            SkipReason::UnavailableOnMirrors => {
+                record_and_emit_failed(
+                    id,
+                    beatmapset_id,
+                    "unavailable on all mirrors".to_string(),
+                    tally,
+                    emit,
+                );
             }
         },
         LibEvent::BeatmapsetFailed {

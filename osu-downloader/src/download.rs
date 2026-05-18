@@ -71,12 +71,24 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) mirror_pool: &'a MirrorPool,
     pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
+    pub(crate) sanitize_filenames: bool,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
     pub(crate) options: BeatmapsetDownloadOptions,
     pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
-fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
+/// Sanitize a raw filename to be safe for use as an `.osz` archive name.
+///
+/// Replaces filesystem-unsafe characters (`/`, `\\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`)
+/// with `_`. Falls back to `<beatmapset_id>.osz` if the input is missing, empty,
+/// a relative-path token (`.`, `..`), starts with `.`, or otherwise fails a
+/// path-traversal safety check.
+///
+/// The library calls this automatically on every download unless
+/// [`DownloaderBuilder::sanitize_filenames`](crate::DownloaderBuilder::sanitize_filenames)
+/// is disabled. Exposed publicly so callers can reuse the same logic when they
+/// are choosing filenames outside the library.
+pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
     let fallback = || format!("{beatmapset_id}.osz");
 
     let Some(name) = raw else {
@@ -569,7 +581,11 @@ async fn process_mirror_response(
     }
 
     let filename = extract_filename(&response, params.beatmapset_id);
-    let sanitized_filename = sanitize_filename(Some(&filename), params.beatmapset_id);
+    let sanitized_filename = if params.sanitize_filenames {
+        sanitize_filename(Some(&filename), params.beatmapset_id)
+    } else {
+        filename
+    };
     let output_path = params.output_dir.join(&sanitized_filename);
 
     if let Some(metadata_result) =

@@ -2,9 +2,7 @@ use super::ensure_valid_archive;
 use super::{
     EOCD_SIGNATURE, LOCAL_HEADER_SIGNATURE, find_eocd_position, minimal_zip_bytes_for_test,
 };
-use crate::{
-    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
-};
+use crate::{ArchiveValidation, ArchiveValidationResult, validate_and_remove};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -47,20 +45,14 @@ async fn off_mode_skips_all_checks() {
 }
 
 #[tokio::test]
-async fn validate_archive_removes_invalid_files() {
+async fn validate_and_remove_deletes_invalid_files() {
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(b"not a zip").unwrap();
     let path = tmp.path().to_path_buf();
-    let result = validate_archive(
-        &path,
-        ArchiveValidationOptions {
-            mode: ArchiveValidation::Magic,
-            remove_on_invalid: true,
-        },
-    )
-    .await
-    .unwrap();
-    assert!(matches!(result, ArchiveValidationResult::Removed(_)));
+    let result = validate_and_remove(&path, ArchiveValidation::Magic)
+        .await
+        .unwrap();
+    assert!(matches!(result, ArchiveValidationResult::Invalid(_)));
     assert!(!path.exists());
 }
 

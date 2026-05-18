@@ -1,6 +1,6 @@
 //! Worker module for streaming downloads and I/O
 
-use crate::{DownloadError, Result};
+use crate::{Error, Result};
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::{
@@ -74,8 +74,7 @@ impl HashWorker {
         self.sender.take();
         self.handle
             .await
-            .map_err(|err| DownloadError::worker_error(format!("hash worker failed: {err}")))
-            .map_err(Into::into)
+            .map_err(|err| Error::network(format!("hash worker failed: {err}")))
     }
 
     fn abort(mut self) {
@@ -156,17 +155,16 @@ pub(crate) async fn stream_download(
             Ok(Some(Ok(bytes))) => bytes,
             Ok(Some(Err(err))) => {
                 abort_download(&mut hash_worker, &mut file, &temp_path).await;
-                return Err(DownloadError::stream(err.to_string()).into());
+                return Err(Error::network(err.to_string()));
             }
             Ok(None) => break,
             Err(_) => {
                 abort_download(&mut hash_worker, &mut file, &temp_path).await;
                 let stalled_for = last_progress_at.elapsed().as_secs();
-                return Err(DownloadError::http(format!(
+                return Err(Error::network(format!(
                     "download stalled with no progress for {} seconds",
                     stalled_for.max(progress_timeout.as_secs())
-                ))
-                .into());
+                )));
             }
         };
 
@@ -178,7 +176,7 @@ pub(crate) async fn stream_download(
         };
         if let Err(err) = write_result {
             abort_download(&mut hash_worker, &mut file, &temp_path).await;
-            return Err(DownloadError::io(err.to_string()).into());
+            return Err(Error::io(err.to_string()));
         }
 
         if let Some(worker) = hash_worker.as_ref() {
@@ -254,29 +252,29 @@ async fn flush_download(
 ) -> Result<()> {
     let Some(flush_result) = run_cancelable(file.flush(), cancel_rx).await else {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::Cancelled.into());
+        return Err(Error::Cancelled);
     };
     if let Err(err) = flush_result {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+        return Err(Error::io(err.to_string()));
     }
 
     let Some(sync_result) = run_cancelable(file.sync_all(), cancel_rx).await else {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::Cancelled.into());
+        return Err(Error::Cancelled);
     };
     if let Err(err) = sync_result {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+        return Err(Error::io(err.to_string()));
     }
 
     let Some(shutdown_result) = run_cancelable(file.shutdown(), cancel_rx).await else {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::Cancelled.into());
+        return Err(Error::Cancelled);
     };
     if let Err(err) = shutdown_result {
         abort_download(hash_worker, file, temp_path).await;
-        return Err(DownloadError::io(err.to_string()).into());
+        return Err(Error::io(err.to_string()));
     }
 
     Ok(())

@@ -17,6 +17,7 @@ async fn cancel_mid_batch_does_not_panic() {
         archive_validation: ArchiveValidation::Off,
         progress_timeout: Duration::from_secs(1),
         network_retry_attempts: 0,
+        sanitize_filenames: true,
     };
 
     tokio::spawn(async move {

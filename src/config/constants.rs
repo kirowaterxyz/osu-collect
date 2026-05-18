@@ -15,7 +15,6 @@ pub mod status {
     pub const DOWNLOADING: &str = "downloading";
 }
 
-pub const MAX_EOCD_SEARCH_BYTES: u64 = 65_558;
 pub const CONCURRENT_REQUESTS: usize = 50;
 pub const DOWNLOAD_TIMEOUT_SECS: u64 = 60;
 pub const DEFAULT_PROGRESS_WATCHDOG_SECS: u64 = 120;
@@ -39,10 +38,6 @@ pub const NETWORK_RETRY_CAP: u32 = 1000;
 pub const CONFIG_SUBDIR: &str = "osu-collect";
 pub const CONFIG_FILE: &str = "config.toml";
 pub const CONFIG_ENV_PATH: &str = "OSU_COLLECT_CONFIG";
-
-pub const EOCD_SIGNATURE: [u8; 4] = [0x50, 0x4B, 0x05, 0x06];
-pub const MIN_PROGRESS_DELTA: u64 = 256 * 1024;
-pub const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 pub const RELEASES_URL: &str = "https://api.github.com/repos/uwuclxdy/osu-collect/releases/latest";
 pub const AUTO_UPDATE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -76,17 +71,9 @@ pub const CONFIG_TAB_INDEX: usize = 2;
 pub const STATIC_TABS: usize = 3;
 
 pub const NEKOHA_API_BASE: &str = "https://mirror.nekoha.moe/api4";
-pub const MIRROR_CHECK_URLS: &[&str] = &[
-    "https://api.nerinyan.moe/d/{id}",
-    "https://osu.direct/api/d/{id}",
-    "https://dl.sayobot.cn/beatmaps/download/full/{id}",
-    "https://mirror.nekoha.moe/api4/download/{id}",
-];
 
 pub const LOW_SPACE_THRESHOLD_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub const DIRECTORY_LOCK_FILE: &str = ".osu-collect.lock";
-
-pub const OSU_DB_VERSION: u32 = 20150203;
 
 pub const API_MAX_RETRIES: u8 = 3;

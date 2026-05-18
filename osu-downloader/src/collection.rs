@@ -2,10 +2,12 @@
 //!
 //! Behind the `collection` feature.
 
-use crate::http;
+use crate::{Error, Result, http};
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use serde::{Deserialize, Serialize};
-use std::{fmt, io, path::Path, time::Duration};
+use std::{io, path::Path, time::Duration};
+use tokio::time::sleep;
+use tracing::warn;
 
 const OSU_DB_VERSION: u32 = 20150203;
 const COLLECTOR_API_BASE: &str = "https://osucollector.com/api/collections";
@@ -164,55 +166,6 @@ fn sanitize_collection_name(name: &str) -> String {
     }
 }
 
-/// Result type for collection client operations.
-pub type CollectionResult<T> = std::result::Result<T, CollectionError>;
-
-/// Errors returned by [`CollectionClient`] operations.
-#[derive(Debug)]
-pub enum CollectionError {
-    /// Transport-level failure (connect/timeout/decode/etc.).
-    Network(reqwest::Error),
-    /// The collection ID was not found (HTTP 404).
-    NotFound,
-    /// The server returned HTTP 429. `retry_after` is the `Retry-After` header value if present.
-    RateLimited {
-        /// Cooldown the server asked the client to wait.
-        retry_after: Option<Duration>,
-    },
-    /// Server returned an unsuccessful status code (other than 404/429).
-    Status(reqwest::StatusCode),
-    /// URL passed to [`CollectionClient::fetch_by_url`] could not be parsed.
-    InvalidUrl(String),
-    /// Failed to decode the collection JSON.
-    Parse(serde_json::Error),
-}
-
-impl fmt::Display for CollectionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CollectionError::Network(err) => write!(f, "network error: {err}"),
-            CollectionError::NotFound => f.write_str("collection not found"),
-            CollectionError::RateLimited { retry_after } => match retry_after {
-                Some(duration) => write!(f, "rate limited (retry after {}s)", duration.as_secs()),
-                None => f.write_str("rate limited"),
-            },
-            CollectionError::Status(status) => write!(f, "unexpected status {status}"),
-            CollectionError::InvalidUrl(url) => write!(f, "invalid collection URL: {url}"),
-            CollectionError::Parse(err) => write!(f, "failed to parse collection JSON: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for CollectionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            CollectionError::Network(err) => Some(err),
-            CollectionError::Parse(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
 /// Client for fetching collections from osucollector.com.
 #[derive(Debug, Clone)]
 pub struct CollectionClient {
@@ -227,26 +180,16 @@ impl CollectionClient {
     /// Panics if the underlying reqwest client builder fails — which only
     /// happens if the system's TLS backend cannot initialise.
     pub fn new() -> Self {
-        Self::with_client(
-            http::create_api_client().expect("failed to build default reqwest client"),
-        )
-    }
-
-    /// New client reusing a caller-provided [`reqwest::Client`].
-    pub fn with_client(client: reqwest::Client) -> Self {
-        Self { client }
+        Self {
+            client: http::create_api_client().expect("failed to build default reqwest client"),
+        }
     }
 
     /// Fetch a collection by ID. Performs a single request — wrap in a retry
-    /// loop on the caller side if you need to retry rate limits or transient errors.
-    pub async fn fetch(&self, collection_id: u32) -> CollectionResult<Collection> {
+    /// loop on the caller side if you need to retry, or use [`fetch_with_retries`](Self::fetch_with_retries).
+    pub async fn fetch(&self, collection_id: u32) -> Result<Collection> {
         let url = format!("{COLLECTOR_API_BASE}/{collection_id}");
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(CollectionError::Network)?;
+        let response = self.client.get(&url).send().await?;
 
         let status = response.status();
 
@@ -257,25 +200,74 @@ impl CollectionClient {
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.parse::<u64>().ok())
                 .map(Duration::from_secs);
-            return Err(CollectionError::RateLimited { retry_after });
+            return Err(Error::RateLimited { retry_after });
         }
 
         if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(CollectionError::NotFound);
+            return Err(Error::NotFound);
         }
 
         if !status.is_success() {
-            return Err(CollectionError::Status(status));
+            return Err(Error::HttpStatus(status.as_u16()));
         }
 
-        let bytes = response.bytes().await.map_err(CollectionError::Network)?;
-        serde_json::from_slice(&bytes).map_err(CollectionError::Parse)
+        let bytes = response.bytes().await?;
+        serde_json::from_slice(&bytes).map_err(Into::into)
     }
 
-    /// Fetch a collection from a `https://osucollector.com/collections/<id>` URL.
-    pub async fn fetch_by_url(&self, url: &str) -> CollectionResult<Collection> {
-        let collection_id = parse_collection_id_from_url(url)?;
+    /// Fetch a collection from either a numeric ID (as a string) or an
+    /// `https://osucollector.com/collections/<id>` URL.
+    pub async fn fetch_input(&self, input: &str) -> Result<Collection> {
+        let collection_id = parse_collection_id(input)?;
         self.fetch(collection_id).await
+    }
+
+    /// Fetch with the library's built-in retry policy:
+    /// - on [`Error::RateLimited`]: sleep for `retry_after` (capped at 60s, defaults to 30s)
+    /// - on transient [`Error::Network`] / [`Error::Timeout`]: exponential backoff (2^attempt seconds)
+    /// - on any other error: return immediately
+    ///
+    /// `attempts` is the maximum number of tries (so `attempts = 3` means up to 2 retries).
+    pub async fn fetch_with_retries(
+        &self,
+        collection_id: u32,
+        attempts: u8,
+    ) -> Result<Collection> {
+        let attempts = attempts.max(1);
+        let mut last_error: Option<Error> = None;
+
+        for attempt in 1..=attempts {
+            match self.fetch(collection_id).await {
+                Ok(collection) => return Ok(collection),
+                Err(Error::RateLimited { retry_after }) => {
+                    let delay = retry_after
+                        .unwrap_or(Duration::from_secs(30))
+                        .min(Duration::from_secs(60));
+                    warn!(
+                        attempt,
+                        delay_secs = delay.as_secs(),
+                        "rate limited by osucollector.com; waiting before retry"
+                    );
+                    sleep(delay).await;
+                    last_error = Some(Error::RateLimited { retry_after });
+                }
+                Err(err) if err.is_transient() && attempt < attempts => {
+                    let delay_secs = 2_u64.pow((attempt - 1) as u32);
+                    warn!(
+                        attempt,
+                        remaining = attempts - attempt,
+                        delay_secs,
+                        error = %err,
+                        "fetch collection attempt failed; retrying"
+                    );
+                    sleep(Duration::from_secs(delay_secs)).await;
+                    last_error = Some(err);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| Error::network("all retry attempts failed")))
     }
 }
 
@@ -285,12 +277,29 @@ impl Default for CollectionClient {
     }
 }
 
-fn parse_collection_id_from_url(url: &str) -> CollectionResult<u32> {
+/// Parse a numeric collection ID or a `https://osucollector.com/collections/<id>` URL.
+pub fn parse_collection_id(input: &str) -> Result<u32> {
+    let trimmed = input.trim();
+
+    if trimmed.is_empty() {
+        return Err(Error::invalid_url("collection ID or URL cannot be empty"));
+    }
+
+    if trimmed.bytes().all(|b| b.is_ascii_digit()) {
+        return trimmed
+            .parse::<u32>()
+            .map_err(|_| Error::invalid_url(format!("invalid collection ID: {trimmed}")));
+    }
+
+    parse_collection_id_from_url(trimmed)
+}
+
+fn parse_collection_id_from_url(url: &str) -> Result<u32> {
     url.trim_end_matches('/')
         .rsplit('/')
         .next()
         .and_then(|tail| tail.parse::<u32>().ok())
-        .ok_or_else(|| CollectionError::InvalidUrl(url.to_string()))
+        .ok_or_else(|| Error::invalid_url(format!("invalid collection URL: {url}")))
 }
 
 #[cfg(test)]

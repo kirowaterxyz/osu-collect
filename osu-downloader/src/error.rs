@@ -1,133 +1,121 @@
-use std::io;
+//! Unified error type and result alias.
+
+use std::time::Duration;
 use thiserror::Error;
 
-/// Main result type for the library
+/// Library-wide result alias.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Top-level error type for osu-downloader
-#[derive(Debug, Error)]
+/// All errors surfaced by this crate.
+///
+/// `Clone` is implemented so events that carry an error can be cheaply forwarded
+/// across channels. Inner I/O / HTTP errors are flattened to strings for that reason.
+#[derive(Debug, Clone, Error)]
 pub enum Error {
-    /// HTTP/network error
-    #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
-
-    /// I/O error (file system operations)
-    #[error("I/O error: {0}")]
-    Io(#[from] io::Error),
-
-    /// Invalid mirror configuration
-    #[error("Invalid mirror configuration: {0}")]
-    InvalidMirror(String),
-
-    /// Invalid downloader configuration
-    #[error("Invalid configuration: {0}")]
+    /// Builder rejected the configuration.
+    #[error("configuration error: {0}")]
     Config(String),
 
-    /// Download operation failed
-    #[error("Download failed: {0}")]
-    Download(#[from] DownloadError),
+    /// A mirror template or URL was rejected.
+    #[error("invalid mirror: {0}")]
+    Mirror(String),
 
-    /// JSON parsing error
-    #[error("JSON parsing error: {0}")]
-    Json(#[from] serde_json::Error),
-}
+    /// Archive validation failed (bad ZIP, wrong content, etc.).
+    #[error("archive validation failed: {0}")]
+    Validation(String),
 
-/// Download-specific error types
-#[derive(Debug, Clone, Error)]
-pub enum DownloadError {
-    /// All configured mirrors failed for a beatmapset
-    #[error("All mirrors failed for beatmapset {beatmapset_id}")]
-    AllMirrorsFailed {
-        /// The beatmapset ID that failed
-        beatmapset_id: u32,
-    },
+    /// Transport-level failure: connect/read/decode/stream/etc.
+    #[error("network error: {0}")]
+    Network(String),
 
-    /// Archive validation failed (invalid ZIP format or hash mismatch)
-    #[error("Archive validation failed: {reason}")]
-    ValidationFailed {
-        /// Reason for validation failure
-        reason: String,
-    },
+    /// Stall watchdog fired or a connect/read timed out.
+    #[error("operation timed out")]
+    Timeout,
 
-    /// Download progress timed out
-    #[error("Progress timeout exceeded")]
-    ProgressTimeout,
-
-    /// Beatmapset not found on any configured mirror
-    #[error("Beatmapset not found on any mirror")]
+    /// Resource not found (HTTP 404).
+    #[error("not found")]
     NotFound,
 
-    /// All mirrors are currently rate limited
-    #[error("Rate limited by all mirrors")]
-    RateLimited,
+    /// Server returned HTTP 429. `retry_after` carries the `Retry-After` header when present.
+    #[error("rate limited")]
+    RateLimited {
+        /// Cooldown the server asked the client to wait, if any.
+        retry_after: Option<Duration>,
+    },
 
-    /// Download was cancelled by user
-    #[error("Cancelled by user")]
-    Cancelled,
-
-    /// Worker thread error
-    #[error("Worker error: {0}")]
-    WorkerError(String),
-
-    /// Non-success HTTP status code received during download
+    /// Server returned an unsuccessful status code not covered by other variants.
     #[error("HTTP {0}")]
     HttpStatus(u16),
 
-    /// HTTP/network error during download
-    #[error("HTTP error: {0}")]
-    Http(String),
+    /// The caller-supplied URL could not be parsed.
+    #[error("invalid URL: {0}")]
+    InvalidUrl(String),
 
-    /// Response body stream failed during download
-    #[error("Stream error: {0}")]
-    Stream(String),
+    /// JSON (or other body) failed to decode.
+    #[error("parse error: {0}")]
+    Parse(String),
 
-    /// I/O error during download
+    /// Operation was cancelled by the caller.
+    #[error("cancelled by caller")]
+    Cancelled,
+
+    /// Local I/O failure.
     #[error("I/O error: {0}")]
     Io(String),
 }
 
 impl Error {
-    pub(crate) fn invalid_mirror(msg: impl Into<String>) -> Self {
-        Error::InvalidMirror(msg.into())
-    }
-
     pub(crate) fn config(msg: impl Into<String>) -> Self {
-        Error::Config(msg.into())
-    }
-}
-
-impl DownloadError {
-    pub(crate) fn validation_failed(reason: impl Into<String>) -> Self {
-        DownloadError::ValidationFailed {
-            reason: reason.into(),
-        }
+        Self::Config(msg.into())
     }
 
-    pub(crate) fn worker_error(msg: impl Into<String>) -> Self {
-        DownloadError::WorkerError(msg.into())
+    pub(crate) fn mirror(msg: impl Into<String>) -> Self {
+        Self::Mirror(msg.into())
     }
 
-    pub(crate) fn http(msg: impl Into<String>) -> Self {
-        DownloadError::Http(msg.into())
+    pub(crate) fn validation(msg: impl Into<String>) -> Self {
+        Self::Validation(msg.into())
     }
 
-    pub(crate) fn stream(msg: impl Into<String>) -> Self {
-        DownloadError::Stream(msg.into())
+    pub(crate) fn network(msg: impl Into<String>) -> Self {
+        Self::Network(msg.into())
     }
 
     pub(crate) fn io(msg: impl Into<String>) -> Self {
-        DownloadError::Io(msg.into())
+        Self::Io(msg.into())
+    }
+
+    pub(crate) fn invalid_url(msg: impl Into<String>) -> Self {
+        Self::InvalidUrl(msg.into())
+    }
+
+    /// True for variants that the library considers transient.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Error::Network(_) | Error::Timeout | Error::RateLimited { .. }
+        )
     }
 }
 
-impl From<reqwest::Error> for DownloadError {
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
-        DownloadError::Http(err.to_string())
+        if err.is_timeout() {
+            Error::Timeout
+        } else {
+            Error::Network(err.to_string())
+        }
     }
 }
 
-impl From<io::Error> for DownloadError {
-    fn from(err: io::Error) -> Self {
-        DownloadError::Io(err.to_string())
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::Parse(err.to_string())
     }
 }

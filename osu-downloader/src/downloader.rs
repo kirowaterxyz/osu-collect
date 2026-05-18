@@ -24,6 +24,7 @@ pub struct DownloaderBuilder {
     progress_timeout: Option<Duration>,
     user_agent: Option<String>,
     network_retry_attempts: usize,
+    sanitize_filenames: bool,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
 }
@@ -38,6 +39,7 @@ impl DownloaderBuilder {
             progress_timeout: None,
             user_agent: None,
             network_retry_attempts: 0,
+            sanitize_filenames: true,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
         }
@@ -106,6 +108,19 @@ impl DownloaderBuilder {
         self
     }
 
+    /// Whether to sanitize archive filenames extracted from `Content-Disposition`
+    /// headers. Default `true`. Disabling allows mirrors to dictate the final
+    /// on-disk filename verbatim — only do this if every mirror is trusted, as
+    /// it removes the path-traversal guard.
+    ///
+    /// The default sanitizer is exposed as [`crate::sanitize_filename`] if you
+    /// want to call it yourself.
+    #[must_use]
+    pub fn sanitize_filenames(mut self, enabled: bool) -> Self {
+        self.sanitize_filenames = enabled;
+        self
+    }
+
     /// Override the HTTP client (test helper).
     #[cfg(any(test, feature = "test-helpers"))]
     #[must_use]
@@ -137,6 +152,7 @@ impl DownloaderBuilder {
                 .user_agent
                 .unwrap_or_else(|| format!("osu-downloader/{}", env!("CARGO_PKG_VERSION"))),
             network_retry_attempts: self.network_retry_attempts,
+            sanitize_filenames: self.sanitize_filenames,
         };
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -243,6 +259,7 @@ impl Downloader {
                 archive_validation: config.archive_validation,
                 progress_timeout: config.progress_timeout,
                 network_retry_attempts: config.network_retry_attempts,
+                sanitize_filenames: config.sanitize_filenames,
             };
             batch::download_batch(
                 items,
@@ -293,7 +310,7 @@ impl DownloadSession {
         }
         self.task
             .await
-            .map_err(|err| Error::config(format!("download task panicked: {err}")))
+            .map_err(|err| Error::Network(format!("download task panicked: {err}")))
     }
 }
 

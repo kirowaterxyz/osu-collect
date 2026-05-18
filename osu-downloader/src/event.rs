@@ -1,6 +1,6 @@
 //! Event types emitted during a download session.
 
-use crate::{DownloadError, MirrorKind};
+use crate::{Error, MirrorKind};
 use std::time::Duration;
 
 /// Events emitted while a [`DownloadSession`](crate::DownloadSession) is running.
@@ -59,7 +59,7 @@ pub enum Event {
         /// Beatmapset ID.
         beatmapset_id: u32,
         /// Underlying error.
-        error: DownloadError,
+        error: Error,
         /// Mirror associated with the failure if known.
         mirror: Option<MirrorKind>,
     },
@@ -131,8 +131,6 @@ pub enum SkipReason {
     AlreadyExists,
     /// Not available on any configured mirror.
     UnavailableOnMirrors,
-    /// Caller marked the item as not-to-download.
-    InvalidBeatmapsetId,
 }
 
 /// Summary of a completed download session.

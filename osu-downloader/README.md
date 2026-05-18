@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`session.cancel()` aborts running downloads at the next checkpoint. `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors).
+`session.cancel()` aborts running downloads at the next checkpoint. `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors). `.default_mirrors()` adds every built-in in one call.
 
 ## Mirrors
 
@@ -63,12 +63,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Nekoha** — https://mirror.nekoha.moe
 - **Custom** — `Mirror::custom("https://your.mirror/d/{id}")?`
 
+`Mirror::all_builtins()` returns every built-in mirror; `Mirror::builtin_templates()` gives just the URL templates if you only need to probe availability.
+
 ## Collections
 
 ```rust
 use osu_downloader::{collection::CollectionClient, DownloadItem, Downloader};
 
-let collection = CollectionClient::new().fetch(12345).await?;
+let collection = CollectionClient::new().fetch_with_retries(12345, 3).await?;
 let downloader = Downloader::builder().default_mirrors().build()?;
 let mut session = downloader.download_many(
     collection.beatmapset_ids().into_iter().map(DownloadItem::skip_if_present),
@@ -78,7 +80,42 @@ let mut session = downloader.download_many(
 collection.write_db("./downloads/collection.db".as_ref())?;
 ```
 
-`CollectionClient::fetch` returns a typed `CollectionError` (`NotFound`, `RateLimited { retry_after }`, `Network`, `Status`, `Parse`, `InvalidUrl`) so callers can build their own retry policy. For multi-collection bundles use `collection::write_collections_db(&[CollectionDbEntry { … }], path)`.
+- `CollectionClient::fetch(id)` does a single request and surfaces errors verbatim.
+- `CollectionClient::fetch_with_retries(id, attempts)` adds the library's built-in retry policy (rate-limit-aware sleeps + exponential backoff for transient network errors).
+- `CollectionClient::fetch_input(input)` accepts either a numeric ID or a `https://osucollector.com/collections/<id>` URL.
+- For multi-collection bundles use `collection::write_collections_db(&[CollectionDbEntry { … }], path)`.
+
+## Errors
+
+Everything funnels into one [`Error`](https://docs.rs/osu-downloader/latest/osu_downloader/enum.Error.html) enum so callers can match exhaustively without juggling layered error types:
+
+```rust
+match err {
+    osu_downloader::Error::NotFound => …,
+    osu_downloader::Error::RateLimited { retry_after } => …,
+    osu_downloader::Error::Network(msg) => …,
+    osu_downloader::Error::Timeout => …,
+    osu_downloader::Error::Validation(msg) => …,
+    _ => …,
+}
+```
+
+`Error::is_transient()` is the shortcut for "should I retry?".
+
+## Validation
+
+```rust
+use osu_downloader::{validate_archive, validate_and_remove, ArchiveValidation};
+
+match validate_archive(path, ArchiveValidation::Eocd).await? {
+    ArchiveValidationResult::Valid => …,
+    ArchiveValidationResult::NotFound => …,
+    ArchiveValidationResult::Invalid(reason) => …,
+}
+
+// or, to delete the file on validation failure:
+validate_and_remove(path, ArchiveValidation::Eocd).await?;
+```
 
 ## Feature flags
 

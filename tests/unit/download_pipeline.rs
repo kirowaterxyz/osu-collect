@@ -181,10 +181,10 @@ fn duplicate_completed_events_dedupe_in_successful_set() {
 }
 
 #[test]
-fn invalid_beatmapset_id_is_recorded_as_failure() {
+fn unavailable_on_mirrors_is_recorded_as_failure() {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
         beatmapset_id: 7,
-        reason: SkipReason::InvalidBeatmapsetId,
+        reason: SkipReason::UnavailableOnMirrors,
     }]);
     assert_eq!(tally.failed, 1);
     assert_eq!(tally.skipped, 0);
@@ -192,7 +192,7 @@ fn invalid_beatmapset_id_is_recorded_as_failure() {
         tally
             .failures
             .iter()
-            .any(|(id, msg)| *id == 7 && msg.contains("invalid beatmapset id"))
+            .any(|(id, msg)| *id == 7 && msg.contains("unavailable on all mirrors"))
     );
 }
 

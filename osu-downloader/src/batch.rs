@@ -29,6 +29,7 @@ pub(crate) struct BatchConfig {
     pub(crate) archive_validation: ArchiveValidation,
     pub(crate) progress_timeout: Duration,
     pub(crate) network_retry_attempts: usize,
+    pub(crate) sanitize_filenames: bool,
 }
 
 pub(crate) async fn download_batch(
@@ -256,6 +257,7 @@ async fn process_one(
             mirror_pool,
             archive_validation: config.archive_validation,
             progress_timeout: config.progress_timeout,
+            sanitize_filenames: config.sanitize_filenames,
             callbacks: BeatmapsetDownloadCallbacks {
                 progress: Some(progress_callback.clone()),
                 status: Some(status_callback.clone()),
@@ -322,7 +324,7 @@ async fn process_one(
         BeatmapsetDownloadOutcome::Failed { mirror, reason } => {
             let _ = event_tx.send(Event::BeatmapsetFailed {
                 beatmapset_id,
-                error: crate::DownloadError::worker_error(reason.clone()),
+                error: crate::Error::network(reason.clone()),
                 mirror,
             });
             DownloadOutcome::Failed {

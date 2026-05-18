@@ -17,8 +17,6 @@ pub enum MirrorKind {
     Sayobot,
     /// Nekoha mirror.
     Nekoha,
-    /// Official osu! API v2 mirror (requires OAuth).
-    Official,
     /// Custom mirror with user-provided URL template.
     Custom,
 }
@@ -57,12 +55,6 @@ impl MirrorKind {
                 backoff_secs: 45,
                 template: "https://mirror.nekoha.moe/api4/download/{id}",
                 template_no_video: "https://mirror.nekoha.moe/api4/download/{id}",
-            }),
-            MirrorKind::Official => Some(ProviderMeta {
-                label: "osu! API",
-                backoff_secs: 60,
-                template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
-                template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
             }),
             MirrorKind::Custom => None,
         }
@@ -151,6 +143,35 @@ impl Mirror {
         Self::builtin(MirrorKind::Nekoha)
     }
 
+    /// Every built-in mirror, in the library's default preference order.
+    pub fn all_builtins() -> [Mirror; 4] {
+        [
+            Mirror::nerinyan(),
+            Mirror::osu_direct(),
+            Mirror::sayobot(),
+            Mirror::nekoha(),
+        ]
+    }
+
+    /// Templates for every built-in mirror. Useful when probing availability
+    /// without building a full [`Downloader`](crate::Downloader).
+    pub fn builtin_templates() -> [&'static str; 4] {
+        [
+            MirrorKind::Nerinyan
+                .download_template(false)
+                .expect("builtin"),
+            MirrorKind::OsuDirect
+                .download_template(false)
+                .expect("builtin"),
+            MirrorKind::Sayobot
+                .download_template(false)
+                .expect("builtin"),
+            MirrorKind::Nekoha
+                .download_template(false)
+                .expect("builtin"),
+        ]
+    }
+
     fn builtin(kind: MirrorKind) -> Self {
         let template = kind
             .download_template(false)
@@ -184,6 +205,11 @@ impl Mirror {
     /// Mirror kind.
     pub fn kind(&self) -> MirrorKind {
         self.kind
+    }
+
+    /// URL template used by this mirror. Contains `{id}` for substitution.
+    pub fn template(&self) -> &str {
+        &self.template
     }
 
     pub(crate) fn display_name(&self) -> &'static str {
@@ -221,13 +247,11 @@ mod tests;
 
 fn validate_template(template: &str) -> Result<()> {
     if !template.contains("{id}") {
-        return Err(Error::invalid_mirror(
-            "Mirror URL must contain {id} placeholder",
-        ));
+        return Err(Error::mirror("Mirror URL must contain {id} placeholder"));
     }
 
     if !template.starts_with("http://") && !template.starts_with("https://") {
-        return Err(Error::invalid_mirror(
+        return Err(Error::mirror(
             "Mirror URL must start with http:// or https://",
         ));
     }

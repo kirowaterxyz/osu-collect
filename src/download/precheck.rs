@@ -2,9 +2,7 @@ use super::{BeatmapStage, DownloadError, DownloadEvent, DownloadId};
 use crate::config::constants::VALIDATION_CACHE_LIMIT;
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
-use osu_downloader::{
-    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
-};
+use osu_downloader::{ArchiveValidation, ArchiveValidationResult, validate_and_remove};
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
@@ -452,14 +450,10 @@ async fn validate_existing_candidate(
         }));
     }
 
-    let opts = ArchiveValidationOptions {
-        mode: options.archive_validation,
-        remove_on_invalid: true,
-    };
     let mut validation_error = None;
     let mut file_size = 0u64;
 
-    match validate_archive(&candidate.path, opts).await {
+    match validate_and_remove(&candidate.path, options.archive_validation).await {
         Ok(ArchiveValidationResult::Valid) => {
             if let Ok(meta) = fs::metadata(&candidate.path).await {
                 file_size = meta.len();
@@ -469,8 +463,7 @@ async fn validate_existing_candidate(
         Ok(ArchiveValidationResult::NotFound) => {
             return Ok(None);
         }
-        Ok(ArchiveValidationResult::Invalid(reason))
-        | Ok(ArchiveValidationResult::Removed(reason)) => {
+        Ok(ArchiveValidationResult::Invalid(reason)) => {
             validation_error = Some(reason);
         }
         Err(err) => {

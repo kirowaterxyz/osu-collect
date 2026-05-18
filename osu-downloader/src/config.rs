@@ -15,6 +15,7 @@ pub(crate) struct DownloadConfig {
     pub(crate) progress_timeout: Duration,
     pub(crate) user_agent: String,
     pub(crate) network_retry_attempts: usize,
+    pub(crate) sanitize_filenames: bool,
 }
 
 impl Default for DownloadConfig {
@@ -25,6 +26,7 @@ impl Default for DownloadConfig {
             progress_timeout: Duration::from_secs(30),
             user_agent: format!("osu-downloader/{}", env!("CARGO_PKG_VERSION")),
             network_retry_attempts: 0,
+            sanitize_filenames: true,
         }
     }
 }

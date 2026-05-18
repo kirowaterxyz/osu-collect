@@ -1,6 +1,6 @@
-//! Archive validation and hash computation
+//! Archive validation.
 
-use crate::{DownloadError, Result};
+use crate::{Error, Result};
 use std::{io::ErrorKind, io::SeekFrom, path::Path};
 use tokio::{
     fs,
@@ -24,15 +24,6 @@ pub enum ArchiveValidation {
     Eocd,
 }
 
-/// Archive validation options.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ArchiveValidationOptions {
-    /// Validation strictness.
-    pub mode: ArchiveValidation,
-    /// Whether invalid archives should be removed.
-    pub remove_on_invalid: bool,
-}
-
 /// Archive validation outcome.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArchiveValidationResult {
@@ -40,13 +31,12 @@ pub enum ArchiveValidationResult {
     Valid,
     /// The archive path does not exist.
     NotFound,
-    /// The archive failed validation and remains on disk.
+    /// The archive failed validation. The reason is the underlying error message.
+    /// If the call site was [`validate_and_remove`], the file has also been deleted.
     Invalid(String),
-    /// The archive failed validation and was removed.
-    Removed(String),
 }
 
-/// Validate that a file looks like an osu! beatmap archive.
+/// Validate that a file looks like an osu! beatmap archive (internal helper used by the downloader pipeline).
 pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -> Result<()> {
     if mode == ArchiveValidation::Off {
         return Ok(());
@@ -54,7 +44,7 @@ pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -
 
     let metadata = fs::metadata(path).await?;
     if !metadata.is_file() || metadata.len() == 0 {
-        return Err(DownloadError::validation_failed("downloaded file is empty or invalid").into());
+        return Err(Error::validation("downloaded file is empty or invalid"));
     }
 
     let mut file = fs::File::open(path).await?;
@@ -62,9 +52,7 @@ pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -
     let bytes_read = file.read(&mut header).await?;
 
     if bytes_read < 4 {
-        return Err(
-            DownloadError::validation_failed("file too small to be a valid archive").into(),
-        );
+        return Err(Error::validation("file too small to be a valid archive"));
     }
 
     if &header[..LOCAL_HEADER_SIGNATURE.len()] == LOCAL_HEADER_SIGNATURE {
@@ -80,19 +68,42 @@ pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -
         || trimmed.starts_with(b"<html")
         || trimmed.starts_with(b"<HTML")
     {
-        return Err(DownloadError::validation_failed(
+        return Err(Error::validation(
             "received HTML error page instead of beatmap archive",
-        )
-        .into());
+        ));
     }
 
-    Err(DownloadError::validation_failed("invalid archive: missing ZIP signature").into())
+    Err(Error::validation("invalid archive: missing ZIP signature"))
 }
 
-/// Validate an archive path and optionally remove invalid files.
+/// Validate an archive at `path` without modifying the file.
+///
+/// Returns:
+/// - [`ArchiveValidationResult::Valid`] — the file looks like a real archive
+/// - [`ArchiveValidationResult::NotFound`] — no file at this path
+/// - [`ArchiveValidationResult::Invalid`] — the file exists but failed validation; reason describes why
 pub async fn validate_archive(
     path: &Path,
-    options: ArchiveValidationOptions,
+    mode: ArchiveValidation,
+) -> Result<ArchiveValidationResult> {
+    inspect_archive(path, mode, false).await
+}
+
+/// Like [`validate_archive`], but deletes any file that fails validation before returning.
+///
+/// A successful removal still returns [`ArchiveValidationResult::Invalid`] — the variant
+/// records that the file failed; the deletion is a side effect.
+pub async fn validate_and_remove(
+    path: &Path,
+    mode: ArchiveValidation,
+) -> Result<ArchiveValidationResult> {
+    inspect_archive(path, mode, true).await
+}
+
+async fn inspect_archive(
+    path: &Path,
+    mode: ArchiveValidation,
+    remove_on_invalid: bool,
 ) -> Result<ArchiveValidationResult> {
     let metadata = match fs::metadata(path).await {
         Ok(metadata) => metadata,
@@ -103,15 +114,15 @@ pub async fn validate_archive(
     };
 
     if !metadata.is_file() {
-        return handle_invalid(path, "not a regular file", options.remove_on_invalid).await;
+        return handle_invalid(path, "not a regular file", remove_on_invalid).await;
     }
 
     if metadata.len() == 0 {
-        return handle_invalid(path, "file is empty", options.remove_on_invalid).await;
+        return handle_invalid(path, "file is empty", remove_on_invalid).await;
     }
 
-    if let Err(err) = ensure_valid_archive(path, options.mode).await {
-        return handle_invalid(path, &err.to_string(), options.remove_on_invalid).await;
+    if let Err(err) = ensure_valid_archive(path, mode).await {
+        return handle_invalid(path, &err.to_string(), remove_on_invalid).await;
     }
 
     Ok(ArchiveValidationResult::Valid)
@@ -119,10 +130,9 @@ pub async fn validate_archive(
 
 async fn verify_zip_eocd_footer(file: &mut fs::File, file_size: u64) -> Result<()> {
     if file_size < 22 {
-        return Err(DownloadError::validation_failed(
+        return Err(Error::validation(
             "invalid archive: missing central directory footer",
-        )
-        .into());
+        ));
     }
 
     let search_len = MAX_EOCD_SEARCH_BYTES.min(file_size);
@@ -133,10 +143,9 @@ async fn verify_zip_eocd_footer(file: &mut fs::File, file_size: u64) -> Result<(
     if find_eocd_position(&buffer).is_some() {
         Ok(())
     } else {
-        Err(
-            DownloadError::validation_failed("invalid archive: missing central directory footer")
-                .into(),
-        )
+        Err(Error::validation(
+            "invalid archive: missing central directory footer",
+        ))
     }
 }
 
@@ -147,10 +156,8 @@ async fn handle_invalid(
 ) -> Result<ArchiveValidationResult> {
     if remove {
         match fs::remove_file(path).await {
-            Ok(()) => return Ok(ArchiveValidationResult::Removed(reason.to_string())),
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                return Ok(ArchiveValidationResult::Removed(reason.to_string()));
-            }
+            Ok(()) => {}
+            Err(err) if err.kind() == ErrorKind::NotFound => {}
             Err(err) => return Err(err.into()),
         }
     }

@@ -14,7 +14,7 @@ pub fn from_kind(kind: MirrorKind) -> Option<Mirror> {
         MirrorKind::OsuDirect => Some(Mirror::osu_direct()),
         MirrorKind::Sayobot => Some(Mirror::sayobot()),
         MirrorKind::Nekoha => Some(Mirror::nekoha()),
-        MirrorKind::Official | MirrorKind::Custom => None,
+        MirrorKind::Custom => None,
     }
 }
 

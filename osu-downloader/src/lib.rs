@@ -27,6 +27,12 @@
 //! # }
 //! ```
 //!
+//! ## errors
+//!
+//! Every fallible call returns the same [`Error`] enum. `Error::is_transient()` is
+//! the shortcut for "should I retry?" — true for network, timeout, and rate-limit
+//! variants. Collection and size-fetch operations surface the same type.
+//!
 //! ## features
 //!
 //! - `collection` — osucollector.com client and `collection.db` writer
@@ -50,12 +56,13 @@ pub mod collection;
 #[cfg(feature = "size-fetch")]
 pub mod size;
 
+pub use download::sanitize_filename;
 pub use downloader::{
     DownloadItem, DownloadSession, Downloader, DownloaderBuilder, FileExistsPolicy,
 };
-pub use error::{DownloadError, Error, Result};
+pub use error::{Error, Result};
 pub use event::{Event, SkipReason, StatusEvent, Summary};
 pub use mirrors::{Mirror, MirrorKind};
 pub use validation::{
-    ArchiveValidation, ArchiveValidationOptions, ArchiveValidationResult, validate_archive,
+    ArchiveValidation, ArchiveValidationResult, validate_and_remove, validate_archive,
 };

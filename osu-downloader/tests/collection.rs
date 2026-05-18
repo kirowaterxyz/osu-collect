@@ -1,4 +1,4 @@
-use super::{Beatmapset, Collection, Uploader, parse_collection_id_from_url};
+use super::{Beatmapset, Collection, Uploader, parse_collection_id};
 
 fn sample_collection() -> Collection {
     Collection {
@@ -24,16 +24,18 @@ fn sample_collection() -> Collection {
 }
 
 #[test]
-fn parses_collection_id_from_url() {
+fn parses_collection_id_from_id_or_url() {
+    assert_eq!(parse_collection_id("12345").unwrap(), 12345);
     assert_eq!(
-        parse_collection_id_from_url("https://osucollector.com/collections/12345").unwrap(),
+        parse_collection_id("https://osucollector.com/collections/12345").unwrap(),
         12345
     );
     assert_eq!(
-        parse_collection_id_from_url("https://osucollector.com/collections/12345/").unwrap(),
+        parse_collection_id("https://osucollector.com/collections/12345/").unwrap(),
         12345
     );
-    assert!(parse_collection_id_from_url("invalid").is_err());
+    assert!(parse_collection_id("invalid").is_err());
+    assert!(parse_collection_id("").is_err());
 }
 
 #[test]

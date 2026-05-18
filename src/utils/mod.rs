@@ -7,6 +7,7 @@ pub use fs::{
     FileExistsAction, check_available_space, determine_file_exists_action, format_bytes,
     is_low_disk_space, prepare_directory,
 };
+
 pub use logging::init_logging;
 
 use url::Url;
@@ -62,50 +63,3 @@ pub fn parse_collection_id(input: &str) -> Result<u32> {
     })
 }
 
-pub fn sanitize_filename(filename: &str) -> String {
-    let mut sanitized = String::with_capacity(filename.len());
-
-    for c in filename.chars() {
-        sanitized.push(match c {
-            '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            other => other,
-        });
-    }
-
-    let mut start = sanitized.len();
-    let mut end = 0;
-
-    for (idx, ch) in sanitized.char_indices() {
-        if !ch.is_whitespace() {
-            start = idx;
-            break;
-        }
-    }
-
-    for (idx, ch) in sanitized.char_indices().rev() {
-        if !ch.is_whitespace() {
-            end = idx + ch.len_utf8();
-            break;
-        }
-    }
-
-    if start >= end {
-        sanitized.clear();
-    } else {
-        sanitized.drain(..start);
-        sanitized.truncate(end - start);
-    }
-
-    sanitized
-}
-
-pub fn sanitize_filename_safe(filename: &str, beatmapset_id: u32) -> String {
-    use std::path::Path;
-
-    let sanitized = sanitize_filename(filename);
-
-    match Path::new(&sanitized).file_name() {
-        Some(name) if name != "." && name != ".." => name.to_string_lossy().into_owned(),
-        _ => format!("{beatmapset_id}.osz"),
-    }
-}

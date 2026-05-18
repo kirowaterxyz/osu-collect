@@ -25,6 +25,7 @@ fn default_params<'a>(
         mirror_pool,
         archive_validation: ArchiveValidation::Off,
         progress_timeout: Duration::from_secs(1),
+        sanitize_filenames: true,
         callbacks: BeatmapsetDownloadCallbacks::default(),
         options: BeatmapsetDownloadOptions::default(),
         cancel_rx,
