@@ -329,3 +329,7 @@ pub enum AutoUpdateError {
     #[error("failed to restore original binary after update failure: {0}")]
     RollbackFailed(std::io::Error),
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/auto_update.rs"]
+mod tests;

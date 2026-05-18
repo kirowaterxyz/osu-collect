@@ -1,4 +1,4 @@
-use osu_collect::auth::{StoredAuth, build_authorize_url};
+use super::{StoredAuth, build_authorize_url};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {

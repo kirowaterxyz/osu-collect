@@ -126,3 +126,7 @@ fn normalize(ids: &mut Vec<u32>) {
     ids.sort_unstable();
     ids.dedup();
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/failed_maps.rs"]
+mod tests;

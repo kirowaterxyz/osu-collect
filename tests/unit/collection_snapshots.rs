@@ -1,4 +1,4 @@
-use osu_collect::{
+use crate::{
     app::{
         runtime,
         snapshots::{self, CollectionSnapshot, CollectionSnapshotFile},

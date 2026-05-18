@@ -1,4 +1,4 @@
-use osu_collect::download::lock::{ActiveDownloadRegistry, DownloadLockGuard};
+use super::{ActiveDownloadRegistry, DownloadLockGuard};
 use std::path::PathBuf;
 
 #[test]

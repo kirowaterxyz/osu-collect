@@ -1,11 +1,11 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use osu_collect::{
+use crate::{
     app::{App, AppCommand},
     config::{
         Config,
         constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX},
     },
 };
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)

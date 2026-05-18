@@ -130,3 +130,7 @@ pub fn save(state: &CollectionStateFile, path: &Path) {
         debug!(path = %path.display(), "saved collection state");
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/collection_state.rs"]
+mod tests;

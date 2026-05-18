@@ -111,3 +111,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     footer::render(frame, footer_area, app);
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui.rs"]
+mod tests;

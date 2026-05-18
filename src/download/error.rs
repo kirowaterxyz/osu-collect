@@ -107,3 +107,7 @@ impl From<AppError> for DownloadError {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/error.rs"]
+mod tests;

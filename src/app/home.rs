@@ -291,3 +291,7 @@ impl HomeTab {
 fn parse_thread_count(value: &str) -> Result<u8, String> {
     u8::from_str(value.trim()).map_err(|_| "Thread count must be between 1 and 50".to_string())
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/home.rs"]
+mod tests;

@@ -643,3 +643,7 @@ impl Default for UpdatesTab {
 #[cfg(test)]
 #[path = "../../tests/unit/app_updates_mod.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/app_updates.rs"]
+mod integration;

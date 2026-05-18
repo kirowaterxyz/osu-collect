@@ -128,3 +128,7 @@ impl Drop for DownloadLockGuard {
         self.registry.remove(&self.path);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/lock.rs"]
+mod tests;

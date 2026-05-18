@@ -1,4 +1,4 @@
-use osu_collect::auto_update::{
+use super::{
     AutoUpdateError, DownloadedAsset, apply_update_to, check_release, spawn_update_task,
     target_asset_name, update_banner, verify_checksum,
 };

@@ -255,3 +255,7 @@ fn sorted_unique<T: Ord>(mut values: Vec<T>) -> Vec<T> {
     values.dedup();
     values
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/collection_snapshots.rs"]
+mod tests;

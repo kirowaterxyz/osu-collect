@@ -1,4 +1,4 @@
-use osu_collect::app::collection_state::{self, CollectionStateFile, STATE_ENV_PATH};
+use crate::app::collection_state::{self, CollectionStateFile, STATE_ENV_PATH};
 use std::fs;
 use tempfile::tempdir;
 

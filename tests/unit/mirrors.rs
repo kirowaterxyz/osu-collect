@@ -1,7 +1,5 @@
-use osu_collect::{
-    config::Config,
-    mirrors::{Mirror, MirrorKind},
-};
+use super::{Mirror, MirrorKind};
+use crate::config::Config;
 
 #[test]
 fn config_defaults_to_every_builtin_mirror() {

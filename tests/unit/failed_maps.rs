@@ -1,4 +1,4 @@
-use osu_collect::app::failed_maps::{
+use crate::app::failed_maps::{
     FailedMapsFile, failed_maps_path_from_base, load, record_failures, remove_available, save,
 };
 use std::collections::HashSet;

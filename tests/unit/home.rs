@@ -1,6 +1,4 @@
-use osu_collect::{
-    app::home::HomeTab, config::Config, download::ArchiveValidation, mirrors::MirrorKind,
-};
+use crate::{app::home::HomeTab, config::Config, download::ArchiveValidation, mirrors::MirrorKind};
 
 fn home_all_off(config: &Config) -> HomeTab {
     let mut home = HomeTab::new(config);

@@ -1,8 +1,7 @@
-use osu_collect::{
+use crate::{
     app::{App, CollectionPage, ConfigField, messages::AppMessage},
     config::{Config, constants::CONFIG_TAB_INDEX},
     download::{DownloadEvent, DownloadStage, DownloadSummary},
-    tui,
 };
 use ratatui::{Terminal, backend::TestBackend, style::Color};
 
@@ -10,7 +9,7 @@ fn render_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer 
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| tui::draw(frame, app))
+        .draw(|frame| super::draw(frame, app))
         .expect("app should render");
     terminal.backend().buffer().clone()
 }
@@ -19,7 +18,7 @@ fn render_app(app: &App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| tui::draw(frame, app))
+        .draw(|frame| super::draw(frame, app))
         .expect("app should render");
 
     terminal
@@ -46,7 +45,7 @@ fn progress_fill_positions(buf: &ratatui::buffer::Buffer, color: Color) -> Vec<(
 
 #[test]
 fn home_render_shows_cloudy_sections_and_footer() {
-    use osu_collect::app::HomeField;
+    use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
     // focus a mirror toggle so the footer hint exposes the space shortcut
@@ -96,7 +95,7 @@ fn config_render_shows_download_help() {
 
 #[test]
 fn config_render_shows_strict_help_only_when_strict_selected() {
-    use osu_collect::download::ArchiveValidation;
+    use crate::download::ArchiveValidation;
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
@@ -223,7 +222,7 @@ fn section_titles_use_orange_accent() {
 
 #[test]
 fn spinner_advances_with_tick_count() {
-    use osu_collect::app::messages::AppMessage;
+    use crate::app::messages::AppMessage;
 
     let mut app = App::new(Config::default());
     app.home.message = Some(AppMessage::loading("loading..."));
@@ -254,8 +253,8 @@ fn spinner_advances_with_tick_count() {
 
 #[test]
 fn login_key_on_non_login_field_does_not_produce_login_command() {
+    use crate::app::AppCommand;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-    use osu_collect::app::AppCommand;
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
@@ -275,10 +274,9 @@ fn login_key_on_non_login_field_does_not_produce_login_command() {
 
 #[test]
 fn login_field_is_reachable_via_focus_cycle() {
+    use crate::app::AuthLoginState;
+    use crate::app::ConfigField;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-    use osu_collect::app::ConfigField;
-
-    use osu_collect::app::AuthLoginState;
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
@@ -320,7 +318,7 @@ fn login_field_is_reachable_via_focus_cycle() {
 
 #[test]
 fn login_action_row_renders_when_focused() {
-    use osu_collect::app::ConfigField;
+    use crate::app::ConfigField;
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
@@ -343,7 +341,7 @@ fn active_view_renders_progress_bar_when_downloading() {
     page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
     );
@@ -372,7 +370,7 @@ fn active_view_requires_percentage_for_discovered_download_size() {
     page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
     );
@@ -401,7 +399,7 @@ fn active_view_renders_bouncing_bar_when_total_is_unknown() {
     page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
     );
@@ -420,7 +418,7 @@ fn active_view_renders_bouncing_bar_when_total_is_unknown() {
 
 #[test]
 fn active_panel_height_is_constant_across_completion_and_start() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     fn count_id_prefixes(output: &str) -> usize {
         output.matches("  #").count()
@@ -493,7 +491,7 @@ fn active_panel_height_is_constant_across_completion_and_start() {
 
 #[test]
 fn long_message_does_not_drop_the_progress_bar() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
@@ -536,7 +534,7 @@ fn active_view_shows_bar_for_active_download_regardless_of_message() {
     page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "retrying nerinyan after timeout (attempt 2/3)",
         false,
     );
@@ -801,14 +799,14 @@ fn active_progress_is_per_beatmapset() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 2);
     page.update_active_status(
         100,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #100 from mirror",
         false,
     );
     page.update_active_progress(100, 1_000_000, 4_000_000);
     page.update_active_status(
         101,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Fetching #101 from mirror",
         false,
     );
@@ -829,7 +827,7 @@ fn active_progress_is_per_beatmapset() {
 
 #[test]
 fn precheck_pending_status_does_not_consume_active_slot() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 2);
     // a flood of precheck "file changed" notifications must not pile up in the active panel
@@ -859,7 +857,7 @@ fn precheck_pending_status_does_not_consume_active_slot() {
 
 #[test]
 fn active_slot_count_is_capped_at_thread_count() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 2);
     for id in [10u32, 11, 12, 13] {
@@ -886,7 +884,7 @@ fn active_slot_count_is_capped_at_thread_count() {
 
 #[test]
 fn freed_slot_position_is_reused_for_stability() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 3);
     for id in [20u32, 21, 22] {
@@ -920,7 +918,7 @@ fn freed_slot_position_is_reused_for_stability() {
 
 #[test]
 fn progress_alone_must_not_allocate_an_empty_slot() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 2);
     // a progress event without a preceding status event must not create a blank-message
@@ -943,9 +941,9 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
 
 #[test]
 fn bar_visible_during_downloading_before_bytes_flow() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
-    use osu_collect::tui::ACCENT;
+    use super::ACCENT;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
     page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
@@ -967,7 +965,7 @@ fn bar_visible_during_downloading_before_bytes_flow() {
 
 #[test]
 fn first_status_lands_immediately_then_text_is_debounced() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
     page.update_active_status(
@@ -1015,7 +1013,7 @@ fn first_status_lands_immediately_then_text_is_debounced() {
 
 #[test]
 fn rapid_status_transitions_coalesce_to_latest() {
-    use osu_collect::download::BeatmapStage;
+    use crate::download::BeatmapStage;
 
     let mut page = CollectionPage::new(1, "x".into(), 1);
     page.update_active_status(
@@ -1050,7 +1048,7 @@ fn terminal_stage_clears_active_downloads() {
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 1);
     page.update_active_status(
         100,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #100",
         false,
     );
@@ -1068,7 +1066,7 @@ fn terminal_stage_clears_active_downloads() {
 
     app.downloads[0].update_active_status(
         101,
-        osu_collect::download::BeatmapStage::Downloading,
+        crate::download::BeatmapStage::Downloading,
         "Downloading #101",
         false,
     );
@@ -1090,7 +1088,7 @@ fn footer_info_message_uses_info_color() {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| tui::draw(frame, &app))
+        .draw(|frame| super::draw(frame, &app))
         .expect("app should render");
 
     let has_info_cell = terminal

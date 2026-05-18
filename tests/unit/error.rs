@@ -1,4 +1,4 @@
-use osu_collect::download::error::DownloadError;
+use super::DownloadError;
 
 #[test]
 fn retryable_errors() {

@@ -756,3 +756,7 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app_state.rs"]
+mod tests;

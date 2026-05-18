@@ -1,4 +1,4 @@
-use osu_collect::app::{
+use crate::app::{
     collection_state::CollectionStateFile,
     runtime::{
         FetchCompareSettings, collection_ids_for_scan, deleted_maps_for_scan,
@@ -6,7 +6,7 @@ use osu_collect::app::{
     },
     updates::{MissingBeatmapset, MissingStatus, UpdatesTab},
 };
-use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
+use crate::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
 use std::collections::HashSet;
 
 #[test]
