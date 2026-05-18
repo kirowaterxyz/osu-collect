@@ -31,7 +31,6 @@ pub const LINE: Color = Color::Rgb(69, 71, 90);
 pub const LINE_SOFT: Color = Color::Rgb(49, 50, 68);
 pub const BG: Color = Color::Rgb(30, 30, 46);
 pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
-pub const INDETERMINATE: Color = Color::Rgb(45, 132, 196);
 
 pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 

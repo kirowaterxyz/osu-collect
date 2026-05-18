@@ -13,8 +13,8 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use super::{
-    ACCENT, ACCENT_ALT, DANGER, INDETERMINATE, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM,
-    TEXT_FAINT, TEXT_MUTED, WARNING, eyebrow, focused_label,
+    ACCENT, ACCENT_ALT, DANGER, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED,
+    WARNING, eyebrow, focused_label,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
@@ -319,16 +319,12 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
     let prefix = format!("  #{:<7} ", line.beatmapset_id);
     let prefix_w = prefix.chars().count() as u16;
     let rate_limited = line.displayed_rate_limited();
-    let show_bar = line.should_show_bar();
+    let bar_color = line.bar_color();
 
-    let message_budget = if show_bar {
-        width
-            .saturating_sub(prefix_w)
-            .saturating_sub(RESERVED_RIGHT)
-            .saturating_sub(GAP)
-    } else {
-        width.saturating_sub(prefix_w)
-    };
+    let message_budget = width
+        .saturating_sub(prefix_w)
+        .saturating_sub(RESERVED_RIGHT)
+        .saturating_sub(GAP);
     let message = truncate_to_width(&line.displayed_message(), message_budget);
     let message_w = message.chars().count() as u16;
 
@@ -337,33 +333,37 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         Span::styled(message.clone(), message_style(&message, rate_limited)),
     ];
 
-    if show_bar {
-        let used = prefix_w.saturating_add(message_w);
-        let pad = width.saturating_sub(used).saturating_sub(RESERVED_RIGHT) as usize;
-        spans.push(Span::raw(" ".repeat(pad)));
+    let used = prefix_w.saturating_add(message_w);
+    let pad = width.saturating_sub(used).saturating_sub(RESERVED_RIGHT) as usize;
+    spans.push(Span::raw(" ".repeat(pad)));
 
-        let bar_color = if rate_limited { WARNING } else { ACCENT };
-        match line.progress_ratio() {
-            Some(ratio) => {
-                let filled = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
-                let empty = BAR_WIDTH - filled;
-                spans.push(Span::styled(
-                    "█".repeat(filled as usize),
-                    Style::default().fg(bar_color),
-                ));
-                spans.push(Span::styled(
-                    "░".repeat(empty as usize),
-                    Style::default().fg(LINE_SOFT),
-                ));
-                spans.push(Span::styled(
-                    format!(" {:>3}%", (ratio * 100.0).round() as u16),
-                    Style::default().fg(TEXT_FAINT),
-                ));
-            }
-            None => {
-                spans.extend(indeterminate_bar_spans(BAR_WIDTH, INDETERMINATE));
-                spans.push(Span::styled("  ...", Style::default().fg(TEXT_FAINT)));
-            }
+    match line.progress_ratio() {
+        Some(ratio) => {
+            let filled = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
+            let empty = BAR_WIDTH - filled;
+            spans.push(Span::styled(
+                "█".repeat(filled as usize),
+                Style::default().fg(bar_color),
+            ));
+            spans.push(Span::styled(
+                "░".repeat(empty as usize),
+                Style::default().fg(LINE_SOFT),
+            ));
+            spans.push(Span::styled(
+                format!(" {:>3}%", (ratio * 100.0).round() as u16),
+                Style::default().fg(TEXT_FAINT),
+            ));
+        }
+        None if matches!(line.stage, crate::download::BeatmapStage::Downloading) => {
+            spans.extend(indeterminate_bar_spans(BAR_WIDTH, bar_color));
+            spans.push(Span::styled("  ...", Style::default().fg(TEXT_FAINT)));
+        }
+        None => {
+            spans.push(Span::styled(
+                "░".repeat(BAR_WIDTH as usize),
+                Style::default().fg(LINE_SOFT),
+            ));
+            spans.push(Span::styled("     ", Style::default().fg(TEXT_FAINT)));
         }
     }
 

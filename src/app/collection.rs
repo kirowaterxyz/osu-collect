@@ -1,4 +1,5 @@
 use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary};
+use ratatui::style::Color;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
@@ -26,7 +27,7 @@ fn non_empty_status(stage: BeatmapStage, beatmapset_id: u32, message: &str) -> S
 
     match stage {
         BeatmapStage::Pending => format!("queued #{beatmapset_id}"),
-        BeatmapStage::Downloading => format!("Downloading #{beatmapset_id}"),
+        BeatmapStage::Downloading => format!("downloading #{beatmapset_id}"),
         BeatmapStage::Verifying => format!("verifying #{beatmapset_id}"),
         BeatmapStage::Success => format!("done #{beatmapset_id}"),
         BeatmapStage::Skipped => format!("skipped #{beatmapset_id}"),
@@ -64,8 +65,8 @@ pub struct FailedBeatmap {
 #[derive(Debug, Clone)]
 pub struct ActiveDownloadLine {
     pub beatmapset_id: u32,
-    /// drives bar visibility and slot reuse; updated immediately on every status event so
-    /// `first_free_slot` / `should_show_bar` see reality without lag.
+    /// drives bar color and slot reuse; updated immediately on every status event so
+    /// `first_free_slot` / `bar_color` see reality without lag.
     pub stage: BeatmapStage,
     pending: RefCell<DisplayedStatus>,
     displayed: RefCell<DisplayedStatus>,
@@ -109,8 +110,21 @@ impl ActiveDownloadLine {
         COMPLETION_PREFIXES.iter().any(|p| message.starts_with(p))
     }
 
-    pub fn should_show_bar(&self) -> bool {
-        matches!(self.stage, BeatmapStage::Downloading)
+    /// bar fill color for the current stage. rate_limited overrides downloading color.
+    pub fn bar_color(&self) -> Color {
+        use crate::tui::{ACCENT, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING};
+        if matches!(self.stage, BeatmapStage::Downloading) && self.displayed_rate_limited() {
+            return WARNING;
+        }
+        match self.stage {
+            BeatmapStage::Pending => TEXT_FAINT,
+            BeatmapStage::Downloading => ACCENT,
+            BeatmapStage::Verifying => INFO,
+            BeatmapStage::Success => SUCCESS,
+            BeatmapStage::Skipped => LINE_SOFT,
+            BeatmapStage::Failed => DANGER,
+            BeatmapStage::Aborted => TEXT_DIM,
+        }
     }
 
     /// apply a new status, debouncing the text update. test access.

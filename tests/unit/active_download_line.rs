@@ -1,5 +1,6 @@
 use osu_collect::app::collection::{ActiveDownloadLine, STATUS_DEBOUNCE};
 use osu_collect::download::BeatmapStage;
+use osu_collect::tui::{ACCENT, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -16,13 +17,13 @@ fn first_update_applies_immediately() {
     let mut line = ActiveDownloadLine::new(1);
     line.apply_status(BeatmapStage::Downloading, "checking osu.direct", false);
     assert_eq!(line.displayed_message(), "checking osu.direct");
-    assert!(line.should_show_bar());
+    assert_eq!(line.bar_color(), ACCENT);
 }
 
 #[test]
 fn second_update_within_window_queues_text_but_stage_updates_immediately() {
     // text is debounced (no bypass for any stage), but `stage` is structural and must
-    // reflect Verifying right away so the bar hides without a one-frame 100% flash.
+    // reflect Verifying color right away without a one-frame 100% flash.
     let mut line = ActiveDownloadLine::new(1);
     line.apply_status(
         BeatmapStage::Downloading,
@@ -31,9 +32,10 @@ fn second_update_within_window_queues_text_but_stage_updates_immediately() {
     );
     line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
     assert_eq!(line.displayed_message(), "downloading from osu.direct");
-    assert!(
-        !line.should_show_bar(),
-        "Verifying must hide the bar instantly"
+    assert_eq!(
+        line.bar_color(),
+        INFO,
+        "Verifying must switch bar to info color instantly"
     );
 }
 
@@ -48,7 +50,7 @@ fn pending_update_resolves_after_window() {
     line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
     sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
     assert_eq!(line.displayed_message(), "verifying from osu.direct");
-    assert!(!line.should_show_bar());
+    assert_eq!(line.bar_color(), INFO);
 }
 
 #[test]
@@ -65,4 +67,60 @@ fn rapid_transitions_coalesce_to_latest() {
     line.apply_status(BeatmapStage::Success, "downloaded from osu.direct", false);
     sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
     assert_eq!(line.displayed_message(), "downloaded from osu.direct");
+}
+
+#[test]
+fn bar_color_pending_is_faint() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Pending, "", false);
+    assert_eq!(line.bar_color(), TEXT_FAINT);
+}
+
+#[test]
+fn bar_color_downloading_normal_is_accent() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Downloading, "", false);
+    assert_eq!(line.bar_color(), ACCENT);
+}
+
+#[test]
+fn bar_color_downloading_rate_limited_is_warning() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Downloading, "", true);
+    assert_eq!(line.bar_color(), WARNING);
+}
+
+#[test]
+fn bar_color_verifying_is_info() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Verifying, "", false);
+    assert_eq!(line.bar_color(), INFO);
+}
+
+#[test]
+fn bar_color_success_is_green() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Success, "", false);
+    assert_eq!(line.bar_color(), SUCCESS);
+}
+
+#[test]
+fn bar_color_skipped_is_line_soft() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Skipped, "", false);
+    assert_eq!(line.bar_color(), LINE_SOFT);
+}
+
+#[test]
+fn bar_color_failed_is_danger() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Failed, "", false);
+    assert_eq!(line.bar_color(), DANGER);
+}
+
+#[test]
+fn bar_color_aborted_is_dim() {
+    let mut line = ActiveDownloadLine::new(42);
+    line.apply_status(BeatmapStage::Aborted, "", false);
+    assert_eq!(line.bar_color(), TEXT_DIM);
 }

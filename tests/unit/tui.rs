@@ -945,19 +945,23 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
 fn bar_visible_during_downloading_before_bytes_flow() {
     use osu_collect::download::BeatmapStage;
 
+    use osu_collect::tui::ACCENT;
+
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
     page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
     let line = page.active_lines().next().expect("slot allocated");
-    assert!(
-        line.should_show_bar(),
-        "active downloads without a total should show an indeterminate bar"
+    assert_eq!(
+        line.bar_color(),
+        ACCENT,
+        "active downloads without a total should show an indeterminate bar in accent color"
     );
 
     page.update_active_progress(7, 4_096, 8_192);
     let line = page.active_lines().next().expect("slot allocated");
-    assert!(
-        line.should_show_bar(),
-        "bar must remain visible once real progress data is available"
+    assert_eq!(
+        line.bar_color(),
+        ACCENT,
+        "bar must remain in accent color once real progress data is available"
     );
 }
 
@@ -1006,7 +1010,7 @@ fn first_status_lands_immediately_then_text_is_debounced() {
         .as_ref()
         .expect("slot must be allocated")
         .displayed_message();
-    assert_eq!(fallback, "Downloading #200");
+    assert_eq!(fallback, "downloading #200");
 }
 
 #[test]
