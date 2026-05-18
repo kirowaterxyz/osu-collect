@@ -37,12 +37,15 @@ jobs:
           mkdir -p release
           cp target/x86_64-unknown-linux-gnu/release/osu-collect release/osu-collect-linux-x64
           chmod +x release/osu-collect-linux-x64
+          cd release && sha256sum osu-collect-linux-x64 > osu-collect-linux-x64.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-binary
-          path: release/osu-collect-linux-x64
+          path: |
+            release/osu-collect-linux-x64
+            release/osu-collect-linux-x64.sha256
 
   build-windows:
     runs-on: windows-latest
@@ -66,12 +69,17 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release
           Copy-Item target/x86_64-pc-windows-msvc/release/osu-collect.exe release/osu-collect-windows-x64.exe
+          Get-FileHash release/osu-collect-windows-x64.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  osu-collect-windows-x64.exe" } |
+            Out-File -Encoding ascii release/osu-collect-windows-x64.exe.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-binary
-          path: release/osu-collect-windows-x64.exe
+          path: |
+            release/osu-collect-windows-x64.exe
+            release/osu-collect-windows-x64.exe.sha256
 
   release:
     needs: [build-linux, build-windows]
@@ -89,12 +97,21 @@ jobs:
           name: windows-binary
           path: release
 
+      - name: Generate SHA256SUMS
+        run: |
+          cat release/osu-collect-linux-x64.sha256 \
+              release/osu-collect-windows-x64.exe.sha256 \
+            > release/SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             release/osu-collect-linux-x64
+            release/osu-collect-linux-x64.sha256
             release/osu-collect-windows-x64.exe
+            release/osu-collect-windows-x64.exe.sha256
+            release/SHA256SUMS
           draft: false
           prerelease: false
           generate_release_notes: true
