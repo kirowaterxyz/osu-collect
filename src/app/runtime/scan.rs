@@ -378,7 +378,7 @@ pub(super) fn spawn_failed_map_recheck_task(
         let fetcher = osu_downloader::size::SizeFetcher::new();
         let progress_tx = tx.clone();
         let templates = osu_downloader::Mirror::builtin_templates();
-        let template_refs: Vec<&str> = templates.iter().copied().collect();
+        let template_refs: Vec<&str> = templates.to_vec();
         let result = fetcher
             .check_availability(
                 &ids,

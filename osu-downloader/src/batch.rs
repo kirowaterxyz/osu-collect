@@ -324,7 +324,7 @@ async fn process_one(
         BeatmapsetDownloadOutcome::Failed { mirror, reason } => {
             let _ = event_tx.send(Event::BeatmapsetFailed {
                 beatmapset_id,
-                error: crate::Error::network(reason.clone()),
+                error: crate::Error::validation(reason.clone()),
                 mirror,
             });
             DownloadOutcome::Failed {
