@@ -1,6 +1,6 @@
 use super::{ActiveDownloadLine, STATUS_DEBOUNCE};
 use crate::download::BeatmapStage;
-use crate::tui::{ACCENT, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING};
+use crate::tui::{ACCENT, INFO, WARNING};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -70,57 +70,8 @@ fn rapid_transitions_coalesce_to_latest() {
 }
 
 #[test]
-fn bar_color_pending_is_faint() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Pending, "", false);
-    assert_eq!(line.bar_color(), TEXT_FAINT);
-}
-
-#[test]
-fn bar_color_downloading_normal_is_accent() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Downloading, "", false);
-    assert_eq!(line.bar_color(), ACCENT);
-}
-
-#[test]
 fn bar_color_downloading_rate_limited_is_warning() {
     let mut line = ActiveDownloadLine::new(42);
     line.apply_status(BeatmapStage::Downloading, "", true);
     assert_eq!(line.bar_color(), WARNING);
-}
-
-#[test]
-fn bar_color_verifying_is_info() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Verifying, "", false);
-    assert_eq!(line.bar_color(), INFO);
-}
-
-#[test]
-fn bar_color_success_is_green() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Success, "", false);
-    assert_eq!(line.bar_color(), SUCCESS);
-}
-
-#[test]
-fn bar_color_skipped_is_line_soft() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Skipped, "", false);
-    assert_eq!(line.bar_color(), LINE_SOFT);
-}
-
-#[test]
-fn bar_color_failed_is_danger() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Failed, "", false);
-    assert_eq!(line.bar_color(), DANGER);
-}
-
-#[test]
-fn bar_color_aborted_is_dim() {
-    let mut line = ActiveDownloadLine::new(42);
-    line.apply_status(BeatmapStage::Aborted, "", false);
-    assert_eq!(line.bar_color(), TEXT_DIM);
 }

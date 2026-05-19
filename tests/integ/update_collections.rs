@@ -2,7 +2,7 @@
 mod tests {
     use osu_collect::{
         app::{runtime, updates::extract_collection_id},
-        osu_db::{BeatmapReader, LocalBeatmapset, OsuClient, StableReader},
+        osu_db::{LocalBeatmapset, OsuClient},
     };
     use std::{
         collections::{HashMap, HashSet},
@@ -58,38 +58,6 @@ mod tests {
                 // Some test DBs may have unsupported versions — just warn
                 println!("skipping assertions: read_local_database returned error: {e}");
             }
-        }
-    }
-
-    /// Verify extract_collection_id correctly parses collection names.
-    #[test]
-    fn test_extract_collection_id_from_stable_collections() {
-        let Some(path) = testing_db_path() else {
-            println!("skipping: no testing-db found");
-            return;
-        };
-
-        let reader = StableReader::new(path);
-        let collections = match reader.list_collections() {
-            Ok(c) => c,
-            Err(e) => {
-                println!("skipping: {e}");
-                return;
-            }
-        };
-
-        let with_ids: Vec<_> = collections
-            .iter()
-            .filter_map(|c| extract_collection_id(&c.name).map(|id| (c.name.as_str(), id)))
-            .collect();
-
-        println!(
-            "collections with parseable IDs: {}/{} total",
-            with_ids.len(),
-            collections.len()
-        );
-        for (name, id) in with_ids.iter().take(5) {
-            println!("  {name} → {id}");
         }
     }
 

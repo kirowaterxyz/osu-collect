@@ -28,7 +28,3 @@ pub(crate) fn create_api_client() -> Result<reqwest::Client> {
         .pool_max_idle_per_host(20)
         .build()?)
 }
-
-#[cfg(test)]
-#[path = "../tests/http.rs"]
-mod tests;

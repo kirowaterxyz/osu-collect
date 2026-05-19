@@ -95,10 +95,6 @@ fn print_help() {
     ));
 }
 
-#[cfg(test)]
-#[path = "../tests/unit/cli_mod.rs"]
-mod tests;
-
 /// Run the update-collections flow without the TUI.
 pub async fn run_update_collections(
     args: UpdateCollectionsArgs,

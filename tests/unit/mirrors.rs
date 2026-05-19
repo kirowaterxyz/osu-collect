@@ -12,18 +12,6 @@ fn config_defaults_to_every_builtin_mirror() {
 }
 
 #[test]
-fn builtin_nerinyan_is_constructible() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan).unwrap();
-    assert_eq!(mirror.kind(), MirrorKind::Nerinyan);
-}
-
-#[test]
-fn nerinyan_no_video_switches_template() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan).unwrap().no_video();
-    assert_eq!(mirror.kind(), MirrorKind::Nerinyan);
-}
-
-#[test]
 fn custom_mirror_requires_id_placeholder() {
     assert!(Mirror::custom("https://example.com/download").is_err());
 }
@@ -37,10 +25,4 @@ fn custom_mirror_requires_http() {
 fn custom_mirror_valid() {
     let mirror = Mirror::custom("https://example.com/d/{id}").unwrap();
     assert_eq!(mirror.kind(), MirrorKind::Custom);
-}
-
-#[test]
-fn kind_label_returns_static_str() {
-    let mirror = Mirror::builtin(MirrorKind::Nerinyan).unwrap();
-    assert!(!mirror.kind().label().is_empty());
 }

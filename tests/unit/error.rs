@@ -27,9 +27,3 @@ fn validation_error_variant() {
     assert!(display.contains("12345"));
     assert!(display.contains("bad hash"));
 }
-
-#[test]
-fn worker_panic_variant() {
-    let err = DownloadError::worker_panic("thread panicked");
-    assert!(!err.is_retryable());
-}

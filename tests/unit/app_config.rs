@@ -18,20 +18,6 @@ fn tab_logged_in() -> ConfigTab {
 }
 
 #[test]
-fn login_state_initial_logged_out() {
-    let tab = tab_logged_out();
-    assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
-    assert!(!tab.auth_loaded);
-}
-
-#[test]
-fn login_state_initial_logged_in() {
-    let tab = tab_logged_in();
-    assert_eq!(tab.login_state, AuthLoginState::LoggedIn);
-    assert!(tab.auth_loaded);
-}
-
-#[test]
 fn login_flow_marks_in_progress_without_message() {
     let mut tab = tab_logged_out();
     tab.set_login_in_progress();

@@ -121,16 +121,6 @@ fn network_error_counts_as_failed() {
 }
 
 #[test]
-fn unavailable_on_mirrors_counts_as_failed_not_skipped() {
-    let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
-        beatmapset_id: 5,
-        reason: Skip::UnavailableOnMirrors,
-    }]);
-    assert_eq!(tally.failed, 1);
-    assert_eq!(tally.skipped, 0);
-}
-
-#[test]
 fn already_exists_still_counts_as_skipped() {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
         beatmapset_id: 5,

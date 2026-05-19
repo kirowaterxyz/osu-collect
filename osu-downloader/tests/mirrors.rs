@@ -84,3 +84,11 @@ fn invalid_custom_mirror() {
     assert!(Mirror::custom("https://example.com/dl/").is_err());
     assert!(Mirror::custom("ftp://example.com/{id}").is_err());
 }
+
+#[test]
+fn custom_mirror_rejects_multiple_id_placeholders() {
+    // a template with two `{id}` placeholders would silently leave the second one
+    // un-substituted (split_once stops at the first match); rejecting at construction
+    // gives operators an early error instead of a malformed URL at request time.
+    assert!(Mirror::custom("https://example.com/{id}/folder/{id}.osz").is_err());
+}

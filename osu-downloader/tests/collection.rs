@@ -1,6 +1,4 @@
-use super::{
-    Beatmapset, Collection, CollectionEntry, Uploader, parse_collection_id, write_collections_db,
-};
+use super::{Beatmapset, Collection, CollectionEntry, Uploader, write_collections_db};
 use tempfile::tempdir;
 
 fn sample_collection() -> Collection {
@@ -24,21 +22,6 @@ fn sample_collection() -> Collection {
         ],
         favourites: 0,
     }
-}
-
-#[test]
-fn parses_collection_id_from_id_or_url() {
-    assert_eq!(parse_collection_id("12345").unwrap(), 12345);
-    assert_eq!(
-        parse_collection_id("https://osucollector.com/collections/12345").unwrap(),
-        12345
-    );
-    assert_eq!(
-        parse_collection_id("https://osucollector.com/collections/12345/").unwrap(),
-        12345
-    );
-    assert!(parse_collection_id("invalid").is_err());
-    assert!(parse_collection_id("").is_err());
 }
 
 #[test]

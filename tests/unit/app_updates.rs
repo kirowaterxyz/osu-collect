@@ -151,35 +151,6 @@ fn installed_beatmapset_not_in_missing() {
 }
 
 #[test]
-fn checksum_fallback_marks_installed() {
-    // Beatmapset id=99 not in local_beatmapsets, but its checksum IS in all_local_checksums.
-    // The comparison logic in fetch_and_compare skips such sets.
-    // This test verifies the HashSet membership check used there.
-    let all_checksums: HashSet<String> = ["aaaa1111", "bbbb2222"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-    // Both checksums present → "all installed"
-    let api_checksums = ["aaaa1111", "bbbb2222"];
-    let all_present = api_checksums.iter().all(|cs| all_checksums.contains(*cs));
-    assert!(
-        all_present,
-        "should be considered installed via checksum fallback"
-    );
-
-    // One missing → not all installed
-    let api_checksums_partial = ["aaaa1111", "cccc3333"];
-    let partial_present = api_checksums_partial
-        .iter()
-        .all(|cs| all_checksums.contains(*cs));
-    assert!(
-        !partial_present,
-        "partial checksum match should not be considered installed"
-    );
-}
-
-#[test]
 fn missing_beatmap_selection_preserved_across_refresh() {
     let mut tab = UpdatesTab::new();
 

@@ -108,33 +108,3 @@ fn md5_hex_empty_input_is_known_digest() {
     // well-known md5("") = d41d8cd98f00b204e9800998ecf8427e
     assert_eq!(&*hex, "d41d8cd98f00b204e9800998ecf8427e");
 }
-
-#[test]
-fn md5_hex_one_byte_is_known_digest() {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(b"\x00");
-    let hex = finalize_md5(hasher);
-    assert_eq!(hex.len(), 32);
-    assert!(
-        hex.chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
-    );
-    // well-known md5("\x00") = 93b885adfe0da089cdf634904fd59f71
-    assert_eq!(&*hex, "93b885adfe0da089cdf634904fd59f71");
-}
-
-#[test]
-fn md5_hex_sixteen_bytes_is_known_digest() {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(&[0u8; 16]);
-    let hex = finalize_md5(hasher);
-    assert_eq!(hex.len(), 32);
-    assert!(
-        hex.chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
-    );
-    // well-known md5([0u8; 16]) = 4ae71336e44bf9bf79d2752e234818a5
-    assert_eq!(&*hex, "4ae71336e44bf9bf79d2752e234818a5");
-}

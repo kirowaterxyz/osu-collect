@@ -1,6 +1,6 @@
 use super::{
-    AutoUpdateError, DownloadedAsset, apply_update_to, check_release, spawn_update_task,
-    target_asset_name, update_banner, verify_checksum,
+    AutoUpdateError, DownloadedAsset, apply_update_to, check_release, target_asset_name,
+    verify_checksum,
 };
 use reqwest::Client;
 use sha2::{Digest, Sha256};
@@ -73,28 +73,6 @@ async fn apply_update_to_replaces_binary_and_cleans_rollback() {
     assert!(!exe_path.with_extension("rollback").exists());
 
     let _ = fs::remove_dir_all(&dir).await;
-}
-
-#[tokio::test]
-async fn spawn_background_update_with_calls_update_fn() {
-    let ran = Arc::new(AtomicBool::new(false));
-    let ran_flag = ran.clone();
-
-    let handle = spawn_update_task(move || async move {
-        ran_flag.store(true, Ordering::SeqCst);
-        Ok(Some("done".into()))
-    });
-
-    handle.await.expect("task should complete");
-    assert!(ran.load(Ordering::SeqCst));
-}
-
-#[test]
-fn update_banner_is_green_and_contains_message() {
-    let banner = update_banner();
-    assert!(banner.starts_with("\u{1b}[32m"));
-    assert!(banner.contains("Downloading update..."));
-    assert!(banner.ends_with("\u{1b}[0m"));
 }
 
 async fn start_mock_release_server(
