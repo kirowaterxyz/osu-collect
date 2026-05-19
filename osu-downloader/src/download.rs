@@ -24,6 +24,12 @@ use tracing::{debug, trace};
 
 const SIZE_PROBE_REDIRECT_LIMIT: usize = 4;
 
+const MIME_OSU_BEATMAP_ARCHIVE: &str = "application/x-osu-beatmap-archive";
+const MIME_OCTET_STREAM: &str = "application/octet-stream";
+const MIME_BINARY_OCTET_STREAM: &str = "binary/octet-stream";
+const MIME_ZIP: &str = "application/zip";
+const MIME_X_ZIP_COMPRESSED: &str = "application/x-zip-compressed";
+
 #[derive(Clone, Default)]
 pub(crate) struct BeatmapsetDownloadCallbacks {
     pub(crate) progress: Option<Arc<dyn Fn(u64, u64) + Send + Sync>>,
@@ -581,9 +587,8 @@ async fn process_mirror_response(
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_ascii_lowercase())
     {
-        if !is_archive_content_type(&content_type) {
+        if !is_archive_content_type(content_type) {
             return Err(format!(
                 "unexpected content type '{content_type}' from {}",
                 mirror.display_name()
@@ -734,14 +739,15 @@ async fn write_archive(
 
 fn is_archive_content_type(raw: &str) -> bool {
     let mime = raw.split(';').next().map(str::trim).unwrap_or("");
-    matches!(
-        mime,
-        "application/x-osu-beatmap-archive"
-            | "application/octet-stream"
-            | "binary/octet-stream"
-            | "application/zip"
-            | "application/x-zip-compressed"
-    )
+    [
+        MIME_OSU_BEATMAP_ARCHIVE,
+        MIME_OCTET_STREAM,
+        MIME_BINARY_OCTET_STREAM,
+        MIME_ZIP,
+        MIME_X_ZIP_COMPRESSED,
+    ]
+    .iter()
+    .any(|&known| mime.eq_ignore_ascii_case(known))
 }
 
 fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> String {

@@ -140,6 +140,15 @@ fn archive_content_type_accepts_known_archive_mimes() {
     assert!(is_archive_content_type("application/x-zip-compressed"));
     assert!(!is_archive_content_type("text/html"));
     assert!(!is_archive_content_type("application/json"));
+    // mixed-case variants must be accepted without prior lowercasing
+    assert!(is_archive_content_type("Application/Zip"));
+    assert!(is_archive_content_type("APPLICATION/OCTET-STREAM"));
+    assert!(is_archive_content_type("Binary/Octet-Stream"));
+    assert!(is_archive_content_type(
+        "Application/X-Osu-Beatmap-Archive; charset=binary"
+    ));
+    // wrong type must still be rejected regardless of case
+    assert!(!is_archive_content_type("Text/HTML"));
 }
 
 #[test]
