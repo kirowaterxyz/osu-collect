@@ -4,6 +4,7 @@ pub(crate) use pool::MirrorPool;
 
 use crate::error::{Error, Result};
 use reqwest::header::HeaderMap;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 /// Mirror type identifier.
@@ -99,11 +100,31 @@ impl MirrorKind {
     }
 }
 
+/// URL template split into the parts before and after `{id}`, parsed once at
+/// construction so `url_for` can build the URL with a single allocation.
+#[derive(Debug, Clone)]
+struct SplitTemplate {
+    prefix: Box<str>,
+    suffix: Box<str>,
+}
+
+impl SplitTemplate {
+    fn new(template: &str) -> Self {
+        // validate_template already guarantees `{id}` is present.
+        let (prefix, suffix) = template.split_once("{id}").unwrap_or((template, ""));
+        Self {
+            prefix: prefix.into(),
+            suffix: suffix.into(),
+        }
+    }
+}
+
 /// Mirror endpoint for downloading beatmapsets.
 #[derive(Debug, Clone)]
 pub struct Mirror {
     pub(crate) kind: MirrorKind,
     pub(crate) template: Box<str>,
+    split: SplitTemplate,
     pub(crate) headers: Option<HeaderMap>,
     pub(crate) no_video: bool,
 }
@@ -115,9 +136,11 @@ impl Mirror {
     pub fn custom(template: impl Into<String>) -> Result<Self> {
         let template = template.into();
         validate_template(&template)?;
+        let split = SplitTemplate::new(&template);
         Ok(Self {
             kind: MirrorKind::Custom,
             template: template.into_boxed_str(),
+            split,
             headers: None,
             no_video: false,
         })
@@ -168,9 +191,11 @@ impl Mirror {
         let template = kind
             .download_template(false)
             .expect("builtin mirror has template");
+        let split = SplitTemplate::new(template);
         Self {
             kind,
-            template: template.to_string().into_boxed_str(),
+            template: template.into(),
+            split,
             headers: None,
             no_video: false,
         }
@@ -189,7 +214,8 @@ impl Mirror {
     pub fn no_video(mut self) -> Self {
         self.no_video = true;
         if let Some(template) = self.kind.download_template(true) {
-            self.template = template.to_string().into_boxed_str();
+            self.split = SplitTemplate::new(template);
+            self.template = template.into();
         }
         self
     }
@@ -214,14 +240,23 @@ impl Mirror {
 
     #[inline]
     pub(crate) fn url_for(&self, beatmapset_id: u32) -> String {
-        self.template.replace("{id}", &beatmapset_id.to_string())
+        let id_digits = beatmapset_id.checked_ilog10().unwrap_or(0) as usize + 1;
+        let cap = self.split.prefix.len() + id_digits + self.split.suffix.len();
+        let mut url = String::with_capacity(cap);
+        url.push_str(&self.split.prefix);
+        write!(url, "{beatmapset_id}").expect("write to String is infallible");
+        url.push_str(&self.split.suffix);
+        url
     }
 
     #[cfg(test)]
     pub(crate) fn with_kind_and_template(kind: MirrorKind, template: impl Into<String>) -> Self {
+        let template = template.into();
+        let split = SplitTemplate::new(&template);
         Self {
             kind,
-            template: template.into().into_boxed_str(),
+            template: template.into_boxed_str(),
+            split,
             headers: None,
             no_video: false,
         }
