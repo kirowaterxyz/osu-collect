@@ -1,4 +1,7 @@
-use super::{CacheKey, ValidationCache, scan_candidates};
+use super::{
+    CacheKey, Candidate, PrecheckOptions, ValidationCache, scan_candidates,
+    validate_existing_candidate,
+};
 use osu_downloader::ArchiveValidation;
 use std::collections::HashSet;
 use tokio::sync::watch;
@@ -102,6 +105,61 @@ fn validation_cache_upgrades_to_stricter_on_remark() {
         cache.is_valid(&key, ArchiveValidation::Eocd),
         "weaker mark must not downgrade strictness"
     );
+}
+
+#[tokio::test]
+async fn off_mode_accepts_non_empty_file_without_validating() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123 artist.osz");
+    // intentionally not a real ZIP — Off mode must accept it
+    std::fs::write(&path, b"not a real zip but non-empty").unwrap();
+
+    let (_tx, rx) = watch::channel(false);
+    let record = validate_existing_candidate(
+        Candidate {
+            path: path.clone(),
+            beatmapset_id: 123,
+        },
+        PrecheckOptions {
+            notify_verified: false,
+            archive_validation: ArchiveValidation::Off,
+        },
+        rx,
+    )
+    .await
+    .expect("validate succeeds")
+    .expect("record returned");
+
+    assert_eq!(record.beatmapset_id, 123);
+    assert!(record.validation_error.is_none());
+    assert_eq!(record.file_size, 28);
+    assert!(path.exists(), "Off mode must not delete a valid file");
+}
+
+#[tokio::test]
+async fn off_mode_deletes_empty_file_and_flags_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123 artist.osz");
+    std::fs::write(&path, b"").unwrap();
+
+    let (_tx, rx) = watch::channel(false);
+    let record = validate_existing_candidate(
+        Candidate {
+            path: path.clone(),
+            beatmapset_id: 123,
+        },
+        PrecheckOptions {
+            notify_verified: false,
+            archive_validation: ArchiveValidation::Off,
+        },
+        rx,
+    )
+    .await
+    .expect("validate succeeds")
+    .expect("record returned");
+
+    assert!(record.validation_error.is_some(), "empty must be flagged");
+    assert!(!path.exists(), "Off mode must delete empty files");
 }
 
 #[tokio::test]

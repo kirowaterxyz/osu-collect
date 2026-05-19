@@ -389,10 +389,10 @@ async fn validate_existing_candidate(
 
     let verify_start = Instant::now();
     let cache = &*VALIDATION_CACHE;
-    let cache_key = fs::metadata(&candidate.path)
-        .await
-        .ok()
-        .map(|meta| CacheKey::from_meta(&candidate.path, &meta));
+    let metadata = fs::metadata(&candidate.path).await.ok();
+    let cache_key = metadata
+        .as_ref()
+        .map(|meta| CacheKey::from_meta(&candidate.path, meta));
 
     if let Some(key) = cache_key.as_ref()
         && cache.is_valid(key, options.archive_validation)
@@ -400,6 +400,29 @@ async fn validate_existing_candidate(
         return Ok(Some(FileRecord {
             beatmapset_id: candidate.beatmapset_id,
             file_size: key.size(),
+            path: candidate.path,
+            validation_error: None,
+            duration_us: verify_start.elapsed().as_micros() as u64,
+        }));
+    }
+
+    if options.archive_validation == ArchiveValidation::Off {
+        let Some(meta) = metadata else {
+            return Ok(None);
+        };
+        if !meta.is_file() || meta.len() == 0 {
+            let _ = fs::remove_file(&candidate.path).await;
+            return Ok(Some(FileRecord {
+                beatmapset_id: candidate.beatmapset_id,
+                file_size: 0,
+                path: candidate.path,
+                validation_error: Some("file is empty or invalid".into()),
+                duration_us: verify_start.elapsed().as_micros() as u64,
+            }));
+        }
+        return Ok(Some(FileRecord {
+            beatmapset_id: candidate.beatmapset_id,
+            file_size: meta.len(),
             path: candidate.path,
             validation_error: None,
             duration_us: verify_start.elapsed().as_micros() as u64,
