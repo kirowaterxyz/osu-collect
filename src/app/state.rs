@@ -246,7 +246,7 @@ impl App {
             return None;
         }
 
-        let mirrors = self.home.build_mirrors();
+        let mirrors = self.home.build_mirror_list();
         if mirrors.is_empty() {
             self.updates
                 .set_error("No mirrors selected (configure in Home tab)");

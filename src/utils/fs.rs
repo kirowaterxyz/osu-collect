@@ -6,18 +6,8 @@ use fs2::available_space;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FileExistsAction {
-    Skip,
-    Overwrite,
-}
-
-pub fn check_available_space(path: &Path) -> Option<u64> {
-    available_space(path).ok()
-}
-
 pub fn is_low_disk_space(path: &Path) -> bool {
-    check_available_space(path).is_some_and(|space| space < LOW_SPACE_THRESHOLD_BYTES)
+    available_space(path).is_ok_and(|space| space < LOW_SPACE_THRESHOLD_BYTES)
 }
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -30,14 +20,6 @@ pub fn format_bytes(bytes: u64) -> String {
         format!("{:.0} KB", bytes_f / KB)
     } else {
         format!("{bytes} B")
-    }
-}
-
-pub fn determine_file_exists_action(auto_overwrite: bool) -> FileExistsAction {
-    if auto_overwrite {
-        FileExistsAction::Overwrite
-    } else {
-        FileExistsAction::Skip
     }
 }
 

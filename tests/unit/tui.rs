@@ -840,7 +840,7 @@ fn precheck_pending_status_does_not_consume_active_slot() {
         );
     }
     assert_eq!(
-        page.active_line_count(),
+        page.active_lines().count(),
         0,
         "precheck Pending events must not allocate active slots"
     );
@@ -852,7 +852,7 @@ fn precheck_pending_status_does_not_consume_active_slot() {
         "Downloading #7 from mirror",
         false,
     );
-    assert_eq!(page.active_line_count(), 1);
+    assert_eq!(page.active_lines().count(), 1);
 }
 
 #[test]
@@ -869,7 +869,7 @@ fn active_slot_count_is_capped_at_thread_count() {
         );
     }
     assert_eq!(
-        page.active_line_count(),
+        page.active_lines().count(),
         2,
         "active slots must not exceed concurrent thread count"
     );
@@ -925,7 +925,7 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
     // slot — the lib always emits Contacting/Downloading first, and creating a line with
     // empty `displayed_message` is exactly the flicker source we're avoiding
     page.update_active_progress(42, 1_024, 4_096);
-    assert_eq!(page.active_line_count(), 0);
+    assert_eq!(page.active_lines().count(), 0);
 
     // once the status event lands the slot allocates with a real message; subsequent
     // progress updates land on the same slot.
@@ -1059,7 +1059,7 @@ fn terminal_stage_clears_active_downloads() {
         message: "boom".into(),
     });
     assert_eq!(
-        app.downloads[0].active_line_count(),
+        app.downloads[0].active_lines().count(),
         0,
         "active_downloads must be cleared on Failed"
     );
@@ -1075,7 +1075,7 @@ fn terminal_stage_clears_active_downloads() {
         stage: DownloadStage::Completed,
     });
     assert_eq!(
-        app.downloads[0].active_line_count(),
+        app.downloads[0].active_lines().count(),
         0,
         "active_downloads must be cleared on StageChanged Completed"
     );

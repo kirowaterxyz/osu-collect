@@ -62,14 +62,14 @@ fn build_mirror_list_includes_custom_mirror() {
 }
 
 #[test]
-fn build_request_uses_same_mirrors_as_build_mirrors() {
+fn build_request_uses_same_mirrors_as_build_mirror_list() {
     let config = Config::default();
     let mut home = home_all_off(&config);
     home.nerinyan = true;
     home.osu_direct = true;
     home.collection.value = "12345".to_string();
 
-    let standalone = home.build_mirrors();
+    let standalone = home.build_mirror_list();
     let request = home.build_request(ArchiveValidation::Magic).unwrap();
     let request_kinds: Vec<_> = request.config.mirrors.iter().map(|m| m.kind()).collect();
     let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind()).collect();

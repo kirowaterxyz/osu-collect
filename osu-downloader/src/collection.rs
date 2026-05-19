@@ -2,7 +2,7 @@
 //!
 //! Behind the `collection` feature.
 
-use crate::{Error, Result, http, parse_collection_id};
+use crate::{Error, Result, http};
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use serde::{Deserialize, Serialize};
 use std::{io, path::Path, time::Duration};
@@ -209,14 +209,6 @@ impl CollectionClient {
 
         let bytes = response.bytes().await?;
         serde_json::from_slice(&bytes).map_err(Into::into)
-    }
-
-    /// Fetch a collection from either a numeric ID (as a string) or an
-    /// `https://osucollector.com/collections/<id>` URL.
-    /// See [`parse_collection_id`](crate::parse_collection_id) for accepted forms.
-    pub async fn fetch_input(&self, input: &str) -> Result<Collection> {
-        let collection_id = parse_collection_id(input)?;
-        self.fetch(collection_id).await
     }
 
     /// Fetch with the library's built-in retry policy:

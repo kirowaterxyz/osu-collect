@@ -51,7 +51,7 @@ pub(crate) async fn download_batch(
     }
 
     let worker_count = config.concurrent_downloads.max(1);
-    let (job_tx, job_rx) = async_bounded_channel(worker_count * 2);
+    let (job_tx, job_rx) = async_channel::bounded(worker_count * 2);
     let feed_cancel = cancel_rx.clone();
     let feed_handle = tokio::spawn(async move {
         let cancel = feed_cancel;
@@ -324,13 +324,7 @@ async fn process_one(
     }
 }
 
-// Thin wrapper around `async_channel` so the call sites stay tidy.
-type AsyncBoundedSender<T> = async_channel::Sender<T>;
 type AsyncBoundedReceiver<T> = async_channel::Receiver<T>;
-
-fn async_bounded_channel<T>(capacity: usize) -> (AsyncBoundedSender<T>, AsyncBoundedReceiver<T>) {
-    async_channel::bounded(capacity)
-}
 
 #[cfg(test)]
 #[path = "../tests/batch.rs"]

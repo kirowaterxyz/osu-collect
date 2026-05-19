@@ -212,12 +212,6 @@ impl Downloader {
         DownloaderBuilder::new()
     }
 
-    /// Convenience constructor with every built-in mirror at defaults.
-    /// Equivalent to `Downloader::builder().builtins().build()`.
-    pub fn with_builtins() -> Result<Self> {
-        Self::builder().builtins().build()
-    }
-
     #[cfg(test)]
     pub(crate) fn mirror_pool_mirrors(&self) -> &[Mirror] {
         self.mirror_pool.mirrors()

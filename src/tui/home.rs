@@ -79,7 +79,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     items.push(widgets::summary_item(&[
         Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
-        Metric::accent(METRIC_MIRRORS, form.build_mirrors().len().to_string()),
+        Metric::accent(METRIC_MIRRORS, form.build_mirror_list().len().to_string()),
     ]));
 
     let (items, focused_index) = items.into_parts();

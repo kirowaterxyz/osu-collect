@@ -20,10 +20,6 @@ impl HttpCollectionService {
     pub fn new(client: CollectionClient) -> Self {
         Self { client }
     }
-
-    pub fn create() -> Result<Self> {
-        Ok(Self::new(CollectionClient::new()))
-    }
 }
 
 impl CollectionService for HttpCollectionService {

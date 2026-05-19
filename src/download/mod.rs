@@ -16,12 +16,13 @@ pub use crate::config::constants::status;
 pub use osu_downloader::ArchiveValidation;
 
 use crate::mirrors::Mirror;
+use fs2::available_space;
 use osu_downloader::size::SizeFetcher;
 use std::path::Path;
 use tokio::{sync::watch, task::JoinHandle};
 use tracing::warn;
 
-use crate::utils::{check_available_space, is_low_disk_space};
+use crate::utils::is_low_disk_space;
 
 pub type DownloadId = u64;
 
@@ -201,7 +202,7 @@ pub struct DownloadSummary {
 
 pub(crate) fn warn_low_disk_space(id: DownloadId, output_dir: &Path, emit: Emit<'_>) {
     if is_low_disk_space(output_dir)
-        && let Some(available) = check_available_space(output_dir)
+        && let Ok(available) = available_space(output_dir)
     {
         warn!(
             available_bytes = available,

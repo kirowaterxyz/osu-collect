@@ -9,12 +9,6 @@ pub(crate) const DEFAULT_DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_sec
 pub(crate) const DEFAULT_API_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub(crate) fn create_download_client(user_agent: Option<String>) -> Result<reqwest::Client> {
-    download_client_builder(user_agent)
-        .build()
-        .map_err(Into::into)
-}
-
-fn download_client_builder(user_agent: Option<String>) -> reqwest::ClientBuilder {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(DEFAULT_DOWNLOAD_CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(5))
@@ -24,7 +18,7 @@ fn download_client_builder(user_agent: Option<String>) -> reqwest::ClientBuilder
         builder = builder.user_agent(ua);
     }
 
-    builder
+    builder.build().map_err(Into::into)
 }
 
 #[cfg(any(feature = "collection", feature = "size-fetch"))]

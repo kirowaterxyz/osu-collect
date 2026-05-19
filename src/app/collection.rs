@@ -243,10 +243,6 @@ impl CollectionPage {
             .filter(|line| !line.stage.is_terminal())
     }
 
-    pub fn active_line_count(&self) -> usize {
-        self.active_lines().count()
-    }
-
     pub fn clear_active_downloads(&mut self) {
         self.active_downloads.fill(None);
     }

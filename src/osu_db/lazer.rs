@@ -84,15 +84,11 @@ impl BeatmapReader for LazerReader {
     }
 
     fn default_path() -> Option<PathBuf> {
-        Self::find_installation()
+        find_installation(Self::candidate_paths(), "client.realm")
     }
 }
 
 impl LazerReader {
-    fn find_installation() -> Option<PathBuf> {
-        find_installation(Self::candidate_paths(), "client.realm")
-    }
-
     fn candidate_paths() -> Vec<PathBuf> {
         let mut paths = Vec::new();
 

@@ -47,22 +47,6 @@ pub enum FileSystemError {
     },
 }
 
-impl FileSystemError {
-    pub fn contextual(message: impl Into<Box<str>>) -> Self {
-        Self::Context {
-            source: None,
-            message: message.into(),
-        }
-    }
-
-    pub fn contextual_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
-        Self::Context {
-            source: Some(source),
-            message: message.into(),
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum ParsingError {
     #[error("Invalid URL format: {0}")]
@@ -124,12 +108,18 @@ impl AppError {
 
     #[inline]
     pub fn filesystem_context(message: impl Into<Box<str>>) -> Self {
-        AppError::FileSystem(FileSystemError::contextual(message))
+        AppError::FileSystem(FileSystemError::Context {
+            source: None,
+            message: message.into(),
+        })
     }
 
     #[inline]
     pub fn filesystem_source(source: io::Error, message: impl Into<Box<str>>) -> Self {
-        AppError::FileSystem(FileSystemError::contextual_source(source, message))
+        AppError::FileSystem(FileSystemError::Context {
+            source: Some(source),
+            message: message.into(),
+        })
     }
 }
 

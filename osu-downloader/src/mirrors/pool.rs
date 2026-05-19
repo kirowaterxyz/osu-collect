@@ -18,10 +18,6 @@ impl MirrorPool {
         }
     }
 
-    pub(crate) fn mirrors_len(&self) -> usize {
-        self.mirrors.len()
-    }
-
     pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
         let mut penalties = self.penalties.lock().unwrap();
         penalties.insert(kind, Instant::now() + kind.rate_limit_backoff());

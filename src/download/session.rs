@@ -9,6 +9,7 @@ use crate::{
     utils::{self, prepare_directory},
 };
 use futures_util::{StreamExt, stream};
+use osu_downloader::collection::CollectionClient;
 use std::{
     collections::HashSet,
     path::PathBuf,
@@ -149,7 +150,7 @@ impl DownloadSession {
                     collection.beatmapsets.iter().map(|b| b.id).collect();
                 beatmapset_ids.sort_unstable();
                 beatmapset_ids.dedup();
-                let output = prepare_output_directory(directory, &collection).await?;
+                let output = prepare_output_dir(directory, &collection.folder_name()).await?;
                 (
                     SessionTarget::Collection(collection),
                     output,
@@ -161,7 +162,9 @@ impl DownloadSession {
                 collections,
                 beatmapset_ids,
             } => {
-                let (collection, collections, collection_names) = resolve_selective_collections(
+                let service = HttpCollectionService::new(CollectionClient::new());
+                let (collection, collections, collection_names) = resolve_selective_with(
+                    &service,
                     collection_ids,
                     collections,
                     beatmapset_ids,
@@ -302,7 +305,7 @@ impl DownloadSession {
     }
 }
 
-async fn prepare_output_dir_common(
+async fn prepare_output_dir(
     base_path: &str,
     folder_name: &str,
 ) -> Result<OutputPreparation, DownloadError> {
@@ -325,13 +328,6 @@ async fn prepare_output_dir_common(
     })
 }
 
-async fn prepare_output_directory(
-    directory: &str,
-    collection: &Collection,
-) -> Result<OutputPreparation, DownloadError> {
-    prepare_output_dir_common(directory, &collection.folder_name()).await
-}
-
 async fn prepare_selective_output(
     directory: &str,
     collection_ids: &[u32],
@@ -341,12 +337,12 @@ async fn prepare_selective_output(
     } else {
         format!("update-{}-collections", collection_ids.len())
     };
-    prepare_output_dir_common(directory, &folder_name).await
+    prepare_output_dir(directory, &folder_name).await
 }
 
 async fn resolve_collection(collection_input: &str) -> Result<Collection, DownloadError> {
     let collection_id = utils::parse_collection_id(collection_input)?;
-    let service = HttpCollectionService::create()?;
+    let service = HttpCollectionService::new(CollectionClient::new());
     let collection = service.fetch_collection(collection_id).await?;
 
     info!(
@@ -365,25 +361,6 @@ async fn resolve_collection(collection_input: &str) -> Result<Collection, Downlo
 }
 
 const RESOLVE_CONCURRENCY: usize = 6;
-
-pub(crate) async fn resolve_selective_collections(
-    collection_ids: &[u32],
-    requested_collections: Vec<SelectiveDownloadCollection>,
-    beatmapset_ids: &[u32],
-    id: DownloadId,
-    emit: super::Emit<'_>,
-) -> Result<(Collection, Vec<SelectiveDownloadCollection>, Vec<String>), DownloadError> {
-    let service = HttpCollectionService::create()?;
-    resolve_selective_with(
-        &service,
-        collection_ids,
-        requested_collections,
-        beatmapset_ids,
-        id,
-        emit,
-    )
-    .await
-}
 
 pub(crate) async fn resolve_selective_with<S>(
     service: &S,

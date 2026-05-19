@@ -131,7 +131,11 @@ pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String>
     let mut filename = None;
     let mut extended_filename = None;
 
-    for part in content_disposition_parts(header_value) {
+    let parts = ContentDispositionParts {
+        rest: header_value,
+        done: false,
+    };
+    for part in parts {
         let Some((name, value)) = part.split_once('=') else {
             continue;
         };
@@ -149,14 +153,7 @@ pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String>
     extended_filename.or(filename)
 }
 
-/// Iterate over `;`-separated parts of a Content-Disposition header, respecting quoted strings.
-fn content_disposition_parts(header_value: &str) -> impl Iterator<Item = &str> {
-    ContentDispositionParts {
-        rest: header_value,
-        done: false,
-    }
-}
-
+/// Allocation-free iterator over `;`-separated Content-Disposition parts.
 struct ContentDispositionParts<'a> {
     rest: &'a str,
     done: bool,
@@ -229,10 +226,6 @@ fn decode_quoted_string(s: &str) -> String {
         }
     }
     out
-}
-
-fn matches_beatmapset(beatmapset_id: u32, name: &str) -> bool {
-    parse_beatmapset_filename(name) == Some(beatmapset_id)
 }
 
 pub(crate) async fn download_beatmapset(
@@ -338,7 +331,8 @@ pub(crate) async fn download_beatmapset(
         pending = deferred_rate_limited;
     }
 
-    if not_found.len() == params.mirror_pool.mirrors_len() && params.mirror_pool.mirrors_len() > 0 {
+    let mirror_count = params.mirror_pool.mirrors().len();
+    if not_found.len() == mirror_count && mirror_count > 0 {
         return (
             BeatmapsetDownloadOutcome::Skipped {
                 reason: Skip::UnavailableOnMirrors,
@@ -398,7 +392,7 @@ async fn find_existing_beatmapset(
         };
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if matches_beatmapset(beatmapset_id, &name) {
+        if parse_beatmapset_filename(&name) == Some(beatmapset_id) {
             debug!(beatmapset_id, file = %name, "beatmapset already exists");
             return ExistingCheck::Exists;
         }
@@ -433,7 +427,7 @@ async fn try_mirror_retry(
                 let backoff = TRANSIENT_RETRY_BASE_DELAY * (1u32 << (retry - 1));
                 trace!(
                     beatmapset_id = params.beatmapset_id,
-                    mirror = mirror.display_name(),
+                    mirror = mirror.kind().label(),
                     retry,
                     reason = %reason,
                     "retrying mirror after transient error"
@@ -484,7 +478,7 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
         Err(err) => {
             return MirrorAttempt::Transient(format!(
                 "request failed on {}: {err}",
-                mirror.display_name()
+                mirror.kind().label()
             ));
         }
     };
@@ -537,7 +531,7 @@ async fn probe_download_size(mirror: &Mirror, params: &DownloadParams<'_>) -> Op
         let response = match result {
             Ok(response) => response,
             Err(err) => {
-                trace!(beatmapset_id = params.beatmapset_id, mirror = %mirror.display_name(), error = %err, "failed to probe download size");
+                trace!(beatmapset_id = params.beatmapset_id, mirror = %mirror.kind().label(), error = %err, "failed to probe download size");
                 return None;
             }
         };
@@ -593,7 +587,7 @@ async fn process_mirror_response(
         if !is_archive_content_type(content_type) {
             return Err(format!(
                 "unexpected content type '{content_type}' from {}",
-                mirror.display_name()
+                mirror.kind().label()
             ));
         }
     }
@@ -680,7 +674,7 @@ async fn write_archive(
             let _ = tokio::fs::remove_file(&stream.temp_path).await;
             return Err(format!(
                 "download incomplete from {} (received {} of {} bytes)",
-                mirror.display_name(),
+                mirror.kind().label(),
                 stream.bytes_written,
                 expected
             ));
@@ -705,7 +699,7 @@ async fn write_archive(
             let _ = tokio::fs::remove_file(&stream.temp_path).await;
             return Err(format!(
                 "{} returned an invalid archive: {err}",
-                mirror.display_name()
+                mirror.kind().label()
             ));
         }
     } else {

@@ -48,9 +48,9 @@ fn per_mirror_no_video_switches_template() {
 
     let mirrors = downloader.mirror_pool_mirrors();
     assert_eq!(
-        mirrors[0].url_for_id(123),
+        mirrors[0].url_for(123),
         "https://api.nerinyan.moe/d/123?nv=1"
     );
     // Custom mirrors don't have a no-video variant; their template stays as-is.
-    assert_eq!(mirrors[1].url_for_id(123), "https://example.com/d/123");
+    assert_eq!(mirrors[1].url_for(123), "https://example.com/d/123");
 }

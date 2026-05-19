@@ -1,7 +1,7 @@
 use super::{
     BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, DownloadParams, FinalizeResult,
-    download_beatmapset, finalize_download, is_archive_content_type, matches_beatmapset,
-    probe_download_size, sanitize_filename, size_from_content_range, sleep_cancelable,
+    download_beatmapset, finalize_download, is_archive_content_type, probe_download_size,
+    sanitize_filename, size_from_content_range, sleep_cancelable,
 };
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
@@ -118,15 +118,6 @@ fn test_extract_filename() {
         extract_filename_from_header("attachment; FILENAME=upper.osz"),
         Some("upper.osz".to_string())
     );
-}
-
-#[test]
-fn matches_exact_beatmapset_file_names() {
-    assert!(matches_beatmapset(123, "123.osz"));
-    assert!(matches_beatmapset(123, "123 artist.osz"));
-    assert!(!matches_beatmapset(123, "1234.osz"));
-    assert!(!matches_beatmapset(123, "123artist.osz"));
-    assert!(!matches_beatmapset(123, "123 artist.zip"));
 }
 
 #[test]

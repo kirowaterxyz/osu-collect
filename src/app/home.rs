@@ -13,16 +13,6 @@ pub struct InputField {
     pub placeholder: String,
 }
 
-impl InputField {
-    fn push(&mut self, ch: char) {
-        self.value.push(ch);
-    }
-
-    fn pop(&mut self) {
-        self.value.pop();
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeField {
     Collection,
@@ -146,12 +136,12 @@ impl HomeTab {
 
     pub fn handle_char(&mut self, ch: char) {
         match self.focus {
-            HomeField::Collection => self.collection.push(ch),
-            HomeField::Directory => self.directory.push(ch),
-            HomeField::CustomMirror => self.custom_mirror.push(ch),
+            HomeField::Collection => self.collection.value.push(ch),
+            HomeField::Directory => self.directory.value.push(ch),
+            HomeField::CustomMirror => self.custom_mirror.value.push(ch),
             HomeField::Threads => {
                 if ch.is_ascii_digit() {
-                    self.threads.push(ch);
+                    self.threads.value.push(ch);
                 }
             }
             HomeField::MirrorNerinyan
@@ -165,10 +155,18 @@ impl HomeTab {
 
     pub fn backspace(&mut self) {
         match self.focus {
-            HomeField::Collection => self.collection.pop(),
-            HomeField::Directory => self.directory.pop(),
-            HomeField::CustomMirror => self.custom_mirror.pop(),
-            HomeField::Threads => self.threads.pop(),
+            HomeField::Collection => {
+                self.collection.value.pop();
+            }
+            HomeField::Directory => {
+                self.directory.value.pop();
+            }
+            HomeField::CustomMirror => {
+                self.custom_mirror.value.pop();
+            }
+            HomeField::Threads => {
+                self.threads.value.pop();
+            }
             HomeField::MirrorNerinyan
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
@@ -277,10 +275,6 @@ impl HomeTab {
             config,
             auto_overwrite: self.auto_overwrite,
         })
-    }
-
-    pub fn build_mirrors(&self) -> Vec<Mirror> {
-        self.build_mirror_list()
     }
 
     pub fn resolved_threads(&self) -> u8 {

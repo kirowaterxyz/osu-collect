@@ -230,10 +230,6 @@ impl Mirror {
         &self.template
     }
 
-    pub(crate) fn display_name(&self) -> &'static str {
-        self.kind.label()
-    }
-
     pub(crate) fn headers(&self) -> Option<&HeaderMap> {
         self.headers.as_ref()
     }
@@ -260,11 +256,6 @@ impl Mirror {
             headers: None,
             no_video: false,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn url_for_id(&self, beatmapset_id: u32) -> String {
-        self.url_for(beatmapset_id)
     }
 }
 
