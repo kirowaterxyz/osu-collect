@@ -225,6 +225,152 @@ fn bench_split_content_disposition(c: &mut Criterion) {
     group.finish();
 }
 
+// ── process_mirror_response content-type check ────────────────────────────────
+//
+// osu-downloader/src/download.rs:process_mirror_response — called on every
+// successful mirror HTTP response to validate the Content-Type header.
+// Current shape:
+//   value.to_ascii_lowercase()  — allocates a new String for every response
+//   is_archive_content_type(&lowercased)
+// Hot because it runs once per download attempt, per mirror retry.
+//
+// Candidate: pass the raw header value to a version of is_archive_content_type
+// that uses eq_ignore_ascii_case — zero allocation.
+//
+// Bench inputs: real-world Content-Type values from known mirrors (with and
+// without the "; charset=…" parameter suffix that forces a split).
+
+fn is_archive_content_type_baseline(raw: &str) -> bool {
+    let mime = raw.split(';').next().map(str::trim).unwrap_or("");
+    matches!(
+        mime,
+        "application/x-osu-beatmap-archive"
+            | "application/octet-stream"
+            | "binary/octet-stream"
+            | "application/zip"
+            | "application/x-zip-compressed"
+    )
+}
+
+fn is_archive_content_type_no_alloc(raw: &str) -> bool {
+    let mime = raw.split(';').next().map(str::trim).unwrap_or("");
+    [
+        "application/x-osu-beatmap-archive",
+        "application/octet-stream",
+        "binary/octet-stream",
+        "application/zip",
+        "application/x-zip-compressed",
+    ]
+    .iter()
+    .any(|&known| mime.eq_ignore_ascii_case(known))
+}
+
+fn bench_content_type_check(c: &mut Criterion) {
+    // Raw Content-Type header values as returned by mirrors — mixed case is
+    // realistic; Nerinyan sends lowercase, osu!direct sends mixed.
+    let cases: &[(&str, &str)] = &[
+        ("application/zip", "lowercase_zip"),
+        ("Application/Zip", "mixed_case_zip"),
+        ("application/octet-stream", "octet_stream"),
+        ("application/x-osu-beatmap-archive", "osu_archive"),
+        ("application/zip; charset=utf-8", "zip_with_param"),
+        ("text/html; charset=utf-8", "wrong_type"),
+    ];
+
+    let mut group = c.benchmark_group("content_type_check");
+
+    for &(header, label) in cases {
+        // Baseline: to_ascii_lowercase() allocates on every call.
+        group.bench_with_input(
+            BenchmarkId::new("to_ascii_lowercase", label),
+            header,
+            |b, header| {
+                b.iter(|| {
+                    let lowered = black_box(header).to_ascii_lowercase();
+                    black_box(is_archive_content_type_baseline(&lowered))
+                })
+            },
+        );
+
+        // Candidate: eq_ignore_ascii_case — zero allocation.
+        group.bench_with_input(
+            BenchmarkId::new("eq_ignore_ascii_case", label),
+            header,
+            |b, header| b.iter(|| black_box(is_archive_content_type_no_alloc(black_box(header)))),
+        );
+    }
+
+    group.finish();
+}
+
+// ── collection_hashes clone without capacity ──────────────────────────────────
+//
+// osu-downloader/src/collection.rs:collection_hashes — called once per
+// collection write to build a Vec<String> of all beatmap MD5 checksums.
+// Current shape:
+//   flat_map(…).map(|beatmap| beatmap.checksum.clone()).collect()
+// No with_capacity hint: Vec grows via doubling from 0.  For a 500-beatmapset
+// collection averaging 5 maps each, that is ~2500 32-byte String clones with
+// log2(2500) ≈ 12 reallocs.
+//
+// Candidate: pre-size via beatmap_count() (already a O(n) sum, paid once) and
+// extend instead of collect.
+//
+// Bench inputs: (beatmapsets, beatmaps_per_set) = (50,5), (200,5), (500,5).
+
+fn make_checksums(beatmapsets: usize, per_set: usize) -> Vec<Vec<String>> {
+    (0..beatmapsets)
+        .map(|s| {
+            (0..per_set)
+                .map(|b| format!("{:032x}", s * per_set + b))
+                .collect()
+        })
+        .collect()
+}
+
+fn bench_collection_hashes(c: &mut Criterion) {
+    let configs: &[(&str, usize, usize)] = &[("50x5", 50, 5), ("200x5", 200, 5), ("500x5", 500, 5)];
+
+    let mut group = c.benchmark_group("collection_hashes");
+
+    for &(label, sets, per_set) in configs {
+        let beatmapsets: Vec<Vec<String>> = make_checksums(sets, per_set);
+
+        // Baseline: flat_map + clone + collect — no capacity hint.
+        group.bench_with_input(
+            BenchmarkId::new("flat_map_collect", label),
+            &beatmapsets,
+            |b, beatmapsets| {
+                b.iter(|| {
+                    let hashes: Vec<String> = black_box(beatmapsets)
+                        .iter()
+                        .flat_map(|set| set.iter().map(|hash| hash.clone()))
+                        .collect();
+                    black_box(hashes)
+                })
+            },
+        );
+
+        // Candidate: with_capacity pre-sized, extend.
+        group.bench_with_input(
+            BenchmarkId::new("with_capacity_extend", label),
+            &beatmapsets,
+            |b, beatmapsets| {
+                b.iter(|| {
+                    let total: usize = black_box(beatmapsets).iter().map(|s| s.len()).sum();
+                    let mut hashes = Vec::with_capacity(total);
+                    for set in black_box(beatmapsets) {
+                        hashes.extend(set.iter().cloned());
+                    }
+                    black_box(hashes)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_md5_hex_format,
@@ -233,5 +379,7 @@ criterion_group!(
     bench_hash_worker_update,
     bench_find_eocd_position,
     bench_split_content_disposition,
+    bench_content_type_check,
+    bench_collection_hashes,
 );
 criterion_main!(benches);

@@ -511,6 +511,70 @@ fn bench_tab_titles(c: &mut Criterion) {
     group.finish();
 }
 
+// ── capture_osz_snapshot filename allocation ──────────────────────────────────
+//
+// src/download/precheck.rs:capture_osz_snapshot — called twice per precheck
+// (before + after validation) to snapshot `.osz` files in the output dir.
+// Current shape:
+//   file_name.to_string_lossy().into_owned().into_boxed_str()
+// This String + Box allocation fires for every archive entry (N per call).
+// On a 500-map collection: 1000 allocs across both snapshots per precheck run.
+//
+// Candidate: OsStr::to_str() — returns &str directly for valid UTF-8 (the
+// common case on all supported platforms), box that without going through
+// String; skip entries with non-UTF-8 names.
+//
+// Bench inputs: N ∈ {50, 200, 500} typical `.osz` filenames.
+
+fn make_osz_filenames(n: usize) -> Vec<std::ffi::OsString> {
+    (0..n)
+        .map(|i| {
+            std::ffi::OsString::from(format!("{i:07} Artist Name - Song Title [Difficulty].osz"))
+        })
+        .collect()
+}
+
+fn bench_snapshot_filename_alloc(c: &mut Criterion) {
+    let sizes: &[usize] = &[50, 200, 500];
+    let mut group = c.benchmark_group("snapshot_filename_alloc");
+
+    for &n in sizes {
+        let filenames = make_osz_filenames(n);
+
+        // Baseline: to_string_lossy().into_owned() — String alloc per entry.
+        group.bench_with_input(
+            BenchmarkId::new("to_string_lossy_owned", n),
+            &filenames,
+            |b, filenames| {
+                b.iter(|| {
+                    let names: Vec<Box<str>> = black_box(filenames)
+                        .iter()
+                        .map(|f| f.to_string_lossy().into_owned().into_boxed_str())
+                        .collect();
+                    black_box(names)
+                })
+            },
+        );
+
+        // Candidate: to_str() + skip non-UTF-8 — borrows then boxes, no String.
+        group.bench_with_input(
+            BenchmarkId::new("to_str_skip", n),
+            &filenames,
+            |b, filenames| {
+                b.iter(|| {
+                    let names: Vec<Box<str>> = black_box(filenames)
+                        .iter()
+                        .filter_map(|f| f.to_str().map(Box::from))
+                        .collect();
+                    black_box(names)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -519,5 +583,6 @@ criterion_group!(
     bench_render_separator,
     bench_indeterminate_bar_spans,
     bench_tab_titles,
+    bench_snapshot_filename_alloc,
 );
 criterion_main!(benches);
