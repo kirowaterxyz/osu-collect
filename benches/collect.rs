@@ -290,10 +290,203 @@ fn bench_message_style_classify(c: &mut Criterion) {
     group.finish();
 }
 
+// ── render_separator ──────────────────────────────────────────────────────────
+//
+// src/tui/widgets.rs:render_separator — called on every TUI render frame to
+// draw a horizontal rule.  The current implementation allocates a fresh
+// `String` via `"─".repeat(width)` on every call — ~30 allocs/sec at 30 fps.
+//
+// Baseline: `"─".repeat(n)` — 1 allocation per call, cost grows with width.
+// Candidate: `String::with_capacity(n * 3)` + `extend(iter::repeat_n('─', n))`
+//   or a lazily-built max-width buffer sliced to `n` — zero allocation on the
+//   hot path.
+//
+// Bench inputs: representative terminal widths (80, 160, 220).
+
+fn bench_render_separator(c: &mut Criterion) {
+    let widths: &[usize] = &[80, 160, 220];
+    let mut group = c.benchmark_group("render_separator");
+
+    // Baseline: production pattern — fresh String allocation per call.
+    for &w in widths {
+        group.bench_with_input(BenchmarkId::new("repeat_alloc", w), &w, |b, &w| {
+            b.iter(|| {
+                let s: String = black_box("─").repeat(black_box(w));
+                black_box(s);
+            })
+        });
+    }
+
+    // Candidate: build once with capacity, extend — still 1 alloc but
+    // avoids the hidden realloc inside `repeat` when the multibyte char
+    // is repeated into an undersized buffer.
+    for &w in widths {
+        group.bench_with_input(BenchmarkId::new("with_capacity_extend", w), &w, |b, &w| {
+            b.iter(|| {
+                let mut s = String::with_capacity(w * 3); // '─' is 3 bytes
+                s.extend(std::iter::repeat_n('─', black_box(w)));
+                black_box(s);
+            })
+        });
+    }
+
+    // Candidate: reuse a thread-local scratch buffer — zero alloc on reuse.
+    for &w in widths {
+        group.bench_with_input(BenchmarkId::new("reuse_scratch", w), &w, |b, &w| {
+            let mut scratch = String::with_capacity(220 * 3);
+            b.iter(|| {
+                scratch.clear();
+                scratch.extend(std::iter::repeat_n('─', black_box(w)));
+                black_box(scratch.as_str());
+            })
+        });
+    }
+
+    group.finish();
+}
+
+// ── indeterminate_bar_spans ───────────────────────────────────────────────────
+//
+// src/tui/widgets.rs:indeterminate_bar_spans — called per active download slot
+// per render frame for beatmapsets whose size is unknown.  Three `String`
+// allocations per call: `"░".repeat(offset)` + `"█".repeat(segment)` +
+// `"░".repeat(right)`.  With 4 active slots at 30 fps that is 360 allocs/sec.
+//
+// Baseline: 3× `char.repeat(n)` — up to 3 heap allocations per call.
+// Candidate: 1× `String::with_capacity(width * 3)` filled in three passes —
+//   single alloc regardless of segment count.  Strings are `'static`-lifetime
+//   in `Span::styled`; the candidate measures the construction cost only.
+//
+// Bench inputs: (offset, segment, right) tuples matching BAR_WIDTH=16 travel.
+
+fn bench_indeterminate_bar_spans(c: &mut Criterion) {
+    // (left_empty, filled_segment, right_empty) — sum == bar_width
+    let cases: &[(&str, usize, usize, usize)] = &[
+        ("start", 0, 4, 12),
+        ("mid", 6, 4, 6),
+        ("end", 12, 4, 0),
+        ("wide", 50, 4, 50), // wider terminal bar
+    ];
+
+    let mut group = c.benchmark_group("indeterminate_bar_spans");
+
+    // Baseline: 3× repeat — current production code path.
+    for &(label, left, seg, right) in cases {
+        group.bench_with_input(
+            BenchmarkId::new("three_repeat", label),
+            &(left, seg, right),
+            |b, &(left, seg, right)| {
+                b.iter(|| {
+                    let mut v: Vec<String> = Vec::with_capacity(3);
+                    if black_box(left) > 0 {
+                        v.push("░".repeat(black_box(left)));
+                    }
+                    v.push("█".repeat(black_box(seg)));
+                    if black_box(right) > 0 {
+                        v.push("░".repeat(black_box(right)));
+                    }
+                    black_box(v);
+                })
+            },
+        );
+    }
+
+    // Candidate: single pre-sized String filled in three extend passes.
+    for &(label, left, seg, right) in cases {
+        group.bench_with_input(
+            BenchmarkId::new("single_scratch", label),
+            &(left, seg, right),
+            |b, &(left, seg, right)| {
+                b.iter(|| {
+                    let total = black_box(left) + black_box(seg) + black_box(right);
+                    let mut s = String::with_capacity(total * 3);
+                    s.extend(std::iter::repeat_n('░', black_box(left)));
+                    s.extend(std::iter::repeat_n('█', black_box(seg)));
+                    s.extend(std::iter::repeat_n('░', black_box(right)));
+                    black_box(s);
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── tab_titles ────────────────────────────────────────────────────────────────
+//
+// src/app/state.rs:tab_titles — called on every render frame to build the tab
+// bar.  Current shape: `Vec<String>` + `"Home".to_string()` × 3 static tabs
+// + `page.title.clone()` × N dynamic tabs.  At 30 fps with N=0 collections
+// that is 90 static-string allocs/sec; with N=5 it is 240/sec.
+//
+// Baseline: current production pattern — Vec<String> with .to_string() for
+//   static tabs and .clone() for dynamic tabs.
+// Candidate A: return `Vec<&str>` / mixed-lifetime approach, static tabs as
+//   `&'static str` — zero alloc for static portion.
+// Candidate B: return an iterator of `Cow<'_, str>` — static tabs borrow,
+//   dynamic tabs are `Owned`.
+//
+// Bench inputs: N ∈ {0, 3, 10} to show per-tab scaling.
+
+fn bench_tab_titles(c: &mut Criterion) {
+    let dynamic_counts: &[usize] = &[0, 3, 10];
+    let mut group = c.benchmark_group("tab_titles");
+
+    // Baseline: production pattern — Vec<String> + to_string() + clone().
+    for &n in dynamic_counts {
+        let pages: Vec<String> = (0..n).map(|i| format!("collection {i}")).collect();
+
+        group.bench_with_input(
+            BenchmarkId::new("vec_string_clone", n),
+            &pages,
+            |b, pages| {
+                b.iter(|| {
+                    let mut titles = Vec::with_capacity(pages.len() + 3);
+                    titles.push(black_box("Home").to_string());
+                    titles.push(black_box("Updates").to_string());
+                    titles.push(black_box("Config").to_string());
+                    for page in pages {
+                        titles.push(black_box(page).clone());
+                    }
+                    black_box(titles)
+                })
+            },
+        );
+    }
+
+    // Candidate: static tabs as &'static str, dynamic as &str borrows —
+    //   zero allocation for the static portion; Vec itself is still allocated.
+    for &n in dynamic_counts {
+        let pages: Vec<String> = (0..n).map(|i| format!("collection {i}")).collect();
+
+        group.bench_with_input(
+            BenchmarkId::new("static_str_borrow", n),
+            &pages,
+            |b, pages| {
+                b.iter(|| {
+                    let mut titles: Vec<&str> = Vec::with_capacity(pages.len() + 3);
+                    titles.push(black_box("Home"));
+                    titles.push(black_box("Updates"));
+                    titles.push(black_box("Config"));
+                    for page in pages {
+                        titles.push(black_box(page.as_str()));
+                    }
+                    black_box(titles)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
     bench_detect_changed_beatmapsets,
     bench_message_style_classify,
+    bench_render_separator,
+    bench_indeterminate_bar_spans,
+    bench_tab_titles,
 );
 criterion_main!(benches);
