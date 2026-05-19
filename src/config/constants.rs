@@ -34,10 +34,6 @@ pub fn default_threads() -> u8 {
         .unwrap_or(1)
 }
 
-/// Number of transient-error retry attempts per mirror inside a single download attempt.
-pub const TRANSIENT_RETRY_ATTEMPTS: u8 = 3;
-/// Base delay between transient retries (doubles each attempt).
-pub const TRANSIENT_RETRY_BASE_DELAY: Duration = Duration::from_millis(800);
 /// Maximum number of additional passes through the mirror pool after every mirror has
 /// exhausted its transient retries. The library waits 5 seconds between passes
 /// (cancellable). Beyond this cap the beatmapset is reported as `BeatmapsetFailed`
