@@ -57,136 +57,6 @@ fn bench_panel_block_title_format(c: &mut Criterion) {
     group.finish();
 }
 
-// ── detect_changed_beatmapsets ────────────────────────────────────────────────
-//
-// src/download/precheck.rs:detect_changed_beatmapsets — called at the end of
-// every precheck pass to detect files mutated while validation was running.
-// Current implementation builds two HashMap<&str, &Entry> from already-sorted
-// Vec<Entry>, then cross-references them: two heap allocations of N entries
-// each for N = number of archives in the output dir (easily hundreds).
-// Because both slices are already sorted (snapshot.sort() before return),
-// a merge-walk or binary_search on sorted slices needs zero heap allocation.
-
-// Mirror the production struct — private, so we inline it.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct OszSnapshotEntry {
-    name: Box<str>,
-    beatmapset_id: u32,
-    size: u64,
-    modified_micros: Option<u128>,
-}
-
-fn make_snapshot(n: usize, mutate_fraction: usize) -> Vec<OszSnapshotEntry> {
-    let mut v: Vec<OszSnapshotEntry> = (0..n)
-        .map(|i| OszSnapshotEntry {
-            name: format!("{i:07} Artist - Title [Diff].osz").into_boxed_str(),
-            beatmapset_id: i as u32,
-            size: 1_000_000 + i as u64 * 17,
-            modified_micros: Some(1_700_000_000_000_000 + i as u128 * 1000),
-        })
-        .collect();
-    v.sort();
-    // Mutate a fraction to simulate real mid-precheck changes.
-    for i in (0..n).step_by(mutate_fraction.max(1) + 1).take(n / 4) {
-        v[i].size += 1;
-    }
-    v
-}
-
-fn bench_detect_changed_beatmapsets(c: &mut Criterion) {
-    let sizes: &[usize] = &[50, 200, 500];
-
-    let mut group = c.benchmark_group("detect_changed_beatmapsets");
-
-    for &n in sizes {
-        let initial = make_snapshot(n, 0);
-        // Final snapshot: same entries but ~10% have a mutated size.
-        let mut final_snap = initial.clone();
-        for entry in final_snap.iter_mut().step_by(10) {
-            entry.size += 1;
-        }
-        final_snap.sort();
-
-        group.bench_with_input(BenchmarkId::new("hashmap_cross_ref", n), &n, |b, _| {
-            b.iter(|| {
-                // Inline the exact current production implementation.
-                use std::collections::{HashMap, HashSet};
-                let initial_map: HashMap<&str, &OszSnapshotEntry> = black_box(&initial)
-                    .iter()
-                    .map(|e| (e.name.as_ref(), e))
-                    .collect();
-                let final_map: HashMap<&str, &OszSnapshotEntry> = black_box(&final_snap)
-                    .iter()
-                    .map(|e| (e.name.as_ref(), e))
-                    .collect();
-
-                let mut changes = HashSet::new();
-                for (name, previous) in &initial_map {
-                    match final_map.get(name) {
-                        Some(current) => {
-                            if previous.size != current.size
-                                || previous.modified_micros != current.modified_micros
-                            {
-                                changes.insert(previous.beatmapset_id);
-                            }
-                        }
-                        None => {
-                            changes.insert(previous.beatmapset_id);
-                        }
-                    }
-                }
-                for (name, current) in &final_map {
-                    if !initial_map.contains_key(name) {
-                        changes.insert(current.beatmapset_id);
-                    }
-                }
-                black_box(changes)
-            })
-        });
-
-        group.bench_with_input(BenchmarkId::new("merge_walk", n), &n, |b, _| {
-            b.iter(|| {
-                use std::collections::HashSet;
-                let initial = black_box(&initial);
-                let fin = black_box(&final_snap);
-                let mut changes = HashSet::new();
-                let mut i = 0;
-                let mut f = 0;
-                while i < initial.len() && f < fin.len() {
-                    let a = &initial[i];
-                    let b = &fin[f];
-                    match a.name.cmp(&b.name) {
-                        std::cmp::Ordering::Equal => {
-                            if a.size != b.size || a.modified_micros != b.modified_micros {
-                                changes.insert(a.beatmapset_id);
-                            }
-                            i += 1;
-                            f += 1;
-                        }
-                        std::cmp::Ordering::Less => {
-                            changes.insert(a.beatmapset_id);
-                            i += 1;
-                        }
-                        std::cmp::Ordering::Greater => {
-                            changes.insert(b.beatmapset_id);
-                            f += 1;
-                        }
-                    }
-                }
-                for entry in &initial[i..] {
-                    changes.insert(entry.beatmapset_id);
-                }
-                for entry in &fin[f..] {
-                    changes.insert(entry.beatmapset_id);
-                }
-                black_box(changes)
-            })
-        });
-    }
-
-    group.finish();
-}
-
 // ── message_style to_lowercase ────────────────────────────────────────────────
 //
 // src/tui/widgets.rs:message_style — called once per active download slot per
@@ -503,70 +373,6 @@ fn bench_tab_titles(c: &mut Criterion) {
                         titles.push(black_box(page.as_str()));
                     }
                     black_box(titles)
-                })
-            },
-        );
-    }
-
-    group.finish();
-}
-
-// ── capture_osz_snapshot filename allocation ──────────────────────────────────
-//
-// src/download/precheck.rs:capture_osz_snapshot — called twice per precheck
-// (before + after validation) to snapshot `.osz` files in the output dir.
-// Current shape:
-//   file_name.to_string_lossy().into_owned().into_boxed_str()
-// This String + Box allocation fires for every archive entry (N per call).
-// On a 500-map collection: 1000 allocs across both snapshots per precheck run.
-//
-// Candidate: OsStr::to_str() — returns &str directly for valid UTF-8 (the
-// common case on all supported platforms), box that without going through
-// String; skip entries with non-UTF-8 names.
-//
-// Bench inputs: N ∈ {50, 200, 500} typical `.osz` filenames.
-
-fn make_osz_filenames(n: usize) -> Vec<std::ffi::OsString> {
-    (0..n)
-        .map(|i| {
-            std::ffi::OsString::from(format!("{i:07} Artist Name - Song Title [Difficulty].osz"))
-        })
-        .collect()
-}
-
-fn bench_snapshot_filename_alloc(c: &mut Criterion) {
-    let sizes: &[usize] = &[50, 200, 500];
-    let mut group = c.benchmark_group("snapshot_filename_alloc");
-
-    for &n in sizes {
-        let filenames = make_osz_filenames(n);
-
-        // Baseline: to_string_lossy().into_owned() — String alloc per entry.
-        group.bench_with_input(
-            BenchmarkId::new("to_string_lossy_owned", n),
-            &filenames,
-            |b, filenames| {
-                b.iter(|| {
-                    let names: Vec<Box<str>> = black_box(filenames)
-                        .iter()
-                        .map(|f| f.to_string_lossy().into_owned().into_boxed_str())
-                        .collect();
-                    black_box(names)
-                })
-            },
-        );
-
-        // Candidate: to_str() + skip non-UTF-8 — borrows then boxes, no String.
-        group.bench_with_input(
-            BenchmarkId::new("to_str_skip", n),
-            &filenames,
-            |b, filenames| {
-                b.iter(|| {
-                    let names: Vec<Box<str>> = black_box(filenames)
-                        .iter()
-                        .filter_map(|f| f.to_str().map(Box::from))
-                        .collect();
-                    black_box(names)
                 })
             },
         );
@@ -996,12 +802,10 @@ fn bench_current_snapshots_beatmapset_clone(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_panel_block_title_format,
-    bench_detect_changed_beatmapsets,
     bench_message_style_classify,
     bench_render_separator,
     bench_indeterminate_bar_spans,
     bench_tab_titles,
-    bench_snapshot_filename_alloc,
     bench_emit_status_format,
     bench_render_constraints_vec,
     bench_emit_status_retrying,

@@ -8,10 +8,10 @@ use osu_downloader::{
 };
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
 use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
@@ -120,8 +120,6 @@ pub(crate) async fn verify_existing_beatmapsets(
         });
     }
 
-    let initial_snapshot = capture_osz_snapshot(output_dir).await?;
-
     let mut state = PrecheckState::default();
     let CandidateScan {
         candidates,
@@ -175,27 +173,6 @@ pub(crate) async fn verify_existing_beatmapsets(
         }
     }
 
-    let changed_ids: HashSet<u32> = match capture_osz_snapshot(output_dir).await {
-        Ok(final_snapshot) if final_snapshot != initial_snapshot => {
-            let changed = detect_changed_beatmapsets(&initial_snapshot, &final_snapshot);
-            info!(
-                download_id = id,
-                changed = changed.len(),
-                "files changed during precheck"
-            );
-            changed
-        }
-        Ok(_) => HashSet::new(),
-        Err(err) => {
-            warn!(download_id = id, error = %err, "failed to capture final snapshot after precheck");
-            HashSet::new()
-        }
-    };
-
-    for beatmapset_id in changed_ids {
-        state.record_changed(id, beatmapset_id, options, &emit);
-    }
-
     Ok(PrecheckReport {
         satisfied: state.satisfied,
         skipped: state.skipped,
@@ -211,7 +188,6 @@ struct PrecheckState {
     skipped: u32,
     unverified: Vec<u32>,
     verified_bytes: u64,
-    satisfied_sizes: HashMap<u32, u64>,
     unverified_maps: HashSet<u32>,
 }
 
@@ -244,8 +220,6 @@ impl PrecheckState {
 
         self.skipped = self.skipped.saturating_add(1);
         self.verified_bytes += record.file_size;
-        self.satisfied_sizes
-            .insert(record.beatmapset_id, record.file_size);
 
         if options.notify_verified {
             emit(DownloadEvent::BeatmapStatus {
@@ -294,33 +268,6 @@ impl PrecheckState {
                 duration_us: record.duration_us,
             });
             self.emit_progress(id, emit);
-        }
-    }
-
-    fn record_changed(
-        &mut self,
-        id: DownloadId,
-        beatmapset_id: u32,
-        options: PrecheckOptions,
-        emit: &impl Fn(DownloadEvent),
-    ) {
-        if self.satisfied.remove(&beatmapset_id) {
-            self.skipped = self.skipped.saturating_sub(1);
-            if let Some(size) = self.satisfied_sizes.remove(&beatmapset_id) {
-                self.verified_bytes = self.verified_bytes.saturating_sub(size);
-            }
-        }
-        if self.unverified_maps.insert(beatmapset_id) {
-            self.unverified.push(beatmapset_id);
-        }
-        if options.notify_verified {
-            emit(DownloadEvent::BeatmapStatus {
-                id,
-                beatmapset_id,
-                stage: BeatmapStage::Pending,
-                message: "file changed during precheck; re-downloading".to_string(),
-                rate_limited: false,
-            });
         }
     }
 
@@ -445,13 +392,12 @@ async fn validate_existing_candidate(
     }
 
     let mut validation_error = None;
-    let mut file_size = 0u64;
+    let mut file_size = cache_key.as_ref().map(|key| key.size()).unwrap_or(0);
 
     match validate_and_remove(&candidate.path, options.archive_validation).await {
         Ok(ArchiveValidationResult::Valid) => {
-            if let Ok(meta) = fs::metadata(&candidate.path).await {
-                file_size = meta.len();
-                cache.mark_valid(CacheKey::from_meta(&candidate.path, &meta));
+            if let Some(key) = cache_key {
+                cache.mark_valid(key);
             }
         }
         Ok(ArchiveValidationResult::NotFound) => {
@@ -459,6 +405,7 @@ async fn validate_existing_candidate(
         }
         Ok(ArchiveValidationResult::Invalid(reason)) => {
             validation_error = Some(reason);
+            file_size = 0;
         }
         Err(err) => {
             return Err((candidate.path.clone(), err.to_string()));
@@ -472,105 +419,6 @@ async fn validate_existing_candidate(
         validation_error,
         duration_us: verify_start.elapsed().as_micros() as u64,
     }))
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct OszSnapshotEntry {
-    name: Box<str>,
-    beatmapset_id: u32,
-    size: u64,
-    modified_micros: Option<u128>,
-}
-
-async fn capture_osz_snapshot(dir: &Path) -> Result<Vec<OszSnapshotEntry>, DownloadError> {
-    let mut snapshot = Vec::new();
-    let mut entries = fs::read_dir(dir).await?;
-
-    while let Some(entry) = entries.next_entry().await? {
-        let file_name = entry.file_name();
-        let OutputEntry::Archive { beatmapset_id } = classify_output_entry(&file_name) else {
-            continue;
-        };
-
-        let metadata = entry.metadata().await?;
-        let modified_micros = metadata.modified().ok().and_then(system_time_to_micros);
-
-        let Some(name) = file_name.to_str() else {
-            continue;
-        };
-
-        snapshot.push(OszSnapshotEntry {
-            name: Box::from(name),
-            beatmapset_id,
-            size: metadata.len(),
-            modified_micros,
-        });
-    }
-
-    snapshot.sort();
-    Ok(snapshot)
-}
-
-fn system_time_to_micros(time: SystemTime) -> Option<u128> {
-    time.duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_micros())
-}
-
-// Both slices are sorted by name (capture_osz_snapshot calls snapshot.sort()
-// before returning, and OszSnapshotEntry derives Ord with name as first field).
-// A merge-walk avoids two HashMap allocations — O(n) time, O(1) extra memory.
-fn detect_changed_beatmapsets(
-    initial: &[OszSnapshotEntry],
-    final_snapshot: &[OszSnapshotEntry],
-) -> HashSet<u32> {
-    debug_assert!(
-        initial.windows(2).all(|w| w[0].name <= w[1].name),
-        "initial snapshot must be sorted by name"
-    );
-    debug_assert!(
-        final_snapshot.windows(2).all(|w| w[0].name <= w[1].name),
-        "final snapshot must be sorted by name"
-    );
-
-    let mut changes = HashSet::new();
-    let mut i = 0;
-    let mut f = 0;
-
-    while i < initial.len() && f < final_snapshot.len() {
-        let a = &initial[i];
-        let b = &final_snapshot[f];
-        match a.name.cmp(&b.name) {
-            std::cmp::Ordering::Equal => {
-                if a.size != b.size || a.modified_micros != b.modified_micros {
-                    changes.insert(a.beatmapset_id);
-                }
-                i += 1;
-                f += 1;
-            }
-            std::cmp::Ordering::Less => {
-                // present in initial but not final — deleted
-                changes.insert(a.beatmapset_id);
-                i += 1;
-            }
-            std::cmp::Ordering::Greater => {
-                // present in final but not initial — added
-                changes.insert(b.beatmapset_id);
-                f += 1;
-            }
-        }
-    }
-
-    // Any remaining initial entries were deleted.
-    for entry in &initial[i..] {
-        changes.insert(entry.beatmapset_id);
-    }
-    // Any remaining final entries were added.
-    for entry in &final_snapshot[f..] {
-        changes.insert(entry.beatmapset_id);
-    }
-
-    changes
 }
 
 #[cfg(test)]
