@@ -275,7 +275,8 @@ pub(crate) async fn download_beatmapset(
     let mut all_transient = true;
     let mut last_transient_reason = String::new();
 
-    let mut pending = params.mirror_pool.mirrors().to_vec();
+    let mirrors = params.mirror_pool.mirrors();
+    let mut pending: Vec<usize> = (0..mirrors.len()).collect();
 
     while !pending.is_empty() {
         if *cancel_rx.borrow_and_update() {
@@ -283,7 +284,8 @@ pub(crate) async fn download_beatmapset(
         }
 
         let mut deferred_rate_limited = Vec::new();
-        for mirror in &pending {
+        for idx in &pending {
+            let mirror = &mirrors[*idx];
             if *cancel_rx.borrow_and_update() {
                 return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
             }
@@ -297,7 +299,7 @@ pub(crate) async fn download_beatmapset(
                 }
                 MirrorAttempt::RateLimited => {
                     all_transient = false;
-                    deferred_rate_limited.push(mirror.clone());
+                    deferred_rate_limited.push(*idx);
                     params.mirror_pool.mark_rate_limited(mirror.kind());
                     last_error = Some(failed(Some(mirror.kind()), "rate limited"));
                 }
@@ -318,7 +320,7 @@ pub(crate) async fn download_beatmapset(
 
         let wait_duration = deferred_rate_limited
             .iter()
-            .filter_map(|mirror| params.mirror_pool.penalty_remaining(mirror.kind()))
+            .filter_map(|&idx| params.mirror_pool.penalty_remaining(mirrors[idx].kind()))
             .min()
             .unwrap_or(Duration::ZERO);
 
