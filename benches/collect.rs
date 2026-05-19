@@ -771,6 +771,132 @@ fn bench_render_constraints_vec(c: &mut Criterion) {
     group.finish();
 }
 
+// ── emit_status_retrying ──────────────────────────────────────────────────────
+//
+// src/download/events.rs:emit_status — the RetryingTransient and RateLimited
+// arms were not covered by iter 21 (which fixed Contacting/Downloading/
+// Verifying/BeatmapsetCompleted).  Both arms still use format!:
+//
+//   RetryingTransient:
+//     format!("retrying {} after {reason} (attempt {attempt}/{max_attempts})",
+//             mirror.label())
+//   RateLimited:
+//     format!("{} on all mirrors, waiting {}s", status::RATE_LIMITED, cooldown_secs)
+//
+// RetryingTransient fires on every transient HTTP error per mirror attempt;
+// with 4 concurrent downloads × 3 retry attempts each, this is ~12 format!
+// calls per beatmapset in the worst-case network path.
+//
+// Candidate: String::with_capacity + push_str for both arms — same semantics,
+// avoids format! machinery and the implicit capacity estimate it uses.
+//
+// Bench inputs: mirror label sizes representative of the 4 built-in mirrors;
+// reason strings of short (~10 chars) and long (~35 chars).
+
+fn bench_emit_status_retrying(c: &mut Criterion) {
+    let labels: &[(&str, &str)] = &[
+        ("Nerinyan", "nerinyan"),
+        ("osu.direct", "osu_direct"),
+        ("Sayobot", "sayobot"),
+        ("Nekoha", "nekoha"),
+    ];
+    let reasons: &[(&str, &str)] = &[
+        ("connection reset", "short"),
+        ("connection reset by peer (os error 104)", "long"),
+    ];
+    let attempt: u32 = 2;
+    let max_attempts: u32 = 3;
+    let cooldown_secs: u64 = 60;
+    const RATE_LIMITED: &str = "rate limited";
+
+    let mut group = c.benchmark_group("emit_status_retrying");
+
+    // ── RetryingTransient ────────────────────────────────────────────────────
+    for &(label, label_key) in labels {
+        for &(reason, reason_key) in reasons {
+            let bench_key = format!("{label_key}/{reason_key}");
+
+            // Baseline: production format! call.
+            group.bench_with_input(
+                BenchmarkId::new("format_retrying", &bench_key),
+                &(label, reason),
+                |b, &(label, reason)| {
+                    b.iter(|| {
+                        let s = format!(
+                            "retrying {} after {reason} (attempt {attempt}/{max_attempts})",
+                            black_box(label)
+                        );
+                        black_box(s)
+                    })
+                },
+            );
+
+            // Candidate: push_str with exact pre-computed capacity.
+            group.bench_with_input(
+                BenchmarkId::new("push_str_retrying", &bench_key),
+                &(label, reason),
+                |b, &(label, reason)| {
+                    b.iter(|| {
+                        let attempt_s = attempt.to_string();
+                        let max_s = max_attempts.to_string();
+                        let mut s = String::with_capacity(
+                            "retrying ".len()
+                                + label.len()
+                                + " after ".len()
+                                + reason.len()
+                                + " (attempt ".len()
+                                + attempt_s.len()
+                                + "/".len()
+                                + max_s.len()
+                                + ")".len(),
+                        );
+                        s.push_str("retrying ");
+                        s.push_str(black_box(label));
+                        s.push_str(" after ");
+                        s.push_str(black_box(reason));
+                        s.push_str(" (attempt ");
+                        s.push_str(&attempt_s);
+                        s.push('/');
+                        s.push_str(&max_s);
+                        s.push(')');
+                        black_box(s)
+                    })
+                },
+            );
+        }
+    }
+
+    // ── RateLimited ──────────────────────────────────────────────────────────
+    // Baseline: production format! call.
+    group.bench_function("format_rate_limited", |b| {
+        b.iter(|| {
+            let s = format!(
+                "{} on all mirrors, waiting {}s",
+                black_box(RATE_LIMITED),
+                black_box(cooldown_secs)
+            );
+            black_box(s)
+        })
+    });
+
+    // Candidate: push_str.
+    group.bench_function("push_str_rate_limited", |b| {
+        b.iter(|| {
+            let secs_s = black_box(cooldown_secs).to_string();
+            let mut s = String::with_capacity(
+                RATE_LIMITED.len() + " on all mirrors, waiting ".len() + secs_s.len() + "s".len(),
+            );
+            s.push_str(black_box(RATE_LIMITED));
+            s.push_str(" on all mirrors, waiting ");
+            s.push_str(&secs_s);
+            s.push('s');
+            black_box(s)
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -782,5 +908,6 @@ criterion_group!(
     bench_snapshot_filename_alloc,
     bench_emit_status_format,
     bench_render_constraints_vec,
+    bench_emit_status_retrying,
 );
 criterion_main!(benches);

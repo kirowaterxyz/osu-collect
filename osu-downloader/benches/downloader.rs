@@ -425,6 +425,78 @@ fn bench_pending_mirrors_clone(c: &mut Criterion) {
     group.finish();
 }
 
+// ── write_collections_db dedup ────────────────────────────────────────────────
+//
+// osu-downloader/src/collection.rs:write_collections_db — called once per
+// collection write (end of a successful download run) to build the osu!
+// collection.db file.  Current dedup pattern:
+//   .filter(|hash| seen.insert((*hash).clone()))   ← clone into HashSet<String>
+//   .cloned()                                       ← clone into output Vec
+// Every hash that passes the filter is cloned TWICE: once into the seen-set
+// and once into the Vec<Option<String>> output.  For a 500-beatmapset
+// collection averaging 5 maps each that is 5000 String clones instead of 2500.
+//
+// Candidate: HashSet<&str> for dedup — the hash string is borrowed by the seen
+// set, so only the final .cloned() into the output Vec allocates.  Saves one
+// clone (one String heap alloc) per unique hash.
+//
+// Bench inputs: (beatmapsets × beatmaps_per_set) matching realistic collection
+// sizes: 50×5 (250 hashes), 200×5 (1000 hashes), 500×5 (2500 hashes).
+
+fn bench_write_collections_db_dedup(c: &mut Criterion) {
+    let configs: &[(&str, usize, usize)] = &[("50x5", 50, 5), ("200x5", 200, 5), ("500x5", 500, 5)];
+
+    let mut group = c.benchmark_group("write_collections_db_dedup");
+
+    for &(label, sets, per_set) in configs {
+        // Flat list of MD5-like 32-char hex strings (no duplicates — worst case
+        // for the HashSet: every entry must be inserted and cloned).
+        let hashes: Vec<String> = make_checksums(sets, per_set)
+            .into_iter()
+            .flatten()
+            .collect();
+
+        // Baseline: double-clone — HashSet<String> insert + .cloned() output.
+        group.bench_with_input(
+            BenchmarkId::new("double_clone_hashset_string", label),
+            &hashes,
+            |b, hashes| {
+                b.iter(|| {
+                    let mut seen = std::collections::HashSet::<String>::new();
+                    let out: Vec<Option<String>> = black_box(hashes)
+                        .iter()
+                        .filter(|hash| seen.insert((*hash).clone()))
+                        .cloned()
+                        .map(Some)
+                        .collect();
+                    black_box(out)
+                })
+            },
+        );
+
+        // Candidate: single-clone — HashSet<&str> borrows for dedup, .cloned()
+        // once into the output Vec.
+        group.bench_with_input(
+            BenchmarkId::new("single_clone_hashset_str", label),
+            &hashes,
+            |b, hashes| {
+                b.iter(|| {
+                    let mut seen = std::collections::HashSet::<&str>::new();
+                    let out: Vec<Option<String>> = black_box(hashes)
+                        .iter()
+                        .filter(|hash| seen.insert(hash.as_str()))
+                        .cloned()
+                        .map(Some)
+                        .collect();
+                    black_box(out)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_md5_hex_format,
@@ -436,5 +508,6 @@ criterion_group!(
     bench_content_type_check,
     bench_collection_hashes,
     bench_pending_mirrors_clone,
+    bench_write_collections_db_dedup,
 );
 criterion_main!(benches);
