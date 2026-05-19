@@ -371,6 +371,60 @@ fn bench_collection_hashes(c: &mut Criterion) {
     group.finish();
 }
 
+// ── pending_mirrors_clone ─────────────────────────────────────────────────────
+//
+// osu-downloader/src/download.rs:download_beatmapset — at the start of each
+// per-beatmapset download, the current code builds a working list of mirrors:
+//   let mut pending = params.mirror_pool.mirrors().to_vec();
+// For the 4-mirror default pool each `Mirror` clone allocates 3 `Box<str>`
+// (template + SplitTemplate prefix/suffix) plus an `Option<HeaderMap>`.
+// With 4 mirrors: 4 heap allocs for the Vec + 12 Box<str> allocs = 16 allocs
+// per beatmapset at the outer loop entry.
+//
+// Candidate: carry a Vec<usize> of pending mirror indices instead of cloning
+// the Mirror values.  Indices are Copy — zero heap alloc for the pending list.
+//
+// Bench inputs: pool sizes of 2 (minimal), 4 (default), 6 (hypothetical
+// max with custom mirror) to show per-mirror scaling.
+
+fn bench_pending_mirrors_clone(c: &mut Criterion) {
+    use osu_downloader::Mirror;
+
+    let all_mirrors: Vec<Mirror> = vec![
+        Mirror::nerinyan(),
+        Mirror::osu_direct(),
+        Mirror::sayobot(),
+        Mirror::nekoha(),
+        Mirror::nerinyan(), // extra to simulate 5-mirror case
+        Mirror::osu_direct(),
+    ];
+
+    let sizes: &[usize] = &[2, 4, 6];
+    let mut group = c.benchmark_group("pending_mirrors_clone");
+
+    for &n in sizes {
+        let mirrors = &all_mirrors[..n];
+
+        // Baseline: current production shape — .to_vec() clones every Mirror.
+        group.bench_with_input(BenchmarkId::new("to_vec_mirror", n), &n, |b, _| {
+            b.iter(|| {
+                let pending: Vec<Mirror> = black_box(mirrors).to_vec();
+                black_box(pending)
+            })
+        });
+
+        // Candidate: Vec<usize> of pending indices — Copy, no per-Mirror alloc.
+        group.bench_with_input(BenchmarkId::new("index_vec", n), &n, |b, &n| {
+            b.iter(|| {
+                let pending: Vec<usize> = (0..black_box(n)).collect();
+                black_box(pending)
+            })
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_md5_hex_format,
@@ -381,5 +435,6 @@ criterion_group!(
     bench_split_content_disposition,
     bench_content_type_check,
     bench_collection_hashes,
+    bench_pending_mirrors_clone,
 );
 criterion_main!(benches);

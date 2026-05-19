@@ -575,6 +575,200 @@ fn bench_snapshot_filename_alloc(c: &mut Criterion) {
     group.finish();
 }
 
+// ── emit_status_format ────────────────────────────────────────────────────────
+//
+// src/download/events.rs:emit_status — called once per BeatmapsetStatus library
+// event with a mirror kind.  Current shape allocates a new String via format!()
+// for each status variant:
+//   format!("checking {}", mirror.label())
+//   format!("{} from {}", status::DOWNLOADING, mirror.label())
+//   format!("verifying from {}", mirror.label())
+// mirror.label() returns &'static str; the prefix constants are also &'static
+// str.  With 4 concurrent downloads × ~3 status events each per mirror pass
+// (contacting + downloading + verifying) × 3 retries ≈ 36 allocs/sec minimum.
+//
+// Candidate: pre-concatenate the common per-mirror strings into static storage
+// (a LazyLock<HashMap<MirrorKind, String>>) or use Cow<'static, str> for the
+// common prefixes.  For the bench we measure the raw format! overhead vs
+// a manual write_to approach (single allocation per call, no intermediate
+// capture).
+//
+// Bench inputs: the 3 main status variants × 4 built-in mirror labels.
+
+fn bench_emit_status_format(c: &mut Criterion) {
+    // Mirror labels as returned by MirrorKind::label() — &'static str.
+    let labels: &[(&str, &str)] = &[
+        ("Nerinyan", "nerinyan"),
+        ("osu.direct", "osu_direct"),
+        ("Sayobot", "sayobot"),
+        ("Nekoha", "nekoha"),
+    ];
+
+    const DOWNLOADING: &str = "downloading";
+
+    let mut group = c.benchmark_group("emit_status_format");
+
+    for &(label, key) in labels {
+        // Baseline: current shape — one format! per variant.
+        group.bench_with_input(
+            BenchmarkId::new("format_contacting", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let s = format!("checking {}", black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("format_downloading", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let s = format!("{} from {}", DOWNLOADING, black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("format_verifying", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let s = format!("verifying from {}", black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+
+        // Candidate A: String::with_capacity + push_str — same alloc count but
+        // avoids format machinery; measures raw String construction cost.
+        group.bench_with_input(
+            BenchmarkId::new("push_str_contacting", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let mut s = String::with_capacity(9 + label.len());
+                    s.push_str("checking ");
+                    s.push_str(black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("push_str_downloading", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let mut s = String::with_capacity(DOWNLOADING.len() + 6 + label.len());
+                    s.push_str(DOWNLOADING);
+                    s.push_str(" from ");
+                    s.push_str(black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("push_str_verifying", key),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let mut s = String::with_capacity(14 + label.len());
+                    s.push_str("verifying from ");
+                    s.push_str(black_box(label));
+                    black_box(s)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── render_constraints_vec ────────────────────────────────────────────────────
+//
+// src/tui/download.rs:render — called on every TUI render frame per open
+// download tab.  Current shape:
+//   let mut constraints = Vec::with_capacity(4);
+//   if show_disk_warning { constraints.push(Constraint::Length(1)); }
+//   constraints.push(Constraint::Length(INFO_HEIGHT));
+//   constraints.push(Constraint::Length(GAUGE_HEIGHT));
+//   constraints.push(Constraint::Min(0));
+//   Layout::vertical(constraints).split(area)
+// Vec<Constraint> is heap-allocated every frame; layout is structurally fixed
+// (3 or 4 elements).  At 30 fps with 3 open tabs: 90 allocs/sec.
+//
+// Candidate: use a fixed-size stack array and pass a slice, avoiding the heap
+// allocation entirely.  Layout::vertical() accepts &[Constraint] via Into<Layout>.
+//
+// Bench inputs: both branches (show_disk_warning = true / false) to capture the
+// common case (false) and the warnings case (true).
+
+fn bench_render_constraints_vec(c: &mut Criterion) {
+    use ratatui::layout::Constraint;
+
+    const INFO_HEIGHT: u16 = 8;
+    const GAUGE_HEIGHT: u16 = 3;
+
+    let mut group = c.benchmark_group("render_constraints_vec");
+
+    // Baseline: Vec::with_capacity + conditional push — production shape.
+    for show_disk_warning in [false, true] {
+        let label = if show_disk_warning {
+            "with_warning"
+        } else {
+            "no_warning"
+        };
+        group.bench_with_input(
+            BenchmarkId::new("vec_with_capacity", label),
+            &show_disk_warning,
+            |b, &show_disk_warning| {
+                b.iter(|| {
+                    let mut constraints = Vec::with_capacity(4);
+                    if black_box(show_disk_warning) {
+                        constraints.push(Constraint::Length(1));
+                    }
+                    constraints.push(Constraint::Length(INFO_HEIGHT));
+                    constraints.push(Constraint::Length(GAUGE_HEIGHT));
+                    constraints.push(Constraint::Min(0));
+                    black_box(constraints)
+                })
+            },
+        );
+
+        // Candidate: two static arrays; branch selects the right slice — zero
+        // heap alloc.  Arrays are the bench input so they live long enough.
+        let with_warn: [Constraint; 4] = [
+            Constraint::Length(1),
+            Constraint::Length(INFO_HEIGHT),
+            Constraint::Length(GAUGE_HEIGHT),
+            Constraint::Min(0),
+        ];
+        let without_warn: [Constraint; 3] = [
+            Constraint::Length(INFO_HEIGHT),
+            Constraint::Length(GAUGE_HEIGHT),
+            Constraint::Min(0),
+        ];
+        let arrays = (with_warn, without_warn, show_disk_warning);
+        group.bench_with_input(
+            BenchmarkId::new("fixed_array_slice", label),
+            &arrays,
+            |b, (with_warn, without_warn, show_disk_warning)| {
+                b.iter(|| {
+                    let slice: &[Constraint] = if black_box(*show_disk_warning) {
+                        &with_warn[..]
+                    } else {
+                        &without_warn[..]
+                    };
+                    black_box(slice)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -584,5 +778,7 @@ criterion_group!(
     bench_indeterminate_bar_spans,
     bench_tab_titles,
     bench_snapshot_filename_alloc,
+    bench_emit_status_format,
+    bench_render_constraints_vec,
 );
 criterion_main!(benches);
