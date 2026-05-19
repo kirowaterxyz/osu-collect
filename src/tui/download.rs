@@ -1,6 +1,6 @@
 use crate::{
     app::CollectionPage,
-    config::constants::{GB, KB, MAX_TRUNCATED_CHARS, MB},
+    config::constants::{GB, KB, MAX_TRUNCATED_CHARS, MB, status::RATE_LIMITED},
     download::{DownloadStage, DownloadSummary},
     utils::format_bytes,
 };
@@ -43,7 +43,6 @@ const STATUS_RECHECKING: &str = "rechecking";
 const STATUS_DOWNLOADING: &str = "downloading";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
-const STATUS_RATE_LIMITED: &str = "rate limited";
 
 const SUMMARY_DONE: &str = "done";
 const SUMMARY_PROGRESS: &str = "progress";
@@ -123,7 +122,7 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let status =
         if matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited() {
-            STATUS_RATE_LIMITED
+            RATE_LIMITED
         } else {
             stage_label(page.stage)
         };
@@ -220,7 +219,7 @@ fn bytes_display(page: &CollectionPage) -> Option<String> {
 }
 
 fn status_color(stage: DownloadStage, status: &str) -> Color {
-    if status == STATUS_RATE_LIMITED {
+    if status == RATE_LIMITED {
         WARNING
     } else {
         widgets::status_style(stage).fg.unwrap_or(TEXT_DIM)

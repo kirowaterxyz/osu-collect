@@ -10,7 +10,6 @@ pub const MAX_TRUNCATED_CHARS: usize = 80;
 
 pub mod status {
     pub const RATE_LIMITED: &str = "rate limited";
-    pub const ABORTED: &str = "aborted";
     pub const RECHECKING_PREFIX: &str = "rechecking";
     pub const DOWNLOADING: &str = "downloading";
     pub const CHECKING_PREFIX: &str = "checking ";
