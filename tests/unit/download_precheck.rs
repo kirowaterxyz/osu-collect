@@ -1,4 +1,5 @@
 use super::{CacheKey, ValidationCache, scan_candidates};
+use osu_downloader::ArchiveValidation;
 use std::collections::HashSet;
 use tokio::sync::watch;
 
@@ -11,16 +12,95 @@ fn validation_cache_marks_and_lookups_by_metadata() {
     let cache = ValidationCache::default();
     let key = CacheKey::from_meta(&path, &meta);
 
-    assert!(!cache.is_valid(&key), "miss before insert");
-    cache.mark_valid(key.clone());
-    assert!(cache.is_valid(&key), "hit after insert");
+    assert!(
+        !cache.is_valid(&key, ArchiveValidation::Magic),
+        "miss before insert"
+    );
+    cache.mark_valid(key.clone(), ArchiveValidation::Magic);
+    assert!(
+        cache.is_valid(&key, ArchiveValidation::Magic),
+        "hit after insert"
+    );
 
     std::fs::write(&path, b"changed-bytes").unwrap();
     let meta2 = std::fs::metadata(&path).unwrap();
     let key2 = CacheKey::from_meta(&path, &meta2);
     assert!(
-        !cache.is_valid(&key2),
+        !cache.is_valid(&key2, ArchiveValidation::Magic),
         "size change must invalidate the key"
+    );
+}
+
+#[test]
+fn validation_cache_off_mode_does_not_insert() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123.osz");
+    std::fs::write(&path, b"hello").unwrap();
+    let meta = std::fs::metadata(&path).unwrap();
+    let cache = ValidationCache::default();
+    let key = CacheKey::from_meta(&path, &meta);
+
+    cache.mark_valid(key.clone(), ArchiveValidation::Off);
+    assert!(
+        !cache.is_valid(&key, ArchiveValidation::Off),
+        "Off must not populate the cache"
+    );
+}
+
+#[test]
+fn validation_cache_strict_request_misses_weaker_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123.osz");
+    std::fs::write(&path, b"hello").unwrap();
+    let meta = std::fs::metadata(&path).unwrap();
+    let cache = ValidationCache::default();
+    let key = CacheKey::from_meta(&path, &meta);
+
+    cache.mark_valid(key.clone(), ArchiveValidation::Magic);
+    assert!(
+        !cache.is_valid(&key, ArchiveValidation::Eocd),
+        "stored Magic must not satisfy an Eocd lookup"
+    );
+    assert!(
+        cache.is_valid(&key, ArchiveValidation::Magic),
+        "stored Magic must satisfy a Magic lookup"
+    );
+}
+
+#[test]
+fn validation_cache_eocd_entry_satisfies_weaker_lookups() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123.osz");
+    std::fs::write(&path, b"hello").unwrap();
+    let meta = std::fs::metadata(&path).unwrap();
+    let cache = ValidationCache::default();
+    let key = CacheKey::from_meta(&path, &meta);
+
+    cache.mark_valid(key.clone(), ArchiveValidation::Eocd);
+    assert!(cache.is_valid(&key, ArchiveValidation::Magic));
+    assert!(cache.is_valid(&key, ArchiveValidation::Eocd));
+}
+
+#[test]
+fn validation_cache_upgrades_to_stricter_on_remark() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("123.osz");
+    std::fs::write(&path, b"hello").unwrap();
+    let meta = std::fs::metadata(&path).unwrap();
+    let cache = ValidationCache::default();
+    let key = CacheKey::from_meta(&path, &meta);
+
+    cache.mark_valid(key.clone(), ArchiveValidation::Magic);
+    cache.mark_valid(key.clone(), ArchiveValidation::Eocd);
+    assert!(
+        cache.is_valid(&key, ArchiveValidation::Eocd),
+        "second mark must upgrade strictness"
+    );
+
+    cache.mark_valid(key.clone(), ArchiveValidation::Magic);
+    assert!(
+        cache.is_valid(&key, ArchiveValidation::Eocd),
+        "weaker mark must not downgrade strictness"
     );
 }
 

@@ -59,23 +59,38 @@ impl CacheKey {
     }
 }
 
-/// In-memory cache of previously-validated `.osz` archives. Hits skip the
-/// expensive ZIP/EOCD re-read on the next precheck run.
+/// In-memory cache of previously-validated `.osz` archives. Each entry records
+/// the strictest [`ArchiveValidation`] mode the file passed; a lookup at
+/// strictness `requested` is only a hit when the stored mode is `>= requested`.
+/// `Off` is never cached — it skips ZIP-shape validation, so caching it would
+/// satisfy stricter probes without actually checking.
 #[derive(Default)]
 pub(crate) struct ValidationCache {
-    entries: DashMap<CacheKey, ()>,
+    entries: DashMap<CacheKey, ArchiveValidation>,
 }
 
 impl ValidationCache {
-    pub fn is_valid(&self, key: &CacheKey) -> bool {
-        self.entries.contains_key(key)
+    pub fn is_valid(&self, key: &CacheKey, requested: ArchiveValidation) -> bool {
+        self.entries
+            .get(key)
+            .is_some_and(|stored| *stored >= requested)
     }
 
-    pub fn mark_valid(&self, key: CacheKey) {
+    pub fn mark_valid(&self, key: CacheKey, mode: ArchiveValidation) {
+        if mode == ArchiveValidation::Off {
+            return;
+        }
         if self.entries.len() >= VALIDATION_CACHE_LIMIT {
             self.entries.clear();
         }
-        self.entries.insert(key, ());
+        self.entries
+            .entry(key)
+            .and_modify(|existing| {
+                if mode > *existing {
+                    *existing = mode;
+                }
+            })
+            .or_insert(mode);
     }
 }
 
@@ -380,7 +395,7 @@ async fn validate_existing_candidate(
         .map(|meta| CacheKey::from_meta(&candidate.path, &meta));
 
     if let Some(key) = cache_key.as_ref()
-        && cache.is_valid(key)
+        && cache.is_valid(key, options.archive_validation)
     {
         return Ok(Some(FileRecord {
             beatmapset_id: candidate.beatmapset_id,
@@ -397,7 +412,7 @@ async fn validate_existing_candidate(
     match validate_and_remove(&candidate.path, options.archive_validation).await {
         Ok(ArchiveValidationResult::Valid) => {
             if let Some(key) = cache_key {
-                cache.mark_valid(key);
+                cache.mark_valid(key, options.archive_validation);
             }
         }
         Ok(ArchiveValidationResult::NotFound) => {

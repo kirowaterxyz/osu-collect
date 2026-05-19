@@ -11,8 +11,21 @@ const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
 const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
 const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 
-/// Archive validation strictness.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Archive validation strictness. Variants are ordered by strictness:
+/// `Off` < `Magic` < `Eocd`. A file that passes a stricter mode also satisfies
+/// every weaker mode.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveValidation {
     /// Skip ZIP-shape validation. Still requires a regular, non-empty file.
