@@ -495,8 +495,12 @@ async fn capture_osz_snapshot(dir: &Path) -> Result<Vec<OszSnapshotEntry>, Downl
         let metadata = entry.metadata().await?;
         let modified_micros = metadata.modified().ok().and_then(system_time_to_micros);
 
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+
         snapshot.push(OszSnapshotEntry {
-            name: file_name.to_string_lossy().into_owned().into_boxed_str(),
+            name: Box::from(name),
             beatmapset_id,
             size: metadata.len(),
             modified_micros,
