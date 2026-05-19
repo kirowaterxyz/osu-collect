@@ -120,6 +120,45 @@ fn bench_detect_changed_beatmapsets(c: &mut Criterion) {
                 black_box(changes)
             })
         });
+
+        group.bench_with_input(BenchmarkId::new("merge_walk", n), &n, |b, _| {
+            b.iter(|| {
+                use std::collections::HashSet;
+                let initial = black_box(&initial);
+                let fin = black_box(&final_snap);
+                let mut changes = HashSet::new();
+                let mut i = 0;
+                let mut f = 0;
+                while i < initial.len() && f < fin.len() {
+                    let a = &initial[i];
+                    let b = &fin[f];
+                    match a.name.cmp(&b.name) {
+                        std::cmp::Ordering::Equal => {
+                            if a.size != b.size || a.modified_micros != b.modified_micros {
+                                changes.insert(a.beatmapset_id);
+                            }
+                            i += 1;
+                            f += 1;
+                        }
+                        std::cmp::Ordering::Less => {
+                            changes.insert(a.beatmapset_id);
+                            i += 1;
+                        }
+                        std::cmp::Ordering::Greater => {
+                            changes.insert(b.beatmapset_id);
+                            f += 1;
+                        }
+                    }
+                }
+                for entry in &initial[i..] {
+                    changes.insert(entry.beatmapset_id);
+                }
+                for entry in &fin[f..] {
+                    changes.insert(entry.beatmapset_id);
+                }
+                black_box(changes)
+            })
+        });
     }
 
     group.finish();

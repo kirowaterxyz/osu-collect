@@ -513,40 +513,57 @@ fn system_time_to_micros(time: SystemTime) -> Option<u128> {
         .map(|duration| duration.as_micros())
 }
 
+// Both slices are sorted by name (capture_osz_snapshot calls snapshot.sort()
+// before returning, and OszSnapshotEntry derives Ord with name as first field).
+// A merge-walk avoids two HashMap allocations — O(n) time, O(1) extra memory.
 fn detect_changed_beatmapsets(
     initial: &[OszSnapshotEntry],
     final_snapshot: &[OszSnapshotEntry],
 ) -> HashSet<u32> {
-    let initial_map: HashMap<&str, &OszSnapshotEntry> = initial
-        .iter()
-        .map(|entry| (entry.name.as_ref(), entry))
-        .collect();
-    let final_map: HashMap<&str, &OszSnapshotEntry> = final_snapshot
-        .iter()
-        .map(|entry| (entry.name.as_ref(), entry))
-        .collect();
+    debug_assert!(
+        initial.windows(2).all(|w| w[0].name <= w[1].name),
+        "initial snapshot must be sorted by name"
+    );
+    debug_assert!(
+        final_snapshot.windows(2).all(|w| w[0].name <= w[1].name),
+        "final snapshot must be sorted by name"
+    );
 
     let mut changes = HashSet::new();
+    let mut i = 0;
+    let mut f = 0;
 
-    for (name, previous) in &initial_map {
-        match final_map.get(name) {
-            Some(current) => {
-                if previous.size != current.size
-                    || previous.modified_micros != current.modified_micros
-                {
-                    changes.insert(previous.beatmapset_id);
+    while i < initial.len() && f < final_snapshot.len() {
+        let a = &initial[i];
+        let b = &final_snapshot[f];
+        match a.name.cmp(&b.name) {
+            std::cmp::Ordering::Equal => {
+                if a.size != b.size || a.modified_micros != b.modified_micros {
+                    changes.insert(a.beatmapset_id);
                 }
+                i += 1;
+                f += 1;
             }
-            None => {
-                changes.insert(previous.beatmapset_id);
+            std::cmp::Ordering::Less => {
+                // present in initial but not final — deleted
+                changes.insert(a.beatmapset_id);
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                // present in final but not initial — added
+                changes.insert(b.beatmapset_id);
+                f += 1;
             }
         }
     }
 
-    for (name, current) in &final_map {
-        if !initial_map.contains_key(name) {
-            changes.insert(current.beatmapset_id);
-        }
+    // Any remaining initial entries were deleted.
+    for entry in &initial[i..] {
+        changes.insert(entry.beatmapset_id);
+    }
+    // Any remaining final entries were added.
+    for entry in &final_snapshot[f..] {
+        changes.insert(entry.beatmapset_id);
     }
 
     changes

@@ -1,4 +1,6 @@
-use super::{CacheKey, ValidationCache, scan_candidates};
+use super::{
+    CacheKey, OszSnapshotEntry, ValidationCache, detect_changed_beatmapsets, scan_candidates,
+};
 use std::collections::HashSet;
 use tokio::sync::watch;
 
@@ -46,4 +48,137 @@ async fn scans_expected_osz_candidates_and_removes_orphan_temps() {
     assert_eq!(scan.candidates[0].beatmapset_id, 123);
     assert_eq!(scan.candidates[0].path, expected);
     assert!(!orphan.exists());
+}
+
+// ── detect_changed_beatmapsets ────────────────────────────────────────────────
+
+fn entry(name: &str, id: u32, size: u64, mtime: Option<u128>) -> OszSnapshotEntry {
+    OszSnapshotEntry {
+        name: name.into(),
+        beatmapset_id: id,
+        size,
+        modified_micros: mtime,
+    }
+}
+
+fn sorted(mut v: Vec<OszSnapshotEntry>) -> Vec<OszSnapshotEntry> {
+    v.sort();
+    v
+}
+
+fn ids(set: HashSet<u32>) -> Vec<u32> {
+    let mut v: Vec<u32> = set.into_iter().collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn empty_both_returns_empty() {
+    assert!(detect_changed_beatmapsets(&[], &[]).is_empty());
+}
+
+#[test]
+fn empty_initial_all_final_are_added() {
+    let fin = sorted(vec![
+        entry("a.osz", 1, 100, None),
+        entry("b.osz", 2, 200, None),
+    ]);
+    assert_eq!(ids(detect_changed_beatmapsets(&[], &fin)), vec![1, 2]);
+}
+
+#[test]
+fn empty_final_all_initial_are_deleted() {
+    let init = sorted(vec![
+        entry("a.osz", 1, 100, None),
+        entry("b.osz", 2, 200, None),
+    ]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &[])), vec![1, 2]);
+}
+
+#[test]
+fn identical_snapshots_no_changes() {
+    let snap = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 200, Some(2000)),
+        entry("c.osz", 3, 300, Some(3000)),
+    ]);
+    assert!(detect_changed_beatmapsets(&snap, &snap).is_empty());
+}
+
+#[test]
+fn fully_disjoint_all_reported() {
+    let init = sorted(vec![
+        entry("a.osz", 1, 100, None),
+        entry("b.osz", 2, 200, None),
+    ]);
+    let fin = sorted(vec![
+        entry("c.osz", 3, 300, None),
+        entry("d.osz", 4, 400, None),
+    ]);
+    assert_eq!(
+        ids(detect_changed_beatmapsets(&init, &fin)),
+        vec![1, 2, 3, 4]
+    );
+}
+
+#[test]
+fn partial_overlap_changed_detected() {
+    let init = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 200, Some(2000)),
+        entry("c.osz", 3, 300, Some(3000)),
+    ]);
+    // b mutated (size change), c unchanged, d added
+    let fin = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 999, Some(2000)),
+        entry("c.osz", 3, 300, Some(3000)),
+        entry("d.osz", 4, 400, None),
+    ]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &fin)), vec![2, 4]);
+}
+
+#[test]
+fn mutation_at_start() {
+    let init = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 200, Some(2000)),
+    ]);
+    let fin = sorted(vec![
+        entry("a.osz", 1, 101, Some(1000)),
+        entry("b.osz", 2, 200, Some(2000)),
+    ]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &fin)), vec![1]);
+}
+
+#[test]
+fn mutation_at_end() {
+    let init = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 200, Some(2000)),
+    ]);
+    let fin = sorted(vec![
+        entry("a.osz", 1, 100, Some(1000)),
+        entry("b.osz", 2, 201, Some(2000)),
+    ]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &fin)), vec![2]);
+}
+
+#[test]
+fn mutation_via_mtime_change() {
+    let init = sorted(vec![entry("a.osz", 1, 100, Some(1000))]);
+    let fin = sorted(vec![entry("a.osz", 1, 100, Some(9999))]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &fin)), vec![1]);
+}
+
+#[test]
+fn present_in_initial_not_final() {
+    let init = sorted(vec![entry("only_init.osz", 7, 100, None)]);
+    assert_eq!(ids(detect_changed_beatmapsets(&init, &[])), vec![7]);
+}
+
+#[test]
+fn present_in_final_not_initial() {
+    let fin = sorted(vec![entry("only_final.osz", 8, 100, None)]);
+    assert_eq!(ids(detect_changed_beatmapsets(&[], &fin)), vec![8]);
 }
