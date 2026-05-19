@@ -333,7 +333,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
-        Span::styled(message.clone(), message_style(&message, rate_limited)),
+        Span::styled(message.clone(), message_style(line.stage, rate_limited)),
     ];
 
     let used = prefix_w.saturating_add(message_w);
@@ -428,22 +428,19 @@ pub fn truncate_to_width(message: &str, budget: u16) -> String {
     out
 }
 
-fn message_style(message: &str, rate_limited: bool) -> Style {
+fn message_style(stage: crate::download::BeatmapStage, rate_limited: bool) -> Style {
+    use crate::download::BeatmapStage;
     if rate_limited {
         return Style::default().fg(WARNING);
     }
-
-    let lower = message.to_lowercase();
-    if lower.contains("error") || lower.starts_with("failed") {
-        return Style::default().fg(DANGER);
+    match stage {
+        BeatmapStage::Failed | BeatmapStage::Aborted => Style::default().fg(DANGER),
+        BeatmapStage::Success => Style::default().fg(SUCCESS),
+        BeatmapStage::Skipped => Style::default().fg(TEXT_FAINT),
+        BeatmapStage::Pending | BeatmapStage::Downloading | BeatmapStage::Verifying => {
+            Style::default().fg(TEXT_DIM)
+        }
     }
-    if lower.starts_with("done") {
-        return Style::default().fg(SUCCESS);
-    }
-    if lower.starts_with("skipped") {
-        return Style::default().fg(TEXT_FAINT);
-    }
-    Style::default().fg(TEXT_DIM)
 }
 
 #[cfg(test)]

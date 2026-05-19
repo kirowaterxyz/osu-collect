@@ -189,33 +189,66 @@ fn bench_detect_changed_beatmapsets(c: &mut Criterion) {
 // ── message_style to_lowercase ────────────────────────────────────────────────
 //
 // src/tui/widgets.rs:message_style — called once per active download slot per
-// render frame (concurrent × ~30 fps). Current implementation:
+// render frame (concurrent × ~30 fps). Old implementation:
 //   let lower = message.to_lowercase();
 //   if lower.contains("error") || lower.starts_with("failed") { ... }
-// This allocates a new String on every call. Since all matched prefixes/patterns
-// are pure-ASCII, `eq_ignore_ascii_case`, `.to_ascii_lowercase()` on a byte,
-// or a manual byte prefix check are zero-alloc alternatives.
+// allocated on every call; the em-dash in "done — downloaded …" hit the UTF-8
+// slow path, making that case 5× slower (123 ns vs ~22 ns).
+//
+// New shape: classify on BeatmapStage enum — zero string scan, zero alloc.
+
+// Mirrors BeatmapStage without importing the binary crate.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+#[allow(dead_code)]
+enum StageMock {
+    Pending,
+    Downloading,
+    Verifying,
+    Success,
+    Skipped,
+    Failed,
+    Aborted,
+}
 
 fn bench_message_style_classify(c: &mut Criterion) {
-    // Representative messages from active_download_item in production.
-    let messages: &[(&str, &str)] = &[
-        ("downloading from nerinyan", "downloading"),
-        ("checking nerinyan", "checking"),
-        ("skipped: already exists", "skipped"),
-        ("done — downloaded from nerinyan", "done"),
-        ("failed: checksum mismatch", "failed"),
-        ("network error: connection reset", "error"),
-        ("verifying from osu!direct", "verifying"),
+    // Representative messages from active_download_item in production, paired
+    // with the BeatmapStage the producer would have set at that point.
+    let cases: &[(&str, &str, StageMock)] = &[
+        (
+            "downloading from nerinyan",
+            "downloading",
+            StageMock::Downloading,
+        ),
+        ("checking nerinyan", "checking", StageMock::Downloading),
+        ("skipped: already exists", "skipped", StageMock::Skipped),
+        (
+            "done — downloaded from nerinyan",
+            "done",
+            StageMock::Success,
+        ),
+        ("failed: checksum mismatch", "failed", StageMock::Failed),
+        (
+            "network error: connection reset",
+            "error",
+            StageMock::Failed,
+        ),
+        (
+            "verifying from osu!direct",
+            "verifying",
+            StageMock::Verifying,
+        ),
         (
             "retrying nerinyan after connection reset (attempt 2/3)",
             "retrying",
+            StageMock::Downloading,
         ),
     ];
 
     let mut group = c.benchmark_group("message_style_classify");
 
-    for &(message, label) in messages {
-        // Baseline: exact current production pattern (to_lowercase allocates).
+    for &(message, label, stage) in cases {
+        // Baseline: old production pattern (to_lowercase allocates).
         group.bench_with_input(
             BenchmarkId::new("to_lowercase", label),
             message,
@@ -230,6 +263,23 @@ fn bench_message_style_classify(c: &mut Criterion) {
                         3u8
                     } else {
                         0u8
+                    };
+                    black_box(result)
+                })
+            },
+        );
+
+        // New pattern: stage enum match — zero alloc, zero string scan.
+        group.bench_with_input(
+            BenchmarkId::new("stage_match", label),
+            &stage,
+            |b, &stage| {
+                b.iter(|| {
+                    let result = match black_box(stage) {
+                        StageMock::Failed | StageMock::Aborted => 1u8,
+                        StageMock::Success => 2u8,
+                        StageMock::Skipped => 3u8,
+                        StageMock::Pending | StageMock::Downloading | StageMock::Verifying => 0u8,
                     };
                     black_box(result)
                 })
