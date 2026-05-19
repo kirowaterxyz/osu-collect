@@ -76,26 +76,44 @@ pub(crate) struct DownloadParams<'a> {
 /// [`DownloaderBuilder::sanitize_filenames`](crate::DownloaderBuilder::sanitize_filenames)
 /// is disabled. Exposed publicly so callers can reuse the same logic when they
 /// are choosing filenames outside the library.
-pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> String {
-    let fallback = || format!("{beatmapset_id}.osz");
+pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> std::borrow::Cow<'_, str> {
+    let fallback = || std::borrow::Cow::Owned(format!("{beatmapset_id}.osz"));
 
     let Some(name) = raw else {
         return fallback();
     };
 
-    let sanitized: String = name
-        .chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c => c,
-        })
-        .collect();
+    // All forbidden chars are single-byte ASCII and cannot appear as continuation
+    // bytes in multi-byte UTF-8 sequences, so byte-level scanning and replacement
+    // is safe and avoids the char decode overhead entirely.
+    #[inline]
+    fn is_forbidden(b: u8) -> bool {
+        matches!(
+            b,
+            b'/' | b'\\' | b':' | b'*' | b'?' | b'"' | b'<' | b'>' | b'|'
+        )
+    }
+
+    let needs_replacement = name.bytes().any(is_forbidden);
+
+    let sanitized: std::borrow::Cow<'_, str> = if needs_replacement {
+        let mut out = Vec::with_capacity(name.len());
+        for b in name.bytes() {
+            out.push(if is_forbidden(b) { b'_' } else { b });
+        }
+        // SAFETY: we only replace ASCII bytes with `_` (also ASCII); all non-ASCII
+        // bytes pass through unchanged, preserving valid UTF-8.
+        std::borrow::Cow::Owned(unsafe { String::from_utf8_unchecked(out) })
+    } else {
+        std::borrow::Cow::Borrowed(name)
+    };
 
     let is_safe = !sanitized.is_empty()
         && sanitized != "."
         && sanitized != ".."
         && !sanitized.starts_with('.')
-        && std::path::Path::new(&sanitized).file_name() == Some(std::ffi::OsStr::new(&sanitized));
+        && std::path::Path::new(sanitized.as_ref()).file_name()
+            == Some(std::ffi::OsStr::new(sanitized.as_ref()));
 
     if is_safe { sanitized } else { fallback() }
 }
@@ -556,7 +574,7 @@ async fn process_mirror_response(
 
     let filename = extract_filename(&response, params.beatmapset_id);
     let sanitized_filename = if params.sanitize_filenames {
-        sanitize_filename(Some(&filename), params.beatmapset_id)
+        sanitize_filename(Some(&filename), params.beatmapset_id).into_owned()
     } else {
         filename
     };
