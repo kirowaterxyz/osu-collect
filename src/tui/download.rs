@@ -1,6 +1,6 @@
 use crate::{
     app::CollectionPage,
-    config::constants::{GB, KB, MAX_TRUNCATED_CHARS, MB, status::RATE_LIMITED},
+    config::constants::{MAX_TRUNCATED_CHARS, status::RATE_LIMITED},
     download::{DownloadStage, DownloadSummary},
     utils::format_bytes,
 };
@@ -110,7 +110,7 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(available) = page.low_disk_space {
         let text = format!(
             "{LOW_DISK_PREFIX}{}{LOW_DISK_SUFFIX}",
-            format_bytes(available)
+            format_bytes(available, "B")
         );
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(WARNING)),
@@ -203,7 +203,7 @@ fn current_speed(page: &CollectionPage) -> Option<String> {
         return None;
     }
     let speed = page.cumulative_speed();
-    (speed >= 1.0).then(|| format_speed(speed))
+    (speed >= 1.0).then(|| format_bytes(speed as u64, "B/s"))
 }
 
 fn bytes_display(page: &CollectionPage) -> Option<String> {
@@ -213,9 +213,13 @@ fn bytes_display(page: &CollectionPage) -> Option<String> {
     ) {
         return None;
     }
-    page.stats
-        .total_collection_bytes
-        .map(|total| format_bytes_progress(page.total_downloaded_bytes(), total))
+    page.stats.total_collection_bytes.map(|total| {
+        format!(
+            "{}/{}",
+            format_bytes(page.total_downloaded_bytes(), "B"),
+            format_bytes(total, "B"),
+        )
+    })
 }
 
 fn status_color(stage: DownloadStage, status: &str) -> Color {
@@ -275,20 +279,6 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         ));
     }
     spans
-}
-
-fn format_speed(bytes_per_sec: f64) -> String {
-    if bytes_per_sec >= MB {
-        format!("{:.2} MB/s", bytes_per_sec / MB)
-    } else if bytes_per_sec >= KB {
-        format!("{:.1} KB/s", bytes_per_sec / KB)
-    } else {
-        format!("{bytes_per_sec:.0} B/s")
-    }
-}
-
-fn format_bytes_progress(downloaded: u64, total: u64) -> String {
-    format!("{:.2}/{:.2} GB", downloaded as f64 / GB, total as f64 / GB)
 }
 
 fn format_avg_verify(avg_us: u64) -> String {

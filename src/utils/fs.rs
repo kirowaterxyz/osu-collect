@@ -10,16 +10,18 @@ pub fn is_low_disk_space(path: &Path) -> bool {
     available_space(path).is_ok_and(|space| space < LOW_SPACE_THRESHOLD_BYTES)
 }
 
-pub fn format_bytes(bytes: u64) -> String {
+/// Format `bytes` with a SI-1024 scale and the given unit suffix.
+/// Use `"B"` for sizes (`"3.45 GB"`) or `"B/s"` for rates (`"3.45 GB/s"`).
+pub fn format_bytes(bytes: u64, unit: &str) -> String {
     let bytes_f = bytes as f64;
     if bytes_f >= GB {
-        format!("{:.2} GB", bytes_f / GB)
+        format!("{:.2} G{unit}", bytes_f / GB)
     } else if bytes_f >= MB {
-        format!("{:.1} MB", bytes_f / MB)
+        format!("{:.1} M{unit}", bytes_f / MB)
     } else if bytes_f >= KB {
-        format!("{:.0} KB", bytes_f / KB)
+        format!("{:.0} K{unit}", bytes_f / KB)
     } else {
-        format!("{bytes} B")
+        format!("{bytes} {unit}")
     }
 }
 
