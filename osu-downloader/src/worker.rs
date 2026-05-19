@@ -1,6 +1,7 @@
 //! Worker module for streaming downloads and I/O
 
 use crate::{Error, Result};
+use bytes::Bytes;
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use std::{
@@ -38,13 +39,14 @@ pub(crate) struct DownloadStreamResult {
 }
 
 struct HashWorker {
-    sender: Option<mpsc::Sender<Vec<u8>>>,
+    sender: Option<mpsc::SyncSender<Bytes>>,
     handle: task::JoinHandle<Box<str>>,
 }
 
 impl HashWorker {
     fn new() -> Self {
-        let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+        // Bound of 4: caps in-flight chunks to ~512 KB while keeping latency low.
+        let (sender, receiver) = mpsc::sync_channel::<Bytes>(4);
         let handle = task::spawn_blocking(move || {
             const HEX: &[u8; 16] = b"0123456789abcdef";
             let mut hasher = Md5::new();
@@ -69,9 +71,10 @@ impl HashWorker {
         }
     }
 
-    fn update(&self, data: &[u8]) {
+    /// Send a chunk for hashing. `Bytes` is reference-counted — no allocation.
+    fn update(&self, data: Bytes) {
         if let Some(sender) = &self.sender {
-            let _ = sender.send(data.to_vec());
+            let _ = sender.send(data);
         }
     }
 
@@ -86,6 +89,21 @@ impl HashWorker {
         self.sender.take();
         self.handle.abort();
     }
+}
+
+#[cfg(test)]
+pub(super) fn finalize_md5(hasher: Md5) -> Box<str> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = hasher.finalize();
+    let mut buf = [0u8; 32];
+    for (i, &b) in digest.iter().enumerate() {
+        buf[i * 2] = HEX[(b >> 4) as usize];
+        buf[i * 2 + 1] = HEX[(b & 0xf) as usize];
+    }
+    // buf contains only ASCII hex digits — valid UTF-8 by construction
+    std::str::from_utf8(&buf)
+        .expect("hex digits are valid utf-8")
+        .into()
 }
 
 struct TempFileGuard {
@@ -185,7 +203,7 @@ pub(crate) async fn stream_download(
         }
 
         if let Some(worker) = hash_worker.as_ref() {
-            worker.update(&chunk);
+            worker.update(chunk);
         }
 
         let delta = downloaded.saturating_sub(last_progress_bytes);

@@ -1,5 +1,6 @@
 use std::sync::mpsc;
 
+use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use md5::{Digest, Md5};
 use osu_downloader::{Mirror, sanitize_filename};
@@ -84,33 +85,29 @@ fn bench_sanitize_filename(c: &mut Criterion) {
 }
 
 fn bench_hash_worker_update(c: &mut Criterion) {
-    // Represents HashWorker::update (worker.rs:72-76):
-    //   fn update(&self, data: &[u8]) {
-    //       if let Some(sender) = &self.sender {
-    //           let _ = sender.send(data.to_vec());
-    //       }
-    //   }
-    // Called per ~128 KB network chunk during streaming download. The `to_vec()`
-    // clones every chunk before sending to the hash thread — cost measured here is
-    // the clone + bounded-channel send round trip.
+    // Represents HashWorker::update (worker.rs):
+    //   fn update(&self, data: Bytes) { sender.send(data); }
+    // Called per ~128 KB network chunk during streaming download. Previously used
+    // to_vec() (128 KB heap alloc per chunk); now sends a Bytes clone (Arc refcount
+    // bump, ~2 ns) — the reqwest bytes_stream() already returns Bytes.
     const CHUNK_128K: usize = 128 * 1024;
     const CHUNK_4K: usize = 4 * 1024;
 
-    let chunk_128k = vec![0xABu8; CHUNK_128K];
-    let chunk_4k = vec![0xABu8; CHUNK_4K];
+    let chunk_128k = Bytes::from(vec![0xABu8; CHUNK_128K]);
+    let chunk_4k = Bytes::from(vec![0xABu8; CHUNK_4K]);
 
-    let cases: &[(&str, &[u8])] = &[("128k_chunk", &chunk_128k), ("4k_chunk", &chunk_4k)];
+    let cases: &[(&str, &Bytes)] = &[("128k_chunk", &chunk_128k), ("4k_chunk", &chunk_4k)];
 
     let mut group = c.benchmark_group("hash_worker_update");
     for (label, chunk) in cases {
         group.throughput(Throughput::Bytes(chunk.len() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(label), chunk, |b, chunk| {
-            // Replicate the exact production shape: unbounded mpsc, send a clone.
-            let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+            // Replicate the exact production shape: sync_channel(4), send a Bytes clone.
+            let (sender, receiver) = mpsc::sync_channel::<Bytes>(4);
             // Drain the receiver in a background thread so the channel never blocks.
             std::thread::spawn(move || while receiver.recv().is_ok() {});
             b.iter(|| {
-                let _ = sender.send(black_box(*chunk).to_vec());
+                let _ = sender.send(black_box((*chunk).clone()));
             });
         });
     }

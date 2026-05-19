@@ -1,4 +1,4 @@
-use super::{HashWorker, MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard, stream_download};
+use super::{MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard, finalize_md5, stream_download};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -95,11 +95,10 @@ async fn final_chunk_does_not_emit_complete_progress() {
 
 // md5 hex finalize edge cases: verify the lookup-table path produces lowercase hex
 // identical to the reference Md5 output for empty, 1-byte, and 16-byte inputs.
-#[tokio::test]
-async fn md5_hex_empty_input_is_known_digest() {
-    let worker = HashWorker::new();
-    // no updates — empty input
-    let hex = worker.finalize().await.unwrap();
+#[test]
+fn md5_hex_empty_input_is_known_digest() {
+    use md5::{Digest, Md5};
+    let hex = finalize_md5(Md5::new());
     assert_eq!(hex.len(), 32, "md5 hex must be 32 chars");
     assert!(
         hex.chars()
@@ -110,11 +109,12 @@ async fn md5_hex_empty_input_is_known_digest() {
     assert_eq!(&*hex, "d41d8cd98f00b204e9800998ecf8427e");
 }
 
-#[tokio::test]
-async fn md5_hex_one_byte_is_known_digest() {
-    let worker = HashWorker::new();
-    worker.update(b"\x00");
-    let hex = worker.finalize().await.unwrap();
+#[test]
+fn md5_hex_one_byte_is_known_digest() {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(b"\x00");
+    let hex = finalize_md5(hasher);
     assert_eq!(hex.len(), 32);
     assert!(
         hex.chars()
@@ -124,11 +124,12 @@ async fn md5_hex_one_byte_is_known_digest() {
     assert_eq!(&*hex, "93b885adfe0da089cdf634904fd59f71");
 }
 
-#[tokio::test]
-async fn md5_hex_sixteen_bytes_is_known_digest() {
-    let worker = HashWorker::new();
-    worker.update(&[0u8; 16]);
-    let hex = worker.finalize().await.unwrap();
+#[test]
+fn md5_hex_sixteen_bytes_is_known_digest() {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(&[0u8; 16]);
+    let hex = finalize_md5(hasher);
     assert_eq!(hex.len(), 32);
     assert!(
         hex.chars()
