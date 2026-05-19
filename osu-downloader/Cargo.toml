@@ -24,6 +24,7 @@ dashmap = "6.2.1"
 thiserror = "2.0.18"
 urlencoding = "2.1.3"
 tracing = "0.1.44"
+memchr = "2.7.6"
 osu-db = { version = "0.3.0", optional = true }
 
 [[bench]]

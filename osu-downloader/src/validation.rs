@@ -174,9 +174,16 @@ fn trim_leading_whitespace(data: &[u8]) -> &[u8] {
 }
 
 fn find_eocd_position(buffer: &[u8]) -> Option<usize> {
-    buffer
-        .windows(EOCD_SIGNATURE.len())
-        .rposition(|window| window == EOCD_SIGNATURE)
+    if buffer.len() < EOCD_SIGNATURE.len() {
+        return None;
+    }
+    // memrchr_iter yields every 0x50 position from the end of the slice
+    // backwards, which is SIMD-vectorized and far faster than
+    // .windows(4).rposition(...) on the 65 KB worst-case (no-EOCD) path.
+    // The first match that satisfies all 4 bytes is the last EOCD occurrence.
+    let end = buffer.len() - EOCD_SIGNATURE.len();
+    memchr::memrchr_iter(0x50, &buffer[..=end])
+        .find(|&pos| buffer[pos..pos + EOCD_SIGNATURE.len()] == *EOCD_SIGNATURE)
 }
 
 #[cfg(test)]

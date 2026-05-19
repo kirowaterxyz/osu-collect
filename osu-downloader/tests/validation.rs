@@ -93,3 +93,43 @@ fn find_eocd_returns_last_occurrence() {
     buf[40..44].copy_from_slice(EOCD_SIGNATURE);
     assert_eq!(find_eocd_position(&buf), Some(40));
 }
+
+#[test]
+fn find_eocd_empty_returns_none() {
+    assert_eq!(find_eocd_position(&[]), None);
+}
+
+#[test]
+fn find_eocd_shorter_than_signature_returns_none() {
+    assert_eq!(find_eocd_position(&[0x50, 0x4B, 0x05]), None);
+}
+
+#[test]
+fn find_eocd_exactly_four_bytes_matches() {
+    assert_eq!(find_eocd_position(EOCD_SIGNATURE), Some(0));
+}
+
+#[test]
+fn find_eocd_truncated_at_end_returns_none() {
+    // Signature split across the very last bytes — should not match.
+    let mut buf = vec![0u8; 8];
+    buf[6..8].copy_from_slice(&EOCD_SIGNATURE[..2]);
+    assert_eq!(find_eocd_position(&buf), None);
+}
+
+#[test]
+fn find_eocd_signature_at_very_end() {
+    let mut buf = vec![0u8; 32];
+    let end = buf.len() - 4;
+    buf[end..].copy_from_slice(EOCD_SIGNATURE);
+    assert_eq!(find_eocd_position(&buf), Some(end));
+}
+
+#[test]
+fn find_eocd_false_positive_0x50_before_real_signature() {
+    // Buffer contains a lone 0x50 before the real EOCD signature.
+    let mut buf = vec![0u8; 32];
+    buf[5] = 0x50;
+    buf[20..24].copy_from_slice(EOCD_SIGNATURE);
+    assert_eq!(find_eocd_position(&buf), Some(20));
+}

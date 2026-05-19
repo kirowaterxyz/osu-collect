@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use md5::{Digest, Md5};
+use memchr;
 use osu_downloader::{Mirror, sanitize_filename};
 
 fn bench_md5_hex_format(c: &mut Criterion) {
@@ -136,9 +137,12 @@ fn bench_find_eocd_position(c: &mut Criterion) {
 
     // Inline the exact production pattern so the bench measures the real code shape.
     let find_eocd = |buffer: &[u8]| -> Option<usize> {
-        buffer
-            .windows(EOCD_SIG.len())
-            .rposition(|window| window == EOCD_SIG)
+        if buffer.len() < EOCD_SIG.len() {
+            return None;
+        }
+        let end = buffer.len() - EOCD_SIG.len();
+        memchr::memrchr_iter(0x50, &buffer[..=end])
+            .find(|&pos| buffer[pos..pos + EOCD_SIG.len()] == *EOCD_SIG)
     };
 
     let mut group = c.benchmark_group("find_eocd_position");

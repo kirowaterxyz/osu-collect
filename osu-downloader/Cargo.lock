@@ -1027,6 +1027,7 @@ dependencies = [
  "dashmap",
  "futures-util",
  "md-5",
+ "memchr",
  "osu-db",
  "reqwest",
  "serde",
