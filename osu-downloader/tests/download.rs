@@ -51,6 +51,20 @@ fn test_sanitize_filename() {
         sanitize_filename(Some("ユニコード.osz"), 789),
         "ユニコード.osz"
     );
+    // single-char inputs: clean char passes through, forbidden char is replaced (not fallback)
+    assert_eq!(sanitize_filename(Some("a"), 1), "a");
+    assert_eq!(sanitize_filename(Some("/"), 1), "_");
+    // all nine forbidden chars in one string
+    assert_eq!(sanitize_filename(Some("/\\:*?\"<>|"), 1), "_________");
+    // multibyte UTF-8 mixed with forbidden ASCII
+    assert_eq!(
+        sanitize_filename(Some("héllo:wörld.osz"), 1),
+        "héllo_wörld.osz"
+    );
+    // longest expected input (~200 chars) — no forbidden chars
+    let long = "9999999 A Very Long Artist Name With Spaces - A Very Long Song Title \
+                That Goes On And On Including Extra Details [Expert Difficulty].osz";
+    assert_eq!(sanitize_filename(Some(long), 9_999_999), long);
 }
 
 #[test]

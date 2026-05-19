@@ -1,4 +1,4 @@
-use super::{MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard, stream_download};
+use super::{HashWorker, MIN_PROGRESS_DELTA, TEMP_FILE_COUNTER, TempFileGuard, stream_download};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -91,4 +91,49 @@ async fn final_chunk_does_not_emit_complete_progress() {
             .any(|&(downloaded, total)| downloaded == total)
     );
     server.join().unwrap();
+}
+
+// md5 hex finalize edge cases: verify the lookup-table path produces lowercase hex
+// identical to the reference Md5 output for empty, 1-byte, and 16-byte inputs.
+#[tokio::test]
+async fn md5_hex_empty_input_is_known_digest() {
+    let worker = HashWorker::new();
+    // no updates — empty input
+    let hex = worker.finalize().await.unwrap();
+    assert_eq!(hex.len(), 32, "md5 hex must be 32 chars");
+    assert!(
+        hex.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
+        "must be lowercase hex"
+    );
+    // well-known md5("") = d41d8cd98f00b204e9800998ecf8427e
+    assert_eq!(&*hex, "d41d8cd98f00b204e9800998ecf8427e");
+}
+
+#[tokio::test]
+async fn md5_hex_one_byte_is_known_digest() {
+    let worker = HashWorker::new();
+    worker.update(b"\x00");
+    let hex = worker.finalize().await.unwrap();
+    assert_eq!(hex.len(), 32);
+    assert!(
+        hex.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+    );
+    // well-known md5("\x00") = 93b885adfe0da089cdf634904fd59f71
+    assert_eq!(&*hex, "93b885adfe0da089cdf634904fd59f71");
+}
+
+#[tokio::test]
+async fn md5_hex_sixteen_bytes_is_known_digest() {
+    let worker = HashWorker::new();
+    worker.update(&[0u8; 16]);
+    let hex = worker.finalize().await.unwrap();
+    assert_eq!(hex.len(), 32);
+    assert!(
+        hex.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+    );
+    // well-known md5([0u8; 16]) = 4ae71336e44bf9bf79d2752e234818a5
+    assert_eq!(&*hex, "4ae71336e44bf9bf79d2752e234818a5");
 }
