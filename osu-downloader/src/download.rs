@@ -125,7 +125,7 @@ pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String>
     let mut filename = None;
     let mut extended_filename = None;
 
-    for part in split_content_disposition(header_value) {
+    for part in content_disposition_parts(header_value) {
         let Some((name, value)) = part.split_once('=') else {
             continue;
         };
@@ -143,31 +143,50 @@ pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String>
     extended_filename.or(filename)
 }
 
-fn split_content_disposition(header_value: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut quoted = false;
-    let mut escaped = false;
-
-    for (index, ch) in header_value.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            ';' if !quoted => {
-                parts.push(header_value[start..index].trim());
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
+/// Iterate over `;`-separated parts of a Content-Disposition header, respecting quoted strings.
+fn content_disposition_parts(header_value: &str) -> impl Iterator<Item = &str> {
+    ContentDispositionParts {
+        rest: header_value,
+        done: false,
     }
+}
 
-    parts.push(header_value[start..].trim());
-    parts
+struct ContentDispositionParts<'a> {
+    rest: &'a str,
+    done: bool,
+}
+
+impl<'a> Iterator for ContentDispositionParts<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        if self.done {
+            return None;
+        }
+
+        let mut quoted = false;
+        let mut escaped = false;
+
+        for (index, ch) in self.rest.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' if quoted => escaped = true,
+                '"' => quoted = !quoted,
+                ';' if !quoted => {
+                    let part = self.rest[..index].trim();
+                    self.rest = &self.rest[index + 1..];
+                    return Some(part);
+                }
+                _ => {}
+            }
+        }
+
+        self.done = true;
+        Some(self.rest.trim())
+    }
 }
 
 fn decode_extended_filename(value: &str) -> Option<String> {

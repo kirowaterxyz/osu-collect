@@ -161,34 +161,52 @@ fn bench_find_eocd_position(c: &mut Criterion) {
     group.finish();
 }
 
-// Inline of the exact production function (download.rs:146-169) — private, not pub.
-fn split_content_disposition(header_value: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let mut quoted = false;
-    let mut escaped = false;
-    for (index, ch) in header_value.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            ';' if !quoted => {
-                parts.push(header_value[start..index].trim());
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
+// Inline of the exact production iterator (download.rs) — private, not pub.
+struct ContentDispositionParts<'a> {
+    rest: &'a str,
+    done: bool,
+}
+
+fn content_disposition_parts(header_value: &str) -> ContentDispositionParts<'_> {
+    ContentDispositionParts {
+        rest: header_value,
+        done: false,
     }
-    parts.push(header_value[start..].trim());
-    parts
+}
+
+impl<'a> Iterator for ContentDispositionParts<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        if self.done {
+            return None;
+        }
+        let mut quoted = false;
+        let mut escaped = false;
+        for (index, ch) in self.rest.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' if quoted => escaped = true,
+                '"' => quoted = !quoted,
+                ';' if !quoted => {
+                    let part = self.rest[..index].trim();
+                    self.rest = &self.rest[index + 1..];
+                    return Some(part);
+                }
+                _ => {}
+            }
+        }
+        self.done = true;
+        Some(self.rest.trim())
+    }
 }
 
 fn bench_split_content_disposition(c: &mut Criterion) {
-    // Represents split_content_disposition (download.rs:146-169):
-    //   allocates Vec<&str> + state-machine char scan for every download response.
+    // Represents content_disposition_parts (download.rs):
+    //   allocation-free iterator over ';'-separated header segments.
     // Called inside extract_filename_from_header on every successful mirror
     // response. Two real-world header shapes benched.
 
@@ -199,10 +217,10 @@ fn bench_split_content_disposition(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("split_content_disposition");
     group.bench_function("simple_filename", |b| {
-        b.iter(|| black_box(split_content_disposition(black_box(simple))))
+        b.iter(|| black_box(content_disposition_parts(black_box(simple)).count()))
     });
     group.bench_function("extended_filename_star", |b| {
-        b.iter(|| black_box(split_content_disposition(black_box(extended))))
+        b.iter(|| black_box(content_disposition_parts(black_box(extended)).count()))
     });
     group.finish();
 }
