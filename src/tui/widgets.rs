@@ -13,8 +13,9 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use super::{
-    ACCENT, ACCENT_ALT, DANGER, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED,
-    WARNING, eyebrow, focused_label,
+    ACCENT, ACCENT_ALT, DANGER, FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK,
+    GLYPH_H_LINE, GLYPH_SHADE, GLYPH_SPACE, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT,
+    TEXT_MUTED, WARNING, eyebrow, focused_label, glyph_fill,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
@@ -150,9 +151,9 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let line: String = "─".repeat(area.width as usize);
+    let line = glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, area.width as usize);
     frame.render_widget(
-        Paragraph::new(line).style(Style::default().fg(LINE_SOFT)),
+        Paragraph::new(line.into_owned()).style(Style::default().fg(LINE_SOFT)),
         area,
     );
 }
@@ -338,18 +339,20 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 
     let used = prefix_w.saturating_add(message_w);
     let pad = width.saturating_sub(used).saturating_sub(RESERVED_RIGHT) as usize;
-    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::raw(
+        glyph_fill(&FILL_SPACE, GLYPH_SPACE, pad).into_owned(),
+    ));
 
     match line.progress_ratio() {
         Some(ratio) => {
             let filled = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
             let empty = BAR_WIDTH - filled;
             spans.push(Span::styled(
-                "█".repeat(filled as usize),
+                glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, filled as usize).into_owned(),
                 Style::default().fg(bar_color),
             ));
             spans.push(Span::styled(
-                "░".repeat(empty as usize),
+                glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty as usize).into_owned(),
                 Style::default().fg(LINE_SOFT),
             ));
             spans.push(Span::styled(
@@ -363,7 +366,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         }
         None => {
             spans.push(Span::styled(
-                "░".repeat(BAR_WIDTH as usize),
+                glyph_fill(&FILL_SHADE, GLYPH_SHADE, BAR_WIDTH as usize).into_owned(),
                 Style::default().fg(LINE_SOFT),
             ));
             spans.push(Span::styled("     ", Style::default().fg(TEXT_FAINT)));
@@ -389,18 +392,18 @@ fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if offset > 0 {
         spans.push(Span::styled(
-            "░".repeat(offset),
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, offset).into_owned(),
             Style::default().fg(LINE_SOFT),
         ));
     }
     spans.push(Span::styled(
-        "█".repeat(segment),
+        glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, segment).into_owned(),
         Style::default().fg(bar_color),
     ));
     let right = width.saturating_sub(offset).saturating_sub(segment);
     if right > 0 {
         spans.push(Span::styled(
-            "░".repeat(right),
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, right).into_owned(),
             Style::default().fg(LINE_SOFT),
         ));
     }

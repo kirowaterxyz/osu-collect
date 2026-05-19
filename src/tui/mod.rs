@@ -16,6 +16,49 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Block,
 };
+use std::sync::LazyLock;
+
+pub(crate) const GLYPH_H_LINE: &str = "─";
+pub(crate) const GLYPH_BLOCK: &str = "█";
+pub(crate) const GLYPH_SHADE: &str = "░";
+pub(crate) const GLYPH_SPACE: &str = " ";
+
+const MAX_FILL_WIDTH: usize = 256;
+
+pub(crate) static FILL_H_LINE: LazyLock<String> =
+    LazyLock::new(|| GLYPH_H_LINE.repeat(MAX_FILL_WIDTH));
+pub(crate) static FILL_BLOCK: LazyLock<String> =
+    LazyLock::new(|| GLYPH_BLOCK.repeat(MAX_FILL_WIDTH));
+pub(crate) static FILL_SHADE: LazyLock<String> =
+    LazyLock::new(|| GLYPH_SHADE.repeat(MAX_FILL_WIDTH));
+pub(crate) static FILL_SPACE: LazyLock<String> =
+    LazyLock::new(|| GLYPH_SPACE.repeat(MAX_FILL_WIDTH));
+
+/// Returns a `&str` slice of `n` repetitions of `glyph` backed by `buf`.
+///
+/// When `n ≤ MAX_FILL_WIDTH` this is a zero-alloc slice into the pre-built
+/// static buffer.  For wider terminals it falls back to `glyph.repeat(n)` so
+/// behaviour is always correct.
+pub(crate) fn glyph_fill<'a>(
+    buf: &'a LazyLock<String>,
+    glyph: &'static str,
+    n: usize,
+) -> std::borrow::Cow<'a, str> {
+    if n == 0 {
+        return std::borrow::Cow::Borrowed("");
+    }
+    let end = n * glyph.len();
+    if n <= MAX_FILL_WIDTH {
+        let s = buf.as_str();
+        debug_assert!(
+            s.is_char_boundary(end),
+            "glyph_fill: {end} is not a char boundary"
+        );
+        std::borrow::Cow::Borrowed(&s[..end])
+    } else {
+        std::borrow::Cow::Owned(glyph.repeat(n))
+    }
+}
 
 pub const ACCENT: Color = Color::Rgb(67, 171, 229);
 pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87);

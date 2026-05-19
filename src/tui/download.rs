@@ -14,8 +14,8 @@ use ratatui::{
 
 use super::widgets::{self, SEPARATOR};
 use super::{
-    ACCENT, BG_RAISED, DANGER, INFO, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, WARNING,
-    eyebrow, spinner_char,
+    ACCENT, BG_RAISED, DANGER, FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, INFO, LINE_SOFT,
+    SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, WARNING, eyebrow, glyph_fill, spinner_char,
 };
 
 const INFO_HEIGHT: u16 = 8;
@@ -379,9 +379,18 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let empty_cells = bar_width.saturating_sub(verified_cells + failed_cells);
 
     let bar = Line::from(vec![
-        Span::styled("█".repeat(verified_cells), Style::default().fg(fill_color)),
-        Span::styled("█".repeat(failed_cells), Style::default().fg(DANGER)),
-        Span::styled("░".repeat(empty_cells), Style::default().fg(BG_RAISED)),
+        Span::styled(
+            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, verified_cells).into_owned(),
+            Style::default().fg(fill_color),
+        ),
+        Span::styled(
+            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, failed_cells).into_owned(),
+            Style::default().fg(DANGER),
+        ),
+        Span::styled(
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty_cells).into_owned(),
+            Style::default().fg(BG_RAISED),
+        ),
     ]);
     frame.render_widget(Paragraph::new(bar), inner);
 }
@@ -431,8 +440,14 @@ fn render_resolve_progress_gauge(
     let empty = bar_width.saturating_sub(filled);
 
     let bar = Line::from(vec![
-        Span::styled("█".repeat(filled), Style::default().fg(INFO)),
-        Span::styled("░".repeat(empty), Style::default().fg(BG_RAISED)),
+        Span::styled(
+            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, filled).into_owned(),
+            Style::default().fg(INFO),
+        ),
+        Span::styled(
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty).into_owned(),
+            Style::default().fg(BG_RAISED),
+        ),
     ]);
     let bar_area = Rect {
         x: inner.x,
@@ -484,9 +499,18 @@ fn render_indeterminate_block(
     let trailing = bar_width - chunk_start - visible;
 
     let bar = Line::from(vec![
-        Span::styled("░".repeat(chunk_start), Style::default().fg(BG_RAISED)),
-        Span::styled("█".repeat(visible), Style::default().fg(INFO)),
-        Span::styled("░".repeat(trailing), Style::default().fg(BG_RAISED)),
+        Span::styled(
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, chunk_start).into_owned(),
+            Style::default().fg(BG_RAISED),
+        ),
+        Span::styled(
+            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, visible).into_owned(),
+            Style::default().fg(INFO),
+        ),
+        Span::styled(
+            glyph_fill(&FILL_SHADE, GLYPH_SHADE, trailing).into_owned(),
+            Style::default().fg(BG_RAISED),
+        ),
     ]);
     frame.render_widget(Paragraph::new(bar), inner);
 }

@@ -1,5 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
+use std::sync::LazyLock;
 
 // ── panel_block title formatting ─────────────────────────────────────────────
 //
@@ -342,6 +343,18 @@ fn bench_render_separator(c: &mut Criterion) {
         });
     }
 
+    // New shape: slice a pre-built LazyLock<String> — zero allocation on hot path.
+    static H_LINE_BUF: LazyLock<String> = LazyLock::new(|| "─".repeat(256));
+    for &w in widths {
+        group.bench_with_input(BenchmarkId::new("static_slice", w), &w, |b, &w| {
+            b.iter(|| {
+                let end = black_box(w) * 3; // '─' is 3 bytes
+                let s = &H_LINE_BUF.as_str()[..end];
+                black_box(s);
+            })
+        });
+    }
+
     group.finish();
 }
 
@@ -404,6 +417,24 @@ fn bench_indeterminate_bar_spans(c: &mut Criterion) {
                     s.extend(std::iter::repeat_n('█', black_box(seg)));
                     s.extend(std::iter::repeat_n('░', black_box(right)));
                     black_box(s);
+                })
+            },
+        );
+    }
+
+    // New shape: slice pre-built LazyLock<String> buffers — zero allocation.
+    static SHADE_BUF: LazyLock<String> = LazyLock::new(|| "░".repeat(256));
+    static BLOCK_BUF: LazyLock<String> = LazyLock::new(|| "█".repeat(256));
+    for &(label, left, seg, right) in cases {
+        group.bench_with_input(
+            BenchmarkId::new("static_slice", label),
+            &(left, seg, right),
+            |b, &(left, seg, right)| {
+                b.iter(|| {
+                    let left_s = &SHADE_BUF.as_str()[..black_box(left) * 3];
+                    let seg_s = &BLOCK_BUF.as_str()[..black_box(seg) * 3];
+                    let right_s = &SHADE_BUF.as_str()[..black_box(right) * 3];
+                    black_box((left_s, seg_s, right_s));
                 })
             },
         );
