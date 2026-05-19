@@ -1,5 +1,5 @@
-use super::{create_collection_db, write_entries};
-use crate::core::collection::{CollectionEntry, test_beatmapset, test_collection};
+use super::{CollectionEntry, create_collection_db, write_entries};
+use crate::core::collection::{test_beatmapset, test_collection};
 use tempfile::tempdir;
 
 #[test]

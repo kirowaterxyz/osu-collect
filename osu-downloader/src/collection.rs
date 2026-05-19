@@ -1,15 +1,13 @@
-//! osucollector.com client and `collection.db` writer.
+//! osucollector.com client.
 //!
 //! Behind the `collection` feature.
 
 use crate::{Error, Result, http};
-use osu_db::collection::{Collection as DbCollection, CollectionList};
 use serde::{Deserialize, Serialize};
-use std::{io, path::Path, time::Duration};
+use std::time::Duration;
 use tokio::time::sleep;
 use tracing::warn;
 
-const OSU_DB_VERSION: u32 = 20150203;
 const COLLECTOR_API_BASE: &str = "https://osucollector.com/api/collections";
 
 /// Collection metadata from osucollector.com.
@@ -79,70 +77,6 @@ impl Collection {
     pub fn folder_name(&self) -> String {
         format!("{}-{}", sanitize_collection_name(&self.name), self.id)
     }
-
-    /// Write this collection to `<output_path>` as `collection.db`.
-    ///
-    /// Uses `<name>-<id>` as the entry name.
-    pub fn write_db(&self, output_path: &Path) -> io::Result<()> {
-        let name = format!("{}-{}", self.name, self.id);
-        write_collections_db(
-            &[CollectionEntry {
-                name,
-                beatmap_hashes: collection_hashes(self),
-            }],
-            output_path,
-        )
-    }
-}
-
-/// Named set of beatmap hashes for [`write_collections_db`].
-#[derive(Debug, Clone)]
-pub struct CollectionEntry {
-    /// Collection entry name as it will appear in osu!.
-    pub name: String,
-    /// Beatmap MD5 hashes. Duplicates within an entry are dropped on write.
-    pub beatmap_hashes: Vec<String>,
-}
-
-/// Write one or more named collection entries to `<output_path>` in osu! `collection.db` format.
-pub fn write_collections_db(entries: &[CollectionEntry], output_path: &Path) -> io::Result<()> {
-    let collections = entries
-        .iter()
-        .map(|entry| {
-            let mut seen =
-                std::collections::HashSet::<&str>::with_capacity(entry.beatmap_hashes.len());
-            DbCollection {
-                name: Some(entry.name.clone()),
-                beatmap_hashes: entry
-                    .beatmap_hashes
-                    .iter()
-                    .filter(|hash| seen.insert(hash.as_str()))
-                    .cloned()
-                    .map(Some)
-                    .collect(),
-            }
-        })
-        .collect();
-
-    CollectionList {
-        version: OSU_DB_VERSION,
-        collections,
-    }
-    .to_file(output_path)
-    .map_err(|err| io::Error::other(err.to_string()))
-}
-
-fn collection_hashes(collection: &Collection) -> Vec<String> {
-    collection
-        .beatmapsets
-        .iter()
-        .flat_map(|beatmapset| {
-            beatmapset
-                .beatmaps
-                .iter()
-                .map(|beatmap| beatmap.checksum.clone())
-        })
-        .collect()
 }
 
 fn sanitize_collection_name(name: &str) -> String {

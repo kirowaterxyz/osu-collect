@@ -2,9 +2,7 @@ pub mod api_client;
 
 pub use api_client::{CollectionService, HttpCollectionService};
 
-pub use osu_downloader::collection::{
-    Beatmap, Beatmapset, Collection, CollectionEntry, Uploader, write_collections_db,
-};
+pub use osu_downloader::collection::{Beatmap, Beatmapset, Collection, Uploader};
 
 #[cfg(test)]
 pub(crate) fn test_collection(id: u32, beatmapsets: Vec<Beatmapset>) -> Collection {

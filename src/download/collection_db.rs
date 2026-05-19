@@ -1,12 +1,48 @@
 use super::{DownloadError, DownloadEvent, DownloadId, Emit, SelectiveDownloadCollection};
-use crate::core::collection::{Collection, CollectionEntry, write_collections_db};
+use crate::core::collection::Collection;
 use crate::utils::AppError;
-use std::{collections::HashSet, path::Path, path::PathBuf};
+use osu_db::collection::{Collection as DbCollection, CollectionList};
+use std::{collections::HashSet, io, path::Path, path::PathBuf};
 use tracing::error;
 
 const COLLECTION_DB_CREATED: &str = "collection.db created successfully";
 const COLLECTION_DB_FILENAME: &str = "collection.db";
 const OSU_NAME_CFG_FILENAME: &str = "osu!.name.cfg";
+const OSU_DB_VERSION: u32 = 20150203;
+
+/// Named set of beatmap hashes destined for one entry in `collection.db`.
+pub struct CollectionEntry {
+    pub name: String,
+    pub beatmap_hashes: Vec<String>,
+}
+
+/// Write the given entries to `<output_path>` in osu!'s `collection.db` format.
+/// Duplicates within an entry are dropped.
+pub fn write_collections_db(entries: &[CollectionEntry], output_path: &Path) -> io::Result<()> {
+    let collections = entries
+        .iter()
+        .map(|entry| {
+            let mut seen = HashSet::<&str>::with_capacity(entry.beatmap_hashes.len());
+            DbCollection {
+                name: Some(entry.name.clone()),
+                beatmap_hashes: entry
+                    .beatmap_hashes
+                    .iter()
+                    .filter(|hash| seen.insert(hash.as_str()))
+                    .cloned()
+                    .map(Some)
+                    .collect(),
+            }
+        })
+        .collect();
+
+    CollectionList {
+        version: OSU_DB_VERSION,
+        collections,
+    }
+    .to_file(output_path)
+    .map_err(|err| io::Error::other(err.to_string()))
+}
 
 pub async fn write_collection_db(
     id: DownloadId,
