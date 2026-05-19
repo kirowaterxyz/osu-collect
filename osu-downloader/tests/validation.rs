@@ -34,13 +34,24 @@ async fn lenient_validation_allows_header_only_archive() {
 }
 
 #[tokio::test]
-async fn off_mode_skips_all_checks() {
+async fn off_mode_skips_zip_shape_check() {
     let mut tmp = NamedTempFile::new().unwrap();
     tmp.write_all(b"not a zip at all").unwrap();
     assert!(
         ensure_valid_archive(tmp.path(), ArchiveValidation::Off)
             .await
             .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn off_mode_still_rejects_empty_files() {
+    let tmp = NamedTempFile::new().unwrap();
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Off)
+            .await
+            .is_err(),
+        "Off must still reject 0-byte files"
     );
 }
 

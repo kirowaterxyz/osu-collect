@@ -15,7 +15,7 @@ const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveValidation {
-    /// Skip validation entirely.
+    /// Skip ZIP-shape validation. Still requires a regular, non-empty file.
     Off,
     /// Require the ZIP local-file-header magic bytes only (default).
     #[default]
@@ -37,14 +37,17 @@ pub enum ArchiveValidationResult {
 }
 
 /// Validate that a file looks like an osu! beatmap archive (internal helper used by the downloader pipeline).
+///
+/// All modes (including [`ArchiveValidation::Off`]) reject missing files,
+/// non-regular files, and 0-byte files. `Off` skips only the ZIP-shape check.
 pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -> Result<()> {
-    if mode == ArchiveValidation::Off {
-        return Ok(());
-    }
-
     let metadata = fs::metadata(path).await?;
     if !metadata.is_file() || metadata.len() == 0 {
         return Err(Error::validation("downloaded file is empty or invalid"));
+    }
+
+    if mode == ArchiveValidation::Off {
+        return Ok(());
     }
 
     let mut file = fs::File::open(path).await?;

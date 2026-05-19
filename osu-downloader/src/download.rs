@@ -695,24 +695,22 @@ async fn write_archive(
     );
 
     let verify_start = Instant::now();
-    if params.archive_validation != ArchiveValidation::Off {
-        if let Some(validate_result) = run_cancelable(
-            validation::ensure_valid_archive(&stream.temp_path, params.archive_validation),
-            &params.cancel_rx,
-        )
-        .await
-        {
-            if let Err(err) = validate_result {
-                let _ = tokio::fs::remove_file(&stream.temp_path).await;
-                return Err(format!(
-                    "{} returned an invalid archive: {err}",
-                    mirror.display_name()
-                ));
-            }
-        } else {
+    if let Some(validate_result) = run_cancelable(
+        validation::ensure_valid_archive(&stream.temp_path, params.archive_validation),
+        &params.cancel_rx,
+    )
+    .await
+    {
+        if let Err(err) = validate_result {
             let _ = tokio::fs::remove_file(&stream.temp_path).await;
-            return Ok(BeatmapsetDownloadOutcome::Aborted);
+            return Err(format!(
+                "{} returned an invalid archive: {err}",
+                mirror.display_name()
+            ));
         }
+    } else {
+        let _ = tokio::fs::remove_file(&stream.temp_path).await;
+        return Ok(BeatmapsetDownloadOutcome::Aborted);
     }
     let verify_duration_us = verify_start.elapsed().as_micros() as u64;
 
