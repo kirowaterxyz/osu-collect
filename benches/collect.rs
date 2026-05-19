@@ -897,6 +897,102 @@ fn bench_emit_status_retrying(c: &mut Criterion) {
     group.finish();
 }
 
+// ── current_snapshots beatmapset vec clone ────────────────────────────────────
+//
+// src/app/state.rs:build_selective_download_request (and scan.rs re_scan_task)
+// both materialise the full `HashMap<u32, LocalBeatmapset>` into a `Vec` before
+// passing it to `snapshots::current_snapshots`:
+//
+//   let beatmapsets: Vec<_> = self.updates.scan.local_beatmapsets
+//       .values().cloned().collect();            // ← O(N) clone
+//   current_snapshots(client, collections, &beatmapsets, …)
+//
+// `current_snapshots` only needs to iterate by reference to build the
+// `checksum → beatmapset_id` index.  Changing the signature to accept
+// `impl IntoIterator<Item = &LocalBeatmapset>` lets callers pass
+// `map.values()` directly — zero clone, zero Vec alloc.
+//
+// `LocalBeatmapset` = { id: u32, beatmaps: Vec<LocalBeatmap> }
+// `LocalBeatmap`    = { checksum: String }
+// Each clone allocates an inner Vec + one String per beatmap.
+//
+// Bench inputs: (beatmapsets, beatmaps_per_set) = (500, 5), (5000, 5),
+//   (10000, 5) — representative of small, medium, and large installs.
+// Both callers run this once per "start download" trigger, not per-tick.
+
+fn make_local_beatmapsets(
+    n: usize,
+    per_set: usize,
+) -> std::collections::HashMap<u32, osu_collect::osu_db::LocalBeatmapset> {
+    use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset};
+    (0..n as u32)
+        .map(|id| {
+            let beatmapset = LocalBeatmapset {
+                id,
+                beatmaps: (0..per_set)
+                    .map(|b| LocalBeatmap {
+                        checksum: format!("{:032x}", id as usize * per_set + b),
+                    })
+                    .collect(),
+            };
+            (id, beatmapset)
+        })
+        .collect()
+}
+
+fn bench_current_snapshots_beatmapset_clone(c: &mut Criterion) {
+    use osu_collect::osu_db::LocalBeatmapset;
+
+    let configs: &[(&str, usize, usize)] = &[
+        ("500x5", 500, 5),
+        ("5000x5", 5000, 5),
+        ("10000x5", 10000, 5),
+    ];
+
+    let mut group = c.benchmark_group("current_snapshots_beatmapset_clone");
+
+    for &(label, n, per_set) in configs {
+        let map = make_local_beatmapsets(n, per_set);
+
+        // Baseline: current callers — values().cloned().collect() into a Vec.
+        group.bench_with_input(
+            BenchmarkId::new("values_cloned_collect", label),
+            &map,
+            |b, map| {
+                b.iter(|| {
+                    let v: Vec<LocalBeatmapset> = black_box(map).values().cloned().collect();
+                    black_box(v)
+                })
+            },
+        );
+
+        // Candidate: pass values() iterator directly — no Vec, no clone.
+        // Simulates checksum_beatmapset_index(map.values()) after the
+        // signature change.  We build the same HashMap<String, u32> index
+        // as the real function to ensure the work is equivalent.
+        group.bench_with_input(
+            BenchmarkId::new("values_iter_direct", label),
+            &map,
+            |b, map| {
+                b.iter(|| {
+                    let mut index: std::collections::HashMap<String, u32> =
+                        std::collections::HashMap::new();
+                    for beatmapset in black_box(map).values() {
+                        for beatmap in &beatmapset.beatmaps {
+                            if !beatmap.checksum.is_empty() {
+                                index.insert(beatmap.checksum.clone(), beatmapset.id);
+                            }
+                        }
+                    }
+                    black_box(index)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -909,5 +1005,6 @@ criterion_group!(
     bench_emit_status_format,
     bench_render_constraints_vec,
     bench_emit_status_retrying,
+    bench_current_snapshots_beatmapset_clone,
 );
 criterion_main!(benches);
