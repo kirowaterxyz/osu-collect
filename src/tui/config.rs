@@ -14,7 +14,7 @@ use ratatui::{
 use super::widgets;
 use super::{ACCENT_ALT, HELP_CUSTOM_MIRROR, MIRRORS, SUCCESS, TEXT_FAINT, WARNING, focused_label};
 
-const PANEL_TITLE: &str = "config";
+const PANEL_TITLE: &str = " CONFIG ";
 
 const TOP_BANNER: &str = "default settings and config options";
 
