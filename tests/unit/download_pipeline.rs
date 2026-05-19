@@ -284,6 +284,52 @@ fn emit_status_messages_match_format_output() {
             panic!("expected BeatmapStatus");
         };
         assert_eq!(message, format!("verifying from {label}"));
+
+        let reasons = [
+            "connection reset",
+            "connection reset by peer (os error 104)",
+        ];
+        for reason in reasons {
+            let DownloadEvent::BeatmapStatus {
+                message,
+                rate_limited,
+                ..
+            } = drive_status(Status::RetryingTransient {
+                mirror,
+                attempt: 2,
+                max_attempts: 3,
+                reason: reason.to_string(),
+            })
+            else {
+                panic!("expected BeatmapStatus");
+            };
+            assert_eq!(
+                message,
+                format!("retrying {label} after {reason} (attempt 2/3)")
+            );
+            assert!(!rate_limited);
+        }
+    }
+
+    let cooldowns: &[(std::time::Duration, u64)] = &[
+        (std::time::Duration::from_secs(60), 60),
+        (std::time::Duration::from_secs(0), 1),
+        (std::time::Duration::from_secs(1), 1),
+    ];
+    for &(cooldown, expected_secs) in cooldowns {
+        let DownloadEvent::BeatmapStatus {
+            message,
+            rate_limited,
+            ..
+        } = drive_status(Status::RateLimited { cooldown })
+        else {
+            panic!("expected BeatmapStatus");
+        };
+        assert_eq!(
+            message,
+            format!("rate limited on all mirrors, waiting {expected_secs}s")
+        );
+        assert!(rate_limited);
     }
 }
 

@@ -1,6 +1,7 @@
 use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
 use crate::config::constants::status::{
-    self, CHECKING_PREFIX, DOWNLOADED_FROM_PREFIX, FROM_SUFFIX, VERIFYING_PREFIX,
+    self, CHECKING_PREFIX, DOWNLOADED_FROM_PREFIX, FROM_SUFFIX, RATE_LIMITED_SUFFIX,
+    RETRYING_AFTER, RETRYING_ATTEMPT_PREFIX, RETRYING_PREFIX, VERIFYING_PREFIX,
 };
 use osu_downloader::{Error as LibError, Event as LibEvent, Skip, Status};
 use std::collections::HashSet;
@@ -194,28 +195,48 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
             BeatmapStage::Verifying,
             false,
         ),
-        Status::RateLimited { cooldown } => (
-            format!(
-                "{} on all mirrors, waiting {}s",
-                status::RATE_LIMITED,
-                cooldown.as_secs().max(1)
-            ),
-            BeatmapStage::Downloading,
-            true,
-        ),
+        Status::RateLimited { cooldown } => {
+            let secs = cooldown.as_secs().max(1).to_string();
+            let mut s = String::with_capacity(
+                status::RATE_LIMITED.len() + RATE_LIMITED_SUFFIX.len() + secs.len() + 1,
+            );
+            s.push_str(status::RATE_LIMITED);
+            s.push_str(RATE_LIMITED_SUFFIX);
+            s.push_str(&secs);
+            s.push('s');
+            (s, BeatmapStage::Downloading, true)
+        }
         Status::RetryingTransient {
             mirror,
             attempt,
             max_attempts,
             reason,
-        } => (
-            format!(
-                "retrying {} after {reason} (attempt {attempt}/{max_attempts})",
-                mirror.label()
-            ),
-            BeatmapStage::Downloading,
-            false,
-        ),
+        } => {
+            let label = mirror.label();
+            let attempt_s = attempt.to_string();
+            let max_s = max_attempts.to_string();
+            let mut s = String::with_capacity(
+                RETRYING_PREFIX.len()
+                    + label.len()
+                    + RETRYING_AFTER.len()
+                    + reason.len()
+                    + RETRYING_ATTEMPT_PREFIX.len()
+                    + attempt_s.len()
+                    + 1
+                    + max_s.len()
+                    + 1,
+            );
+            s.push_str(RETRYING_PREFIX);
+            s.push_str(label);
+            s.push_str(RETRYING_AFTER);
+            s.push_str(&reason);
+            s.push_str(RETRYING_ATTEMPT_PREFIX);
+            s.push_str(&attempt_s);
+            s.push('/');
+            s.push_str(&max_s);
+            s.push(')');
+            (s, BeatmapStage::Downloading, false)
+        }
     };
     emit(DownloadEvent::BeatmapStatus {
         id,

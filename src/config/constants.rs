@@ -17,6 +17,10 @@ pub mod status {
     pub const FROM_SUFFIX: &str = " from ";
     pub const VERIFYING_PREFIX: &str = "verifying from ";
     pub const DOWNLOADED_FROM_PREFIX: &str = "downloaded from ";
+    pub const RETRYING_PREFIX: &str = "retrying ";
+    pub const RETRYING_AFTER: &str = " after ";
+    pub const RETRYING_ATTEMPT_PREFIX: &str = " (attempt ";
+    pub const RATE_LIMITED_SUFFIX: &str = " on all mirrors, waiting ";
 }
 
 pub const CONCURRENT_REQUESTS: usize = 50;
