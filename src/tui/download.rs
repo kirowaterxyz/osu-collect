@@ -70,15 +70,21 @@ const LOW_DISK_SUFFIX: &str = " available";
 pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
     let show_disk_warning = should_render_disk_warning(page);
 
-    let mut constraints = Vec::with_capacity(4);
-    if show_disk_warning {
-        constraints.push(Constraint::Length(1));
-    }
-    constraints.push(Constraint::Length(INFO_HEIGHT));
-    constraints.push(Constraint::Length(GAUGE_HEIGHT));
-    constraints.push(Constraint::Min(0));
-
-    let sections = Layout::vertical(constraints).split(area);
+    let sections = match show_disk_warning {
+        true => Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(INFO_HEIGHT),
+            Constraint::Length(GAUGE_HEIGHT),
+            Constraint::Min(0),
+        ])
+        .split(area),
+        false => Layout::vertical([
+            Constraint::Length(INFO_HEIGHT),
+            Constraint::Length(GAUGE_HEIGHT),
+            Constraint::Min(0),
+        ])
+        .split(area),
+    };
     let mut idx = 0;
     if show_disk_warning {
         render_disk_warning(frame, sections[idx], page);
