@@ -109,13 +109,14 @@ pub fn write_collections_db(entries: &[CollectionEntry], output_path: &Path) -> 
     let collections = entries
         .iter()
         .map(|entry| {
-            let mut seen = std::collections::HashSet::new();
+            let mut seen =
+                std::collections::HashSet::<&str>::with_capacity(entry.beatmap_hashes.len());
             DbCollection {
                 name: Some(entry.name.clone()),
                 beatmap_hashes: entry
                     .beatmap_hashes
                     .iter()
-                    .filter(|hash| seen.insert((*hash).clone()))
+                    .filter(|hash| seen.insert(hash.as_str()))
                     .cloned()
                     .map(Some)
                     .collect(),
