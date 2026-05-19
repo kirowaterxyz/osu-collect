@@ -1,5 +1,6 @@
 use super::{
-    CacheKey, OszSnapshotEntry, ValidationCache, detect_changed_beatmapsets, scan_candidates,
+    CacheKey, OszSnapshotEntry, ValidationCache, capture_osz_snapshot, detect_changed_beatmapsets,
+    scan_candidates,
 };
 use std::collections::HashSet;
 use tokio::sync::watch;
@@ -181,4 +182,30 @@ fn present_in_initial_not_final() {
 fn present_in_final_not_initial() {
     let fin = sorted(vec![entry("only_final.osz", 8, 100, None)]);
     assert_eq!(ids(detect_changed_beatmapsets(&[], &fin)), vec![8]);
+}
+
+// ── capture_osz_snapshot ──────────────────────────────────────────────────────
+
+/// non-UTF-8 filenames are skipped — they can never carry a valid beatmapset id
+/// because `classify_output_entry` requires ASCII digits, which are valid UTF-8.
+/// in practice `classify_output_entry` returns `Other` for non-UTF-8 names and
+/// the outer `Archive { beatmapset_id }` guard fires first, making this `continue`
+/// dead code — but it should still compile and the skip should be transparent.
+#[cfg(unix)]
+#[tokio::test]
+async fn capture_osz_snapshot_skips_non_utf8_filenames() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+
+    // valid archive — must appear in the snapshot
+    std::fs::write(dir.path().join("123.osz"), b"").unwrap();
+
+    // non-UTF-8 filename that looks like it could be an osz — must be silently skipped
+    let bad_name = std::ffi::OsStr::from_bytes(b"\xff456.osz");
+    std::fs::write(dir.path().join(bad_name), b"").unwrap();
+
+    let snapshot = capture_osz_snapshot(dir.path()).await.unwrap();
+    assert_eq!(snapshot.len(), 1, "non-UTF-8 entry must be excluded");
+    assert_eq!(snapshot[0].beatmapset_id, 123);
 }
