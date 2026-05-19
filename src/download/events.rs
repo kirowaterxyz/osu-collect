@@ -1,5 +1,7 @@
 use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
-use crate::config::constants::status;
+use crate::config::constants::status::{
+    self, CHECKING_PREFIX, DOWNLOADED_FROM_PREFIX, FROM_SUFFIX, VERIFYING_PREFIX,
+};
 use osu_downloader::{Error as LibError, Event as LibEvent, Skip, Status};
 use std::collections::HashSet;
 use tracing::warn;
@@ -74,13 +76,11 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
             ..
         } => {
             tally.record_completed(beatmapset_id);
-            emit_terminal_status(
-                id,
-                beatmapset_id,
-                BeatmapStage::Success,
-                format!("downloaded from {}", mirror_used.label()),
-                emit,
-            );
+            let label = mirror_used.label();
+            let mut msg = String::with_capacity(DOWNLOADED_FROM_PREFIX.len() + label.len());
+            msg.push_str(DOWNLOADED_FROM_PREFIX);
+            msg.push_str(label);
+            emit_terminal_status(id, beatmapset_id, BeatmapStage::Success, msg, emit);
             emit(DownloadEvent::BeatmapVerified {
                 id,
                 duration_us: verify_duration_us,
@@ -165,21 +165,32 @@ fn emit_terminal_status(
     });
 }
 
+fn status_msg(prefix: &str, label: &str) -> String {
+    let mut s = String::with_capacity(prefix.len() + label.len());
+    s.push_str(prefix);
+    s.push_str(label);
+    s
+}
+
 fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>) {
     let (message, stage, rate_limited) = match event {
         // dont remove this
         Status::Contacting { mirror } => (
-            format!("checking {}", mirror.label()),
+            status_msg(CHECKING_PREFIX, mirror.label()),
             BeatmapStage::Downloading,
             false,
         ),
-        Status::Downloading { mirror } => (
-            format!("{} from {}", status::DOWNLOADING, mirror.label()),
-            BeatmapStage::Downloading,
-            false,
-        ),
+        Status::Downloading { mirror } => {
+            let label = mirror.label();
+            let mut s =
+                String::with_capacity(status::DOWNLOADING.len() + FROM_SUFFIX.len() + label.len());
+            s.push_str(status::DOWNLOADING);
+            s.push_str(FROM_SUFFIX);
+            s.push_str(label);
+            (s, BeatmapStage::Downloading, false)
+        }
         Status::Verifying { mirror } => (
-            format!("verifying from {}", mirror.label()),
+            status_msg(VERIFYING_PREFIX, mirror.label()),
             BeatmapStage::Verifying,
             false,
         ),

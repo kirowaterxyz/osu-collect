@@ -660,9 +660,10 @@ fn bench_emit_status_format(c: &mut Criterion) {
             label,
             |b, label| {
                 b.iter(|| {
-                    let mut s = String::with_capacity(DOWNLOADING.len() + 6 + label.len());
+                    const FROM: &str = " from ";
+                    let mut s = String::with_capacity(DOWNLOADING.len() + FROM.len() + label.len());
                     s.push_str(DOWNLOADING);
-                    s.push_str(" from ");
+                    s.push_str(FROM);
                     s.push_str(black_box(label));
                     black_box(s)
                 })
@@ -673,8 +674,9 @@ fn bench_emit_status_format(c: &mut Criterion) {
             label,
             |b, label| {
                 b.iter(|| {
-                    let mut s = String::with_capacity(14 + label.len());
-                    s.push_str("verifying from ");
+                    const PREFIX: &str = "verifying from ";
+                    let mut s = String::with_capacity(PREFIX.len() + label.len());
+                    s.push_str(PREFIX);
                     s.push_str(black_box(label));
                     black_box(s)
                 })

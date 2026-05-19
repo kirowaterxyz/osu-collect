@@ -3,7 +3,7 @@ use crate::core::collection::{test_beatmapset, test_collection};
 use crate::download::collection_db::create_selective_collection_database;
 use crate::download::events::{Tally, translate_event};
 use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
-use osu_downloader::{Event as LibEvent, MirrorKind, Skip};
+use osu_downloader::{Event as LibEvent, MirrorKind, Skip, Status};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -16,6 +16,26 @@ fn make_selective(id: u32, name: &str, beatmapset_ids: Vec<u32>) -> SelectiveDow
         name: name.to_string(),
         beatmapset_ids,
     }
+}
+
+fn drive_status(status: Status) -> DownloadEvent {
+    let captured: std::sync::Arc<std::sync::Mutex<Option<DownloadEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let captured_clone = std::sync::Arc::clone(&captured);
+    let emit = move |event: DownloadEvent| {
+        *captured_clone.lock().unwrap() = Some(event);
+    };
+    let mut tally = Tally::default();
+    translate_event(
+        0,
+        LibEvent::BeatmapsetStatus {
+            beatmapset_id: 0,
+            status,
+        },
+        &mut tally,
+        &emit,
+    );
+    captured.lock().unwrap().take().unwrap()
 }
 
 fn drive_translate(events: Vec<LibEvent>) -> (Tally, Vec<DownloadEvent>) {
@@ -231,6 +251,40 @@ async fn write_selective_collection_db_skips_empty_set() {
     .expect("empty verified set must succeed without writing a db");
 
     assert!(!dir.path().join("collection.db").exists());
+}
+
+#[test]
+fn emit_status_messages_match_format_output() {
+    let mirrors = [
+        MirrorKind::Nerinyan,
+        MirrorKind::OsuDirect,
+        MirrorKind::Sayobot,
+        MirrorKind::Nekoha,
+    ];
+    for mirror in mirrors {
+        let label = mirror.label();
+
+        let DownloadEvent::BeatmapStatus { message, .. } =
+            drive_status(Status::Contacting { mirror })
+        else {
+            panic!("expected BeatmapStatus");
+        };
+        assert_eq!(message, format!("checking {label}"));
+
+        let DownloadEvent::BeatmapStatus { message, .. } =
+            drive_status(Status::Downloading { mirror })
+        else {
+            panic!("expected BeatmapStatus");
+        };
+        assert_eq!(message, format!("downloading from {label}"));
+
+        let DownloadEvent::BeatmapStatus { message, .. } =
+            drive_status(Status::Verifying { mirror })
+        else {
+            panic!("expected BeatmapStatus");
+        };
+        assert_eq!(message, format!("verifying from {label}"));
+    }
 }
 
 #[test]
