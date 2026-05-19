@@ -167,10 +167,10 @@ pub fn diff_snapshot(
     }
 }
 
-pub fn current_snapshots(
+pub fn current_snapshots<'a>(
     client: OsuClient,
     collections: &[LocalCollection],
-    beatmapsets: &[LocalBeatmapset],
+    beatmapsets: impl IntoIterator<Item = &'a LocalBeatmapset>,
     collection_id_for_name: impl Fn(&str) -> Option<u32>,
 ) -> HashMap<u32, CollectionSnapshotFile> {
     let checksum_index = checksum_beatmapset_index(beatmapsets);
@@ -223,7 +223,9 @@ pub fn in_deleted_snapshot(
     }
 }
 
-fn checksum_beatmapset_index(beatmapsets: &[LocalBeatmapset]) -> HashMap<String, u32> {
+fn checksum_beatmapset_index<'a>(
+    beatmapsets: impl IntoIterator<Item = &'a LocalBeatmapset>,
+) -> HashMap<String, u32> {
     let mut index = HashMap::new();
     for beatmapset in beatmapsets {
         for beatmap in &beatmapset.beatmaps {

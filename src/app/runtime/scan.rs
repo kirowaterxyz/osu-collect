@@ -412,11 +412,10 @@ fn spawn_fetch_task(
     let all_local_checksums = app.updates.scan.all_local_checksums.clone();
     let generation = app.updates.scan.scan_generation;
     let client_type = app.updates.path.client_type;
-    let beatmapsets: Vec<LocalBeatmapset> = local_beatmapsets.values().cloned().collect();
     let current_snapshots = snapshots::current_snapshots(
         client_type,
         &app.updates.scan.local_collections_raw,
-        &beatmapsets,
+        local_beatmapsets.values(),
         |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
     );
     let snapshot_dir = snapshots::snapshots_dir();

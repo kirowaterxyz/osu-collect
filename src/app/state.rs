@@ -298,17 +298,10 @@ impl App {
             archive_validation: self.config.archive_validation,
         };
 
-        let beatmapsets: Vec<_> = self
-            .updates
-            .scan
-            .local_beatmapsets
-            .values()
-            .cloned()
-            .collect();
         let current_snapshots = snapshots::current_snapshots(
             self.updates.path.client_type,
             &self.updates.scan.local_collections_raw,
-            &beatmapsets,
+            self.updates.scan.local_beatmapsets.values(),
             |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
         );
         let snapshots: Vec<_> = collection_ids
