@@ -19,8 +19,12 @@ impl MirrorPool {
     }
 
     pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
+        let now = Instant::now();
         let mut penalties = self.penalties.lock().unwrap();
-        penalties.insert(kind, Instant::now() + kind.rate_limit_backoff());
+        if penalties.get(&kind).is_some_and(|&until| until > now) {
+            return;
+        }
+        penalties.insert(kind, now + kind.rate_limit_backoff());
     }
 
     pub(crate) fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {

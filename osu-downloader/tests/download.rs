@@ -232,7 +232,8 @@ async fn probe_preserves_range_across_multiple_redirects() {
                     )
                     .unwrap();
             } else if request.starts_with("GET /s3/") {
-                assert!(request.contains("Range: bytes=0-0"));
+                // hyper sends header names lowercase on the wire; compare case-insensitively.
+                assert!(request.to_lowercase().contains("range: bytes=0-0"));
                 stream.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/44911016\r\nContent-Length: 1\r\n\r\nP").unwrap();
             }
         }

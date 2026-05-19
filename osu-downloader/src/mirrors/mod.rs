@@ -264,8 +264,14 @@ impl Mirror {
 mod tests;
 
 fn validate_template(template: &str) -> Result<()> {
-    if !template.contains("{id}") {
-        return Err(Error::mirror("Mirror URL must contain {id} placeholder"));
+    match template.matches("{id}").count() {
+        0 => return Err(Error::mirror("Mirror URL must contain {id} placeholder")),
+        1 => {}
+        _ => {
+            return Err(Error::mirror(
+                "Mirror URL must contain exactly one {id} placeholder",
+            ));
+        }
     }
 
     if !template.starts_with("http://") && !template.starts_with("https://") {
