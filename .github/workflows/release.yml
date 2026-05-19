@@ -81,8 +81,44 @@ jobs:
             release/osu-collect-windows-x64.exe
             release/osu-collect-windows-x64.exe.sha256
 
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: brew install cmake
+
+      - name: Build for macOS (arm64)
+        env:
+          OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
+          OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p release
+          cp target/aarch64-apple-darwin/release/osu-collect release/osu-collect-macos-arm64
+          chmod +x release/osu-collect-macos-arm64
+          cd release && shasum -a 256 osu-collect-macos-arm64 > osu-collect-macos-arm64.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: |
+            release/osu-collect-macos-arm64
+            release/osu-collect-macos-arm64.sha256
+
   release:
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux artifact
@@ -97,10 +133,17 @@ jobs:
           name: windows-binary
           path: release
 
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binary
+          path: release
+
       - name: Generate SHA256SUMS
         run: |
           cat release/osu-collect-linux-x64.sha256 \
               release/osu-collect-windows-x64.exe.sha256 \
+              release/osu-collect-macos-arm64.sha256 \
             > release/SHA256SUMS
 
       - name: Create Release
@@ -111,6 +154,8 @@ jobs:
             release/osu-collect-linux-x64.sha256
             release/osu-collect-windows-x64.exe
             release/osu-collect-windows-x64.exe.sha256
+            release/osu-collect-macos-arm64
+            release/osu-collect-macos-arm64.sha256
             release/SHA256SUMS
           draft: false
           prerelease: false
