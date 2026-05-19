@@ -10,7 +10,10 @@ use super::{
 use crate::{
     config::{
         Config,
-        constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, UPDATES_TAB_INDEX},
+        constants::{
+            CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG, TAB_HOME, TAB_UPDATES,
+            UPDATES_TAB_INDEX,
+        },
         save_config,
     },
     download::{
@@ -645,13 +648,13 @@ impl App {
         }
     }
 
-    pub fn tab_titles(&self) -> Vec<String> {
+    pub fn tab_titles(&self) -> Vec<&str> {
         let mut titles = Vec::with_capacity(self.downloads.len() + STATIC_TABS);
-        titles.push("Home".to_string());
-        titles.push("Updates".to_string());
-        titles.push("Config".to_string());
+        titles.push(TAB_HOME);
+        titles.push(TAB_UPDATES);
+        titles.push(TAB_CONFIG);
         for page in &self.downloads {
-            titles.push(page.title.clone());
+            titles.push(page.title.as_str());
         }
         titles
     }

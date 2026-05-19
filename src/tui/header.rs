@@ -10,7 +10,7 @@ use super::{ACCENT, ACCENT_ALT, LINE, LINE_SOFT, TEXT_FAINT};
 
 const BRAND: &str = " osu-collect ";
 
-pub fn render(frame: &mut Frame, area: Rect, tabs: &[String], active: usize) {
+pub fn render(frame: &mut Frame, area: Rect, tabs: &[&str], active: usize) {
     if area.width == 0 || area.height == 0 {
         return;
     }

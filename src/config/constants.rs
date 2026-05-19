@@ -71,6 +71,10 @@ pub const UPDATES_TAB_INDEX: usize = 1;
 pub const CONFIG_TAB_INDEX: usize = 2;
 pub const STATIC_TABS: usize = 3;
 
+pub const TAB_HOME: &str = "Home";
+pub const TAB_UPDATES: &str = "Updates";
+pub const TAB_CONFIG: &str = "Config";
+
 pub const NEKOHA_API_BASE: &str = "https://mirror.nekoha.moe/api4";
 
 pub const LOW_SPACE_THRESHOLD_BYTES: u64 = 1024 * 1024 * 1024;
