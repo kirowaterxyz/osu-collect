@@ -7,6 +7,8 @@ use osu_downloader::{
     validate_and_remove,
 };
 
+#[cfg(not(unix))]
+use std::time::SystemTime;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
