@@ -127,13 +127,16 @@ pub fn render_scrollable_panel(
     );
 }
 
+/// Callers must pass an already-uppercased, space-padded title constant
+/// (e.g. `" OVERVIEW "`). This avoids per-call allocation; use the module-level
+/// `PANEL_*` constants defined in each view module.
 pub fn panel_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(LINE_SOFT))
         .title(Span::styled(
-            format!(" {} ", title.to_uppercase()),
+            title,
             Style::default()
                 .fg(ACCENT_ALT)
                 .add_modifier(Modifier::BOLD)

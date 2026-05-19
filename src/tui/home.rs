@@ -4,7 +4,7 @@ use ratatui::{Frame, layout::Rect};
 use super::widgets::{self, Metric};
 use super::{HELP_CUSTOM_MIRROR, MIRRORS};
 
-const PANEL_TITLE: &str = "home";
+const PANEL_TITLE: &str = " HOME ";
 
 const SECTION_COLLECTION: &str = "collection";
 const SECTION_MIRRORS: &str = "mirrors";

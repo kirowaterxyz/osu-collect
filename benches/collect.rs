@@ -5,20 +5,30 @@ use std::hint::black_box;
 //
 // src/tui/widgets.rs:panel_block — called on every TUI render frame.
 // Three panels in the download view (overview, active, results) each call
-// panel_block with a &'static str title. At ~30 fps that is ≥90 calls/sec.
-// The current implementation does:
-//   format!(" {} ", title.to_uppercase())
-// which allocates a String for `to_uppercase()` and a second String for the
-// format!. Because title is &'static str the uppercased result is identical on
-// every call — it can be precomputed or written via write! into a fixed buffer.
+// panel_block with a &'static str title.  At ~30 fps that is ≥90 calls/sec.
+//
+// Old shape (baseline, no longer in production):
+//   format!(" {} ", title.to_uppercase())   — 2 allocations per call
+//
+// New shape: callers pass pre-uppercased, space-padded &'static str constants.
+//   panel_block(" OVERVIEW ")               — zero allocations, pointer pass
 
 fn bench_panel_block_title_format(c: &mut Criterion) {
-    let titles: &[&str] = &["overview", "active", "results", "config", "updates"];
+    // Old pattern (baseline) — kept for before/after delta measurement.
+    let lowercase_titles: &[&str] = &["overview", "active", "results", "config", "updates"];
+    // New pattern — static constants as callers now supply them.
+    let static_titles: &[&'static str] = &[
+        " OVERVIEW ",
+        " ACTIVE ",
+        " RESULTS ",
+        " CONFIG ",
+        " UPDATES ",
+    ];
 
     let mut group = c.benchmark_group("panel_block_title_format");
 
-    // Baseline: exact current production pattern.
-    for &title in titles {
+    // Baseline: old production pattern (2 allocations per call).
+    for &title in lowercase_titles {
         group.bench_with_input(
             BenchmarkId::new("format_to_uppercase", title),
             title,
@@ -27,6 +37,18 @@ fn bench_panel_block_title_format(c: &mut Criterion) {
                     let s: String = format!(" {} ", black_box(title).to_uppercase());
                     black_box(s)
                 })
+            },
+        );
+    }
+
+    // New shape: static constant pass-through — zero allocations, pointer return.
+    for &title in static_titles {
+        let key = title.trim();
+        group.bench_with_input(
+            BenchmarkId::new("static_constant", key),
+            &title,
+            |b, title| {
+                b.iter(|| black_box(title));
             },
         );
     }

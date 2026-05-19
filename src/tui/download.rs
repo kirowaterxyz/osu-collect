@@ -21,9 +21,9 @@ use super::{
 const INFO_HEIGHT: u16 = 8;
 const GAUGE_HEIGHT: u16 = 3;
 
-const PANEL_OVERVIEW: &str = "overview";
-const PANEL_ACTIVE: &str = "active";
-const PANEL_RESULTS: &str = "results";
+const PANEL_OVERVIEW: &str = " OVERVIEW ";
+const PANEL_ACTIVE: &str = " ACTIVE ";
+const PANEL_RESULTS: &str = " RESULTS ";
 
 const KEY_COLLECTION: &str = "collection: ";
 const KEY_UPLOADER: &str = "uploader: ";

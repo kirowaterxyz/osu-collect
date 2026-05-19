@@ -14,7 +14,7 @@ use ratatui::{
 use super::widgets::{self, FOCUS_MARK, FOCUS_PAD, Metric};
 use super::{ACCENT, ACCENT_ALT, TEXT, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, focused_label};
 
-const PANEL_TITLE: &str = "updates";
+const PANEL_TITLE: &str = " UPDATES ";
 
 const SECTION_SOURCE: &str = "source";
 const SECTION_COLLECTIONS: &str = "collections";
