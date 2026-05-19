@@ -2,7 +2,8 @@ use crate::app::{HomeField, HomeTab};
 use ratatui::{Frame, layout::Rect};
 
 use super::widgets::{self, Metric};
-use super::{HELP_CUSTOM_MIRROR, MIRRORS};
+use super::{HELP_CUSTOM_MIRROR, mirror_label};
+use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
 
@@ -44,10 +45,10 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         (HomeField::MirrorSayobot, form.sayobot),
         (HomeField::MirrorNekoha, form.nekoha),
     ];
-    for ((label, url), (field, on)) in MIRRORS.iter().zip(mirror_states) {
+    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
         items.push_focusable(
             field,
-            widgets::row_item(label, Some(url), on, focus == field),
+            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
         );
     }
     items.push(widgets::spacer());

@@ -12,7 +12,10 @@ use ratatui::{
 };
 
 use super::widgets;
-use super::{ACCENT_ALT, HELP_CUSTOM_MIRROR, MIRRORS, SUCCESS, TEXT_FAINT, WARNING, focused_label};
+use super::{
+    ACCENT_ALT, HELP_CUSTOM_MIRROR, SUCCESS, TEXT_FAINT, WARNING, focused_label, mirror_label,
+};
+use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " CONFIG ";
 
@@ -91,10 +94,10 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         (ConfigField::MirrorSayobot, form.sayobot),
         (ConfigField::MirrorNekoha, form.nekoha),
     ];
-    for ((label, url), (field, on)) in MIRRORS.iter().zip(mirror_states) {
+    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
         items.push_focusable(
             field,
-            widgets::row_item(label, Some(url), on, focus == field),
+            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
         );
     }
     items.push_focusable(

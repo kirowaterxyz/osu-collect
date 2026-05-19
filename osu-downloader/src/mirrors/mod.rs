@@ -61,12 +61,34 @@ impl MirrorKind {
         }
     }
 
+    /// All built-in mirror kinds, in default registration order. Excludes
+    /// [`MirrorKind::Custom`].
+    pub const BUILTINS: &'static [MirrorKind] = &[
+        MirrorKind::OsuDirect,
+        MirrorKind::Nerinyan,
+        MirrorKind::Sayobot,
+        MirrorKind::Nekoha,
+    ];
+
     /// Display label for this mirror.
     #[inline]
     pub fn label(&self) -> &'static str {
         match self {
             MirrorKind::Custom => "Custom",
             other => other.meta().expect("builtin mirror has meta").label,
+        }
+    }
+
+    /// Display host for this mirror (e.g. `"osu.direct"`). Returns `"custom"`
+    /// for [`MirrorKind::Custom`]. Suitable for UI labels.
+    #[inline]
+    pub fn host(&self) -> &'static str {
+        match self {
+            MirrorKind::Nerinyan => "api.nerinyan.moe",
+            MirrorKind::OsuDirect => "osu.direct",
+            MirrorKind::Sayobot => "dl.sayobot.cn",
+            MirrorKind::Nekoha => "mirror.nekoha.moe",
+            MirrorKind::Custom => "custom",
         }
     }
 

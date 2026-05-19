@@ -10,6 +10,7 @@ mod widgets;
 
 use crate::app::App;
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
+use osu_downloader::MirrorKind;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -17,6 +18,19 @@ use ratatui::{
     widgets::Block,
 };
 use std::sync::LazyLock;
+
+/// App-side display label for a mirror. Distinct from `MirrorKind::label()`
+/// (which the lib uses for its own defaults) — this carries the TUI's
+/// lowercase + branded styling (`osu!direct`).
+pub fn mirror_label(kind: MirrorKind) -> &'static str {
+    match kind {
+        MirrorKind::OsuDirect => "osu!direct",
+        MirrorKind::Nerinyan => "nerinyan",
+        MirrorKind::Sayobot => "sayobot",
+        MirrorKind::Nekoha => "nekoha",
+        MirrorKind::Custom => "custom",
+    }
+}
 
 pub(crate) const GLYPH_H_LINE: &str = "─";
 pub(crate) const GLYPH_BLOCK: &str = "█";
@@ -80,13 +94,6 @@ pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴'
 pub fn spinner_char(tick: u64) -> char {
     SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()]
 }
-
-pub const MIRRORS: &[(&str, &str)] = &[
-    ("osu!direct", "osu.direct"),
-    ("nerinyan", "api.nerinyan.moe"),
-    ("sayobot", "dl.sayobot.cn"),
-    ("nekoha", "mirror.nekoha.moe"),
-];
 
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";
 
