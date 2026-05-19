@@ -43,7 +43,7 @@ pub async fn write_selective_collection_db(
     emit: Emit<'_>,
 ) -> Result<(), DownloadError> {
     run_blocking(move || {
-        create_selective_collection_database(&collection, &collections, &verified, &output_dir)
+        create_selective_collection_db(&collection, &collections, &verified, &output_dir)
     })
     .await
     .map(|()| {
@@ -93,7 +93,7 @@ pub fn create_collection_db(
     )
 }
 
-pub fn create_selective_collection_database(
+pub fn create_selective_collection_db(
     collection: &Collection,
     collections: &[SelectiveDownloadCollection],
     newly_downloaded: &HashSet<u32>,

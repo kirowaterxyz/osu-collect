@@ -182,7 +182,7 @@ impl CollectionClient {
     }
 
     /// Fetch a collection by ID. Performs a single request — wrap in a retry
-    /// loop on the caller side if you need to retry, or use [`fetch_with_retries`](Self::fetch_with_retries).
+    /// loop on the caller side if you need to retry, or use [`fetch_retrying`](Self::fetch_retrying).
     pub async fn fetch(&self, collection_id: u32) -> Result<Collection> {
         let url = format!("{COLLECTOR_API_BASE}/{collection_id}");
         let response = self.client.get(&url).send().await?;
@@ -217,7 +217,7 @@ impl CollectionClient {
     /// - on any other error: return immediately
     ///
     /// `attempts` is the maximum number of tries (so `attempts = 3` means up to 2 retries).
-    pub async fn fetch_with_retries(&self, collection_id: u32, attempts: u8) -> Result<Collection> {
+    pub async fn fetch_retrying(&self, collection_id: u32, attempts: u8) -> Result<Collection> {
         let attempts = attempts.max(1);
         let mut last_error: Option<Error> = None;
 

@@ -73,7 +73,7 @@ pub(crate) async fn ensure_valid_archive(path: &Path, mode: ArchiveValidation) -
 
     if &header[..LOCAL_HEADER_SIGNATURE.len()] == LOCAL_HEADER_SIGNATURE {
         if mode == ArchiveValidation::Eocd {
-            verify_zip_eocd_footer(&mut file, metadata.len()).await?;
+            verify_eocd(&mut file, metadata.len()).await?;
         }
         return Ok(());
     }
@@ -144,7 +144,7 @@ async fn inspect_archive(
     Ok(ArchiveValidationResult::Valid)
 }
 
-async fn verify_zip_eocd_footer(file: &mut fs::File, file_size: u64) -> Result<()> {
+async fn verify_eocd(file: &mut fs::File, file_size: u64) -> Result<()> {
     if file_size < 22 {
         return Err(Error::validation(
             "invalid archive: missing central directory footer",

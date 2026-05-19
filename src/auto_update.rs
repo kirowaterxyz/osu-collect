@@ -73,7 +73,7 @@ where
     info!(release = %release.name, "Downloading newer release");
     let downloaded = download_asset(client, asset, AUTO_UPDATE_TIMEOUT).await?;
 
-    let expected_checksum = match fetch_checksum_for_asset(client, asset, &release.assets).await {
+    let expected_checksum = match fetch_asset_checksum(client, asset, &release.assets).await {
         Ok(checksum) => checksum,
         Err(err) => {
             let _ = fs::remove_file(&downloaded.path).await;
@@ -167,7 +167,7 @@ async fn download_asset(
     })
 }
 
-async fn fetch_checksum_for_asset(
+async fn fetch_asset_checksum(
     client: &Client,
     asset: &ReleaseAsset,
     assets: &[ReleaseAsset],

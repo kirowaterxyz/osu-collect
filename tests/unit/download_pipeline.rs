@@ -1,6 +1,6 @@
 use super::try_remove_empty_output_dir;
 use crate::core::collection::{test_beatmapset, test_collection};
-use crate::download::collection_db::create_selective_collection_database;
+use crate::download::collection_db::create_selective_collection_db;
 use crate::download::events::{Tally, translate_event};
 use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
 use osu_downloader::{Event as LibEvent, MirrorKind, Skip, Status};
@@ -347,8 +347,7 @@ fn only_newly_downloaded_hashes_are_included() {
     let selective = vec![make_selective(1, "my collection", vec![10, 20, 30])];
     let newly_downloaded: HashSet<u32> = [10].into_iter().collect();
 
-    create_selective_collection_database(&collection, &selective, &newly_downloaded, dir.path())
-        .unwrap();
+    create_selective_collection_db(&collection, &selective, &newly_downloaded, dir.path()).unwrap();
 
     let list =
         osu_db::collection::CollectionList::from_file(dir.path().join("collection.db")).unwrap();

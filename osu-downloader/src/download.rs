@@ -127,7 +127,7 @@ pub fn sanitize_filename(raw: Option<&str>, beatmapset_id: u32) -> std::borrow::
 /// Extract filename from Content-Disposition header.
 ///
 /// Handles `filename*=UTF-8''...` and `filename="..."`.
-pub(crate) fn extract_filename_from_header(header_value: &str) -> Option<String> {
+pub(crate) fn parse_content_disposition(header_value: &str) -> Option<String> {
     let mut filename = None;
     let mut extended_filename = None;
 
@@ -749,7 +749,7 @@ fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> String 
         .headers()
         .get(reqwest::header::CONTENT_DISPOSITION)
         .and_then(|value| value.to_str().ok())
-        .and_then(extract_filename_from_header)
+        .and_then(parse_content_disposition)
         .unwrap_or_else(|| format!("{beatmapset_id}.osz"));
 
     if filename

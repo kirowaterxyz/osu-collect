@@ -71,10 +71,10 @@ pub fn snapshots_dir() -> Option<PathBuf> {
         }
     }
 
-    platform_data_dir().map(snapshot_dir_from_base)
+    platform_data_dir().map(snapshot_dir_in)
 }
 
-pub fn snapshot_dir_from_base(base: PathBuf) -> PathBuf {
+pub fn snapshot_dir_in(base: PathBuf) -> PathBuf {
     base.join("osu-collect").join("snapshots")
 }
 

@@ -1,5 +1,5 @@
 use crate::app::failed_maps::{
-    FailedMapsFile, failed_maps_path_from_base, load, record_failures, remove_available, save,
+    FailedMapsFile, failed_maps_path_in, load, record_failures, remove_available, save,
 };
 use std::collections::HashSet;
 
@@ -53,8 +53,8 @@ fn remove_available_keeps_unavailable_ids() {
 }
 
 #[test]
-fn path_from_base_uses_osu_collect_data_file() {
-    let path = failed_maps_path_from_base("/tmp/data".into());
+fn failed_maps_path_in_uses_osu_collect_data_file() {
+    let path = failed_maps_path_in("/tmp/data".into());
 
     assert!(path.ends_with("osu-collect/failed-beatmapsets.json"));
 }

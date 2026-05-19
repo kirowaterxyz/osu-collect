@@ -213,7 +213,7 @@ impl Downloader {
     }
 
     #[cfg(test)]
-    pub(crate) fn mirror_pool_mirrors(&self) -> &[Mirror] {
+    pub(crate) fn mirrors(&self) -> &[Mirror] {
         self.mirror_pool.mirrors()
     }
 

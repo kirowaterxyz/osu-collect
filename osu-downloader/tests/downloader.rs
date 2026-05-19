@@ -18,11 +18,7 @@ fn builder_rejects_zero_concurrency() {
 fn default_mirrors_include_every_builtin_mirror() {
     let downloader = crate::Downloader::builder().builtins().build().unwrap();
 
-    let mirror_kinds: Vec<_> = downloader
-        .mirror_pool_mirrors()
-        .iter()
-        .map(Mirror::kind)
-        .collect();
+    let mirror_kinds: Vec<_> = downloader.mirrors().iter().map(Mirror::kind).collect();
     assert_eq!(
         mirror_kinds,
         vec![
@@ -46,7 +42,7 @@ fn per_mirror_no_video_switches_template() {
         .build()
         .unwrap();
 
-    let mirrors = downloader.mirror_pool_mirrors();
+    let mirrors = downloader.mirrors();
     assert_eq!(
         mirrors[0].url_for(123),
         "https://api.nerinyan.moe/d/123?nv=1"

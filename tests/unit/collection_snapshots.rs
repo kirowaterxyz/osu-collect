@@ -136,10 +136,10 @@ fn snapshot_load_future_version_returns_none() {
 }
 
 #[test]
-fn snapshot_dir_from_base_adds_expected_suffix() {
+fn snapshot_dir_in_adds_expected_suffix() {
     let base = std::path::PathBuf::from("/tmp/osu-data");
 
-    let path = snapshots::snapshot_dir_from_base(base);
+    let path = snapshots::snapshot_dir_in(base);
 
     assert!(path.ends_with("osu-collect/snapshots"));
 }

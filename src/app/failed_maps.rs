@@ -42,10 +42,10 @@ pub fn failed_maps_path() -> Option<PathBuf> {
         }
     }
 
-    platform_data_dir().map(failed_maps_path_from_base)
+    platform_data_dir().map(failed_maps_path_in)
 }
 
-pub fn failed_maps_path_from_base(base: PathBuf) -> PathBuf {
+pub fn failed_maps_path_in(base: PathBuf) -> PathBuf {
     base.join("osu-collect").join(FAILED_MAPS_FILE)
 }
 

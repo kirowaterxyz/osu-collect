@@ -30,7 +30,7 @@ impl CollectionService for HttpCollectionService {
 
 pub async fn fetch_collection(client: &CollectionClient, collection_id: u32) -> Result<Collection> {
     client
-        .fetch_with_retries(collection_id, API_MAX_RETRIES)
+        .fetch_retrying(collection_id, API_MAX_RETRIES)
         .await
         .map_err(map_collection_error)
 }

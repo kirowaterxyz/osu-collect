@@ -69,53 +69,53 @@ fn test_sanitize_filename() {
 
 #[test]
 fn test_extract_filename() {
-    use super::extract_filename_from_header;
+    use super::parse_content_disposition;
     assert_eq!(
-        extract_filename_from_header("attachment; filename=\"test.osz\""),
+        parse_content_disposition("attachment; filename=\"test.osz\""),
         Some("test.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header("attachment; filename*=UTF-8''test%20file.osz"),
+        parse_content_disposition("attachment; filename*=UTF-8''test%20file.osz"),
         Some("test file.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header(r#"attachment; filename="foo\"bar.osz""#),
+        parse_content_disposition(r#"attachment; filename="foo\"bar.osz""#),
         Some(r#"foo"bar.osz"#.to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header(r#"attachment; filename="foo\\bar.osz""#),
+        parse_content_disposition(r#"attachment; filename="foo\\bar.osz""#),
         Some(r#"foo\bar.osz"#.to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header("attachment; filename=plain.osz"),
+        parse_content_disposition("attachment; filename=plain.osz"),
         Some("plain.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header(r#"attachment; filename="artist - title; diff.osz""#),
+        parse_content_disposition(r#"attachment; filename="artist - title; diff.osz""#),
         Some("artist - title; diff.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header(
+        parse_content_disposition(
             "attachment; filename=plain.osz; filename*=utf-8''encoded%20name.osz"
         ),
         Some("encoded name.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header(
+        parse_content_disposition(
             "attachment; filename=fallback.osz; filename*=iso-8859-1''ignored.osz"
         ),
         Some("fallback.osz".to_string())
     );
 
     assert_eq!(
-        extract_filename_from_header("attachment; FILENAME=upper.osz"),
+        parse_content_disposition("attachment; FILENAME=upper.osz"),
         Some("upper.osz".to_string())
     );
 }

@@ -207,7 +207,7 @@ impl<'a> Iterator for ContentDispositionParts<'a> {
 fn bench_split_content_disposition(c: &mut Criterion) {
     // Represents content_disposition_parts (download.rs):
     //   allocation-free iterator over ';'-separated header segments.
-    // Called inside extract_filename_from_header on every successful mirror
+    // Called inside parse_content_disposition on every successful mirror
     // response. Two real-world header shapes benched.
 
     // Common case: simple quoted filename.

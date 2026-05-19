@@ -6,7 +6,7 @@ mod pipeline;
 mod precheck;
 mod session;
 
-pub use collection_db::create_selective_collection_database;
+pub use collection_db::create_selective_collection_db;
 pub use error::DownloadError;
 pub use events::{Tally, translate_event};
 pub use lock::ActiveDownloadRegistry;
