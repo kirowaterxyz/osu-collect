@@ -102,8 +102,8 @@ fn bench_hash_worker_update(c: &mut Criterion) {
     for (label, chunk) in cases {
         group.throughput(Throughput::Bytes(chunk.len() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(label), chunk, |b, chunk| {
-            // Replicate the exact production shape: sync_channel(4), send a Bytes clone.
-            let (sender, receiver) = mpsc::sync_channel::<Bytes>(4);
+            // Replicate the exact production shape: unbounded channel, send a Bytes clone.
+            let (sender, receiver) = mpsc::channel::<Bytes>();
             // Drain the receiver in a background thread so the channel never blocks.
             std::thread::spawn(move || while receiver.recv().is_ok() {});
             b.iter(|| {

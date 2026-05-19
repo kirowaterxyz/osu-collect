@@ -39,14 +39,13 @@ pub(crate) struct DownloadStreamResult {
 }
 
 struct HashWorker {
-    sender: Option<mpsc::SyncSender<Bytes>>,
+    sender: Option<mpsc::Sender<Bytes>>,
     handle: task::JoinHandle<Box<str>>,
 }
 
 impl HashWorker {
     fn new() -> Self {
-        // Bound of 4: caps in-flight chunks to ~512 KB while keeping latency low.
-        let (sender, receiver) = mpsc::sync_channel::<Bytes>(4);
+        let (sender, receiver) = mpsc::channel::<Bytes>();
         let handle = task::spawn_blocking(move || {
             const HEX: &[u8; 16] = b"0123456789abcdef";
             let mut hasher = Md5::new();
