@@ -237,10 +237,22 @@ pub async fn apply_update_to(
 ) -> Result<(), AutoUpdateError> {
     let rollback_path = exe_path.with_extension("rollback");
 
-    fs::copy(exe_path, &rollback_path).await?;
+    // Drop any leftover rollback from a previous failed attempt so the rename below
+    // doesn't trip on an existing destination.
+    let _ = fs::remove_file(&rollback_path).await;
+
+    // Move the running binary aside instead of overwriting it. Windows refuses to
+    // replace a running .exe but permits renaming it within the same directory.
+    if let Err(err) = fs::rename(exe_path, &rollback_path).await {
+        let _ = fs::remove_file(&asset.path).await;
+        return Err(AutoUpdateError::Io(err));
+    }
 
     match fs::rename(&asset.path, exe_path).await {
         Ok(()) => {
+            // Best-effort cleanup. On Windows the old image is still mapped by the
+            // running process and can only be removed after restart;
+            // cleanup_stale_artifacts() handles that on the next launch.
             let _ = fs::remove_file(&rollback_path).await;
             Ok(())
         }
@@ -253,6 +265,17 @@ pub async fn apply_update_to(
             }
         }
     }
+}
+
+/// Remove a leftover `.rollback` next to the current executable. Windows can't
+/// delete the running image during the update, so it's cleaned on the next
+/// startup instead.
+pub fn cleanup_stale_artifacts() {
+    let Ok(exe_path) = std::env::current_exe() else {
+        return;
+    };
+    let rollback_path = exe_path.with_extension("rollback");
+    let _ = std::fs::remove_file(&rollback_path);
 }
 
 async fn set_executable_permissions(path: &Path) -> Result<(), AutoUpdateError> {
