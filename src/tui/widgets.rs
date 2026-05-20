@@ -366,10 +366,16 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
                 glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty as usize).into_owned(),
                 Style::default().fg(LINE_SOFT),
             ));
-            spans.push(Span::styled(
-                format!(" {:>3}%", (ratio * 100.0).round() as u16),
-                Style::default().fg(TEXT_FAINT),
-            ));
+            let pct = (ratio * 100.0).round() as u16;
+            let pct_s = pct.to_string();
+            let mut pct_out = String::with_capacity(5);
+            pct_out.push(' ');
+            for _ in 0..(3usize.saturating_sub(pct_s.len())) {
+                pct_out.push(' ');
+            }
+            pct_out.push_str(&pct_s);
+            pct_out.push('%');
+            spans.push(Span::styled(pct_out, Style::default().fg(TEXT_FAINT)));
         }
         None if matches!(line.stage, crate::download::BeatmapStage::Downloading) => {
             spans.extend(indeterminate_bar_spans(BAR_WIDTH, bar_color));
