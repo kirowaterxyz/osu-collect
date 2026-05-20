@@ -293,10 +293,12 @@ pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
 }
 
 pub fn status_pill(label: impl Into<String>, color: Color) -> Span<'static> {
-    Span::styled(
-        format!(" {} ", label.into()),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    )
+    let label = label.into();
+    let mut out = String::with_capacity(label.len() + 2);
+    out.push(' ');
+    out.push_str(&label);
+    out.push(' ');
+    Span::styled(out, Style::default().fg(color).add_modifier(Modifier::BOLD))
 }
 
 pub fn spacer() -> ListItem<'static> {
