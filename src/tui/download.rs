@@ -168,7 +168,12 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         Line::from(vec![
             Span::styled(KEY_SETTINGS, key_style),
             Span::styled(
-                format!("{} {VALUE_THREADS_SUFFIX}", page.concurrent),
+                {
+                    let mut s = page.concurrent.to_string();
+                    s.push(' ');
+                    s.push_str(VALUE_THREADS_SUFFIX);
+                    s
+                },
                 Style::default().fg(ACCENT),
             ),
         ]),
