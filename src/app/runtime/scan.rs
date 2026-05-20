@@ -409,7 +409,7 @@ fn spawn_fetch_task(
     let selected_collection_ids = collection_ids_for_scan(selected_ids);
     let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
         app.updates.scan.local_beatmapsets.clone();
-    let all_local_checksums = app.updates.scan.all_local_checksums.clone();
+    let all_local_checksums = std::mem::take(&mut app.updates.scan.all_local_checksums);
     let generation = app.updates.scan.scan_generation;
     let client_type = app.updates.path.client_type;
     let current_snapshots = snapshots::current_snapshots(
