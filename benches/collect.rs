@@ -1454,6 +1454,152 @@ fn bench_layout_split_to_vec(c: &mut Criterion) {
     group.finish();
 }
 
+// ── active_download_item prefix_w chars().count() vs .len() ──────────────────
+//
+// src/tui/widgets.rs:active_download_item (line 337) — called per active
+// download slot per render frame (~30 fps, up to 8 concurrent slots).
+// Current shape:
+//   let prefix_w = prefix.chars().count() as u16;
+// `prefix` is built as "  #" (3 bytes) + id_s (1–7 ASCII digits) + padding
+// spaces + " " — guaranteed all-ASCII, always exactly 11 chars.  For an
+// all-ASCII string `chars().count()` iterates every byte to decode UTF-8;
+// `.len()` returns the stored byte-count field in O(1).
+//
+// Candidate: `prefix.len() as u16` — O(1) field read instead of O(n) traversal.
+//
+// NOTE: bench uses a fixed 11-byte all-ASCII string matching the real prefix
+// shape.  `chars().count()` iterates all 11 bytes; `.len()` is a single load.
+//
+// Frequency: concurrent_slots × ~30 fps = up to ~240 calls/sec.
+
+fn bench_prefix_len_vs_chars_count(c: &mut Criterion) {
+    // Representative prefix strings produced by active_download_item.
+    // All are exactly 11 ASCII chars: "  #" + id (1-7 digits) + padding + " ".
+    let cases: &[(&str, &str)] = &[
+        ("id_1digit", "  #1       "),
+        ("id_4digit", "  #1234    "),
+        ("id_7digit", "  #1234567 "),
+    ];
+
+    let mut group = c.benchmark_group("prefix_len_vs_chars_count");
+
+    for &(label, prefix) in cases {
+        // Baseline: current production shape — chars().count() traverses every byte.
+        group.bench_with_input(
+            BenchmarkId::new("chars_count", label),
+            prefix,
+            |b, prefix| {
+                b.iter(|| {
+                    let w = black_box(prefix).chars().count() as u16;
+                    black_box(w)
+                })
+            },
+        );
+
+        // Candidate: .len() — O(1) field read; valid because prefix is all-ASCII.
+        group.bench_with_input(
+            BenchmarkId::new("len_field", label),
+            prefix,
+            |b, prefix| {
+                b.iter(|| {
+                    let w = black_box(prefix).len() as u16;
+                    black_box(w)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── truncate_to_width double char-count traversal ─────────────────────────────
+//
+// src/tui/widgets.rs:active_download_item (lines 345-346) — called per active
+// download slot per render frame.  Current shape:
+//   let message = truncate_to_width(&line.displayed_message(), budget);
+//   let message_w = message.chars().count() as u16;
+// `truncate_to_width` already calls `message.chars().count()` internally to
+// decide whether to truncate.  On the fast path (no truncation, typical case)
+// the string is traversed twice — once inside the function, once at the call
+// site — to obtain the same char count.
+//
+// Candidate: return `(String, u16)` from `truncate_to_width`.
+// - Fast path (fits in budget): char_width = count already computed inside fn.
+// - Slow path (truncated): char_width = budget (exactly budget chars emitted).
+// Call site uses the returned u16 directly, eliminating the second O(n) pass.
+//
+// NOTE: bench simulates the combined cost of truncate_to_width + post-call
+// chars().count() using inline equivalents.  No ratatui dependency required.
+//
+// Frequency: concurrent_slots × ~30 fps = up to ~240 combined ops/sec.
+
+fn bench_truncate_char_count_double(c: &mut Criterion) {
+    // Representative displayed_message() strings: typical length ≤ budget
+    // (fast path, no truncation) and one that exceeds (slow path).
+    let budget: usize = 60;
+    let cases: &[(&str, &str)] = &[
+        ("short_fits",   "downloading from Beatconnect"),
+        ("typical_fits", "rate limited on all mirrors, waiting 3s"),
+        ("long_fits",    "retrying nerinyan after connection timeout (attempt 3/5)"),
+        ("truncated",    "retrying a-very-long-mirror-hostname.example.com after connection reset by peer (attempt 2/5)"),
+    ];
+
+    let mut group = c.benchmark_group("truncate_char_count_double");
+
+    for &(label, msg) in cases {
+        // Baseline: current production shape.
+        // truncate_to_width calls chars().count() internally, then caller calls it again.
+        group.bench_with_input(
+            BenchmarkId::new("truncate_then_recount", label),
+            msg,
+            |b, msg| {
+                b.iter(|| {
+                    let msg = black_box(msg);
+                    // Inline of current truncate_to_width body.
+                    let text: String = if msg.chars().count() <= budget {
+                        msg.to_string()
+                    } else if budget == 1 {
+                        "…".to_string()
+                    } else {
+                        let mut s: String = msg.chars().take(budget.saturating_sub(1)).collect();
+                        s.push('…');
+                        s
+                    };
+                    // Caller re-traverses to get width.
+                    let w = text.chars().count() as u16;
+                    black_box((text, w))
+                })
+            },
+        );
+
+        // Candidate: return (String, u16) — char_width computed once, returned alongside.
+        group.bench_with_input(
+            BenchmarkId::new("truncate_return_width", label),
+            msg,
+            |b, msg| {
+                b.iter(|| {
+                    let msg = black_box(msg);
+                    // Inline of candidate truncate_to_width_with_width body.
+                    let char_count = msg.chars().count();
+                    let (text, char_width): (String, u16) = if char_count <= budget {
+                        (msg.to_string(), char_count as u16)
+                    } else if budget == 1 {
+                        ("…".to_string(), 1)
+                    } else {
+                        let mut s: String = msg.chars().take(budget.saturating_sub(1)).collect();
+                        s.push('…');
+                        (s, budget as u16)
+                    };
+                    // No second traversal — char_width already known.
+                    black_box((text, char_width))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -1474,5 +1620,7 @@ criterion_group!(
     bench_render_info_title_clone,
     bench_indeterminate_title_to_string,
     bench_layout_split_to_vec,
+    bench_prefix_len_vs_chars_count,
+    bench_truncate_char_count_double,
 );
 criterion_main!(benches);
