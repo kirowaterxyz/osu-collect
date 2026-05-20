@@ -474,8 +474,7 @@ fn render_indeterminate_block(
     tick: u64,
 ) {
     let title_style = Style::default().fg(INFO).add_modifier(Modifier::BOLD);
-    let block = Block::default()
-        .title(Line::from(Span::styled(title.to_string(), title_style)).left_aligned());
+    let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
