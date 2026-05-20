@@ -17,6 +17,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::Block,
 };
+use std::rc::Rc;
 use std::sync::LazyLock;
 
 /// App-side display label for a mirror. Distinct from `MirrorKind::label()`
@@ -118,14 +119,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
 
     let compact = area.height < 14;
-    let chunks: Vec<_> = if compact {
+    let chunks: Rc<[_]> = if compact {
         Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(0),
             Constraint::Length(1),
         ])
         .split(area)
-        .to_vec()
     } else {
         Layout::vertical([
             Constraint::Length(1),
@@ -135,7 +135,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Constraint::Length(1),
         ])
         .split(area)
-        .to_vec()
     };
 
     let (header_area, content_area, footer_area) = if compact {
