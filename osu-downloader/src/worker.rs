@@ -8,7 +8,7 @@ use std::{
     future::{Future, pending},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, LazyLock,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -25,6 +25,7 @@ const MIN_PROGRESS_DELTA: u64 = 131_072;
 const MIN_PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+static PID_STRING: LazyLock<String> = LazyLock::new(|| std::process::id().to_string());
 
 /// Streamed download output.
 pub(crate) struct DownloadStreamResult {
@@ -251,10 +252,15 @@ fn temp_path_for(output_path: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("download");
-    output_path.with_file_name(format!(
-        "{name}.download-{}-{counter}.tmp",
-        std::process::id()
-    ))
+    let counter_s = counter.to_string();
+    let mut tmp = String::with_capacity(name.len() + PID_STRING.len() + counter_s.len() + 14);
+    tmp.push_str(name);
+    tmp.push_str(".download-");
+    tmp.push_str(&PID_STRING);
+    tmp.push('-');
+    tmp.push_str(&counter_s);
+    tmp.push_str(".tmp");
+    output_path.with_file_name(tmp)
 }
 
 fn aborted_stream(temp_path: PathBuf, bytes_written: u64) -> DownloadStreamResult {
