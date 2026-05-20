@@ -1,6 +1,6 @@
 use crate::{
     app::{collection_state, failed_maps, runtime, snapshots, updates::extract_collection_id},
-    osu_db::{BeatmapReader, LazerReader, LocalBeatmapset, OsuClient, StableReader},
+    osu_db::{BeatmapReader, LazerReader, LocalBeatmapset, Md5, OsuClient, StableReader},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -156,7 +156,7 @@ pub async fn run_update_collections(
     // Build local beatmapset index
     let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
         beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
-    let local_checksums_set: HashSet<String> = all_checksums.into_iter().collect();
+    let local_checksums_set: HashSet<Md5> = all_checksums.into_iter().collect();
 
     // Load collection state for compatibility with existing state file
     let state_path = collection_state::state_path();

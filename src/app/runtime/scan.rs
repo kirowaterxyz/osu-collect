@@ -8,7 +8,8 @@ use crate::{
     config::constants::CONCURRENT_REQUESTS,
     core::collection::{Collection, api_client},
     osu_db::{
-        BeatmapReader, LazerReader, LocalBeatmapset, LocalCollection, OsuClient, StableReader,
+        BeatmapReader, LazerReader, LocalBeatmapset, LocalCollection, Md5, OsuClient, StableReader,
+        checksum,
     },
 };
 use futures_util::{StreamExt, stream};
@@ -19,7 +20,7 @@ use std::{
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace};
 
-type DatabaseReadResult = (Vec<LocalCollection>, Vec<LocalBeatmapset>, Vec<String>);
+type DatabaseReadResult = (Vec<LocalCollection>, Vec<LocalBeatmapset>, Vec<Md5>);
 
 #[derive(Debug, Clone)]
 pub enum UpdatesEvent {
@@ -27,7 +28,7 @@ pub enum UpdatesEvent {
         generation: u64,
         collections: Vec<LocalCollection>,
         beatmapsets: Vec<LocalBeatmapset>,
-        all_checksums: Vec<String>,
+        all_checksums: Vec<Md5>,
     },
     Progress {
         generation: u64,
@@ -261,7 +262,7 @@ pub fn read_local_database(
             let beatmapsets = reader.list_beatmapsets()?;
             let all_checksums = beatmapsets
                 .iter()
-                .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum.clone()))
+                .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum))
                 .collect();
             Ok((collections, beatmapsets, all_checksums))
         }
@@ -481,7 +482,7 @@ pub fn should_hide_failed_beatmapset(settings: &FetchCompareSettings, beatmapset
 #[derive(Debug, Clone)]
 struct CollectionBeatmapset {
     id: u32,
-    checksums: Vec<String>,
+    checksums: Vec<Md5>,
 }
 
 impl CollectionBeatmapset {
@@ -492,11 +493,15 @@ impl CollectionBeatmapset {
     ) -> bool {
         match client_type {
             OsuClient::Stable => {
-                let deleted_hashes: HashSet<&str> =
-                    snapshot.stable_hashes.iter().map(String::as_str).collect();
-                self.checksums.iter().any(|checksum| {
-                    !checksum.is_empty() && deleted_hashes.contains(checksum.as_str())
-                })
+                // stable_hashes are persisted as hex strings; parse once for the lookup
+                let deleted_hashes: HashSet<Md5> = snapshot
+                    .stable_hashes
+                    .iter()
+                    .filter_map(|h| checksum::parse_hex(h))
+                    .collect();
+                self.checksums
+                    .iter()
+                    .any(|cksum| !checksum::is_empty(cksum) && deleted_hashes.contains(cksum))
             }
             OsuClient::Lazer => snapshot.lazer_ids.contains(&u64::from(self.id)),
         }
@@ -507,7 +512,7 @@ pub async fn fetch_missing_beatmapsets(
     client_type: OsuClient,
     collection_ids: Vec<u32>,
     local_beatmapsets: HashMap<u32, LocalBeatmapset>,
-    local_checksums: HashSet<String>,
+    local_checksums: HashSet<Md5>,
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
     settings: FetchCompareSettings,
 ) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
@@ -572,15 +577,15 @@ pub async fn fetch_missing_beatmapsets(
             }
 
             // ID not found - check if ALL checksums exist locally (handles beatmapsets with invalid OnlineID)
-            let api_checksums: Vec<&str> = beatmapset
+            let api_checksums: Vec<Md5> = beatmapset
                 .beatmaps
                 .iter()
-                .map(|bm| bm.checksum.as_str())
-                .filter(|cs| !cs.is_empty())
+                .filter(|bm| !bm.checksum.is_empty())
+                .filter_map(|bm| checksum::parse_hex(&bm.checksum))
                 .collect();
 
             if !api_checksums.is_empty()
-                && api_checksums.iter().all(|cs| local_checksums.contains(*cs))
+                && api_checksums.iter().all(|cs| local_checksums.contains(cs))
             {
                 trace!(
                     beatmapset_id = beatmapset.id,
@@ -604,7 +609,7 @@ pub async fn fetch_missing_beatmapsets(
                     checksums: beatmapset
                         .beatmaps
                         .iter()
-                        .map(|beatmap| beatmap.checksum.to_string())
+                        .filter_map(|beatmap| checksum::parse_hex(&beatmap.checksum))
                         .collect(),
                 },
                 collection_id,

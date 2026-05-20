@@ -61,7 +61,7 @@ mod tests {
         for bs in beatmapsets.iter().take(3) {
             println!("  - Set {}: {} beatmaps", bs.id, bs.beatmaps.len());
             for bm in bs.beatmaps.iter().take(2) {
-                println!("      Checksum {}:", bm.checksum);
+                println!("      Checksum {:?}:", bm.checksum);
             }
         }
 
@@ -77,10 +77,11 @@ mod tests {
             .list_all_checksums()
             .expect("Failed to read all checksums");
 
-        let checksums_from_beatmapsets: std::collections::HashSet<&String> = beatmapsets
-            .iter()
-            .flat_map(|bs| bs.beatmaps.iter().map(|b| &b.checksum))
-            .collect();
+        let checksums_from_beatmapsets: std::collections::HashSet<osu_collect::osu_db::Md5> =
+            beatmapsets
+                .iter()
+                .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum))
+                .collect();
 
         println!("\n=== Checksum Comparison ===");
         println!(
@@ -116,16 +117,17 @@ mod tests {
             .expect("Failed to read beatmapsets");
 
         // Build checksum set from beatmapsets (old method - what was causing the bug)
-        let checksums_old: std::collections::HashSet<String> = beatmapsets
+        let checksums_old: std::collections::HashSet<osu_collect::osu_db::Md5> = beatmapsets
             .iter()
-            .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum.clone()))
+            .flat_map(|bs| bs.beatmaps.iter().map(|b| b.checksum))
             .collect();
 
         // Get ALL checksums (new method - the fix)
         let all_checksums = reader
             .list_all_checksums()
             .expect("Failed to read all checksums");
-        let checksums_new: std::collections::HashSet<String> = all_checksums.into_iter().collect();
+        let checksums_new: std::collections::HashSet<osu_collect::osu_db::Md5> =
+            all_checksums.into_iter().collect();
 
         // The new method should have at least as many checksums as the old method
         assert!(
@@ -186,7 +188,7 @@ mod tests {
         let beatmapsets_individual = reader
             .list_beatmapsets()
             .expect("failed to read beatmapsets");
-        let checksums_individual: std::collections::HashSet<String> = reader
+        let checksums_individual: std::collections::HashSet<osu_collect::osu_db::Md5> = reader
             .list_all_checksums()
             .expect("failed to read checksums")
             .into_iter()
@@ -194,7 +196,7 @@ mod tests {
 
         let (collections_all, beatmapsets_all, checksums_all_vec) =
             reader.read_all().expect("read_all failed");
-        let checksums_all: std::collections::HashSet<String> =
+        let checksums_all: std::collections::HashSet<osu_collect::osu_db::Md5> =
             checksums_all_vec.into_iter().collect();
 
         assert_eq!(
@@ -217,7 +219,7 @@ mod tests {
         for cs in &checksums_individual {
             assert!(
                 checksums_all.contains(cs),
-                "checksum {cs} missing from read_all result"
+                "checksum {cs:?} missing from read_all result"
             );
         }
 

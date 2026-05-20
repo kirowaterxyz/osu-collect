@@ -1,6 +1,6 @@
 use crate::{
     core::collection::Beatmapset,
-    osu_db::{LocalBeatmapset, LocalCollection, OsuClient},
+    osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient, checksum},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -181,7 +181,14 @@ pub fn current_snapshots<'a>(
             let collection_id = collection_id_for_name(&collection.name)?;
             let snapshot = match client {
                 OsuClient::Stable => CollectionSnapshot {
-                    stable_hashes: sorted_unique(collection.beatmap_checksums.clone()),
+                    // stable_hashes is Vec<String> for JSON persistence; convert back from Md5
+                    stable_hashes: sorted_unique(
+                        collection
+                            .beatmap_checksums
+                            .iter()
+                            .map(|&md5| checksum::to_hex(md5))
+                            .collect(),
+                    ),
                     lazer_ids: Vec::new(),
                 },
                 OsuClient::Lazer => CollectionSnapshot {
@@ -190,7 +197,7 @@ pub fn current_snapshots<'a>(
                         collection
                             .beatmap_checksums
                             .iter()
-                            .filter_map(|checksum| checksum_index.get(checksum).copied())
+                            .filter_map(|cksum| checksum_index.get(cksum).copied())
                             .map(u64::from)
                             .collect(),
                     ),
@@ -225,12 +232,12 @@ pub fn in_deleted_snapshot(
 
 fn checksum_beatmapset_index<'a>(
     beatmapsets: impl IntoIterator<Item = &'a LocalBeatmapset>,
-) -> HashMap<String, u32> {
+) -> HashMap<Md5, u32> {
     let mut index = HashMap::new();
     for beatmapset in beatmapsets {
         for beatmap in &beatmapset.beatmaps {
-            if !beatmap.checksum.is_empty() {
-                index.insert(beatmap.checksum.clone(), beatmapset.id);
+            if !checksum::is_empty(&beatmap.checksum) {
+                index.insert(beatmap.checksum, beatmapset.id);
             }
         }
     }

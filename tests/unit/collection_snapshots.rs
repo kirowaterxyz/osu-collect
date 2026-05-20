@@ -3,9 +3,19 @@ use crate::{
         runtime,
         snapshots::{self, CollectionSnapshot, CollectionSnapshotFile},
     },
-    osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection, OsuClient},
+    osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection, Md5, OsuClient, checksum},
 };
 use tempfile::tempdir;
+
+fn md5(hex: &str) -> Md5 {
+    checksum::parse_hex(hex).expect("valid 32-char hex in test")
+}
+
+// Short hex aliases for readability: each is a deterministic 32-char hex.
+const HASH_A: &str = "0a000000000000000000000000000000";
+const HASH_B: &str = "0b000000000000000000000000000000";
+const HASH_1: &str = "00000000000000000000000000000001";
+const HASH_2: &str = "00000000000000000000000000000002";
 
 #[test]
 fn diff_empty_baseline_returns_no_changes() {
@@ -148,13 +158,14 @@ fn snapshot_dir_in_adds_expected_suffix() {
 fn current_stable_snapshot_uses_collection_hashes() {
     let collections = vec![LocalCollection {
         name: "cool - 42".to_string(),
-        beatmap_checksums: vec!["b".to_string(), "a".to_string(), "a".to_string()],
+        beatmap_checksums: vec![md5(HASH_B), md5(HASH_A), md5(HASH_A)],
     }];
 
     let snapshots =
         snapshots::current_snapshots(OsuClient::Stable, &collections, &[], |_| Some(42));
 
-    assert_eq!(snapshots[&42].snapshot.stable_hashes, ["a", "b"]);
+    // stable_hashes are persisted as hex strings, sorted and deduped
+    assert_eq!(snapshots[&42].snapshot.stable_hashes, [HASH_A, HASH_B]);
     assert!(snapshots[&42].snapshot.lazer_ids.is_empty());
 }
 
@@ -162,19 +173,19 @@ fn current_stable_snapshot_uses_collection_hashes() {
 fn current_lazer_snapshot_maps_hashes_to_beatmapset_ids() {
     let collections = vec![LocalCollection {
         name: "cool - 42".to_string(),
-        beatmap_checksums: vec!["hash2".to_string(), "hash1".to_string()],
+        beatmap_checksums: vec![md5(HASH_2), md5(HASH_1)],
     }];
     let beatmapsets = vec![
         LocalBeatmapset {
             id: 20,
             beatmaps: vec![LocalBeatmap {
-                checksum: "hash2".to_string(),
+                checksum: md5(HASH_2),
             }],
         },
         LocalBeatmapset {
             id: 10,
             beatmaps: vec![LocalBeatmap {
-                checksum: "hash1".to_string(),
+                checksum: md5(HASH_1),
             }],
         },
     ];

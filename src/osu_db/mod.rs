@@ -1,6 +1,8 @@
+pub mod checksum;
 pub mod lazer;
 pub mod stable;
 
+pub use checksum::Md5;
 pub use lazer::LazerReader;
 pub use stable::StableReader;
 
@@ -24,7 +26,7 @@ impl OsuClient {
 
 #[derive(Debug, Clone)]
 pub struct LocalBeatmap {
-    pub checksum: String,
+    pub checksum: Md5,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +38,7 @@ pub struct LocalBeatmapset {
 #[derive(Debug, Clone)]
 pub struct LocalCollection {
     pub name: String,
-    pub beatmap_checksums: Vec<String>,
+    pub beatmap_checksums: Vec<Md5>,
 }
 
 pub trait BeatmapReader {

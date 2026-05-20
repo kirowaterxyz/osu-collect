@@ -114,7 +114,8 @@ mod tests {
 
         let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
             beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
-        let local_checksums: HashSet<String> = all_checksums.into_iter().collect();
+        let local_checksums: HashSet<osu_collect::osu_db::Md5> =
+            all_checksums.into_iter().collect();
 
         let t_fetch = Instant::now();
         let result = runtime::fetch_missing_beatmapsets(

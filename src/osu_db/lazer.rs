@@ -1,9 +1,10 @@
 use super::{
-    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, find_installation, require_db,
+    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, checksum, find_installation,
+    require_db,
 };
 use crate::realm_bridge::ffi;
 use std::path::PathBuf;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct LazerReader {
     path: PathBuf,
@@ -37,7 +38,12 @@ impl BeatmapReader for LazerReader {
                     .beatmaps
                     .into_iter()
                     .map(|b| LocalBeatmap {
-                        checksum: b.checksum,
+                        checksum: checksum::parse_hex(&b.checksum).unwrap_or_else(|| {
+                            if !b.checksum.is_empty() {
+                                warn!(hash = %b.checksum, "malformed beatmap checksum from realm");
+                            }
+                            checksum::EMPTY
+                        }),
                     })
                     .collect(),
             })
@@ -76,7 +82,18 @@ impl BeatmapReader for LazerReader {
             .into_iter()
             .map(|c| LocalCollection {
                 name: c.name,
-                beatmap_checksums: c.beatmap_checksums.into_iter().collect(),
+                beatmap_checksums: c
+                    .beatmap_checksums
+                    .into_iter()
+                    .map(|h| {
+                        checksum::parse_hex(&h).unwrap_or_else(|| {
+                            if !h.is_empty() {
+                                warn!(hash = %h, "malformed collection checksum from realm");
+                            }
+                            checksum::EMPTY
+                        })
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -123,20 +140,38 @@ impl LazerReader {
         paths
     }
 
-    pub fn list_all_checksums(&self) -> Result<Vec<String>, String> {
+    pub fn list_all_checksums(&self) -> Result<Vec<checksum::Md5>, String> {
         let db_path = self.realm_path()?;
         let db_path_str = db_path.to_str().ok_or("Invalid path encoding")?;
 
         let realm =
             ffi::open_realm(db_path_str).map_err(|e| format!("Failed to open realm: {e}"))?;
 
-        Ok(realm.list_all_checksums().into_iter().collect())
+        Ok(realm
+            .list_all_checksums()
+            .into_iter()
+            .map(|h| {
+                checksum::parse_hex(&h).unwrap_or_else(|| {
+                    if !h.is_empty() {
+                        warn!(hash = %h, "malformed checksum from realm");
+                    }
+                    checksum::EMPTY
+                })
+            })
+            .collect())
     }
 
     #[allow(clippy::type_complexity)]
     pub fn read_all(
         &self,
-    ) -> Result<(Vec<LocalCollection>, Vec<LocalBeatmapset>, Vec<String>), String> {
+    ) -> Result<
+        (
+            Vec<LocalCollection>,
+            Vec<LocalBeatmapset>,
+            Vec<checksum::Md5>,
+        ),
+        String,
+    > {
         let db_path = self.realm_path()?;
         info!(path = %db_path.display(), "Reading all data from Realm database");
 
@@ -154,13 +189,35 @@ impl LazerReader {
         );
 
         let ffi_sets = realm.list_beatmapsets();
-        let all_checksums: Vec<String> = realm.list_all_checksums().into_iter().collect();
+        let all_checksums: Vec<checksum::Md5> = realm
+            .list_all_checksums()
+            .into_iter()
+            .map(|h| {
+                checksum::parse_hex(&h).unwrap_or_else(|| {
+                    if !h.is_empty() {
+                        warn!(hash = %h, "malformed checksum from realm");
+                    }
+                    checksum::EMPTY
+                })
+            })
+            .collect();
 
         let collections = ffi_collections
             .into_iter()
             .map(|c| LocalCollection {
                 name: c.name,
-                beatmap_checksums: c.beatmap_checksums.into_iter().collect(),
+                beatmap_checksums: c
+                    .beatmap_checksums
+                    .into_iter()
+                    .map(|h| {
+                        checksum::parse_hex(&h).unwrap_or_else(|| {
+                            if !h.is_empty() {
+                                warn!(hash = %h, "malformed collection checksum from realm");
+                            }
+                            checksum::EMPTY
+                        })
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -172,7 +229,12 @@ impl LazerReader {
                     .beatmaps
                     .into_iter()
                     .map(|b| LocalBeatmap {
-                        checksum: b.checksum,
+                        checksum: checksum::parse_hex(&b.checksum).unwrap_or_else(|| {
+                            if !b.checksum.is_empty() {
+                                warn!(hash = %b.checksum, "malformed beatmap checksum from realm");
+                            }
+                            checksum::EMPTY
+                        }),
                     })
                     .collect(),
             })

@@ -1,5 +1,6 @@
 use super::{
-    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, find_installation, require_db,
+    BeatmapReader, LocalBeatmap, LocalBeatmapset, LocalCollection, checksum, find_installation,
+    require_db,
 };
 use osu_db::{collection::CollectionList, listing::Listing};
 use std::{collections::HashMap, path::PathBuf};
@@ -51,9 +52,13 @@ impl BeatmapReader for StableReader {
             }
 
             let beatmapset_id = beatmap.beatmapset_id as u32;
-            let checksum = beatmap.hash.unwrap_or_default();
+            let cksum = beatmap
+                .hash
+                .as_deref()
+                .and_then(checksum::parse_hex)
+                .unwrap_or(checksum::EMPTY);
 
-            let local_beatmap = LocalBeatmap { checksum };
+            let local_beatmap = LocalBeatmap { checksum: cksum };
 
             sets.entry(beatmapset_id)
                 .or_insert_with(|| LocalBeatmapset {
@@ -91,7 +96,12 @@ impl BeatmapReader for StableReader {
             .into_iter()
             .map(|c| LocalCollection {
                 name: c.name.unwrap_or_default(),
-                beatmap_checksums: c.beatmap_hashes.into_iter().flatten().collect(),
+                beatmap_checksums: c
+                    .beatmap_hashes
+                    .into_iter()
+                    .flatten()
+                    .map(|h| checksum::parse_hex(&h).unwrap_or(checksum::EMPTY))
+                    .collect(),
             })
             .collect();
 

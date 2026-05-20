@@ -3,7 +3,7 @@ use super::{
     messages::{AppMessage, set_error_message},
     next_field, prev_field,
 };
-use crate::osu_db::{LocalBeatmapset, LocalCollection, OsuClient};
+use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use tracing::{debug, info};
@@ -106,7 +106,7 @@ impl PathState {
 pub struct ScanState {
     pub local_collections_raw: Vec<LocalCollection>,
     pub local_beatmapsets: HashMap<u32, LocalBeatmapset>,
-    pub all_local_checksums: HashSet<String>,
+    pub all_local_checksums: HashSet<Md5>,
     pub scan_status: ScanStatus,
     pub scan_generation: u64,
     pub failed_beatmapset_count: usize,
@@ -473,7 +473,7 @@ impl UpdatesTab {
         self.scan.local_beatmapsets = beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
     }
 
-    pub fn set_all_checksums(&mut self, checksums: Vec<String>) {
+    pub fn set_all_checksums(&mut self, checksums: Vec<Md5>) {
         self.scan.all_local_checksums = checksums.into_iter().collect();
     }
 

@@ -6,8 +6,14 @@ use crate::app::{
     },
     updates::{MissingBeatmapset, MissingStatus, UpdatesTab},
 };
-use crate::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection};
+use crate::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection, Md5};
 use std::collections::HashSet;
+
+fn test_md5(seed: u8) -> Md5 {
+    let mut out = [0u8; 16];
+    out[0] = seed;
+    out
+}
 
 fn missing(id: u32, selected: bool, previously_deleted: bool) -> MissingBeatmapset {
     MissingBeatmapset {
@@ -26,11 +32,11 @@ fn set_collections_hides_entries_without_ids() {
     let collections = vec![
         LocalCollection {
             name: "My Collection - 123".to_string(),
-            beatmap_checksums: vec!["hash".to_string()],
+            beatmap_checksums: vec![test_md5(1)],
         },
         LocalCollection {
             name: "Missing Id".to_string(),
-            beatmap_checksums: vec!["other".to_string()],
+            beatmap_checksums: vec![test_md5(2)],
         },
     ];
 
@@ -104,13 +110,13 @@ fn set_local_beatmapsets_builds_id_index() {
         LocalBeatmapset {
             id: 10,
             beatmaps: vec![LocalBeatmap {
-                checksum: "aaa".to_string(),
+                checksum: test_md5(0xaa),
             }],
         },
         LocalBeatmapset {
             id: 20,
             beatmaps: vec![LocalBeatmap {
-                checksum: "bbb".to_string(),
+                checksum: test_md5(0xbb),
             }],
         },
     ];
@@ -123,26 +129,28 @@ fn set_local_beatmapsets_builds_id_index() {
 
 #[test]
 fn set_all_checksums_builds_hashset() {
+    let abc = test_md5(0xab);
+    let def = test_md5(0xde);
+    let xyz = test_md5(0xff);
     let mut tab = UpdatesTab::new();
-    tab.set_all_checksums(vec!["abc".to_string(), "def".to_string()]);
+    tab.set_all_checksums(vec![abc, def]);
 
-    assert!(tab.scan.all_local_checksums.contains("abc"));
-    assert!(tab.scan.all_local_checksums.contains("def"));
-    assert!(!tab.scan.all_local_checksums.contains("xyz"));
+    assert!(tab.scan.all_local_checksums.contains(&abc));
+    assert!(tab.scan.all_local_checksums.contains(&def));
+    assert!(!tab.scan.all_local_checksums.contains(&xyz));
 }
 
 #[test]
 fn installed_beatmapset_not_in_missing() {
     // Simulates: beatmapset id=42 is locally installed; a collection contains it.
     // After set_missing_beatmaps with an empty list (checked upstream), visible_missing is empty.
+    let cksum = test_md5(0xd0);
     let mut tab = UpdatesTab::new();
     tab.set_local_beatmapsets(vec![LocalBeatmapset {
         id: 42,
-        beatmaps: vec![LocalBeatmap {
-            checksum: "deadbeef".to_string(),
-        }],
+        beatmaps: vec![LocalBeatmap { checksum: cksum }],
     }]);
-    tab.set_all_checksums(vec!["deadbeef".to_string()]);
+    tab.set_all_checksums(vec![cksum]);
 
     // Locally installed = not missing
     tab.set_missing_beatmaps(vec![]);

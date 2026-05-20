@@ -730,14 +730,17 @@ fn make_local_beatmapsets(
     n: usize,
     per_set: usize,
 ) -> std::collections::HashMap<u32, osu_collect::osu_db::LocalBeatmapset> {
-    use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset};
+    use osu_collect::osu_db::{LocalBeatmap, LocalBeatmapset, Md5};
     (0..n as u32)
         .map(|id| {
             let beatmapset = LocalBeatmapset {
                 id,
                 beatmaps: (0..per_set)
-                    .map(|b| LocalBeatmap {
-                        checksum: format!("{:032x}", id as usize * per_set + b),
+                    .map(|b| {
+                        let v = (id as usize * per_set + b) as u64;
+                        let mut md5: Md5 = [0u8; 16];
+                        md5[..8].copy_from_slice(&v.to_le_bytes());
+                        LocalBeatmap { checksum: md5 }
                     })
                     .collect(),
             };
@@ -774,19 +777,20 @@ fn bench_current_snapshots_beatmapset_clone(c: &mut Criterion) {
 
         // Candidate: pass values() iterator directly — no Vec, no clone.
         // Simulates checksum_beatmapset_index(map.values()) after the
-        // signature change.  We build the same HashMap<String, u32> index
+        // signature change.  We build the same HashMap<Md5, u32> index
         // as the real function to ensure the work is equivalent.
         group.bench_with_input(
             BenchmarkId::new("values_iter_direct", label),
             &map,
             |b, map| {
                 b.iter(|| {
-                    let mut index: std::collections::HashMap<String, u32> =
+                    use osu_collect::osu_db::{Md5, checksum};
+                    let mut index: std::collections::HashMap<Md5, u32> =
                         std::collections::HashMap::new();
                     for beatmapset in black_box(map).values() {
                         for beatmap in &beatmapset.beatmaps {
-                            if !beatmap.checksum.is_empty() {
-                                index.insert(beatmap.checksum.clone(), beatmapset.id);
+                            if !checksum::is_empty(&beatmap.checksum) {
+                                index.insert(beatmap.checksum, beatmapset.id);
                             }
                         }
                     }
