@@ -43,7 +43,7 @@ impl BeatmapReader for StableReader {
             }
         };
 
-        let mut sets: HashMap<u32, LocalBeatmapset> = HashMap::new();
+        let mut sets: HashMap<u32, Vec<LocalBeatmap>> = HashMap::new();
 
         for beatmap in listing.beatmaps {
             // Skip beatmaps with invalid IDs (unsubmitted beatmaps have negative IDs)
@@ -58,18 +58,18 @@ impl BeatmapReader for StableReader {
                 .and_then(checksum::parse_hex)
                 .unwrap_or(checksum::EMPTY);
 
-            let local_beatmap = LocalBeatmap { checksum: cksum };
-
             sets.entry(beatmapset_id)
-                .or_insert_with(|| LocalBeatmapset {
-                    id: beatmapset_id,
-                    beatmaps: Vec::new(),
-                })
-                .beatmaps
-                .push(local_beatmap);
+                .or_default()
+                .push(LocalBeatmap { checksum: cksum });
         }
 
-        Ok(sets.into_values().collect())
+        Ok(sets
+            .into_iter()
+            .map(|(id, beatmaps)| LocalBeatmapset {
+                id,
+                beatmaps: beatmaps.into_boxed_slice(),
+            })
+            .collect())
     }
 
     fn list_collections(&self) -> Result<Vec<LocalCollection>, String> {
@@ -101,7 +101,8 @@ impl BeatmapReader for StableReader {
                     .into_iter()
                     .flatten()
                     .map(|h| checksum::parse_hex(&h).unwrap_or(checksum::EMPTY))
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
             .collect();
 

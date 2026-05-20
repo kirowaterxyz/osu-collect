@@ -45,7 +45,8 @@ impl BeatmapReader for LazerReader {
                             checksum::EMPTY
                         }),
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
             .collect();
 
@@ -93,7 +94,8 @@ impl BeatmapReader for LazerReader {
                             checksum::EMPTY
                         })
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
             .collect();
 
@@ -217,7 +219,8 @@ impl LazerReader {
                             checksum::EMPTY
                         })
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
             .collect();
 
@@ -236,7 +239,8 @@ impl LazerReader {
                             checksum::EMPTY
                         }),
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
             .collect();
 

@@ -32,13 +32,13 @@ pub struct LocalBeatmap {
 #[derive(Debug, Clone)]
 pub struct LocalBeatmapset {
     pub id: u32,
-    pub beatmaps: Vec<LocalBeatmap>,
+    pub beatmaps: Box<[LocalBeatmap]>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LocalCollection {
     pub name: String,
-    pub beatmap_checksums: Vec<Md5>,
+    pub beatmap_checksums: Box<[Md5]>,
 }
 
 pub trait BeatmapReader {

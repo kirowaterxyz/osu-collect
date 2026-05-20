@@ -158,7 +158,7 @@ fn snapshot_dir_in_adds_expected_suffix() {
 fn current_stable_snapshot_uses_collection_hashes() {
     let collections = vec![LocalCollection {
         name: "cool - 42".to_string(),
-        beatmap_checksums: vec![md5(HASH_B), md5(HASH_A), md5(HASH_A)],
+        beatmap_checksums: [md5(HASH_B), md5(HASH_A), md5(HASH_A)].into(),
     }];
 
     let snapshots =
@@ -173,20 +173,22 @@ fn current_stable_snapshot_uses_collection_hashes() {
 fn current_lazer_snapshot_maps_hashes_to_beatmapset_ids() {
     let collections = vec![LocalCollection {
         name: "cool - 42".to_string(),
-        beatmap_checksums: vec![md5(HASH_2), md5(HASH_1)],
+        beatmap_checksums: [md5(HASH_2), md5(HASH_1)].into(),
     }];
     let beatmapsets = vec![
         LocalBeatmapset {
             id: 20,
-            beatmaps: vec![LocalBeatmap {
+            beatmaps: [LocalBeatmap {
                 checksum: md5(HASH_2),
-            }],
+            }]
+            .into(),
         },
         LocalBeatmapset {
             id: 10,
-            beatmaps: vec![LocalBeatmap {
+            beatmaps: [LocalBeatmap {
                 checksum: md5(HASH_1),
-            }],
+            }]
+            .into(),
         },
     ];
 

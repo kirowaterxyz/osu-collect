@@ -32,11 +32,11 @@ fn set_collections_hides_entries_without_ids() {
     let collections = vec![
         LocalCollection {
             name: "My Collection - 123".to_string(),
-            beatmap_checksums: vec![test_md5(1)],
+            beatmap_checksums: [test_md5(1)].into(),
         },
         LocalCollection {
             name: "Missing Id".to_string(),
-            beatmap_checksums: vec![test_md5(2)],
+            beatmap_checksums: [test_md5(2)].into(),
         },
     ];
 
@@ -63,7 +63,7 @@ fn extract_id_formats() {
     for (name, expected_id) in &cases {
         let collections = vec![LocalCollection {
             name: name.to_string(),
-            beatmap_checksums: vec![],
+            beatmap_checksums: Box::new([]),
         }];
         tab.set_collections(collections);
         let got = tab
@@ -109,15 +109,17 @@ fn set_local_beatmapsets_stores_sets() {
     let sets = vec![
         LocalBeatmapset {
             id: 10,
-            beatmaps: vec![LocalBeatmap {
+            beatmaps: [LocalBeatmap {
                 checksum: test_md5(0xaa),
-            }],
+            }]
+            .into(),
         },
         LocalBeatmapset {
             id: 20,
-            beatmaps: vec![LocalBeatmap {
+            beatmaps: [LocalBeatmap {
                 checksum: test_md5(0xbb),
-            }],
+            }]
+            .into(),
         },
     ];
     tab.set_local_beatmapsets(sets);
@@ -149,7 +151,7 @@ fn installed_beatmapset_not_in_missing() {
     let mut tab = UpdatesTab::new();
     tab.set_local_beatmapsets(vec![LocalBeatmapset {
         id: 42,
-        beatmaps: vec![LocalBeatmap { checksum: cksum }],
+        beatmaps: [LocalBeatmap { checksum: cksum }].into(),
     }]);
     tab.set_all_checksums(vec![cksum]);
 
@@ -167,7 +169,7 @@ fn missing_beatmap_selection_preserved_across_refresh() {
 
     tab.set_collections(vec![LocalCollection {
         name: "coll - 100".to_string(),
-        beatmap_checksums: vec![],
+        beatmap_checksums: Box::new([]),
     }]);
 
     tab.set_missing_beatmaps(first_batch);
@@ -219,7 +221,7 @@ fn previously_deleted_items_are_deselected_by_default() {
 
     tab.set_collections(vec![LocalCollection {
         name: "coll - 100".to_string(),
-        beatmap_checksums: vec![],
+        beatmap_checksums: Box::new([]),
     }]);
 
     let batch = vec![missing(10, false, true), missing(20, true, false)];
@@ -249,7 +251,7 @@ fn previously_deleted_can_be_reselected_and_survives_refresh() {
 
     tab.set_collections(vec![LocalCollection {
         name: "coll - 100".to_string(),
-        beatmap_checksums: vec![],
+        beatmap_checksums: Box::new([]),
     }]);
 
     let first = vec![missing(10, false, true)];
