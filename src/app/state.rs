@@ -642,13 +642,13 @@ impl App {
         }
     }
 
-    pub fn tab_titles(&self) -> Vec<Cow<'static, str>> {
+    pub fn tab_titles(&self) -> Vec<Cow<'_, str>> {
         let mut titles = Vec::with_capacity(self.downloads.len() + STATIC_TABS);
         titles.push(Cow::Borrowed(TAB_HOME_LOWER));
         titles.push(Cow::Borrowed(TAB_UPDATES_LOWER));
         titles.push(Cow::Borrowed(TAB_CONFIG_LOWER));
         for page in &self.downloads {
-            titles.push(Cow::Owned(page.title_lower().to_owned()));
+            titles.push(Cow::Borrowed(page.title_lower()));
         }
         titles
     }

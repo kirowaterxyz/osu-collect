@@ -13,7 +13,7 @@ use super::{ACCENT, ACCENT_ALT, LINE, LINE_SOFT, TEXT_FAINT};
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
 
-pub fn render(frame: &mut Frame, area: Rect, tabs: &[Cow<'static, str>], active: usize) {
+pub fn render<'t>(frame: &mut Frame, area: Rect, tabs: &[Cow<'t, str>], active: usize) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame, area: Rect, tabs: &[Cow<'static, str>], active:
         layout[0],
     );
 
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(tabs.len() * 3);
+    let mut spans: Vec<Span<'t>> = Vec::with_capacity(tabs.len() * 3);
     spans.push(Span::styled("  ", Style::default().fg(LINE)));
     for (index, title) in tabs.iter().enumerate() {
         if index > 0 {
