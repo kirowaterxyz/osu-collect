@@ -581,7 +581,12 @@ fn bench_temp_path_for_pid(c: &mut Criterion) {
             BenchmarkId::new("lazy_lock_pid", label),
             &(name, counter),
             |b, &(name, counter)| {
-                b.iter(|| black_box(temp_path_for_cached_pid(black_box(name), black_box(counter))))
+                b.iter(|| {
+                    black_box(temp_path_for_cached_pid(
+                        black_box(name),
+                        black_box(counter),
+                    ))
+                })
             },
         );
     }
@@ -623,11 +628,9 @@ fn bench_beatmapset_ids_capacity(c: &mut Criterion) {
         // All-unique IDs so every insert hits the growth path.
         let ids: Vec<u32> = (0..n as u32).collect();
 
-        group.bench_with_input(
-            BenchmarkId::new("hashset_new", label),
-            &ids,
-            |b, ids| b.iter(|| black_box(beatmapset_ids_no_capacity(black_box(ids)))),
-        );
+        group.bench_with_input(BenchmarkId::new("hashset_new", label), &ids, |b, ids| {
+            b.iter(|| black_box(beatmapset_ids_no_capacity(black_box(ids))))
+        });
 
         group.bench_with_input(
             BenchmarkId::new("hashset_with_capacity", label),
@@ -686,11 +689,9 @@ fn bench_extract_filename_append(c: &mut Criterion) {
     let mut group = c.benchmark_group("extract_filename_append");
 
     for &(name, label) in cases {
-        group.bench_with_input(
-            BenchmarkId::new("format_append", label),
-            name,
-            |b, name| b.iter(|| black_box(extract_filename_format(black_box(name)))),
-        );
+        group.bench_with_input(BenchmarkId::new("format_append", label), name, |b, name| {
+            b.iter(|| black_box(extract_filename_format(black_box(name))))
+        });
 
         group.bench_with_input(
             BenchmarkId::new("push_str_append", label),

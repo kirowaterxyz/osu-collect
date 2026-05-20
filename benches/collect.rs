@@ -1094,7 +1094,10 @@ fn bench_active_download_message_clone(c: &mut Criterion) {
     // Simulate truncate_to_width return values.
     let cases: &[(&str, &str)] = &[
         ("short", "downloading from Beatconnect"),
-        ("long", "downloading very-long-mirror-name-that-got-truncated…"),
+        (
+            "long",
+            "downloading very-long-mirror-name-that-got-truncated…",
+        ),
         ("empty", ""),
     ];
 
@@ -1102,35 +1105,27 @@ fn bench_active_download_message_clone(c: &mut Criterion) {
 
     for &(label, msg) in cases {
         // Baseline: compute char count, then clone into span content.
-        group.bench_with_input(
-            BenchmarkId::new("clone_into_span", label),
-            msg,
-            |b, msg| {
-                b.iter(|| {
-                    let message = black_box(msg).to_string(); // simulates truncate_to_width output
-                    let message_w = message.chars().count() as u16;
-                    // clone needed because message_w is computed first (current production shape)
-                    let span_content = message.clone();
-                    black_box((message_w, span_content))
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("clone_into_span", label), msg, |b, msg| {
+            b.iter(|| {
+                let message = black_box(msg).to_string(); // simulates truncate_to_width output
+                let message_w = message.chars().count() as u16;
+                // clone needed because message_w is computed first (current production shape)
+                let span_content = message.clone();
+                black_box((message_w, span_content))
+            })
+        });
 
         // Candidate: compute char count first, then move message — no clone.
-        group.bench_with_input(
-            BenchmarkId::new("move_into_span", label),
-            msg,
-            |b, msg| {
-                b.iter(|| {
-                    let message = black_box(msg).to_string(); // simulates truncate_to_width output
-                    // Reorder: chars().count() can be computed before ownership moves
-                    let message_w = message.chars().count() as u16;
-                    // move message directly — message_w already captured
-                    let span_content = message; // no clone
-                    black_box((message_w, span_content))
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("move_into_span", label), msg, |b, msg| {
+            b.iter(|| {
+                let message = black_box(msg).to_string(); // simulates truncate_to_width output
+                // Reorder: chars().count() can be computed before ownership moves
+                let message_w = message.chars().count() as u16;
+                // move message directly — message_w already captured
+                let span_content = message; // no clone
+                black_box((message_w, span_content))
+            })
+        });
     }
 
     group.finish();
@@ -1154,11 +1149,7 @@ fn bench_active_download_message_clone(c: &mut Criterion) {
 
 fn bench_progress_percent_format(c: &mut Criterion) {
     // Representative ratio values covering 1-, 2-, 3-digit percentages.
-    let cases: &[(&str, u16)] = &[
-        ("1digit", 5),
-        ("2digit", 42),
-        ("3digit", 100),
-    ];
+    let cases: &[(&str, u16)] = &[("1digit", 5), ("2digit", 42), ("3digit", 100)];
 
     let mut group = c.benchmark_group("progress_percent_format");
 
@@ -1242,16 +1233,12 @@ fn bench_status_pill_format(c: &mut Criterion) {
 
     for label in labels {
         // Baseline: current production shape.
-        group.bench_with_input(
-            BenchmarkId::new("format_pad", label),
-            label,
-            |b, label| {
-                b.iter(|| {
-                    let s = format!(" {} ", black_box(*label));
-                    black_box(s)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("format_pad", label), label, |b, label| {
+            b.iter(|| {
+                let s = format!(" {} ", black_box(*label));
+                black_box(s)
+            })
+        });
 
         // Candidate: with_capacity + push_str — avoids format! machinery.
         group.bench_with_input(
