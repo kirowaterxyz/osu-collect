@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::sync::{LazyLock, mpsc};
 
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
@@ -497,6 +497,211 @@ fn bench_write_collections_db_dedup(c: &mut Criterion) {
     group.finish();
 }
 
+// ── temp_path_for pid format ──────────────────────────────────────────────────
+//
+// osu-downloader/src/worker.rs:248-258 — called once per download attempt to
+// build the temporary file path used during streaming:
+//   format!("{name}.download-{}-{counter}.tmp", std::process::id())
+// This calls std::process::id() (a getpid syscall, platform-dependent caching)
+// and allocates a new String on every call.
+//
+// Candidate: compute the pid string exactly once with LazyLock<String> and use
+// with_capacity + push_str to assemble the path without a format! allocation.
+//
+// Bench inputs: typical short filename (common) and long filename (stress).
+
+static PID_STR: LazyLock<String> = LazyLock::new(|| std::process::id().to_string());
+
+fn temp_path_for_baseline(name: &str, counter: u64) -> String {
+    // Exact production shape: format! with std::process::id() each call.
+    format!("{name}.download-{}-{counter}.tmp", std::process::id())
+}
+
+fn temp_path_for_cached_pid(name: &str, counter: u64) -> String {
+    // Candidate: pid fetched once from LazyLock; manual with_capacity + push_str.
+    let pid = &*PID_STR;
+    // Exact capacity: name + ".download-" + pid + "-" + up to 20 digits + ".tmp"
+    let counter_digits = if counter == 0 {
+        1
+    } else {
+        counter.checked_ilog10().unwrap_or(0) as usize + 1
+    };
+    let cap = name.len() + ".download-".len() + pid.len() + 1 + counter_digits + ".tmp".len();
+    let mut s = String::with_capacity(cap);
+    s.push_str(name);
+    s.push_str(".download-");
+    s.push_str(pid);
+    s.push('-');
+    // Write counter digits without allocating.
+    let mut buf = [0u8; 20];
+    let mut n = counter;
+    let mut pos = 20usize;
+    if n == 0 {
+        pos -= 1;
+        buf[pos] = b'0';
+    } else {
+        while n > 0 {
+            pos -= 1;
+            buf[pos] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+    }
+    // SAFETY: buf[pos..] contains only ASCII digit bytes, valid UTF-8.
+    s.push_str(unsafe { std::str::from_utf8_unchecked(&buf[pos..]) });
+    s.push_str(".tmp");
+    s
+}
+
+fn bench_temp_path_for_pid(c: &mut Criterion) {
+    // name is the file_name() component from the output_path (typical .osz filename).
+    let cases: &[(&str, u64, &str)] = &[
+        ("1234567 Artist - Song Title [Hard].osz", 0, "typical_short"),
+        (
+            "9999999 A Very Long Artist Name With Spaces - A Very Long Song Title \
+             That Goes On And On Including Extra Details [Expert Difficulty].osz",
+            999,
+            "long_name",
+        ),
+        // Fallback name when output path has no file_name component.
+        ("download", 42, "fallback_name"),
+    ];
+
+    let mut group = c.benchmark_group("temp_path_for_pid");
+
+    for &(name, counter, label) in cases {
+        group.bench_with_input(
+            BenchmarkId::new("format_process_id", label),
+            &(name, counter),
+            |b, &(name, counter)| {
+                b.iter(|| black_box(temp_path_for_baseline(black_box(name), black_box(counter))))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("lazy_lock_pid", label),
+            &(name, counter),
+            |b, &(name, counter)| {
+                b.iter(|| black_box(temp_path_for_cached_pid(black_box(name), black_box(counter))))
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── beatmapset_ids HashSet capacity ──────────────────────────────────────────
+//
+// osu-downloader/src/collection.rs:Collection::beatmapset_ids (line 62-69) —
+// called once per session to derive the download list from the collection.
+// Current shape:
+//   let mut seen = std::collections::HashSet::new();
+// For a 500-beatmapset collection this starts at capacity 0 and reallocs
+// ~9 times as the set grows (doubling from 0 → 1 → 2 → 4 → 8 → …).
+//
+// Candidate: HashSet::with_capacity(self.beatmapsets.len()) — pre-sizes to
+// fit all IDs in a single allocation, zero reallocs.
+//
+// Bench inputs: 50, 200, 500 beatmapsets (all unique IDs — worst case for the
+// HashSet: every insert grows the set).
+
+fn beatmapset_ids_no_capacity(ids: &[u32]) -> Vec<u32> {
+    let mut seen = std::collections::HashSet::new();
+    ids.iter().copied().filter(|id| seen.insert(*id)).collect()
+}
+
+fn beatmapset_ids_with_capacity(ids: &[u32]) -> Vec<u32> {
+    let mut seen = std::collections::HashSet::with_capacity(ids.len());
+    ids.iter().copied().filter(|id| seen.insert(*id)).collect()
+}
+
+fn bench_beatmapset_ids_capacity(c: &mut Criterion) {
+    let configs: &[(&str, usize)] = &[("50", 50), ("200", 200), ("500", 500)];
+
+    let mut group = c.benchmark_group("beatmapset_ids_capacity");
+
+    for &(label, n) in configs {
+        // All-unique IDs so every insert hits the growth path.
+        let ids: Vec<u32> = (0..n as u32).collect();
+
+        group.bench_with_input(
+            BenchmarkId::new("hashset_new", label),
+            &ids,
+            |b, ids| b.iter(|| black_box(beatmapset_ids_no_capacity(black_box(ids)))),
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("hashset_with_capacity", label),
+            &ids,
+            |b, ids| b.iter(|| black_box(beatmapset_ids_with_capacity(black_box(ids)))),
+        );
+    }
+
+    group.finish();
+}
+
+// ── extract_filename osz append ───────────────────────────────────────────────
+//
+// osu-downloader/src/download.rs:extract_filename (lines 747-762) — called once
+// per successful mirror response to derive the final archive filename.
+// Current shape when the parsed filename lacks an `.osz` extension:
+//   format!("{filename}.osz")
+// This allocates a second String even though `filename` is already owned and has
+// sufficient capacity for an in-place append.
+//
+// Candidate: filename.push_str(".osz") — reuses the existing allocation when the
+// String's capacity allows it; only reallocates if the original string was
+// shrink-fitted (which String::from/to_string never does).
+//
+// The common path (filename already ends with `.osz`) is unchanged.
+// This bench isolates the append branch: both baseline and candidate receive
+// filenames without an extension so the append is always taken.
+//
+// Bench inputs: short, typical, and long filenames (all without .osz).
+
+fn extract_filename_format(filename: &str) -> String {
+    // Exact production shape: format! to append extension.
+    let owned = filename.to_string();
+    format!("{owned}.osz")
+}
+
+fn extract_filename_push(filename: &str) -> String {
+    // Candidate: push_str reuses the owned allocation.
+    let mut owned = filename.to_string();
+    owned.push_str(".osz");
+    owned
+}
+
+fn bench_extract_filename_append(c: &mut Criterion) {
+    // Filenames without .osz extension — exercises the append branch only.
+    let cases: &[(&str, &str)] = &[
+        ("1234567", "id_only"),
+        ("1234567 Artist - Song Title [Hard]", "typical"),
+        (
+            "9999999 A Very Long Artist Name With Spaces - A Very Long Song Title \
+             That Goes On And On Including Extra Details [Expert Difficulty]",
+            "long",
+        ),
+    ];
+
+    let mut group = c.benchmark_group("extract_filename_append");
+
+    for &(name, label) in cases {
+        group.bench_with_input(
+            BenchmarkId::new("format_append", label),
+            name,
+            |b, name| b.iter(|| black_box(extract_filename_format(black_box(name)))),
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("push_str_append", label),
+            name,
+            |b, name| b.iter(|| black_box(extract_filename_push(black_box(name)))),
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_md5_hex_format,
@@ -509,5 +714,8 @@ criterion_group!(
     bench_collection_hashes,
     bench_pending_mirrors_clone,
     bench_write_collections_db_dedup,
+    bench_temp_path_for_pid,
+    bench_beatmapset_ids_capacity,
+    bench_extract_filename_append,
 );
 criterion_main!(benches);
