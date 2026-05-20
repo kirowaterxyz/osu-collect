@@ -345,7 +345,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
-        Span::styled(message.clone(), message_style(line.stage, rate_limited)),
+        Span::styled(message, message_style(line.stage, rate_limited)),
     ];
 
     let used = prefix_w.saturating_add(message_w);
