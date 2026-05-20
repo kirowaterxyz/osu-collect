@@ -334,7 +334,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         s.push(' ');
         s
     };
-    let prefix_w = prefix.chars().count() as u16;
+    let prefix_w = prefix.len() as u16;
     let rate_limited = line.displayed_rate_limited();
     let bar_color = line.bar_color();
 
