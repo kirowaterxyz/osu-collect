@@ -1497,16 +1497,12 @@ fn bench_prefix_len_vs_chars_count(c: &mut Criterion) {
         );
 
         // Candidate: .len() — O(1) field read; valid because prefix is all-ASCII.
-        group.bench_with_input(
-            BenchmarkId::new("len_field", label),
-            prefix,
-            |b, prefix| {
-                b.iter(|| {
-                    let w = black_box(prefix).len() as u16;
-                    black_box(w)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("len_field", label), prefix, |b, prefix| {
+            b.iter(|| {
+                let w = black_box(prefix).len() as u16;
+                black_box(w)
+            })
+        });
     }
 
     group.finish();
@@ -1538,10 +1534,16 @@ fn bench_truncate_char_count_double(c: &mut Criterion) {
     // (fast path, no truncation) and one that exceeds (slow path).
     let budget: usize = 60;
     let cases: &[(&str, &str)] = &[
-        ("short_fits",   "downloading from Beatconnect"),
+        ("short_fits", "downloading from Beatconnect"),
         ("typical_fits", "rate limited on all mirrors, waiting 3s"),
-        ("long_fits",    "retrying nerinyan after connection timeout (attempt 3/5)"),
-        ("truncated",    "retrying a-very-long-mirror-hostname.example.com after connection reset by peer (attempt 2/5)"),
+        (
+            "long_fits",
+            "retrying nerinyan after connection timeout (attempt 3/5)",
+        ),
+        (
+            "truncated",
+            "retrying a-very-long-mirror-hostname.example.com after connection reset by peer (attempt 2/5)",
+        ),
     ];
 
     let mut group = c.benchmark_group("truncate_char_count_double");
@@ -1622,5 +1624,133 @@ criterion_group!(
     bench_layout_split_to_vec,
     bench_prefix_len_vs_chars_count,
     bench_truncate_char_count_double,
+    bench_header_render_version_alloc,
+    bench_header_tab_to_lowercase,
 );
 criterion_main!(benches);
+
+// ── header::render version string + width allocs ──────────────────────────────
+//
+// src/tui/header.rs:18-20 — called on every TUI render frame (~30/s).
+// Current production shape:
+//   let version = format!(" v{} ", env!("CARGO_PKG_VERSION"));  // heap alloc
+//   let version_width = version.chars().count() as u16;          // O(n) traversal
+//   let brand_width = BRAND.chars().count() as u16;              // O(n) traversal
+//
+// env!("CARGO_PKG_VERSION") is a &'static str known at compile time.
+// The padded version string " v1.2.3 " is also a compile-time constant —
+// concat!(" v", env!("CARGO_PKG_VERSION"), " ") produces &'static str with zero
+// runtime cost.  Both strings are pure ASCII, so .len() == .chars().count().
+//
+// Candidate: static VERSION string via concat! + .len() for widths.
+//
+// Frequency: ~30/s × every open tab = minimum 30 allocs/sec just for version.
+
+fn bench_header_render_version_alloc(c: &mut Criterion) {
+    // Simulate a realistic CARGO_PKG_VERSION value.
+    let pkg_version = black_box("1.4.2");
+    // The static candidate — no runtime work at all.
+    const VERSION_STATIC: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
+    const BRAND: &str = " osu-collect ";
+
+    let mut group = c.benchmark_group("header_render_version_alloc");
+
+    // Baseline: current production shape — format! alloc + chars().count() twice.
+    group.bench_function("format_and_chars_count", |b| {
+        b.iter(|| {
+            let version = format!(" v{} ", black_box(pkg_version));
+            let version_width = version.chars().count() as u16;
+            let brand_width = black_box(BRAND).chars().count() as u16;
+            black_box((version, version_width, brand_width))
+        })
+    });
+
+    // Candidate: const string (no alloc) + .len() for ASCII-only strings.
+    group.bench_function("const_string_len", |b| {
+        b.iter(|| {
+            // VERSION_STATIC is &'static str — zero runtime allocation.
+            let version_width = black_box(VERSION_STATIC).len() as u16;
+            let brand_width = black_box(BRAND).len() as u16;
+            black_box((VERSION_STATIC, version_width, brand_width))
+        })
+    });
+
+    group.finish();
+}
+
+// ── header::render tab title to_lowercase per frame ───────────────────────────
+//
+// src/tui/header.rs:43 — inside tabs.iter().enumerate() loop, called every frame.
+// Current production shape:
+//   let title = title.to_lowercase();  // String heap alloc per tab
+//
+// Static tab titles ("Home", "Updates", "Config") are compile-time constants;
+// their lowercased forms are also constants.  Only dynamic collection tabs
+// (page.title.as_str()) actually vary at runtime — and collection names are
+// typically already lowercase from the API.
+//
+// Candidate: pass pre-lowercased &'static str for static tabs; caller normalises
+// once at construction (or passes already-lowercase strings from the API).
+// For the bench we measure the per-frame cost: to_lowercase() vs. a direct &str.
+//
+// Frequency: tabs.len() × ~30/s = ≥90 allocs/sec for a typical 3-tab session.
+
+fn bench_header_tab_to_lowercase(c: &mut Criterion) {
+    // Tabs representative of a typical session: 3 static + 1-2 collection tabs.
+    let static_tabs: &[&str] = &["Home", "Updates", "Config"];
+    let dynamic_tabs: &[&str] = &["Home", "Updates", "Config", "Summer 2023 Maps", "Loved Picks"];
+    // Pre-lowercased equivalents — what the candidate passes instead.
+    let static_lower: &[&str] = &["home", "updates", "config"];
+    let dynamic_lower: &[&str] = &["home", "updates", "config", "summer 2023 maps", "loved picks"];
+
+    let mut group = c.benchmark_group("header_tab_to_lowercase");
+
+    // Baseline: current production shape — to_lowercase() per tab per frame.
+    group.bench_with_input(
+        BenchmarkId::new("to_lowercase", "3_static"),
+        static_tabs,
+        |b, tabs| {
+            b.iter(|| {
+                let result: Vec<String> =
+                    black_box(tabs).iter().map(|t| t.to_lowercase()).collect();
+                black_box(result)
+            })
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::new("to_lowercase", "5_with_dynamic"),
+        dynamic_tabs,
+        |b, tabs| {
+            b.iter(|| {
+                let result: Vec<String> =
+                    black_box(tabs).iter().map(|t| t.to_lowercase()).collect();
+                black_box(result)
+            })
+        },
+    );
+
+    // Candidate: pass pre-lowercased &str — zero per-frame allocation.
+    group.bench_with_input(
+        BenchmarkId::new("pre_lowercased", "3_static"),
+        static_lower,
+        |b, tabs| {
+            b.iter(|| {
+                // Simulates header receiving already-lowercase strings: zero work.
+                let result: Vec<&str> = black_box(tabs).iter().copied().collect();
+                black_box(result)
+            })
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::new("pre_lowercased", "5_with_dynamic"),
+        dynamic_lower,
+        |b, tabs| {
+            b.iter(|| {
+                let result: Vec<&str> = black_box(tabs).iter().copied().collect();
+                black_box(result)
+            })
+        },
+    );
+
+    group.finish();
+}

@@ -718,5 +718,75 @@ criterion_group!(
     bench_temp_path_for_pid,
     bench_beatmapset_ids_capacity,
     bench_extract_filename_append,
+    bench_event_enum_channel_send,
 );
 criterion_main!(benches);
+
+// ── Event enum size — channel send cost ───────────────────────────────────────
+//
+// osu-downloader/src/event.rs — Event is sent via tokio::sync::mpsc on every
+// beatmapset status update, progress tick, and completion.  The enum size is
+// determined by its largest variant, SessionCompleted { summary: Summary }.
+//
+// Estimated layout (64-bit):
+//   Summary = usize(8) + Vec<u32>(24) + Vec<(u32,Skip)>(24) + Vec<(u32,Error)>(24)
+//             + u64(8) + Duration(16) = 104 bytes
+//   Event discriminant + max-payload alignment → ~112 bytes
+//
+// The Progress variant (hottest: ~1 send per 128 KB chunk) only carries:
+//   beatmapset_id:u32 + downloaded_bytes:u64 + total_bytes:Option<u64>(16) + speed_bps:u64
+//   = ~40 bytes payload — but the channel moves the full 112-byte union.
+//
+// Candidate: Box<Summary> in SessionCompleted shrinks the variant to a pointer
+//   (8 bytes), reducing enum size to ~88 bytes (~21% smaller).
+//
+// PUBLIC API CHANGE: SessionCompleted { summary: Box<Summary> } breaks callers
+//   that pattern-match or construct this variant.  Requires a library semver bump.
+//
+// This bench measures the memcpy cost difference as a proxy, using stack-allocated
+// structs of matching sizes sent through std::sync::mpsc channels (same move
+// semantics as tokio::sync::mpsc for the send path).  Each "send" moves the value;
+// the receiver just drops it — isolates the copy cost.
+
+#[repr(C)]
+#[derive(Clone)]
+struct FatEvent([u8; 112]);
+
+#[repr(C)]
+#[derive(Clone)]
+struct SlimEvent([u8; 88]);
+
+fn bench_event_enum_channel_send(c: &mut Criterion) {
+    const BATCH: usize = 500;
+
+    let mut group = c.benchmark_group("event_enum_channel_send");
+    group.throughput(Throughput::Elements(BATCH as u64));
+
+    // Baseline: current enum size ~112 bytes per send.
+    group.bench_function("fat_112_bytes", |b| {
+        b.iter(|| {
+            let (tx, rx) = mpsc::channel::<FatEvent>();
+            for i in 0..BATCH {
+                let ev = FatEvent([i as u8; 112]);
+                tx.send(black_box(ev)).unwrap();
+            }
+            drop(tx);
+            while rx.recv().is_ok() {}
+        })
+    });
+
+    // Candidate: Box<Summary> variant reduces enum to ~88 bytes per send.
+    group.bench_function("slim_88_bytes", |b| {
+        b.iter(|| {
+            let (tx, rx) = mpsc::channel::<SlimEvent>();
+            for i in 0..BATCH {
+                let ev = SlimEvent([i as u8; 88]);
+                tx.send(black_box(ev)).unwrap();
+            }
+            drop(tx);
+            while rx.recv().is_ok() {}
+        })
+    });
+
+    group.finish();
+}
