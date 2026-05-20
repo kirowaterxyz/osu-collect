@@ -368,15 +368,10 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
                 Style::default().fg(LINE_SOFT),
             ));
             let pct = (ratio * 100.0).round() as u16;
-            let pct_s = pct.to_string();
-            let mut pct_out = String::with_capacity(5);
-            pct_out.push(' ');
-            for _ in 0..(3usize.saturating_sub(pct_s.len())) {
-                pct_out.push(' ');
-            }
-            pct_out.push_str(&pct_s);
-            pct_out.push('%');
-            spans.push(Span::styled(pct_out, Style::default().fg(TEXT_FAINT)));
+            spans.push(Span::styled(
+                pct_label(pct),
+                Style::default().fg(TEXT_FAINT),
+            ));
         }
         None if matches!(line.stage, crate::download::BeatmapStage::Downloading) => {
             spans.extend(indeterminate_bar_spans(BAR_WIDTH, bar_color));
@@ -448,6 +443,26 @@ pub fn truncate_to_width(message: &str, budget: u16) -> (String, u16) {
     let mut out: String = message.chars().take(budget.saturating_sub(1)).collect();
     out.push('…');
     (out, budget as u16)
+}
+
+// 101-entry table of " {:>3}%" strings for pct in 0..=100.
+// Returned by `pct_label` to avoid per-frame allocation in `active_download_item`.
+const PCT_LABELS: [&str; 101] = [
+    "   0%", "   1%", "   2%", "   3%", "   4%", "   5%", "   6%", "   7%", "   8%", "   9%",
+    "  10%", "  11%", "  12%", "  13%", "  14%", "  15%", "  16%", "  17%", "  18%", "  19%",
+    "  20%", "  21%", "  22%", "  23%", "  24%", "  25%", "  26%", "  27%", "  28%", "  29%",
+    "  30%", "  31%", "  32%", "  33%", "  34%", "  35%", "  36%", "  37%", "  38%", "  39%",
+    "  40%", "  41%", "  42%", "  43%", "  44%", "  45%", "  46%", "  47%", "  48%", "  49%",
+    "  50%", "  51%", "  52%", "  53%", "  54%", "  55%", "  56%", "  57%", "  58%", "  59%",
+    "  60%", "  61%", "  62%", "  63%", "  64%", "  65%", "  66%", "  67%", "  68%", "  69%",
+    "  70%", "  71%", "  72%", "  73%", "  74%", "  75%", "  76%", "  77%", "  78%", "  79%",
+    "  80%", "  81%", "  82%", "  83%", "  84%", "  85%", "  86%", "  87%", "  88%", "  89%",
+    "  90%", "  91%", "  92%", "  93%", "  94%", "  95%", "  96%", "  97%", "  98%", "  99%",
+    " 100%",
+];
+
+fn pct_label(pct: u16) -> &'static str {
+    PCT_LABELS[pct.min(100) as usize]
 }
 
 fn message_style(stage: crate::download::BeatmapStage, rate_limited: bool) -> Style {
