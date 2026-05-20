@@ -799,6 +799,288 @@ fn bench_current_snapshots_beatmapset_clone(c: &mut Criterion) {
     group.finish();
 }
 
+// ── summary_spans format! per u32 stat ───────────────────────────────────────
+//
+// src/tui/download.rs:summary_spans — called once per render_info per open
+// download tab per frame (~30 fps).  Four format! calls convert u32 counters
+// to owned Strings on every call:
+//   format!("{label}: ")
+//   format!("{downloaded} downloaded")
+//   format!("{displayed_skipped} skipped")
+//   format!("{failed} failed")
+// plus optionally format!("{unverified} unverified") when unverified > 0.
+//
+// That is 4–5 heap allocations per frame per tab.  With 3 concurrent downloads
+// open: ≥120 allocs/sec from this function alone.
+//
+// Candidate: pre-allocate the full String with String::with_capacity and use
+// push_str + itoa-style integer formatting, or write! into a single buffer.
+// A simpler fix: replace each format!("{n} word") with a push_str pair —
+// one to_string() call (cheaper than format!) + push_str of the suffix.
+//
+// Bench inputs: typical counter values (small, mid-range, large) plus the
+// case with unverified > 0 to capture the conditional fifth allocation.
+
+fn bench_summary_spans_format(c: &mut Criterion) {
+    // Representative counter values: downloaded, skipped, failed, unverified
+    let cases: &[(&str, u32, u32, u32, u32)] = &[
+        ("small", 12, 3, 1, 0),
+        ("mid", 3456, 78, 9, 0),
+        ("large", 98765, 4321, 100, 0),
+        ("with_unverified", 500, 50, 5, 3),
+    ];
+
+    let mut group = c.benchmark_group("summary_spans_format");
+
+    for &(label, downloaded, skipped, failed, unverified) in cases {
+        let displayed_skipped = skipped.saturating_add(unverified);
+
+        // Baseline: current production shape — 4–5 independent format! calls.
+        group.bench_with_input(
+            BenchmarkId::new("format_calls", label),
+            &(downloaded, displayed_skipped, failed, unverified),
+            |b, &(downloaded, displayed_skipped, failed, unverified)| {
+                b.iter(|| {
+                    let s0 = format!("{}: ", black_box("progress"));
+                    let s1 = format!("{} downloaded", black_box(downloaded));
+                    let s2 = format!("{} skipped", black_box(displayed_skipped));
+                    let s3 = format!("{} failed", black_box(failed));
+                    let mut v = vec![s0, s1, s2, s3];
+                    if unverified > 0 {
+                        v.push(format!("{} unverified", black_box(unverified)));
+                    }
+                    black_box(v)
+                })
+            },
+        );
+
+        // Candidate A: to_string() + push_str pairs — one alloc per number,
+        // avoids the format! machinery overhead.
+        group.bench_with_input(
+            BenchmarkId::new("to_string_push_str", label),
+            &(downloaded, displayed_skipped, failed, unverified),
+            |b, &(downloaded, displayed_skipped, failed, unverified)| {
+                b.iter(|| {
+                    let mut s1 = black_box(downloaded).to_string();
+                    s1.push_str(" downloaded");
+                    let mut s2 = black_box(displayed_skipped).to_string();
+                    s2.push_str(" skipped");
+                    let mut s3 = black_box(failed).to_string();
+                    s3.push_str(" failed");
+                    let mut v = vec![
+                        "progress: ".to_string(),
+                        s1,
+                        s2,
+                        s3,
+                    ];
+                    if unverified > 0 {
+                        let mut s4 = black_box(unverified).to_string();
+                        s4.push_str(" unverified");
+                        v.push(s4);
+                    }
+                    black_box(v)
+                })
+            },
+        );
+
+        // Candidate B: write! into a single with_capacity String — single
+        // allocation per stat string, no format! overhead.
+        group.bench_with_input(
+            BenchmarkId::new("write_with_capacity", label),
+            &(downloaded, displayed_skipped, failed, unverified),
+            |b, &(downloaded, displayed_skipped, failed, unverified)| {
+                use std::fmt::Write as _;
+                b.iter(|| {
+                    // 12 digits max for u32, plus suffix
+                    let mut s1 = String::with_capacity(12 + " downloaded".len());
+                    write!(s1, "{} downloaded", black_box(downloaded)).unwrap();
+                    let mut s2 = String::with_capacity(12 + " skipped".len());
+                    write!(s2, "{} skipped", black_box(displayed_skipped)).unwrap();
+                    let mut s3 = String::with_capacity(12 + " failed".len());
+                    write!(s3, "{} failed", black_box(failed)).unwrap();
+                    let mut v = vec![
+                        "progress: ".to_string(),
+                        s1,
+                        s2,
+                        s3,
+                    ];
+                    if unverified > 0 {
+                        let mut s4 = String::with_capacity(12 + " unverified".len());
+                        write!(s4, "{} unverified", black_box(unverified)).unwrap();
+                        v.push(s4);
+                    }
+                    black_box(v)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── active_download_item prefix format! ──────────────────────────────────────
+//
+// src/tui/widgets.rs:active_download_item (line 323) — called once per
+// active download slot per render frame:
+//   let prefix = format!("  #{:<7} ", line.beatmapset_id);
+//
+// With concurrent = 4 and ~30 fps: 120 format! calls/sec allocating a ~12-byte
+// String from a u32.  The padding is always 7 chars wide, so beatmapset_ids
+// that fit in ≤7 digits (≤9_999_999) produce a fixed 11-char string.
+//
+// Candidate: replace with to_string() + manual padding or a with_capacity
+// String + write! using the same :<7 format spec.  Measuring whether the
+// format! dispatch overhead is measurable vs manual with_capacity + write!.
+
+fn bench_active_download_prefix(c: &mut Criterion) {
+    // Representative beatmapset IDs: small (5 digits), typical (7 digits),
+    // large (9 digits — hypothetical future IDs beyond current osu! range).
+    let ids: &[(&str, u32)] = &[
+        ("5digit", 12345),
+        ("7digit", 9876543),
+        ("9digit", 987654321),
+    ];
+
+    let mut group = c.benchmark_group("active_download_prefix");
+
+    for &(label, id) in ids {
+        // Baseline: current production shape — format! with left-pad specifier.
+        group.bench_with_input(
+            BenchmarkId::new("format_pad", label),
+            &id,
+            |b, &id| {
+                b.iter(|| {
+                    let prefix = format!("  #{:<7} ", black_box(id));
+                    black_box(prefix)
+                })
+            },
+        );
+
+        // Candidate: String::with_capacity + write! — same output, avoids
+        // format! machinery (no format_args! allocation for the spec string).
+        group.bench_with_input(
+            BenchmarkId::new("write_with_capacity", label),
+            &id,
+            |b, &id| {
+                use std::fmt::Write as _;
+                b.iter(|| {
+                    let mut s = String::with_capacity(12);
+                    write!(s, "  #{:<7} ", black_box(id)).unwrap();
+                    black_box(s)
+                })
+            },
+        );
+
+        // Candidate B: to_string + manual space-pad to 7 chars.
+        group.bench_with_input(
+            BenchmarkId::new("to_string_pad", label),
+            &id,
+            |b, &id| {
+                b.iter(|| {
+                    let id_s = black_box(id).to_string();
+                    let pad = 7usize.saturating_sub(id_s.len());
+                    let mut s = String::with_capacity(3 + id_s.len() + pad + 1);
+                    s.push_str("  #");
+                    s.push_str(&id_s);
+                    for _ in 0..pad {
+                        s.push(' ');
+                    }
+                    s.push(' ');
+                    black_box(s)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── render_gauge title strings format! ───────────────────────────────────────
+//
+// src/tui/download.rs:render_gauge (lines 327–339) — called once per render
+// frame per open download tab (~30 fps).  Two format! calls build the gauge
+// block title strings with multiple usize/u32 numbers each:
+//
+//   top_title:
+//     format!(" {downloaded} downloaded  {queue_remaining} queued ")
+//   verified_title (no avg):
+//     format!(" {verified_display}/{total_collection} verified ")
+//   verified_title (with avg):
+//     format!(" {verified_display}/{total_collection} verified ({avg} avg) ")
+//
+// With 3 concurrent download tabs open: 90–180 format! allocs/sec here.
+//
+// Candidate: String::with_capacity + write! — same strings, single allocation
+// with exact capacity, no implicit format_args! overhead.
+
+fn bench_render_gauge_titles(c: &mut Criterion) {
+    // Representative values: small numbers vs large numbers (more digits).
+    let cases: &[(&str, usize, usize, usize, usize)] = &[
+        // (label, downloaded, queue_remaining, verified_display, total_collection)
+        ("small", 12, 88, 12, 100),
+        ("mid", 3456, 544, 3456, 4000),
+        ("large", 98765, 1235, 98765, 100000),
+    ];
+
+    let mut group = c.benchmark_group("render_gauge_titles");
+
+    for &(label, downloaded, queue_remaining, verified_display, total_collection) in cases {
+        // Baseline: current production shape — two separate format! calls.
+        group.bench_with_input(
+            BenchmarkId::new("format_calls", label),
+            &(downloaded, queue_remaining, verified_display, total_collection),
+            |b, &(downloaded, queue_remaining, verified_display, total_collection)| {
+                b.iter(|| {
+                    let top = format!(
+                        " {} downloaded  {} queued ",
+                        black_box(downloaded),
+                        black_box(queue_remaining)
+                    );
+                    let verified = format!(
+                        " {}/{} verified ",
+                        black_box(verified_display),
+                        black_box(total_collection)
+                    );
+                    black_box((top, verified))
+                })
+            },
+        );
+
+        // Candidate: String::with_capacity + write! — avoids format! machinery
+        // by pre-sizing to exact byte count before writing.
+        group.bench_with_input(
+            BenchmarkId::new("write_with_capacity", label),
+            &(downloaded, queue_remaining, verified_display, total_collection),
+            |b, &(downloaded, queue_remaining, verified_display, total_collection)| {
+                use std::fmt::Write as _;
+                b.iter(|| {
+                    // 20 digits max for two usize values
+                    let mut top = String::with_capacity(20 + " downloaded   queued ".len() + 2);
+                    write!(
+                        top,
+                        " {} downloaded  {} queued ",
+                        black_box(downloaded),
+                        black_box(queue_remaining)
+                    )
+                    .unwrap();
+                    let mut verified =
+                        String::with_capacity(20 + " /  verified ".len() + 2);
+                    write!(
+                        verified,
+                        " {}/{} verified ",
+                        black_box(verified_display),
+                        black_box(total_collection)
+                    )
+                    .unwrap();
+                    black_box((top, verified))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -810,5 +1092,8 @@ criterion_group!(
     bench_render_constraints_vec,
     bench_emit_status_retrying,
     bench_current_snapshots_beatmapset_clone,
+    bench_summary_spans_format,
+    bench_active_download_prefix,
+    bench_render_gauge_titles,
 );
 criterion_main!(benches);
