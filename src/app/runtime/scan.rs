@@ -408,15 +408,14 @@ fn spawn_fetch_task(
     }
 
     let selected_collection_ids = collection_ids_for_scan(selected_ids);
-    let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
-        app.updates.scan.local_beatmapsets.clone();
+    let local_set_ids: HashSet<u32> = app.updates.scan.local_beatmapsets.keys().copied().collect();
     let all_local_checksums = std::mem::take(&mut app.updates.scan.all_local_checksums);
     let generation = app.updates.scan.scan_generation;
     let client_type = app.updates.path.client_type;
     let current_snapshots = snapshots::current_snapshots(
         client_type,
         &app.updates.scan.local_collections_raw,
-        local_beatmapsets.values(),
+        app.updates.scan.local_beatmapsets.values(),
         |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
     );
     let snapshot_dir = snapshots::snapshots_dir();
@@ -441,7 +440,7 @@ fn spawn_fetch_task(
         let result = fetch_missing_beatmapsets(
             client_type,
             selected_collection_ids,
-            local_beatmapsets,
+            local_set_ids,
             all_local_checksums,
             snapshot_diffs,
             FetchCompareSettings {
@@ -511,7 +510,7 @@ impl CollectionBeatmapset {
 pub async fn fetch_missing_beatmapsets(
     client_type: OsuClient,
     collection_ids: Vec<u32>,
-    local_beatmapsets: HashMap<u32, LocalBeatmapset>,
+    local_set_ids: HashSet<u32>,
     local_checksums: HashSet<Md5>,
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
     settings: FetchCompareSettings,
@@ -521,7 +520,7 @@ pub async fn fetch_missing_beatmapsets(
     let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
 
     debug!(
-        local_beatmapset_count = local_beatmapsets.len(),
+        local_beatmapset_count = local_set_ids.len(),
         local_checksums_count = local_checksums.len(),
         "Starting fetch_and_compare"
     );
@@ -571,7 +570,7 @@ pub async fn fetch_missing_beatmapsets(
             }
 
             // Skip if beatmapset exists locally (by ID)
-            if local_beatmapsets.contains_key(&beatmapset.id) {
+            if local_set_ids.contains(&beatmapset.id) {
                 trace!(beatmapset_id = beatmapset.id, "Found by ID, skipping");
                 continue;
             }

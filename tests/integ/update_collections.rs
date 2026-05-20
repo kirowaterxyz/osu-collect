@@ -2,7 +2,7 @@
 mod tests {
     use osu_collect::{
         app::{runtime, updates::extract_collection_id},
-        osu_db::{LocalBeatmapset, OsuClient},
+        osu_db::OsuClient,
     };
     use std::{
         collections::{HashMap, HashSet},
@@ -112,8 +112,7 @@ mod tests {
 
         println!("collection IDs to check: {:?}", collection_ids);
 
-        let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
-            beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
+        let local_set_ids: HashSet<u32> = beatmapsets.iter().map(|bs| bs.id).collect();
         let local_checksums: HashSet<osu_collect::osu_db::Md5> =
             all_checksums.into_iter().collect();
 
@@ -121,7 +120,7 @@ mod tests {
         let result = runtime::fetch_missing_beatmapsets(
             OsuClient::Stable,
             collection_ids,
-            local_beatmapsets,
+            local_set_ids,
             local_checksums,
             HashMap::new(),
             runtime::FetchCompareSettings::default(),

@@ -156,6 +156,7 @@ pub async fn run_update_collections(
     // Build local beatmapset index
     let local_beatmapsets: HashMap<u32, LocalBeatmapset> =
         beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
+    let local_set_ids: HashSet<u32> = local_beatmapsets.keys().copied().collect();
     let local_checksums_set: HashSet<Md5> = all_checksums.into_iter().collect();
 
     // Load collection state for compatibility with existing state file
@@ -188,7 +189,7 @@ pub async fn run_update_collections(
     let (missing, collection_seen) = runtime::fetch_missing_beatmapsets(
         args.client,
         collection_ids.clone(),
-        local_beatmapsets.clone(),
+        local_set_ids,
         local_checksums_set,
         snapshot_diffs,
         runtime::FetchCompareSettings {
