@@ -393,11 +393,13 @@ impl UpdatesTab {
             "Processing local collections for updatable IDs"
         );
 
-        self.scan.local_collections_raw = collections.clone();
+        self.scan.local_collections_raw = collections;
 
         // Only keep collections that have a recognizable osu!collector ID
-        self.selection.local_collections = collections
-            .into_iter()
+        self.selection.local_collections = self
+            .scan
+            .local_collections_raw
+            .iter()
             .filter_map(|c| {
                 let collection_id = extract_collection_id(&c.name);
                 if collection_id.is_some() {
@@ -408,7 +410,7 @@ impl UpdatesTab {
                         "Included updatable collection"
                     );
                     Some(CollectionEntry {
-                        name: c.name,
+                        name: c.name.clone(),
                         collection_id,
                         beatmap_count: c.beatmap_checksums.len(),
                         selected: true,
