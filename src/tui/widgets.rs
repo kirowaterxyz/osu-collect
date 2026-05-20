@@ -342,8 +342,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         .saturating_sub(prefix_w)
         .saturating_sub(RESERVED_RIGHT)
         .saturating_sub(GAP);
-    let message = truncate_to_width(&line.displayed_message(), message_budget);
-    let message_w = message.chars().count() as u16;
+    let (message, message_w) = truncate_to_width(&line.displayed_message(), message_budget);
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
@@ -434,20 +433,21 @@ fn animation_start() -> Instant {
     *START.get_or_init(Instant::now)
 }
 
-pub fn truncate_to_width(message: &str, budget: u16) -> String {
+pub fn truncate_to_width(message: &str, budget: u16) -> (String, u16) {
     let budget = budget as usize;
     if budget == 0 {
-        return String::new();
+        return (String::new(), 0);
     }
-    if message.chars().count() <= budget {
-        return message.to_string();
+    let char_count = message.chars().count();
+    if char_count <= budget {
+        return (message.to_string(), char_count as u16);
     }
     if budget == 1 {
-        return "…".to_string();
+        return ("…".to_string(), 1);
     }
     let mut out: String = message.chars().take(budget.saturating_sub(1)).collect();
     out.push('…');
-    out
+    (out, budget as u16)
 }
 
 fn message_style(stage: crate::download::BeatmapStage, rate_limited: bool) -> Style {

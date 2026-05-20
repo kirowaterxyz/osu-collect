@@ -29,17 +29,17 @@ fn scroll_window_empty_visible() {
 
 #[test]
 fn truncate_to_width_handles_zero() {
-    assert_eq!(truncate_to_width("hello", 0), "");
+    assert_eq!(truncate_to_width("hello", 0).0, "");
 }
 
 #[test]
 fn truncate_to_width_one_returns_ellipsis() {
-    assert_eq!(truncate_to_width("hello", 1), "…");
+    assert_eq!(truncate_to_width("hello", 1).0, "…");
 }
 
 #[test]
 fn truncate_to_width_unicode_safe() {
-    assert_eq!(truncate_to_width("こんにちは世界", 4), "こんに…");
+    assert_eq!(truncate_to_width("こんにちは世界", 4).0, "こんに…");
 }
 
 #[test]
