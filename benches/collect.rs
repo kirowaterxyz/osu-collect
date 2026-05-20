@@ -867,12 +867,7 @@ fn bench_summary_spans_format(c: &mut Criterion) {
                     s2.push_str(" skipped");
                     let mut s3 = black_box(failed).to_string();
                     s3.push_str(" failed");
-                    let mut v = vec![
-                        "progress: ".to_string(),
-                        s1,
-                        s2,
-                        s3,
-                    ];
+                    let mut v = vec!["progress: ".to_string(), s1, s2, s3];
                     if unverified > 0 {
                         let mut s4 = black_box(unverified).to_string();
                         s4.push_str(" unverified");
@@ -898,12 +893,7 @@ fn bench_summary_spans_format(c: &mut Criterion) {
                     write!(s2, "{} skipped", black_box(displayed_skipped)).unwrap();
                     let mut s3 = String::with_capacity(12 + " failed".len());
                     write!(s3, "{} failed", black_box(failed)).unwrap();
-                    let mut v = vec![
-                        "progress: ".to_string(),
-                        s1,
-                        s2,
-                        s3,
-                    ];
+                    let mut v = vec!["progress: ".to_string(), s1, s2, s3];
                     if unverified > 0 {
                         let mut s4 = String::with_capacity(12 + " unverified".len());
                         write!(s4, "{} unverified", black_box(unverified)).unwrap();
@@ -945,16 +935,12 @@ fn bench_active_download_prefix(c: &mut Criterion) {
 
     for &(label, id) in ids {
         // Baseline: current production shape — format! with left-pad specifier.
-        group.bench_with_input(
-            BenchmarkId::new("format_pad", label),
-            &id,
-            |b, &id| {
-                b.iter(|| {
-                    let prefix = format!("  #{:<7} ", black_box(id));
-                    black_box(prefix)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("format_pad", label), &id, |b, &id| {
+            b.iter(|| {
+                let prefix = format!("  #{:<7} ", black_box(id));
+                black_box(prefix)
+            })
+        });
 
         // Candidate: String::with_capacity + write! — same output, avoids
         // format! machinery (no format_args! allocation for the spec string).
@@ -972,24 +958,20 @@ fn bench_active_download_prefix(c: &mut Criterion) {
         );
 
         // Candidate B: to_string + manual space-pad to 7 chars.
-        group.bench_with_input(
-            BenchmarkId::new("to_string_pad", label),
-            &id,
-            |b, &id| {
-                b.iter(|| {
-                    let id_s = black_box(id).to_string();
-                    let pad = 7usize.saturating_sub(id_s.len());
-                    let mut s = String::with_capacity(3 + id_s.len() + pad + 1);
-                    s.push_str("  #");
-                    s.push_str(&id_s);
-                    for _ in 0..pad {
-                        s.push(' ');
-                    }
+        group.bench_with_input(BenchmarkId::new("to_string_pad", label), &id, |b, &id| {
+            b.iter(|| {
+                let id_s = black_box(id).to_string();
+                let pad = 7usize.saturating_sub(id_s.len());
+                let mut s = String::with_capacity(3 + id_s.len() + pad + 1);
+                s.push_str("  #");
+                s.push_str(&id_s);
+                for _ in 0..pad {
                     s.push(' ');
-                    black_box(s)
-                })
-            },
-        );
+                }
+                s.push(' ');
+                black_box(s)
+            })
+        });
     }
 
     group.finish();
@@ -1028,7 +1010,12 @@ fn bench_render_gauge_titles(c: &mut Criterion) {
         // Baseline: current production shape — two separate format! calls.
         group.bench_with_input(
             BenchmarkId::new("format_calls", label),
-            &(downloaded, queue_remaining, verified_display, total_collection),
+            &(
+                downloaded,
+                queue_remaining,
+                verified_display,
+                total_collection,
+            ),
             |b, &(downloaded, queue_remaining, verified_display, total_collection)| {
                 b.iter(|| {
                     let top = format!(
@@ -1050,7 +1037,12 @@ fn bench_render_gauge_titles(c: &mut Criterion) {
         // by pre-sizing to exact byte count before writing.
         group.bench_with_input(
             BenchmarkId::new("write_with_capacity", label),
-            &(downloaded, queue_remaining, verified_display, total_collection),
+            &(
+                downloaded,
+                queue_remaining,
+                verified_display,
+                total_collection,
+            ),
             |b, &(downloaded, queue_remaining, verified_display, total_collection)| {
                 use std::fmt::Write as _;
                 b.iter(|| {
@@ -1063,8 +1055,7 @@ fn bench_render_gauge_titles(c: &mut Criterion) {
                         black_box(queue_remaining)
                     )
                     .unwrap();
-                    let mut verified =
-                        String::with_capacity(20 + " /  verified ".len() + 2);
+                    let mut verified = String::with_capacity(20 + " /  verified ".len() + 2);
                     write!(
                         verified,
                         " {}/{} verified ",
@@ -1073,6 +1064,207 @@ fn bench_render_gauge_titles(c: &mut Criterion) {
                     )
                     .unwrap();
                     black_box((top, verified))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── active_download_item message clone ───────────────────────────────────────
+//
+// src/tui/widgets.rs:active_download_item (line 344-348) — per active download
+// slot per render frame.  `truncate_to_width` returns an owned `String`;
+// `message_w` is then computed via `.chars().count()`, and the string is cloned
+// into `Span::styled`.  The original `message` binding is never used again after
+// the clone — the clone is redundant.
+//
+// Baseline: compute message_w, then clone message into Span.
+// Candidate: compute message_w, then move message into Span (no clone).
+//
+// NOTE: the bench isolates string ownership cost only; `Span::styled` itself is
+// not called since that would require pulling in ratatui.  We measure the clone
+// vs move of the underlying String that becomes the Span's content.
+//
+// Bench inputs: short (fits budget, no truncation), long (truncated with …),
+// and empty (zero-length budget) messages.
+
+fn bench_active_download_message_clone(c: &mut Criterion) {
+    // Simulate truncate_to_width return values.
+    let cases: &[(&str, &str)] = &[
+        ("short", "downloading from Beatconnect"),
+        ("long", "downloading very-long-mirror-name-that-got-truncated…"),
+        ("empty", ""),
+    ];
+
+    let mut group = c.benchmark_group("active_download_message_clone");
+
+    for &(label, msg) in cases {
+        // Baseline: compute char count, then clone into span content.
+        group.bench_with_input(
+            BenchmarkId::new("clone_into_span", label),
+            msg,
+            |b, msg| {
+                b.iter(|| {
+                    let message = black_box(msg).to_string(); // simulates truncate_to_width output
+                    let message_w = message.chars().count() as u16;
+                    // clone needed because message_w is computed first (current production shape)
+                    let span_content = message.clone();
+                    black_box((message_w, span_content))
+                })
+            },
+        );
+
+        // Candidate: compute char count first, then move message — no clone.
+        group.bench_with_input(
+            BenchmarkId::new("move_into_span", label),
+            msg,
+            |b, msg| {
+                b.iter(|| {
+                    let message = black_box(msg).to_string(); // simulates truncate_to_width output
+                    // Reorder: chars().count() can be computed before ownership moves
+                    let message_w = message.chars().count() as u16;
+                    // move message directly — message_w already captured
+                    let span_content = message; // no clone
+                    black_box((message_w, span_content))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── active_download_item progress percent format! ────────────────────────────
+//
+// src/tui/widgets.rs:active_download_item (line 370) — per active download slot
+// per render frame when `progress_ratio` is Some:
+//   format!(" {:>3}%", (ratio * 100.0).round() as u16)
+//
+// Produces a 5-byte string " NNN%" for a u16 in 0..=100.
+// With 4 concurrent slots at 30 fps: ~120 format! calls/sec.
+//
+// Baseline: format!(" {:>3}%", value) — allocates with format machinery.
+// Candidate A: String::with_capacity(5) + push + push_str itoa-style.
+// Candidate B: String::with_capacity(5) + write! — avoids format! overhead
+//   while keeping the right-align padding.
+//
+// NOTE: this bench measures only string construction, not Span creation.
+
+fn bench_progress_percent_format(c: &mut Criterion) {
+    // Representative ratio values covering 1-, 2-, 3-digit percentages.
+    let cases: &[(&str, u16)] = &[
+        ("1digit", 5),
+        ("2digit", 42),
+        ("3digit", 100),
+    ];
+
+    let mut group = c.benchmark_group("progress_percent_format");
+
+    for &(label, pct) in cases {
+        // Baseline: current production shape.
+        group.bench_with_input(
+            BenchmarkId::new("format_right_align", label),
+            &pct,
+            |b, &pct| {
+                b.iter(|| {
+                    let s = format!(" {:>3}%", black_box(pct));
+                    black_box(s)
+                })
+            },
+        );
+
+        // Candidate A: with_capacity + manual right-pad push.
+        // " {:>3}%" always produces exactly 5 chars: space + 3-char right-aligned
+        // number + '%'.  For values 0–100 the number fits in 1–3 digits.
+        group.bench_with_input(
+            BenchmarkId::new("with_capacity_push", label),
+            &pct,
+            |b, &pct| {
+                b.iter(|| {
+                    let n = black_box(pct);
+                    let mut s = String::with_capacity(5);
+                    s.push(' ');
+                    // right-align in 3 chars: pad with spaces on the left
+                    if n < 10 {
+                        s.push_str("  ");
+                    } else if n < 100 {
+                        s.push(' ');
+                    }
+                    // itoa-style: avoid format! for the number itself
+                    let n_s = n.to_string();
+                    s.push_str(&n_s);
+                    s.push('%');
+                    black_box(s)
+                })
+            },
+        );
+
+        // Candidate B: write! into with_capacity — keeps the {:>3} semantic.
+        group.bench_with_input(
+            BenchmarkId::new("write_with_capacity", label),
+            &pct,
+            |b, &pct| {
+                use std::fmt::Write as _;
+                b.iter(|| {
+                    let mut s = String::with_capacity(5);
+                    write!(s, " {:>3}%", black_box(pct)).unwrap();
+                    black_box(s)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── status_pill format! ───────────────────────────────────────────────────────
+//
+// src/tui/widgets.rs:status_pill (line 297) — called once per render frame
+// (render_info).  Current shape:
+//   format!(" {} ", label.into())
+// where label is a &'static str.  Always pads a static string with one space
+// on each side.
+//
+// Baseline: format!(" {} ", label) — allocates via format machinery.
+// Candidate: String::with_capacity(label.len() + 2) + push_str — single alloc,
+//   no format machinery.
+//
+// NOTE: called only once per frame (not concurrent), so savings are small in
+// absolute terms; this bench verifies the idiomatic direction is still faster.
+
+fn bench_status_pill_format(c: &mut Criterion) {
+    // Representative status labels from DownloadStage display strings.
+    let labels: &[&str] = &["PENDING", "RESOLVING", "DOWNLOADING", "COMPLETED", "FAILED"];
+
+    let mut group = c.benchmark_group("status_pill_format");
+
+    for label in labels {
+        // Baseline: current production shape.
+        group.bench_with_input(
+            BenchmarkId::new("format_pad", label),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let s = format!(" {} ", black_box(*label));
+                    black_box(s)
+                })
+            },
+        );
+
+        // Candidate: with_capacity + push_str — avoids format! machinery.
+        group.bench_with_input(
+            BenchmarkId::new("with_capacity_push_str", label),
+            label,
+            |b, label| {
+                b.iter(|| {
+                    let label = black_box(*label);
+                    let mut s = String::with_capacity(label.len() + 2);
+                    s.push(' ');
+                    s.push_str(label);
+                    s.push(' ');
+                    black_box(s)
                 })
             },
         );
@@ -1095,5 +1287,8 @@ criterion_group!(
     bench_summary_spans_format,
     bench_active_download_prefix,
     bench_render_gauge_titles,
+    bench_active_download_message_clone,
+    bench_progress_percent_format,
+    bench_status_pill_format,
 );
 criterion_main!(benches);
