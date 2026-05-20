@@ -180,6 +180,7 @@ impl ActiveDownloadLine {
 pub struct CollectionPage {
     pub id: DownloadId,
     pub title: String,
+    title_lower: String,
     pub stage: DownloadStage,
     pub total_maps: usize,
     pub download_target: usize,
@@ -209,9 +210,11 @@ pub struct CollectionPage {
 impl CollectionPage {
     pub fn new(id: DownloadId, title: String, concurrent: usize) -> Self {
         let slot_count = concurrent.max(1);
+        let title_lower = title.to_lowercase();
         Self {
             id,
             title,
+            title_lower,
             stage: DownloadStage::Pending,
             total_maps: 0,
             download_target: 0,
@@ -234,6 +237,15 @@ impl CollectionPage {
             cached_cumulative_speed: Cell::new(0.0),
             last_speed_update: Cell::new(None),
         }
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        self.title_lower = title.to_lowercase();
+        self.title = title;
+    }
+
+    pub fn title_lower(&self) -> &str {
+        &self.title_lower
     }
 
     pub fn active_lines(&self) -> impl Iterator<Item = &ActiveDownloadLine> {

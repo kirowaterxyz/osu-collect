@@ -517,7 +517,7 @@ impl App {
                 output_dir,
             } => {
                 if let Some(page) = self.page_mut(id) {
-                    page.title = collection_name.clone();
+                    page.set_title(collection_name.clone());
                     page.uploader = Some(uploader);
                     page.total_maps = total_maps;
                     page.download_target = total_maps;
@@ -648,7 +648,7 @@ impl App {
         titles.push(Cow::Borrowed(TAB_UPDATES_LOWER));
         titles.push(Cow::Borrowed(TAB_CONFIG_LOWER));
         for page in &self.downloads {
-            titles.push(Cow::Owned(page.title.to_lowercase()));
+            titles.push(Cow::Owned(page.title_lower().to_owned()));
         }
         titles
     }
