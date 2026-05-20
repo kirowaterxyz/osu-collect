@@ -1698,10 +1698,22 @@ fn bench_header_render_version_alloc(c: &mut Criterion) {
 fn bench_header_tab_to_lowercase(c: &mut Criterion) {
     // Tabs representative of a typical session: 3 static + 1-2 collection tabs.
     let static_tabs: &[&str] = &["Home", "Updates", "Config"];
-    let dynamic_tabs: &[&str] = &["Home", "Updates", "Config", "Summer 2023 Maps", "Loved Picks"];
+    let dynamic_tabs: &[&str] = &[
+        "Home",
+        "Updates",
+        "Config",
+        "Summer 2023 Maps",
+        "Loved Picks",
+    ];
     // Pre-lowercased equivalents — what the candidate passes instead.
     let static_lower: &[&str] = &["home", "updates", "config"];
-    let dynamic_lower: &[&str] = &["home", "updates", "config", "summer 2023 maps", "loved picks"];
+    let dynamic_lower: &[&str] = &[
+        "home",
+        "updates",
+        "config",
+        "summer 2023 maps",
+        "loved picks",
+    ];
 
     let mut group = c.benchmark_group("header_tab_to_lowercase");
 

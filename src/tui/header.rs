@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -9,15 +11,15 @@ use ratatui::{
 use super::{ACCENT, ACCENT_ALT, LINE, LINE_SOFT, TEXT_FAINT};
 
 const BRAND: &str = " osu-collect ";
+const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
 
-pub fn render(frame: &mut Frame, area: Rect, tabs: &[&str], active: usize) {
+pub fn render(frame: &mut Frame, area: Rect, tabs: &[Cow<'static, str>], active: usize) {
     if area.width == 0 || area.height == 0 {
         return;
     }
 
-    let version = format!(" v{} ", env!("CARGO_PKG_VERSION"));
-    let version_width = version.chars().count() as u16;
-    let brand_width = BRAND.chars().count() as u16;
+    let version_width = VERSION.len() as u16;
+    let brand_width = BRAND.len() as u16;
 
     let layout = Layout::horizontal([
         Constraint::Length(brand_width),
@@ -40,13 +42,12 @@ pub fn render(frame: &mut Frame, area: Rect, tabs: &[&str], active: usize) {
         if index > 0 {
             spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
         }
-        let title = title.to_lowercase();
         let style = if index == active {
             Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(TEXT_FAINT)
         };
-        spans.push(Span::styled(title, style));
+        spans.push(Span::styled(title.clone(), style));
     }
     frame.render_widget(
         Paragraph::new(Line::from(spans)).alignment(Alignment::Left),
@@ -54,7 +55,7 @@ pub fn render(frame: &mut Frame, area: Rect, tabs: &[&str], active: usize) {
     );
 
     frame.render_widget(
-        Paragraph::new(version)
+        Paragraph::new(VERSION)
             .style(Style::default().fg(TEXT_FAINT))
             .alignment(Alignment::Right),
         layout[2],

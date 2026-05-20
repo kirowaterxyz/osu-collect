@@ -11,8 +11,8 @@ use crate::{
     config::{
         Config,
         constants::{
-            CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG, TAB_HOME, TAB_UPDATES,
-            UPDATES_TAB_INDEX,
+            CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG_LOWER, TAB_HOME_LOWER,
+            TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
         },
         save_config,
     },
@@ -23,6 +23,7 @@ use crate::{
     utils,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::debug;
 
@@ -641,13 +642,13 @@ impl App {
         }
     }
 
-    pub fn tab_titles(&self) -> Vec<&str> {
+    pub fn tab_titles(&self) -> Vec<Cow<'static, str>> {
         let mut titles = Vec::with_capacity(self.downloads.len() + STATIC_TABS);
-        titles.push(TAB_HOME);
-        titles.push(TAB_UPDATES);
-        titles.push(TAB_CONFIG);
+        titles.push(Cow::Borrowed(TAB_HOME_LOWER));
+        titles.push(Cow::Borrowed(TAB_UPDATES_LOWER));
+        titles.push(Cow::Borrowed(TAB_CONFIG_LOWER));
         for page in &self.downloads {
-            titles.push(page.title.as_str());
+            titles.push(Cow::Owned(page.title.to_lowercase()));
         }
         titles
     }

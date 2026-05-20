@@ -78,6 +78,10 @@ pub const TAB_HOME: &str = "Home";
 pub const TAB_UPDATES: &str = "Updates";
 pub const TAB_CONFIG: &str = "Config";
 
+pub const TAB_HOME_LOWER: &str = "home";
+pub const TAB_UPDATES_LOWER: &str = "updates";
+pub const TAB_CONFIG_LOWER: &str = "config";
+
 pub const LOW_SPACE_THRESHOLD_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub const DIRECTORY_LOCK_FILE: &str = ".osu-collect.lock";
