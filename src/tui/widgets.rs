@@ -320,7 +320,18 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
     const GAP: u16 = 1;
     const RESERVED_RIGHT: u16 = BAR_WIDTH + GAP + LABEL_WIDTH;
 
-    let prefix = format!("  #{:<7} ", line.beatmapset_id);
+    let prefix = {
+        let id_s = line.beatmapset_id.to_string();
+        let pad = 7usize.saturating_sub(id_s.len());
+        let mut s = String::with_capacity(3 + 7 + 1);
+        s.push_str("  #");
+        s.push_str(&id_s);
+        for _ in 0..pad {
+            s.push(' ');
+        }
+        s.push(' ');
+        s
+    };
     let prefix_w = prefix.chars().count() as u16;
     let rate_limited = line.displayed_rate_limited();
     let bar_color = line.bar_color();
