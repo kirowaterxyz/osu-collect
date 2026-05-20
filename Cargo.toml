@@ -46,6 +46,10 @@ fs2 = "0.4.3"
 smallvec = "1.15.1"
 sha2 = "0.11.0"
 
+[[example]]
+name = "ram_harness"
+path = "examples/ram_harness.rs"
+
 [[bench]]
 name = "collect"
 path = "benches/collect.rs"
@@ -59,6 +63,7 @@ path = "tests/mod.rs"
 tempfile = "3.27.0"
 osu-downloader = { path = "osu-downloader", features = ["test-helpers"] }
 criterion = { version = "0.8.2", features = ["html_reports"] }
+chrono = "0.4"
 
 [build-dependencies]
 cxx-build = "1.0.194"
