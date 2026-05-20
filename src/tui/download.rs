@@ -253,17 +253,29 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     let mut spans = vec![
         Span::styled(format!("{label}: "), Style::default().fg(TEXT_FAINT)),
         Span::styled(
-            format!("{downloaded} downloaded"),
+            {
+                let mut s = downloaded.to_string();
+                s.push_str(" downloaded");
+                s
+            },
             Style::default().fg(SUCCESS),
         ),
         Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
         Span::styled(
-            format!("{displayed_skipped} skipped"),
+            {
+                let mut s = displayed_skipped.to_string();
+                s.push_str(" skipped");
+                s
+            },
             Style::default().fg(TEXT_MUTED),
         ),
         Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
         Span::styled(
-            format!("{failed} failed"),
+            {
+                let mut s = failed.to_string();
+                s.push_str(" failed");
+                s
+            },
             if failed > 0 {
                 Style::default().fg(DANGER)
             } else {
@@ -274,7 +286,11 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     if unverified > 0 {
         spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
         spans.push(Span::styled(
-            format!("{unverified} unverified"),
+            {
+                let mut s = unverified.to_string();
+                s.push_str(" unverified");
+                s
+            },
             Style::default().fg(WARNING),
         ));
     }
