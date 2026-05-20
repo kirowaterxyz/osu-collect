@@ -1260,6 +1260,200 @@ fn bench_status_pill_format(c: &mut Criterion) {
     group.finish();
 }
 
+// ── render_info page title clone ─────────────────────────────────────────────
+//
+// src/tui/download.rs:render_info (line 152) — called once per render frame per
+// open download tab (~30 fps).  Current shape:
+//   Span::styled(page.title.clone(), ...)
+// `page` is `&CollectionPage`, so `page.title` is `&String`.  `Span::styled`
+// takes `T: Into<Cow<'a, str>>`, which both `String` (→ Cow::Owned) and `&str`
+// (→ Cow::Borrowed) satisfy.  Cloning allocates a new String every frame.
+//
+// Same pattern appears for `page.uploader` (as_deref().unwrap_or(...).to_owned())
+// and `page.output_dir` (as_deref().unwrap_or(...).to_owned()) on lines 157, 165.
+// All three borrow a &str that lives for the duration of the render call and
+// can be passed directly to Span::styled as Cow::Borrowed — zero allocation.
+//
+// Candidate: pass `page.title.as_str()` / the already-borrowed `&str` directly.
+//
+// NOTE: bench measures the raw Cow construction cost without Span, since pulling
+// in ratatui would add unrelated overhead.  The allocation savings are real —
+// Cow::Borrowed is a pointer + length, Cow::Owned is a heap alloc.
+//
+// Frequency: 3 allocations per frame (title + uploader + output_dir) × 30 fps
+// = ~90 avoidable heap allocs/sec per open download tab.
+
+fn bench_render_info_title_clone(c: &mut Criterion) {
+    use std::borrow::Cow;
+
+    // Representative title strings (collection names from osu!collector).
+    let titles: &[(&str, &str)] = &[
+        ("short", "Easy Maps"),
+        ("typical", "Loved Maps 2023 — Various Artists"),
+        (
+            "long",
+            "ABSOLUTE MEGA COLLECTION of every ranked map ever uploaded by top players 2019-2024",
+        ),
+    ];
+
+    let mut group = c.benchmark_group("render_info_title_clone");
+
+    for &(label, title) in titles {
+        let owned = title.to_string();
+
+        // Baseline: current production shape — clone owned String into Cow::Owned.
+        group.bench_with_input(
+            BenchmarkId::new("clone_cow_owned", label),
+            &owned,
+            |b, owned| {
+                b.iter(|| {
+                    // Simulates page.title.clone() → Into<Cow<'_, str>>
+                    let cow: Cow<'_, str> = Cow::Owned(black_box(owned).clone());
+                    black_box(cow)
+                })
+            },
+        );
+
+        // Candidate: borrow as &str → Cow::Borrowed — zero allocation.
+        group.bench_with_input(
+            BenchmarkId::new("borrow_cow_borrowed", label),
+            &owned,
+            |b, owned| {
+                b.iter(|| {
+                    // Simulates page.title.as_str() → Into<Cow<'_, str>>
+                    let cow: Cow<'_, str> = Cow::Borrowed(black_box(owned.as_str()));
+                    black_box(cow)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── render_indeterminate_block title to_string ────────────────────────────────
+//
+// src/tui/download.rs:render_indeterminate_block (line 481) — called once per
+// render frame during Pending and Resolving stages (~30 fps).  Current shape:
+//   Block::default().title(Line::from(Span::styled(title.to_string(), style)))
+// `title` is `&str` (from a format! result at the call site).  `Span::styled`
+// takes `T: Into<Cow<'a, str>>`, so passing `title` directly yields a borrowed
+// Cow — no allocation.  The `.to_string()` allocates a redundant owned String.
+//
+// Candidate: pass `title` (a `&str`) directly to `Span::styled` — Cow::Borrowed.
+//
+// NOTE: bench isolates Cow construction cost; Block/Span not imported.
+// The frame lifetime is short-lived (render call), so borrowing is safe.
+//
+// Frequency: 1 allocation per frame during Pending/Resolving (~30 fps).
+
+fn bench_indeterminate_title_to_string(c: &mut Criterion) {
+    use std::borrow::Cow;
+
+    // Representative spinner+label title strings (as produced by format! at call site).
+    let titles: &[(&str, &str)] = &[
+        ("short", "⠋ preparing "),
+        ("typical", "⠹ resolving collection "),
+        ("resolve_progress", "⠸ resolving 12/45 collections "),
+    ];
+
+    let mut group = c.benchmark_group("indeterminate_title_to_string");
+
+    for &(label, title) in titles {
+        // Baseline: current production shape — &str → to_string() → Cow::Owned.
+        group.bench_with_input(
+            BenchmarkId::new("to_string_cow_owned", label),
+            title,
+            |b, title| {
+                b.iter(|| {
+                    let cow: Cow<'_, str> = Cow::Owned(black_box(title).to_string());
+                    black_box(cow)
+                })
+            },
+        );
+
+        // Candidate: &str directly → Cow::Borrowed — zero allocation.
+        group.bench_with_input(
+            BenchmarkId::new("borrow_cow_borrowed", label),
+            title,
+            |b, title| {
+                b.iter(|| {
+                    let cow: Cow<'_, str> = Cow::Borrowed(black_box(title));
+                    black_box(cow)
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ── tui/mod.rs Layout::split to_vec ──────────────────────────────────────────
+//
+// src/tui/mod.rs:draw (lines 121-138) — called on every render frame (~30 fps).
+// Current shape:
+//   let chunks: Vec<_> = Layout::vertical([...]).split(area).to_vec();
+// `Layout::split` returns `Rc<[Rect]>`.  `.to_vec()` heap-allocates a new
+// Vec<Rect> (3 or 5 Copy elements) so that chunks can be indexed.  Since
+// `Rc<[Rect]>` already implements `Deref<Target = [Rect]>`, the Rects can be
+// indexed directly without materialising a Vec — saving one heap alloc per frame.
+//
+// Candidate: index the Rc<[Rect]> directly without .to_vec().
+//
+// NOTE: bench approximates the Vec<T> vs slice-index cost for a small number of
+// Copy values (Rect is 4×u16 = 8 bytes).  We use u64 as a Rect stand-in (same
+// Copy + 8 bytes) to avoid a ratatui dependency in the bench crate.
+//
+// Frequency: 1 allocation per frame (compact=3 rects, non-compact=5 rects) ×
+// ~30 fps = ~30 avoidable Vec allocs/sec.
+
+fn bench_layout_split_to_vec(c: &mut Criterion) {
+    // Simulate the two layout arm sizes: compact (3 rects) and non-compact (5).
+    let cases: &[(&str, &[u64])] = &[
+        ("compact_3", &[10, 480, 10]),
+        ("non_compact_5", &[10, 1, 480, 1, 10]),
+    ];
+
+    let mut group = c.benchmark_group("layout_split_to_vec");
+
+    for &(label, rects) in cases {
+        // Baseline: current production shape — clone slice into a Vec, then index.
+        group.bench_with_input(
+            BenchmarkId::new("to_vec_then_index", label),
+            rects,
+            |b, rects| {
+                b.iter(|| {
+                    // Simulates Rc<[Rect]>.to_vec() — allocates a Vec copy of rects.
+                    let v: Vec<u64> = black_box(rects).to_vec();
+                    // Access the same indices that draw() uses (first, mid, last).
+                    let first = v[0];
+                    let mid = v[v.len() / 2];
+                    let last = v[v.len() - 1];
+                    black_box((first, mid, last))
+                })
+            },
+        );
+
+        // Candidate: index the slice directly — no Vec allocation.
+        group.bench_with_input(
+            BenchmarkId::new("slice_index_direct", label),
+            rects,
+            |b, rects| {
+                b.iter(|| {
+                    // Simulates indexing Rc<[Rect]> directly: rects[0], rects[n].
+                    let s: &[u64] = black_box(rects);
+                    let first = s[0];
+                    let mid = s[s.len() / 2];
+                    let last = s[s.len() - 1];
+                    black_box((first, mid, last))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_panel_block_title_format,
@@ -1277,5 +1471,8 @@ criterion_group!(
     bench_active_download_message_clone,
     bench_progress_percent_format,
     bench_status_pill_format,
+    bench_render_info_title_clone,
+    bench_indeterminate_title_to_string,
+    bench_layout_split_to_vec,
 );
 criterion_main!(benches);
