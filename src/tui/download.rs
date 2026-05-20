@@ -149,22 +149,19 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let lines = vec![
         Line::from(vec![
             Span::styled(KEY_COLLECTION, key_style),
-            Span::styled(page.title.clone(), Style::default().fg(ACCENT)),
+            Span::styled(page.title.as_str(), Style::default().fg(ACCENT)),
         ]),
         Line::from(vec![
             Span::styled(KEY_UPLOADER, key_style),
             Span::styled(
-                page.uploader.as_deref().unwrap_or(VALUE_UNKNOWN).to_owned(),
+                page.uploader.as_deref().unwrap_or(VALUE_UNKNOWN),
                 value_style,
             ),
         ]),
         Line::from(vec![
             Span::styled(KEY_OUTPUT, key_style),
             Span::styled(
-                page.output_dir
-                    .as_deref()
-                    .unwrap_or(VALUE_PREPARING)
-                    .to_owned(),
+                page.output_dir.as_deref().unwrap_or(VALUE_PREPARING),
                 value_style,
             ),
         ]),
