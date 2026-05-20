@@ -60,7 +60,7 @@ pub struct Beatmap {
 impl Collection {
     /// Beatmapset IDs in this collection (preserving order, deduplicated).
     pub fn beatmapset_ids(&self) -> Vec<u32> {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::with_capacity(self.beatmapsets.len());
         self.beatmapsets
             .iter()
             .map(|b| b.id)
