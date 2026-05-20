@@ -302,7 +302,7 @@ impl App {
         let current_snapshots = snapshots::current_snapshots(
             self.updates.path.client_type,
             &self.updates.scan.local_collections_raw,
-            self.updates.scan.local_beatmapsets.values(),
+            self.updates.scan.local_beatmapsets.iter(),
             |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
         );
         let snapshots: Vec<_> = collection_ids

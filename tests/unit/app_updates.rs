@@ -104,7 +104,7 @@ fn deleted_maps_for_scan_only_uses_selected_collections() {
 }
 
 #[test]
-fn set_local_beatmapsets_builds_id_index() {
+fn set_local_beatmapsets_stores_sets() {
     let mut tab = UpdatesTab::new();
     let sets = vec![
         LocalBeatmapset {
@@ -122,9 +122,10 @@ fn set_local_beatmapsets_builds_id_index() {
     ];
     tab.set_local_beatmapsets(sets);
 
-    assert!(tab.scan.local_beatmapsets.contains_key(&10));
-    assert!(tab.scan.local_beatmapsets.contains_key(&20));
-    assert!(!tab.scan.local_beatmapsets.contains_key(&99));
+    let ids: Vec<u32> = tab.scan.local_beatmapsets.iter().map(|bs| bs.id).collect();
+    assert!(ids.contains(&10));
+    assert!(ids.contains(&20));
+    assert!(!ids.contains(&99));
 }
 
 #[test]

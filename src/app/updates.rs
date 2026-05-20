@@ -4,7 +4,7 @@ use super::{
     next_field, prev_field,
 };
 use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use tracing::{debug, info};
 
@@ -105,7 +105,7 @@ impl PathState {
 #[derive(Debug, Clone)]
 pub struct ScanState {
     pub local_collections_raw: Vec<LocalCollection>,
-    pub local_beatmapsets: HashMap<u32, LocalBeatmapset>,
+    pub local_beatmapsets: Vec<LocalBeatmapset>,
     pub all_local_checksums: HashSet<Md5>,
     pub scan_status: ScanStatus,
     pub scan_generation: u64,
@@ -116,7 +116,7 @@ impl ScanState {
     fn new() -> Self {
         Self {
             local_collections_raw: Vec::new(),
-            local_beatmapsets: HashMap::new(),
+            local_beatmapsets: Vec::new(),
             all_local_checksums: HashSet::new(),
             scan_status: ScanStatus::Idle,
             scan_generation: 0,
@@ -470,7 +470,7 @@ impl UpdatesTab {
     }
 
     pub fn set_local_beatmapsets(&mut self, beatmapsets: Vec<LocalBeatmapset>) {
-        self.scan.local_beatmapsets = beatmapsets.into_iter().map(|bs| (bs.id, bs)).collect();
+        self.scan.local_beatmapsets = beatmapsets;
     }
 
     pub fn set_all_checksums(&mut self, checksums: Vec<Md5>) {

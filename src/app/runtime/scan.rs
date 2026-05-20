@@ -120,8 +120,13 @@ pub(super) fn handle_updates_event(
             }
 
             let previously_deleted_count = missing.iter().filter(|m| m.previously_deleted).count();
-            let local_ids: HashSet<u32> =
-                app.updates.scan.local_beatmapsets.keys().copied().collect();
+            let local_ids: HashSet<u32> = app
+                .updates
+                .scan
+                .local_beatmapsets
+                .iter()
+                .map(|bs| bs.id)
+                .collect();
             let local_snapshot: Vec<u32> = local_ids.iter().copied().collect();
             let count = missing.len();
             app.updates.set_missing_beatmaps(missing);
@@ -408,14 +413,20 @@ fn spawn_fetch_task(
     }
 
     let selected_collection_ids = collection_ids_for_scan(selected_ids);
-    let local_set_ids: HashSet<u32> = app.updates.scan.local_beatmapsets.keys().copied().collect();
+    let local_set_ids: HashSet<u32> = app
+        .updates
+        .scan
+        .local_beatmapsets
+        .iter()
+        .map(|bs| bs.id)
+        .collect();
     let all_local_checksums = std::mem::take(&mut app.updates.scan.all_local_checksums);
     let generation = app.updates.scan.scan_generation;
     let client_type = app.updates.path.client_type;
     let current_snapshots = snapshots::current_snapshots(
         client_type,
         &app.updates.scan.local_collections_raw,
-        app.updates.scan.local_beatmapsets.values(),
+        app.updates.scan.local_beatmapsets.iter(),
         |name| extract_collection_id(name).and_then(|id| u32::try_from(id).ok()),
     );
     let snapshot_dir = snapshots::snapshots_dir();
