@@ -745,21 +745,20 @@ fn is_archive_content_type(raw: &str) -> bool {
 }
 
 fn extract_filename(response: &reqwest::Response, beatmapset_id: u32) -> String {
-    let filename = response
+    let mut filename = response
         .headers()
         .get(reqwest::header::CONTENT_DISPOSITION)
         .and_then(|value| value.to_str().ok())
         .and_then(parse_content_disposition)
         .unwrap_or_else(|| format!("{beatmapset_id}.osz"));
 
-    if filename
+    if !filename
         .rsplit_once('.')
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("osz"))
     {
-        filename
-    } else {
-        format!("{filename}.osz")
+        filename.push_str(".osz");
     }
+    filename
 }
 
 pub(crate) async fn finalize_download(
