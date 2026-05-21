@@ -57,11 +57,12 @@ impl HomeField {
     pub fn is_text_input(self) -> bool {
         matches!(
             self,
-            HomeField::Collection
-                | HomeField::Directory
-                | HomeField::CustomMirror
-                | HomeField::Threads
+            HomeField::Collection | HomeField::Directory | HomeField::CustomMirror
         )
+    }
+
+    pub fn is_stepper(self) -> bool {
+        self == HomeField::Threads
     }
 }
 
@@ -85,7 +86,7 @@ pub struct HomeTab {
     /// `Some(None)` = probe in flight (`…`), `Some(Some(_))` = result received.
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
     pub quit_prompt: bool,
-    default_threads: u8,
+    pub default_threads: u8,
     default_directory: String,
 }
 
@@ -214,17 +215,31 @@ impl HomeTab {
         }
     }
 
+    /// Increment the thread count by one, capped at `default_threads`.
+    pub fn step_up(&mut self) {
+        self.step(1);
+    }
+
+    /// Decrement the thread count by one, floored at 1.
+    pub fn step_down(&mut self) {
+        self.step(-1);
+    }
+
+    fn step(&mut self, delta: i16) {
+        let current = self.resolved_threads() as i16;
+        let max = self.default_threads as i16;
+        let next = (current + delta).clamp(1, max) as u8;
+        self.threads.value = next.to_string();
+    }
+
     pub fn handle_char(&mut self, ch: char) {
         match self.focus {
             HomeField::Collection => self.collection.value.push(ch),
             HomeField::Directory => self.directory.value.push(ch),
             HomeField::CustomMirror => self.custom_mirror.value.push(ch),
-            HomeField::Threads => {
-                if ch.is_ascii_digit() {
-                    self.threads.value.push(ch);
-                }
-            }
-            HomeField::MirrorNerinyan
+            // Threads is a stepper — char input is silently ignored.
+            HomeField::Threads
+            | HomeField::MirrorNerinyan
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
@@ -244,10 +259,9 @@ impl HomeTab {
             HomeField::CustomMirror => {
                 self.custom_mirror.value.pop();
             }
-            HomeField::Threads => {
-                self.threads.value.pop();
-            }
-            HomeField::MirrorNerinyan
+            // Threads is a stepper — backspace is silently ignored.
+            HomeField::Threads
+            | HomeField::MirrorNerinyan
             | HomeField::MirrorOsuDirect
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha

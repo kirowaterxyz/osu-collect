@@ -1,4 +1,9 @@
-use crate::{app::home::HomeTab, config::Config, download::ArchiveValidation, mirrors::MirrorKind};
+use crate::{
+    app::home::{HomeField, HomeTab},
+    config::Config,
+    download::ArchiveValidation,
+    mirrors::MirrorKind,
+};
 
 fn home_all_off(config: &Config) -> HomeTab {
     let mut home = HomeTab::new(config);
@@ -87,4 +92,94 @@ fn build_request_passes_archive_validation_argument() {
 
     let eocd = home.build_request(ArchiveValidation::Eocd).unwrap();
     assert_eq!(eocd.config.archive_validation, ArchiveValidation::Eocd);
+}
+
+#[test]
+fn threads_stepper_increments_by_one() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    // Start from a known value below the max.
+    home.threads.value = "2".to_string();
+    home.focus = HomeField::Threads;
+
+    home.step_up();
+
+    assert_eq!(home.resolved_threads(), 3);
+}
+
+#[test]
+fn threads_stepper_decrements_by_one() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    home.threads.value = "4".to_string();
+    home.focus = HomeField::Threads;
+
+    home.step_down();
+
+    assert_eq!(home.resolved_threads(), 3);
+}
+
+#[test]
+fn threads_stepper_does_not_go_below_one() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    home.threads.value = "1".to_string();
+    home.focus = HomeField::Threads;
+
+    home.step_down();
+
+    assert_eq!(home.resolved_threads(), 1);
+}
+
+#[test]
+fn threads_stepper_does_not_exceed_default_threads() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    let max = home.default_threads;
+    home.threads.value = max.to_string();
+
+    home.step_up();
+
+    assert_eq!(home.resolved_threads(), max);
+}
+
+#[test]
+fn threads_digit_key_does_not_mutate_value() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    home.focus = HomeField::Threads;
+    home.threads.value = "3".to_string();
+
+    home.handle_char('5');
+
+    // Value must remain "3" — digit keys are ignored on the stepper.
+    assert_eq!(home.threads.value, "3");
+}
+
+#[test]
+fn threads_field_is_not_text_input() {
+    assert!(!HomeField::Threads.is_text_input());
+    assert!(HomeField::Threads.is_stepper());
+}
+
+#[test]
+fn r_key_is_not_suppressed_when_threads_focused() {
+    use crate::app::AppCommand;
+    use crate::app::state::App;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Threads;
+
+    let key = KeyEvent {
+        code: KeyCode::Char('r'),
+        modifiers: KeyModifiers::empty(),
+        kind: KeyEventKind::Press,
+        state: KeyEventState::empty(),
+    };
+    let cmd = app.handle_key(key);
+    assert!(
+        matches!(cmd, Some(AppCommand::ProbeMirrors)),
+        "'r' with threads focused must trigger mirror probe, got {cmd:?}"
+    );
 }

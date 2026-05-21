@@ -30,6 +30,7 @@ const HINT_ENTER_OPEN: &str = "enter open";
 const HINT_ENTER_CONFIRM: &str = "enter confirm";
 const HINT_ENTER_DOWNLOAD: &str = "enter download";
 const HINT_ESC_BACK: &str = "esc back";
+const HINT_PLUS_MINUS: &str = "+/- adjust";
 const HINT_ALL_NONE: &str = "a all / d none";
 const HINT_SAVE: &str = "s save";
 const HINT_QUIT: &str = "q quit";
@@ -80,7 +81,9 @@ fn join(segments: &[&str]) -> String {
 
 fn home_hint(form: &HomeTab) -> String {
     let mut segments = vec![HINT_MOVE];
-    if !form.focus.is_text_input() {
+    if form.focus.is_stepper() {
+        segments.push(HINT_PLUS_MINUS);
+    } else if !form.focus.is_text_input() {
         segments.push(HINT_SPACE_TOGGLE);
     }
     segments.push(HINT_ENTER_DOWNLOAD);
@@ -112,6 +115,7 @@ fn config_hint(focus: ConfigField) -> String {
     let mut segments = vec![HINT_MOVE];
     match focus {
         ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push(HINT_ENTER_CONFIRM),
+        field if field.is_stepper() => segments.push(HINT_PLUS_MINUS),
         field if field.is_text_input() => segments.push(HINT_ESC_BACK),
         _ => segments.push(HINT_SPACE_TOGGLE),
     }

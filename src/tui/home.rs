@@ -73,7 +73,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
     items.push(widgets::section_header(SECTION_DOWNLOAD));
     items.push_focusable(
         HomeField::Threads,
-        widgets::input_item(&form.threads, focus == HomeField::Threads),
+        widgets::stepper_item(
+            form.threads.label,
+            form.resolved_threads(),
+            form.default_threads,
+            focus == HomeField::Threads,
+        ),
     );
     items.push_focusable(
         HomeField::AutoOverwrite,

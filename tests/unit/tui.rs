@@ -1100,3 +1100,55 @@ fn footer_info_message_uses_info_color() {
 
     assert!(has_info_cell);
 }
+
+#[test]
+fn threads_stepper_renders_recommended_chip_when_value_differs() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Threads;
+    // Set to something other than the recommended (default_threads).
+    let recommended = app.home.default_threads;
+    let non_default = if recommended > 1 { recommended - 1 } else { 2 };
+    app.home.threads.value = non_default.to_string();
+
+    let output = render_app(&app, 80, 30);
+
+    assert!(
+        output.contains("recommended"),
+        "recommended chip must appear when thread count differs from CPU count: {output}"
+    );
+}
+
+#[test]
+fn threads_stepper_omits_recommended_chip_when_at_default() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Threads;
+    // Set value to exactly the recommended amount.
+    let recommended = app.home.default_threads;
+    app.home.threads.value = recommended.to_string();
+
+    let output = render_app(&app, 80, 30);
+
+    assert!(
+        !output.contains("recommended"),
+        "recommended chip must be omitted when value equals CPU count"
+    );
+}
+
+#[test]
+fn home_hint_shows_plus_minus_when_threads_focused() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Threads;
+
+    let output = render_app(&app, 80, 24);
+
+    assert!(
+        output.contains("+/-") || output.contains("+"),
+        "footer must show +/- hint when threads stepper is focused: {output}"
+    );
+}

@@ -79,7 +79,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     items.push(widgets::section_header(SECTION_DOWNLOAD));
     items.push_focusable(
         ConfigField::DownloadThreads,
-        widgets::input_item(&form.threads, focus == ConfigField::DownloadThreads),
+        widgets::stepper_item(
+            form.threads.label,
+            form.resolved_threads(),
+            form.default_threads,
+            focus == ConfigField::DownloadThreads,
+        ),
     );
     items.push_focusable(
         ConfigField::DownloadNoVideo,

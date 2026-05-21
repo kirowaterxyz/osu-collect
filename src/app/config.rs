@@ -78,10 +78,12 @@ impl ConfigField {
     pub fn is_text_input(self) -> bool {
         matches!(
             self,
-            ConfigField::MirrorCustomUrl
-                | ConfigField::DownloadThreads
-                | ConfigField::LoggingDirectory
+            ConfigField::MirrorCustomUrl | ConfigField::LoggingDirectory
         )
+    }
+
+    pub fn is_stepper(self) -> bool {
+        self == ConfigField::DownloadThreads
     }
 }
 
@@ -103,6 +105,7 @@ pub struct ConfigTab {
     pub theme: ThemeMode,
     pub focus: ConfigField,
     pub message: Option<AppMessage>,
+    pub default_threads: u8,
 }
 
 impl ConfigTab {
@@ -126,6 +129,7 @@ impl ConfigTab {
             theme: config.display.theme,
             focus: ConfigField::LoginEntry,
             message: None,
+            default_threads: default_threads(),
         }
     }
 
@@ -139,13 +143,29 @@ impl ConfigTab {
         self.focus = prev_field(fields, self.focus);
     }
 
+    /// Increment the thread count by one, capped at `default_threads`.
+    pub fn step_up(&mut self) {
+        self.step(1);
+    }
+
+    /// Decrement the thread count by one, floored at 1.
+    pub fn step_down(&mut self) {
+        self.step(-1);
+    }
+
+    fn step(&mut self, delta: i16) {
+        let current = self.resolved_threads() as i16;
+        let max = self.default_threads as i16;
+        let next = (current + delta).clamp(1, max) as u8;
+        self.threads.value = next.to_string();
+    }
+
     pub fn handle_char(&mut self, ch: char) {
         clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::MirrorCustomUrl => self.custom_mirror.value.push(ch),
-            ConfigField::DownloadThreads if ch.is_ascii_digit() => {
-                self.threads.value.push(ch);
-            }
+            // DownloadThreads is a stepper — char input is silently ignored.
+            ConfigField::DownloadThreads => {}
             ConfigField::LoggingDirectory => self.logging_dir.value.push(ch),
             _ => {}
         }
@@ -157,9 +177,8 @@ impl ConfigTab {
             ConfigField::MirrorCustomUrl => {
                 self.custom_mirror.value.pop();
             }
-            ConfigField::DownloadThreads => {
-                self.threads.value.pop();
-            }
+            // DownloadThreads is a stepper — backspace is silently ignored.
+            ConfigField::DownloadThreads => {}
             ConfigField::LoggingDirectory => {
                 self.logging_dir.value.pop();
             }
@@ -270,6 +289,18 @@ impl ConfigTab {
 
     pub fn logout_selectable(&self) -> bool {
         matches!(self.login_state, AuthLoginState::LoggedIn)
+    }
+
+    pub fn resolved_threads(&self) -> u8 {
+        if self.threads.value.trim().is_empty() {
+            self.default_threads
+        } else {
+            self.threads
+                .value
+                .trim()
+                .parse::<u8>()
+                .unwrap_or(self.default_threads)
+        }
     }
 
     fn fields(&self) -> &'static [ConfigField] {

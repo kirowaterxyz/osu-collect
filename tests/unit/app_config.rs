@@ -149,3 +149,70 @@ fn cycle_archive_validation_wraps_through_all_variants() {
     tab.cycle_archive_validation();
     assert_eq!(tab.archive_validation, ArchiveValidation::Off);
 }
+
+#[test]
+fn config_threads_stepper_increments_by_one() {
+    use crate::app::ConfigField;
+
+    let mut tab = tab_logged_in();
+    tab.focus = ConfigField::DownloadThreads;
+    tab.threads.value = "2".to_string();
+
+    tab.step_up();
+
+    assert_eq!(tab.resolved_threads(), 3);
+}
+
+#[test]
+fn config_threads_stepper_decrements_by_one() {
+    use crate::app::ConfigField;
+
+    let mut tab = tab_logged_in();
+    tab.focus = ConfigField::DownloadThreads;
+    tab.threads.value = "4".to_string();
+
+    tab.step_down();
+
+    assert_eq!(tab.resolved_threads(), 3);
+}
+
+#[test]
+fn config_threads_stepper_does_not_go_below_one() {
+    let mut tab = tab_logged_in();
+    tab.threads.value = "1".to_string();
+
+    tab.step_down();
+
+    assert_eq!(tab.resolved_threads(), 1);
+}
+
+#[test]
+fn config_threads_stepper_does_not_exceed_default_threads() {
+    let mut tab = tab_logged_in();
+    let max = tab.default_threads;
+    tab.threads.value = max.to_string();
+
+    tab.step_up();
+
+    assert_eq!(tab.resolved_threads(), max);
+}
+
+#[test]
+fn config_threads_digit_key_does_not_mutate_value() {
+    use crate::app::ConfigField;
+
+    let mut tab = tab_logged_in();
+    tab.focus = ConfigField::DownloadThreads;
+    tab.threads.value = "3".to_string();
+
+    tab.handle_char('9');
+
+    assert_eq!(tab.threads.value, "3");
+}
+
+#[test]
+fn config_download_threads_is_not_text_input() {
+    use crate::app::ConfigField;
+    assert!(!ConfigField::DownloadThreads.is_text_input());
+    assert!(ConfigField::DownloadThreads.is_stepper());
+}

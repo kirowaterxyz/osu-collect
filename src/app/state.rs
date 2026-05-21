@@ -544,6 +544,20 @@ impl App {
             },
             KeyCode::Char(ch) => match self.active_tab() {
                 HOME_TAB_INDEX => {
+                    // Stepper: +/- adjust thread count when threads field is focused.
+                    if self.home.focus.is_stepper() {
+                        match ch {
+                            '+' => {
+                                self.home.step_up();
+                                return None;
+                            }
+                            '-' => {
+                                self.home.step_down();
+                                return None;
+                            }
+                            _ => {}
+                        }
+                    }
                     // `r` refreshes mirror latency when no text input is focused.
                     if ch == 'r' && !self.home.focus.is_text_input() {
                         return Some(AppCommand::ProbeMirrors);
@@ -564,6 +578,20 @@ impl App {
                 }
                 CONFIG_TAB_INDEX => {
                     let focus = self.config.focus;
+                    // Stepper: +/- adjust thread count when threads field is focused.
+                    if focus.is_stepper() {
+                        match ch {
+                            '+' => {
+                                self.config.step_up();
+                                return None;
+                            }
+                            '-' => {
+                                self.config.step_down();
+                                return None;
+                            }
+                            _ => {}
+                        }
+                    }
                     let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     if !is_ctrl && !focus.is_text_input() {
                         match ch {

@@ -219,6 +219,31 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     ]))
 }
 
+/// A stepper row showing a numeric value with an optional "recommended: N" chip.
+///
+/// `recommended` is shown as a dim chip when the current value differs; omitted
+/// when `value == recommended` (the field is already at the suggested setting).
+pub fn stepper_item(label: &str, value: u8, recommended: u8, focused: bool) -> ListItem<'static> {
+    let mut s = String::with_capacity(3);
+    s.push_str(&value.to_string());
+    let value_span = Span::styled(s, Style::default().fg(accent()));
+
+    let mut spans = vec![
+        focus_span(focused),
+        Span::styled(format!("{label}: "), focused_label(focused)),
+        value_span,
+    ];
+
+    if value != recommended {
+        let mut chip = String::with_capacity(16);
+        chip.push_str("  recommended: ");
+        chip.push_str(&recommended.to_string());
+        spans.push(Span::styled(chip, Style::default().fg(text_faint())));
+    }
+
+    ListItem::new(Line::from(spans))
+}
+
 pub fn cycle_item(
     label: &str,
     options: &[&str],
