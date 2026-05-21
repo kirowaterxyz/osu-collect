@@ -194,7 +194,7 @@ fn enter_without_collection_input_produces_error() {
 // ── config tab key bindings ───────────────────────────────────────────────────
 
 #[test]
-fn enter_on_config_login_does_nothing() {
+fn enter_on_config_login_triggers_login_attempt() {
     use osu_collect::app::ConfigField;
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
@@ -204,23 +204,8 @@ fn enter_on_config_login_does_nothing() {
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
     app.config.focus = ConfigField::LoginEntry;
 
+    // enter must reach the login request path (command depends on bundled creds)
     let cmd = app.handle_key(press(KeyCode::Enter));
-    assert!(cmd.is_none(), "enter on config must not issue any command");
-}
-
-#[test]
-fn space_on_config_login_triggers_login_attempt() {
-    use osu_collect::app::ConfigField;
-    use osu_collect::config::constants::CONFIG_TAB_INDEX;
-
-    let mut app = make_app();
-    app.handle_key(press(KeyCode::Right));
-    app.handle_key(press(KeyCode::Right));
-    assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
-    app.config.focus = ConfigField::LoginEntry;
-
-    // space must reach the login request path (command depends on bundled creds)
-    let cmd = app.handle_key(press(KeyCode::Char(' ')));
     let credentials_available = osu_collect::auth::bundled_credentials().is_some();
     if credentials_available {
         assert!(matches!(cmd, Some(AppCommand::Login { .. })));
@@ -228,6 +213,25 @@ fn space_on_config_login_triggers_login_attempt() {
         assert!(cmd.is_none());
         assert!(app.config.message.is_some());
     }
+}
+
+#[test]
+fn space_on_config_login_does_nothing() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.handle_key(press(KeyCode::Right));
+    app.handle_key(press(KeyCode::Right));
+    assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
+    app.config.focus = ConfigField::LoginEntry;
+
+    // space must no longer trigger login — enter is the confirm key
+    let cmd = app.handle_key(press(KeyCode::Char(' ')));
+    assert!(
+        cmd.is_none(),
+        "space on login entry must not issue any command"
+    );
 }
 
 // ── updates tab: enter does not exit lists ────────────────────────────────────

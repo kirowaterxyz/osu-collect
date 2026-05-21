@@ -119,6 +119,14 @@ impl App {
             && (self.updates.selection.in_collection_list || self.updates.selection.in_beatmap_list)
     }
 
+    /// Returns `true` when any modal or popup is currently open.
+    /// `esc` and `q` close modals before falling through to the quit flow.
+    /// Extend this as new modal types are added.
+    fn any_modal_open(&self) -> bool {
+        // currently no modals; this is the cascade entry point
+        false
+    }
+
     fn focus_next_field(&mut self) {
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.next_field(),
@@ -354,6 +362,9 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => {
+                if self.any_modal_open() {
+                    return None;
+                }
                 if self.active_tab() == UPDATES_TAB_INDEX && self.updates.handle_escape().is_some()
                 {
                     return None;
@@ -421,7 +432,14 @@ impl App {
                 if self.active_tab() == UPDATES_TAB_INDEX {
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
-                    if in_list || !self.updates.is_scan_ready() {
+                    if in_list {
+                        return None;
+                    }
+                    // enter opens list panels; only attempt a download when no panel was opened
+                    if self.updates.enter_opens_list() {
+                        return None;
+                    }
+                    if !self.updates.is_scan_ready() {
                         return None;
                     }
                     match self.updates.handle_enter() {
@@ -434,6 +452,13 @@ impl App {
                             return Some(AppCommand::RecheckFailedMaps);
                         }
                         UpdatesAction::None | UpdatesAction::RefreshAll => {}
+                    }
+                }
+                if self.active_tab() == CONFIG_TAB_INDEX {
+                    match self.config.focus {
+                        ConfigField::LoginEntry => return self.request_login(),
+                        ConfigField::LogoutEntry => return self.request_logout(),
+                        _ => {}
                     }
                 }
             }
@@ -455,12 +480,13 @@ impl App {
                 }
                 UPDATES_TAB_INDEX => match self.updates.toggle_current() {
                     UpdatesAction::RefreshAll => return Some(AppCommand::ScanLocalDatabase),
-                    UpdatesAction::RecheckFailedMaps => return Some(AppCommand::RecheckFailedMaps),
+                    UpdatesAction::RecheckFailedMaps => {
+                        return Some(AppCommand::RecheckFailedMaps);
+                    }
                     UpdatesAction::None | UpdatesAction::Download => {}
                 },
                 CONFIG_TAB_INDEX => match self.config.focus {
-                    ConfigField::LoginEntry => return self.request_login(),
-                    ConfigField::LogoutEntry => return self.request_logout(),
+                    ConfigField::LoginEntry | ConfigField::LogoutEntry => {}
                     field if field.is_text_input() => self.config.handle_char(' '),
                     _ => self.config.toggle_current(),
                 },
@@ -469,7 +495,11 @@ impl App {
             KeyCode::Char(ch) => match self.active_tab() {
                 HOME_TAB_INDEX => self.home.handle_char(ch),
                 UPDATES_TAB_INDEX => {
-                    if ch == 'r' && self.updates.can_recheck_failed_maps() {
+                    let in_list = self.updates.selection.in_collection_list
+                        || self.updates.selection.in_beatmap_list;
+                    // suppress global letter shortcuts when the osu! path text field is focused
+                    let suppress_shortcuts = self.updates.is_typing() && !in_list;
+                    if !suppress_shortcuts && ch == 'r' && self.updates.can_recheck_failed_maps() {
                         return Some(AppCommand::RecheckFailedMaps);
                     }
                     self.updates.handle_char(ch);

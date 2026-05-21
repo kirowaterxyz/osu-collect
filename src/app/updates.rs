@@ -242,24 +242,32 @@ impl UpdatesTab {
             UpdatesField::Collections => {
                 if self.selection.in_collection_list {
                     self.toggle_collection_at_scroll();
-                    UpdatesAction::None
-                } else {
-                    self.selection.in_collection_list = true;
-                    UpdatesAction::None
                 }
+                UpdatesAction::None
             }
             UpdatesField::BeatmapList => {
                 if self.selection.in_beatmap_list {
                     self.toggle_beatmap_at_scroll();
-                } else {
-                    if !self.is_scan_ready() {
-                        return UpdatesAction::None;
-                    }
-                    self.selection.in_beatmap_list = true;
                 }
                 UpdatesAction::None
             }
             _ => UpdatesAction::None,
+        }
+    }
+
+    /// Returns `true` when the enter key should open a list panel rather than
+    /// trigger a download. Mutates state to enter the panel as a side effect.
+    pub fn enter_opens_list(&mut self) -> bool {
+        match self.selection.focus {
+            UpdatesField::Collections => {
+                self.selection.in_collection_list = true;
+                true
+            }
+            UpdatesField::BeatmapList if self.is_scan_ready() => {
+                self.selection.in_beatmap_list = true;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -269,6 +277,12 @@ impl UpdatesTab {
         } else {
             UpdatesAction::Download
         }
+    }
+
+    /// Returns `true` when the focused field accepts character input (i.e. the
+    /// osu! path text box), meaning letter keybinds must be suppressed.
+    pub fn is_typing(&self) -> bool {
+        self.selection.focus == UpdatesField::OsuPath
     }
 
     pub fn handle_escape(&mut self) -> Option<UpdatesAction> {

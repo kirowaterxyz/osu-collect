@@ -26,8 +26,8 @@ const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
 const HINT_SPACE_TOGGLE: &str = "space toggle";
 const HINT_SPACE_SWITCH: &str = "space switch";
-const HINT_SPACE_OPEN: &str = "space open";
-const HINT_SPACE_CONFIRM: &str = "space confirm";
+const HINT_ENTER_OPEN: &str = "enter open";
+const HINT_ENTER_CONFIRM: &str = "enter confirm";
 const HINT_SPACE_CHANGE: &str = "space change";
 const HINT_ENTER_DOWNLOAD: &str = "enter download";
 const HINT_TAB_NEXT: &str = "tab next";
@@ -107,7 +107,7 @@ fn updates_hint(form: &UpdatesTab) -> String {
     let mut segments = vec![HINT_MOVE];
     match form.selection.focus {
         UpdatesField::ClientType => segments.push(HINT_SPACE_SWITCH),
-        UpdatesField::Collections | UpdatesField::BeatmapList => segments.push(HINT_SPACE_OPEN),
+        UpdatesField::Collections | UpdatesField::BeatmapList => segments.push(HINT_ENTER_OPEN),
         UpdatesField::OsuPath => {}
     }
     if form.can_recheck_failed_maps() {
@@ -123,7 +123,7 @@ fn updates_hint(form: &UpdatesTab) -> String {
 fn config_hint(focus: ConfigField) -> String {
     let mut segments = vec![HINT_MOVE];
     match focus {
-        ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push(HINT_SPACE_CONFIRM),
+        ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push(HINT_ENTER_CONFIRM),
         field if field.is_text_input() => {}
         _ => segments.push(HINT_SPACE_CHANGE),
     }

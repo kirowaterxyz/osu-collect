@@ -156,7 +156,7 @@ fn config_footer_omits_space_on_text_input() {
 
     let content = render_content(&app, 120, 24);
     assert!(!content.contains("space change"));
-    assert!(!content.contains("space confirm"));
+    assert!(!content.contains("enter confirm"));
 }
 
 // ── gauge label ──────────────────────────────────────────────────────────────
