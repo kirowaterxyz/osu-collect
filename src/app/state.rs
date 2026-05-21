@@ -1230,8 +1230,39 @@ impl App {
                     Some(AppCommand::RetryAllFailed { download_id })
                 }
             }
+            'x' => {
+                // Settled tabs (Completed/Failed) close on `x`. In-progress
+                // stages route cancellation through `q` to avoid silently
+                // killing a running download.
+                if !matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed) {
+                    return None;
+                }
+                let download_id = page.id;
+                self.close_settled_download_tab(download_id);
+                None
+            }
             _ => None,
         }
+    }
+
+    /// Remove a settled download page and move focus to the adjacent tab.
+    ///
+    /// Navigation matches browser tab close: focus shifts to the tab to the
+    /// LEFT. Since `STATIC_TABS >= 1`, this always lands on a valid tab —
+    /// closing the leftmost download tab lands on `config`.
+    fn close_settled_download_tab(&mut self, download_id: DownloadId) {
+        let Some(position) = self
+            .downloads
+            .iter()
+            .position(|page| page.id == download_id)
+        else {
+            return;
+        };
+        let closed_tab_index = STATIC_TABS + position;
+        self.downloads.remove(position);
+        self.active_tab = closed_tab_index
+            .saturating_sub(1)
+            .min(self.total_tabs() - 1);
     }
 
     fn handle_quit_key(&mut self) -> Option<AppCommand> {
@@ -1256,12 +1287,20 @@ impl App {
         }
 
         let idx = self.active_tab - STATIC_TABS;
-        if let Some(page) = self.downloads.get(idx) {
-            return Some(AppCommand::CancelDownload { id: page.id });
+        let Some(page) = self.downloads.get(idx) else {
+            self.active_tab = 0;
+            return None;
+        };
+
+        // Settled tabs have nothing to cancel — `q` just closes them in
+        // place, matching the `x` binding and the `q close` footer hint.
+        if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed) {
+            let download_id = page.id;
+            self.close_settled_download_tab(download_id);
+            return None;
         }
 
-        self.active_tab = 0;
-        None
+        Some(AppCommand::CancelDownload { id: page.id })
     }
 
     fn placeholder_title(input: &str, download_id: DownloadId) -> String {
@@ -1352,3 +1391,7 @@ mod retry_on_download_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/tab_titles.rs"]
 mod tab_titles_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/close_download_tab.rs"]
+mod close_download_tab_tests;

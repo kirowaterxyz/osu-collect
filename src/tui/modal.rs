@@ -65,6 +65,7 @@ const DOWNLOAD_TAB: &[HelpRow] = &[
     HelpRow::new("↑ / ↓", "navigate failed rows"),
     HelpRow::new("r", "retry focused failed map"),
     HelpRow::new("R", "retry all failed maps"),
+    HelpRow::new("x", "close completed tab"),
 ];
 
 const RETRY_ON_START_MODAL: &[HelpRow] = &[

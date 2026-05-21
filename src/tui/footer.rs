@@ -2,6 +2,7 @@ use crate::app::{
     App, ConfigField, HomeTab, MessageKind, UpdatesField, UpdatesTab, messages::AppMessage,
 };
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
+use crate::download::DownloadStage;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -21,7 +22,8 @@ const QUIT_PROMPT_WARN: &str = " ⚠ ";
 const QUIT_PROMPT_TEXT: &str = "press q again to quit";
 const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downloads will stop";
 
-const DOWNLOAD_TAB_HINT: &str = "↑↓ scroll  ·  q cancel  ·  ? help";
+const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q cancel  ·  ? help";
+const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? help";
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
@@ -71,7 +73,20 @@ fn hint_for(app: &App) -> String {
         HOME_TAB_INDEX => home_hint(&app.home),
         UPDATES_TAB_INDEX => updates_hint(&app.updates),
         CONFIG_TAB_INDEX => config_hint(app.config.focus),
-        _ => DOWNLOAD_TAB_HINT.to_string(),
+        _ => download_tab_hint(app).to_string(),
+    }
+}
+
+/// `x close` appears only when the active download page is settled
+/// (`Completed` or `Failed`). In-progress pages keep the `q cancel` hint.
+fn download_tab_hint(app: &App) -> &'static str {
+    let settled = app
+        .download_for_tab(app.active_tab())
+        .is_some_and(|page| matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed));
+    if settled {
+        DOWNLOAD_TAB_HINT_SETTLED
+    } else {
+        DOWNLOAD_TAB_HINT_RUNNING
     }
 }
 
