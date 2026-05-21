@@ -48,6 +48,7 @@ pub const AUTO_UPDATE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const SPEED_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 pub const SPEED_STALE_AFTER: Duration = Duration::from_secs(1);
+pub const DISK_CACHE_TTL: Duration = Duration::from_secs(10);
 pub const COMPLETION_PREFIXES: [&str; 4] = ["Done", "Skipped", "Failed", "Accepted"];
 pub const MAX_LOG_LINES: usize = 5;
 

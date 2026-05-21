@@ -1346,3 +1346,144 @@ fn updates_osu_path_help_hidden_when_not_focused() {
         "osu! path help must not appear when field is not focused: {output}"
     );
 }
+
+// --- status pill tests ---
+
+#[test]
+fn pill_shows_downloading_count_when_at_least_one_page_is_downloading() {
+    use super::header::StatusPill;
+
+    let pill = StatusPill::compute(2, None).expect("two downloading pages produces a pill");
+    let segs = pill.segments();
+    let all_text: String = segs.iter().map(|(t, _)| t.as_str()).collect();
+    assert!(
+        all_text.contains("2 downloading"),
+        "pill must display downloading count, got {all_text:?}"
+    );
+}
+
+#[test]
+fn pill_omits_downloading_segment_when_count_is_zero() {
+    use super::header::StatusPill;
+
+    // disk_free is large enough to not be None
+    let pill = StatusPill::compute(0, Some(10 * 1024 * 1024 * 1024));
+    let pill = pill.expect("disk segment keeps pill visible");
+    let segs = pill.segments();
+    let all_text: String = segs.iter().map(|(t, _)| t.as_str()).collect();
+    assert!(
+        !all_text.contains("downloading"),
+        "downloading segment must be absent when count is 0, got {all_text:?}"
+    );
+}
+
+#[test]
+fn pill_is_none_when_no_downloads_and_no_disk_path() {
+    use super::header::StatusPill;
+
+    assert!(
+        StatusPill::compute(0, None).is_none(),
+        "pill must be None when nothing to show"
+    );
+}
+
+#[test]
+fn pill_disk_color_is_dim_above_warn_threshold() {
+    use super::header::StatusPill;
+    use super::text_dim;
+
+    // 2 GiB — well above 1 GiB warn threshold
+    let free = 2u64 * 1024 * 1024 * 1024;
+    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
+    let segs = pill.segments();
+    let disk_seg = segs
+        .iter()
+        .find(|(t, _)| t.contains("free"))
+        .expect("disk segment");
+    assert_eq!(
+        disk_seg.1,
+        text_dim(),
+        "disk segment must use text_dim when free space is healthy"
+    );
+}
+
+#[test]
+fn pill_disk_color_is_warning_below_1_gib() {
+    use super::header::StatusPill;
+    use super::warning;
+
+    // 500 MiB — below 1 GiB warn threshold, above 100 MiB danger threshold
+    let free = 500u64 * 1024 * 1024;
+    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
+    let segs = pill.segments();
+    let disk_seg = segs
+        .iter()
+        .find(|(t, _)| t.contains("free"))
+        .expect("disk segment");
+    assert_eq!(
+        disk_seg.1,
+        warning(),
+        "disk segment must use warning color when free space is below 1 GiB"
+    );
+}
+
+#[test]
+fn pill_disk_color_is_danger_below_100_mib() {
+    use super::danger;
+    use super::header::StatusPill;
+
+    // 50 MiB — below 100 MiB danger threshold
+    let free = 50u64 * 1024 * 1024;
+    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
+    let segs = pill.segments();
+    let disk_seg = segs
+        .iter()
+        .find(|(t, _)| t.contains("free"))
+        .expect("disk segment");
+    assert_eq!(
+        disk_seg.1,
+        danger(),
+        "disk segment must use danger color when free space is below 100 MiB"
+    );
+}
+
+#[test]
+fn header_renders_brand_tabs_and_version_regions() {
+    let app = App::new(Config::default());
+    let output = render_app(&app, 120, 24);
+
+    assert!(
+        output.contains("osu-collect"),
+        "brand must render in header"
+    );
+    assert!(output.contains("home"), "tabs must render in header");
+    let version = concat!("v", env!("CARGO_PKG_VERSION"));
+    assert!(
+        output.contains(version),
+        "version must render in header: expected {version:?} in output"
+    );
+}
+
+#[test]
+fn downloading_count_reflects_downloading_stage_pages_only() {
+    let mut app = App::new(Config::default());
+
+    let mut page1 = CollectionPage::new(1, "a".into(), 1);
+    page1.stage = DownloadStage::Downloading;
+
+    let mut page2 = CollectionPage::new(2, "b".into(), 1);
+    page2.stage = DownloadStage::Completed;
+
+    let mut page3 = CollectionPage::new(3, "c".into(), 1);
+    page3.stage = DownloadStage::Downloading;
+
+    app.downloads.push(page1);
+    app.downloads.push(page2);
+    app.downloads.push(page3);
+
+    assert_eq!(
+        app.downloading_count(),
+        2,
+        "only Downloading-stage pages should be counted"
+    );
+}
