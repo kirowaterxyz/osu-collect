@@ -60,6 +60,13 @@ const CONFIG_TAB: &[HelpRow] = &[
     HelpRow::new("enter", "log in / log out"),
 ];
 
+const DOWNLOAD_TAB: &[HelpRow] = &[
+    HelpRow::new("space", "expand / collapse failed"),
+    HelpRow::new("↑ / ↓", "navigate failed rows"),
+    HelpRow::new("r", "retry focused failed map"),
+    HelpRow::new("R", "retry all failed maps"),
+];
+
 /// Renders a centred keybindings overlay.
 ///
 /// Call this after all other tab content and the footer have been drawn —
@@ -105,6 +112,54 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(List::new(items[start..end].to_vec()), inner);
 }
 
+/// Renders the "retry N failed maps?" confirmation modal.
+///
+/// `enter` confirms; `esc` or `q` cancels. The modal intercepts all other keys
+/// while open — the caller (`handle_key`) enforces this via early return.
+pub(crate) fn render_confirm_retry_modal(frame: &mut Frame, area: Rect, count: usize) {
+    let [popup_area] = Layout::vertical([Constraint::Length(5)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(54)])
+        .flex(Flex::Center)
+        .areas(popup_area);
+    frame.render_widget(Clear, popup_area);
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
+        .title(Span::styled(
+            " CONFIRM RETRY ",
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
+        ))
+        .padding(Padding::new(1, 1, 0, 0));
+
+    let inner = outer_block.inner(popup_area);
+    frame.render_widget(outer_block, popup_area);
+
+    let items = vec![
+        ListItem::new(Line::from(vec![
+            Span::styled("retry ", Style::default().fg(text_dim())),
+            Span::styled(
+                count.to_string(),
+                Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" failed maps?", Style::default().fg(text_dim())),
+        ])),
+        ListItem::new(Line::from("")),
+        ListItem::new(Line::from(vec![Span::styled(
+            "  enter to confirm · esc to cancel",
+            Style::default().fg(text_faint()),
+        )])),
+    ];
+    frame.render_widget(List::new(items), inner);
+}
+
 fn build_help_items() -> Vec<ListItem<'static>> {
     let mut items = Vec::new();
     push_section(&mut items, "global", GLOBAL);
@@ -116,6 +171,8 @@ fn build_help_items() -> Vec<ListItem<'static>> {
     push_section(&mut items, "updates", UPDATES_TAB);
     items.push(spacer());
     push_section(&mut items, "config", CONFIG_TAB);
+    items.push(spacer());
+    push_section(&mut items, "download", DOWNLOAD_TAB);
     items.push(spacer());
     items.push(dismiss_hint());
     items

@@ -38,6 +38,8 @@ pub struct App {
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
     pub help_open: bool,
+    /// Pending confirmation for "retry N failed maps?" when count > 50.
+    pub confirm_retry: Option<RetryAllConfirmModal>,
     next_download_id: DownloadId,
 }
 
@@ -62,6 +64,15 @@ pub enum AppCommand {
     Logout,
     ScanLocalDatabase,
     RecheckFailedMaps,
+    /// Retry a single failed beatmapset from a download page.
+    RetryFailedMap {
+        download_id: DownloadId,
+        beatmapset_id: u32,
+    },
+    /// Retry all retryable failed maps for a download page (excludes NotFound).
+    RetryAllFailed {
+        download_id: DownloadId,
+    },
     /// Collection URL field changed; schedule a debounced metadata resolve.
     ResolveCollectionUrl {
         value: String,
@@ -69,6 +80,14 @@ pub enum AppCommand {
     /// Probe latency for all built-in mirrors.
     ProbeMirrors,
     Quit,
+}
+
+/// State for the "retry N failed maps?" confirm modal shown when `R` is pressed
+/// with more than 50 retryable failures.
+#[derive(Debug)]
+pub struct RetryAllConfirmModal {
+    pub download_id: DownloadId,
+    pub retryable_count: usize,
 }
 
 impl App {
@@ -89,6 +108,7 @@ impl App {
             scan_handle: None,
             tick_count: 0,
             help_open: false,
+            confirm_retry: None,
             next_download_id: 1,
         }
     }
@@ -133,11 +153,20 @@ impl App {
     /// `esc` and `q` call this before falling through to the quit flow.
     /// Extend this as new modal types are added.
     fn close_modal(&mut self) -> bool {
+        if self.confirm_retry.is_some() {
+            self.confirm_retry = None;
+            return true;
+        }
         if self.help_open {
             self.help_open = false;
             return true;
         }
         false
+    }
+
+    /// Whether any modal is currently blocking input.
+    pub fn any_modal_open(&self) -> bool {
+        self.help_open || self.confirm_retry.is_some()
     }
 
     fn focus_next_field(&mut self) {
@@ -247,6 +276,7 @@ impl App {
                 let concurrent = usize::from(request.config.concurrent.max(1));
                 let mut page = CollectionPage::new(id, placeholder_title, concurrent);
                 page.stage = DownloadStage::Resolving;
+                page.download_config = Some(request.config.clone());
                 self.downloads.push(page);
                 self.active_tab = STATIC_TABS + self.downloads.len() - 1;
 
@@ -314,6 +344,7 @@ impl App {
         let concurrent_usize = usize::from(concurrent.max(1));
         let mut page = CollectionPage::new(id, placeholder_title, concurrent_usize);
         page.stage = DownloadStage::Resolving;
+        // config is stored after it is built below; we'll set it there
         self.downloads.push(page);
         self.active_tab = STATIC_TABS + self.downloads.len() - 1;
 
@@ -362,6 +393,11 @@ impl App {
             })
             .collect();
 
+        // store config snapshot for potential retry
+        if let Some(page) = self.downloads.last_mut() {
+            page.download_config = Some(config.clone());
+        }
+
         let request = SelectiveDownloadRequest {
             collection_ids,
             beatmapset_ids,
@@ -403,6 +439,22 @@ impl App {
         // ctrl+c always quits unconditionally
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(AppCommand::Quit);
+        }
+
+        // Confirm-retry modal intercepts enter/esc/q and nothing else.
+        if let Some(modal) = &self.confirm_retry {
+            let download_id = modal.download_id;
+            match key.code {
+                KeyCode::Enter => {
+                    self.confirm_retry = None;
+                    return Some(AppCommand::RetryAllFailed { download_id });
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    self.confirm_retry = None;
+                    return None;
+                }
+                _ => return None,
+            }
         }
 
         let is_quit_key = matches!(key.code, KeyCode::Char('q') | KeyCode::Esc);
@@ -478,7 +530,11 @@ impl App {
                 {
                     self.updates.scroll_up();
                 } else if let Some(page) = self.active_download_page_mut() {
-                    page.scroll_threads_up();
+                    if page.failed_section_expanded && !page.failed_maps.is_empty() {
+                        page.failed_focus_prev();
+                    } else {
+                        page.scroll_threads_up();
+                    }
                 } else {
                     self.focus_prev_field();
                 }
@@ -495,7 +551,11 @@ impl App {
                 {
                     self.updates.scroll_down();
                 } else if let Some(page) = self.active_download_page_mut() {
-                    page.scroll_threads_down();
+                    if page.failed_section_expanded && !page.failed_maps.is_empty() {
+                        page.failed_focus_next();
+                    } else {
+                        page.scroll_threads_down();
+                    }
                 } else {
                     self.focus_next_field();
                 }
@@ -644,7 +704,11 @@ impl App {
                         self.config.handle_char(ch);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(cmd) = self.handle_download_tab_key(ch) {
+                        return Some(cmd);
+                    }
+                }
             },
             KeyCode::Backspace => match self.active_tab() {
                 HOME_TAB_INDEX => {
@@ -875,6 +939,101 @@ impl App {
         }
     }
 
+    /// Handle `r`/`R` on the active download tab. Letter suppression never
+    /// applies here (there are no text inputs on download pages).
+    /// Allocate a new download page for a retry batch and return the ID + request.
+    /// Returns `None` if the source page is missing or has no stored config.
+    ///
+    /// The output directory is reused from the original download so the files
+    /// land in the same folder without requiring a new resolve step.
+    pub fn start_retry_download(
+        &mut self,
+        source_download_id: DownloadId,
+        ids: Vec<u32>,
+    ) -> Option<(DownloadId, SelectiveDownloadRequest)> {
+        let page = self.downloads.iter().find(|p| p.id == source_download_id)?;
+        let config = page.download_config.clone()?;
+        let output_dir = page
+            .output_dir
+            .clone()
+            .unwrap_or_else(|| config.directory.clone());
+
+        if self.downloads.len() >= usize::MAX - 1 {
+            return None;
+        }
+
+        let retry_config = DownloadConfig {
+            directory: output_dir,
+            mirrors: config.mirrors.clone(),
+            concurrent: config.concurrent,
+            archive_validation: config.archive_validation,
+        };
+
+        let new_id = self.next_download_id;
+        self.next_download_id += 1;
+
+        let title = format!("retry #{source_download_id}");
+        let concurrent = usize::from(retry_config.concurrent.max(1));
+        let mut retry_page = CollectionPage::new(new_id, title.clone(), concurrent);
+        retry_page.stage = DownloadStage::Resolving;
+        retry_page.download_config = Some(retry_config.clone());
+        self.downloads.push(retry_page);
+        self.active_tab = STATIC_TABS + self.downloads.len() - 1;
+
+        let request = SelectiveDownloadRequest {
+            collection_ids: vec![],
+            beatmapset_ids: ids.clone(),
+            collections: vec![SelectiveDownloadCollection {
+                id: 0,
+                name: title,
+                beatmapset_ids: ids,
+            }],
+            config: retry_config,
+            snapshot_dir: None,
+            snapshots: vec![],
+        };
+        Some((new_id, request))
+    }
+
+    fn handle_download_tab_key(&mut self, ch: char) -> Option<AppCommand> {
+        let page = self.active_download_page_mut()?;
+        match ch {
+            'r' => {
+                // retry focused row; skip NotFound silently
+                let focused = page.failed_focus?;
+                let ids = page.retryable_ids(Some(focused));
+                if ids.is_empty() {
+                    return None;
+                }
+                let beatmapset_id = ids[0];
+                let download_id = page.id;
+                page.remove_failed_map(beatmapset_id);
+                Some(AppCommand::RetryFailedMap {
+                    download_id,
+                    beatmapset_id,
+                })
+            }
+            'R' => {
+                let retryable = page.retryable_ids(None);
+                if retryable.is_empty() {
+                    return None;
+                }
+                let download_id = page.id;
+                let count = retryable.len();
+                if count > 50 {
+                    self.confirm_retry = Some(RetryAllConfirmModal {
+                        download_id,
+                        retryable_count: count,
+                    });
+                    None
+                } else {
+                    Some(AppCommand::RetryAllFailed { download_id })
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn handle_quit_key(&mut self) -> Option<AppCommand> {
         if self.active_tab() < STATIC_TABS {
             if self.home.quit_prompt {
@@ -921,3 +1080,7 @@ impl App {
 #[cfg(test)]
 #[path = "../../tests/unit/app_state.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/retry_keybind.rs"]
+mod retry_keybind_tests;

@@ -1,4 +1,6 @@
-use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, FailedMap};
+use crate::download::{
+    BeatmapStage, DownloadConfig, DownloadId, DownloadStage, DownloadSummary, FailedMap,
+};
 use ratatui::style::Color;
 use std::{
     cell::{Cell, RefCell},
@@ -209,6 +211,8 @@ pub struct CollectionPage {
     pub stats: DownloadStats,
     pub output_dir: Option<String>,
     pub uploader: Option<String>,
+    /// Config snapshot taken at download start, used to build retry requests.
+    pub download_config: Option<DownloadConfig>,
     pub beatmaps: Vec<BeatmapRow>,
     /// Fixed-size slot list — one slot per worker thread. Free slots are `None`.
     /// Slot positions are stable for the lifetime of the page so completing
@@ -221,6 +225,10 @@ pub struct CollectionPage {
     pub failed_maps: Vec<FailedMap>,
     /// Whether the FAILED collapsible section is currently expanded.
     pub failed_section_expanded: bool,
+    /// Row cursor inside the expanded failed section. `None` means the section
+    /// header itself is focused; `Some(i)` points at `failed_maps[i]`.
+    /// Cleared automatically when the section collapses.
+    pub failed_focus: Option<usize>,
     pub low_disk_space: Option<u64>,
     pub resolve_progress: Option<(u32, u32)>,
     pub thread_scroll: usize,
@@ -245,6 +253,7 @@ impl CollectionPage {
             stats: DownloadStats::default(),
             output_dir: None,
             uploader: None,
+            download_config: None,
             beatmaps: Vec::new(),
             active_downloads: (0..slot_count).map(|_| None).collect(),
             concurrent,
@@ -253,6 +262,7 @@ impl CollectionPage {
             summary: None,
             failed_maps: Vec::new(),
             failed_section_expanded: false,
+            failed_focus: None,
             low_disk_space: None,
             resolve_progress: None,
             thread_scroll: 0,
@@ -430,9 +440,74 @@ impl CollectionPage {
     }
 
     /// Toggle the failed-maps section expanded/collapsed. No-op when empty.
+    /// Clears row focus when collapsing.
     pub fn toggle_failed_section(&mut self) {
         if !self.failed_maps.is_empty() {
             self.failed_section_expanded = !self.failed_section_expanded;
+            if !self.failed_section_expanded {
+                self.failed_focus = None;
+            }
+        }
+    }
+
+    /// Move the failed-row cursor down by one. When past the last row, wraps
+    /// back to the header (`None`). No-op if the section is collapsed or empty.
+    pub fn failed_focus_next(&mut self) {
+        if !self.failed_section_expanded || self.failed_maps.is_empty() {
+            return;
+        }
+        self.failed_focus = match self.failed_focus {
+            None => Some(0),
+            Some(i) if i + 1 < self.failed_maps.len() => Some(i + 1),
+            Some(_) => None,
+        };
+    }
+
+    /// Move the failed-row cursor up by one. When already at the header (`None`)
+    /// wraps to the last row. No-op if the section is collapsed or empty.
+    pub fn failed_focus_prev(&mut self) {
+        if !self.failed_section_expanded || self.failed_maps.is_empty() {
+            return;
+        }
+        self.failed_focus = match self.failed_focus {
+            None => Some(self.failed_maps.len().saturating_sub(1)),
+            Some(0) => None,
+            Some(i) => Some(i - 1),
+        };
+    }
+
+    /// IDs that are eligible for retry: excludes `NotFound` (404s are not
+    /// fixable by retrying). Optionally restricted to a single row index.
+    pub fn retryable_ids(&self, row: Option<usize>) -> Vec<u32> {
+        let maps: &[FailedMap] = match row {
+            Some(i) => self.failed_maps.get(i..=i).unwrap_or_default(),
+            None => &self.failed_maps,
+        };
+        maps.iter()
+            .filter(|f| f.reason != FailureReason::NotFound)
+            .map(|f| f.beatmapset_id)
+            .collect()
+    }
+
+    /// Remove a single failed-map entry from the list and adjust the focus
+    /// cursor so it stays valid.
+    pub fn remove_failed_map(&mut self, beatmapset_id: u32) {
+        let Some(pos) = self
+            .failed_maps
+            .iter()
+            .position(|f| f.beatmapset_id == beatmapset_id)
+        else {
+            return;
+        };
+        self.failed_maps.remove(pos);
+        // clamp focus so it doesn't point past the end
+        if let Some(focused) = self.failed_focus {
+            if self.failed_maps.is_empty() {
+                self.failed_focus = None;
+                self.failed_section_expanded = false;
+            } else if focused >= self.failed_maps.len() {
+                self.failed_focus = Some(self.failed_maps.len() - 1);
+            }
         }
     }
 

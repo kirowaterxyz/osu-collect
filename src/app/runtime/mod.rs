@@ -270,6 +270,45 @@ fn handle_key_event(
         Some(AppCommand::RecheckFailedMaps) => {
             spawn_failed_map_recheck_task(app, updates_tx.clone());
         }
+        Some(AppCommand::RetryFailedMap {
+            download_id,
+            beatmapset_id,
+        }) => {
+            if let Some((new_id, request)) =
+                app.start_retry_download(download_id, vec![beatmapset_id])
+            {
+                let handle =
+                    download::spawn_selective_download(new_id, request, download_tx.clone());
+                info!(
+                    source_download_id = download_id,
+                    retry_download_id = new_id,
+                    beatmapset_id,
+                    "Spawned single-map retry download"
+                );
+                downloads.insert(new_id, handle);
+            }
+        }
+        Some(AppCommand::RetryAllFailed { download_id }) => {
+            let retryable_ids = app
+                .downloads
+                .iter()
+                .find(|p| p.id == download_id)
+                .map(|p| p.retryable_ids(None))
+                .unwrap_or_default();
+            if !retryable_ids.is_empty()
+                && let Some((new_id, request)) =
+                    app.start_retry_download(download_id, retryable_ids)
+            {
+                let handle =
+                    download::spawn_selective_download(new_id, request, download_tx.clone());
+                info!(
+                    source_download_id = download_id,
+                    retry_download_id = new_id,
+                    "Spawned retry-all download"
+                );
+                downloads.insert(new_id, handle);
+            }
+        }
         Some(AppCommand::Quit) => {
             if downloads.is_empty() {
                 info!("No downloads active; exiting application");
