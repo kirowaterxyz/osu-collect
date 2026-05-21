@@ -18,7 +18,8 @@ use super::{
 const HINT_SEPARATOR: &str = "  ·  ";
 
 const QUIT_PROMPT_WARN: &str = " ⚠ ";
-const QUIT_PROMPT_TEXT: &str = "press q again to quit — active downloads will stop";
+const QUIT_PROMPT_TEXT: &str = "press q again to quit";
+const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downloads will stop";
 
 const DOWNLOAD_TAB_HINT: &str = "↑↓ scroll  ·  q cancel  ·  ? help";
 
@@ -43,7 +44,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     if app.home.quit_prompt {
-        frame.render_widget(quit_prompt_paragraph(), area);
+        frame.render_widget(quit_prompt_paragraph(!app.downloads.is_empty()), area);
         return;
     }
 
@@ -119,10 +120,15 @@ fn config_hint(focus: ConfigField) -> String {
     join(&segments)
 }
 
-fn quit_prompt_paragraph() -> Paragraph<'static> {
+fn quit_prompt_paragraph(has_downloads: bool) -> Paragraph<'static> {
+    let text = if has_downloads {
+        QUIT_PROMPT_TEXT_DOWNLOADS
+    } else {
+        QUIT_PROMPT_TEXT
+    };
     Paragraph::new(Line::from(vec![
         Span::styled(QUIT_PROMPT_WARN, Style::default().fg(WARNING)),
-        Span::styled(QUIT_PROMPT_TEXT, Style::default().fg(TEXT_DIM)),
+        Span::styled(text, Style::default().fg(TEXT_DIM)),
     ]))
 }
 

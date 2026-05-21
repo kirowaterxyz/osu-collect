@@ -70,30 +70,27 @@ fn tab_wraps_back_to_zero() {
 // ── quit key ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn q_on_home_tab_with_no_downloads_quits() {
+fn q_on_home_tab_shows_toast_first() {
     let mut app = make_app();
-    // first q sets quit_prompt since we don't have active downloads check
-    // actually with no downloads: first q = Quit (no active downloads guard for prompt)
-    // looking at the state logic: quit_prompt only shows if downloads.is_empty() is false
     let cmd = app.handle_key(press(KeyCode::Char('q')));
-    // with no active downloads, q should quit immediately
-    assert!(matches!(cmd, Some(AppCommand::Quit)));
+    assert!(cmd.is_none(), "first q must not quit immediately");
+    assert!(app.home.quit_prompt, "first q must set the quit toast");
 }
 
 #[test]
-fn q_on_downloads_tab_does_not_quit_immediately() {
+fn q_twice_on_home_tab_quits() {
     let mut app = make_app();
-    // on a download tab q should cancel, not quit, but since we have no
-    // download tabs active, q on static tabs with empty downloads = Quit
+    app.handle_key(press(KeyCode::Char('q')));
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(matches!(cmd, Some(AppCommand::Quit)));
 }
 
 #[test]
-fn esc_on_home_tab_with_no_downloads_quits() {
+fn esc_on_home_tab_shows_toast_first() {
     let mut app = make_app();
     let cmd = app.handle_key(press(KeyCode::Esc));
-    assert!(matches!(cmd, Some(AppCommand::Quit)));
+    assert!(cmd.is_none(), "first esc must not quit immediately");
+    assert!(app.home.quit_prompt, "first esc must set the quit toast");
 }
 
 // ── field navigation ──────────────────────────────────────────────────────────

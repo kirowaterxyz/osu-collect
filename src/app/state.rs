@@ -747,11 +747,6 @@ impl App {
 
     fn handle_quit_key(&mut self) -> Option<AppCommand> {
         if self.active_tab() < STATIC_TABS {
-            if self.downloads.is_empty() {
-                self.home.quit_prompt = false;
-                return Some(AppCommand::Quit);
-            }
-
             if self.home.quit_prompt {
                 self.home.quit_prompt = false;
                 return Some(AppCommand::Quit);
