@@ -424,6 +424,12 @@ impl App {
                 }
             }
             KeyCode::Tab => {
+                // When focused on the directory input on the home tab, Tab
+                // runs filesystem completion instead of switching tabs.
+                if self.active_tab() == HOME_TAB_INDEX && self.home.focus == HomeField::Directory {
+                    self.home.tab_complete_directory();
+                    return None;
+                }
                 if !self.updates_list_open()
                     && let Some(cmd) = self.next_tab()
                 {

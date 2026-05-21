@@ -112,6 +112,155 @@ pub async fn prepare_directory(directory: &str) -> Result<PathBuf> {
     }
 }
 
+/// Result of a directory tab-completion attempt.
+#[derive(Debug, PartialEq)]
+pub enum CompletionResult {
+    /// Single unambiguous match — replace partial with full name + `/`.
+    Single(String),
+    /// Multiple matches — completed to the longest common prefix.
+    /// The `candidates` list is for display (formatted as a comma-separated string).
+    Ambiguous {
+        completed: String,
+        candidates: Vec<String>,
+    },
+    /// No matching directories found.
+    NoMatch,
+}
+
+/// Attempt directory tab-completion on `value`.
+///
+/// Expands `~`, resolves the parent directory from the value, then lists
+/// subdirectories whose names start with the partial last component.
+///
+/// Hidden entries (names starting with `.`) are only included when the partial
+/// also starts with `.`. Symlinks resolving to directories are included.
+/// Permission errors are silently skipped.
+///
+/// The returned `completed` / `Single` string is expressed in the same
+/// tilde-style as the original `value` (i.e. the expanded parent prefix is
+/// re-collapsed via [`pretty_path`] when the original started with `~`).
+pub fn complete_dir(value: &str) -> CompletionResult {
+    // Determine which base directory to list and what partial prefix to match.
+    let (search_dir, partial, prefix) = resolve_completion_context(value);
+
+    let mut matches = list_matching_dirs(&search_dir, &partial);
+    matches.sort_unstable();
+
+    match matches.as_slice() {
+        [] => CompletionResult::NoMatch,
+        [single] => {
+            let completed = format!("{prefix}{single}/");
+            CompletionResult::Single(completed)
+        }
+        _ => {
+            let lcp = longest_common_prefix(&matches);
+            let completed = format!("{prefix}{lcp}");
+            CompletionResult::Ambiguous {
+                completed,
+                candidates: matches,
+            }
+        }
+    }
+}
+
+/// Split `value` into `(search_dir, partial, display_prefix)`.
+///
+/// `display_prefix` is the part of the path before the partial component,
+/// in the same tilde style as the input, used to reconstruct the completed
+/// value without changing the user's notation.
+fn resolve_completion_context(value: &str) -> (PathBuf, String, String) {
+    let (parent_display, partial): (&str, &str) = if value.is_empty() {
+        // Empty input: list cwd with no filter.
+        ("", "")
+    } else if value == "~" {
+        // Bare `~` — treat as `~/`: list home with no filter, preserve `~/` prefix.
+        ("~/", "")
+    } else if let Some(slash_pos) = value.rfind('/') {
+        // Split at the last slash: everything up-to-and-including the slash is
+        // the display prefix; everything after is the partial to complete.
+        (&value[..=slash_pos], &value[slash_pos + 1..])
+    } else {
+        // No slash — the whole value is a partial against cwd.
+        ("", value)
+    };
+
+    let expanded_parent = if parent_display.is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        PathBuf::from(expand_tilde(parent_display.trim_end_matches('/')))
+    };
+
+    (
+        expanded_parent,
+        partial.to_string(),
+        parent_display.to_string(),
+    )
+}
+
+/// List subdirectory names inside `dir` whose names start with `partial`.
+///
+/// Hidden names are only returned when `partial` starts with `.`.
+/// Non-directory entries (including broken symlinks) are skipped.
+/// Read/permission errors are silently ignored.
+fn list_matching_dirs(dir: &Path, partial: &str) -> Vec<String> {
+    let Ok(read_dir) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+
+    let include_hidden = partial.starts_with('.');
+
+    read_dir
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !include_hidden && name.starts_with('.') {
+                return None;
+            }
+            if !name.starts_with(partial) {
+                return None;
+            }
+            // Follow symlinks: only keep entries that resolve to a directory.
+            let file_type = entry.file_type().ok()?;
+            if file_type.is_dir() {
+                return Some(name);
+            }
+            if file_type.is_symlink() {
+                let resolved = entry.path().canonicalize().ok()?;
+                if resolved.is_dir() {
+                    return Some(name);
+                }
+            }
+            None
+        })
+        .collect()
+}
+
+/// Compute the longest common prefix of a non-empty slice of strings.
+fn longest_common_prefix(names: &[String]) -> &str {
+    let first = &names[0];
+    // Count matching chars across all names, then convert to a byte offset so
+    // we never slice mid-codepoint.
+    let char_count = names[1..]
+        .iter()
+        .map(|name| {
+            first
+                .chars()
+                .zip(name.chars())
+                .take_while(|(a, b)| a == b)
+                .count()
+        })
+        .min()
+        .unwrap_or(first.chars().count());
+    first
+        .char_indices()
+        .nth(char_count)
+        .map_or(first, |(i, _)| &first[..i])
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/utils_fs.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/home_completion.rs"]
+mod completion_tests;

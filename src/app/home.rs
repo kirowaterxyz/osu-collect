@@ -1,9 +1,12 @@
-use super::{messages::AppMessage, next_field, prev_field};
+use super::{
+    messages::{AppMessage, set_info_message},
+    next_field, prev_field,
+};
 use crate::{
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
-    utils::{expand_tilde, pretty_path},
+    utils::{CompletionResult, complete_dir, expand_tilde, pretty_path},
 };
 use std::{env, str::FromStr};
 
@@ -159,6 +162,39 @@ impl HomeTab {
 
     pub fn prev_field(&mut self) {
         self.focus = prev_field(HOME_FIELDS, self.focus);
+    }
+
+    /// Run tab-completion on the directory input field.
+    ///
+    /// Only acts when focus is `HomeField::Directory`. On a single match the
+    /// value is completed in-place. On multiple matches the value is completed
+    /// to the longest common prefix and the candidates are shown as an info
+    /// message. On no match nothing changes.
+    pub fn tab_complete_directory(&mut self) {
+        if self.focus != HomeField::Directory {
+            return;
+        }
+        match complete_dir(&self.directory.value) {
+            CompletionResult::Single(completed) => {
+                self.directory.value = completed;
+            }
+            CompletionResult::Ambiguous {
+                completed,
+                candidates,
+            } => {
+                self.directory.value = completed;
+                // Show up to 5 candidates; truncate with "…" if more.
+                const MAX_SHOWN: usize = 5;
+                let display = if candidates.len() <= MAX_SHOWN {
+                    candidates.join(", ")
+                } else {
+                    let shown = candidates[..MAX_SHOWN].join(", ");
+                    format!("{shown}, … ({} more)", candidates.len() - MAX_SHOWN)
+                };
+                set_info_message(&mut self.message, display);
+            }
+            CompletionResult::NoMatch => {}
+        }
     }
 
     pub fn handle_char(&mut self, ch: char) {
