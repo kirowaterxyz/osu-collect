@@ -12,8 +12,8 @@ use crate::{
     config::{
         Config, RetryFailedOnDownload,
         constants::{
-            CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG_LOWER, TAB_HOME_LOWER,
-            TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
+            CONFIG_TAB_INDEX, DISK_CACHE_TTL, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG_LOWER,
+            TAB_HOME_LOWER, TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
         },
         save_config,
     },
@@ -24,9 +24,12 @@ use crate::{
     utils,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use fs2::available_space;
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use tracing::debug;
 
 pub struct App {
@@ -50,6 +53,10 @@ pub struct App {
     /// callers always pass `None` and the path is resolved at use-site.
     pub(crate) failed_maps_path_override: Option<PathBuf>,
     next_download_id: DownloadId,
+    /// Cached disk free-space result: `(checked_at, free_bytes)`. Interior
+    /// mutability because `draw()` borrows `App` immutably but must refresh
+    /// the cache at most once per `DISK_CACHE_TTL`.
+    disk_cache: Cell<Option<(Instant, u64)>>,
 }
 
 #[derive(Debug)]
@@ -134,11 +141,50 @@ impl App {
             confirm_retry_on_start: None,
             failed_maps_path_override: None,
             next_download_id: 1,
+            disk_cache: Cell::new(None),
         }
     }
 
     pub fn active_tab(&self) -> usize {
         self.active_tab
+    }
+
+    /// Number of download pages currently in the `Downloading` stage.
+    pub fn downloading_count(&self) -> usize {
+        self.downloads
+            .iter()
+            .filter(|p| p.stage == DownloadStage::Downloading)
+            .count()
+    }
+
+    /// Free bytes on the filesystem of the first active download's output
+    /// directory, falling back to the home tab's configured directory, then to
+    /// the OS home directory. Result is cached for `DISK_CACHE_TTL` to avoid
+    /// per-frame syscalls.
+    pub fn disk_free_bytes(&self) -> Option<u64> {
+        let now = Instant::now();
+        if let Some((checked_at, free)) = self.disk_cache.get()
+            && now.duration_since(checked_at) < DISK_CACHE_TTL
+        {
+            return Some(free);
+        }
+
+        let typed_dir = self.home.directory.value.trim();
+        let path: Option<PathBuf> = self
+            .downloads
+            .iter()
+            .find_map(|p| p.output_dir.as_deref().map(PathBuf::from))
+            .or_else(|| {
+                if typed_dir.is_empty() {
+                    dirs::home_dir()
+                } else {
+                    Some(PathBuf::from(utils::expand_tilde(typed_dir)))
+                }
+            });
+
+        let free = available_space(path.as_deref()?).ok()?;
+        self.disk_cache.set(Some((now, free)));
+        Some(free)
     }
 
     pub fn next_tab(&mut self) -> Option<AppCommand> {

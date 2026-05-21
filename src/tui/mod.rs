@@ -183,7 +183,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
 
     let tabs = app.tab_titles();
-    header::render(frame, header_area, &tabs, app.active_tab());
+    // Suppress the pill on narrow terminals so tabs are never crowded off-screen.
+    let pill = if area.width >= 100 {
+        header::StatusPill::compute(app.downloading_count(), app.disk_free_bytes())
+    } else {
+        None
+    };
+    header::render(frame, header_area, &tabs, app.active_tab(), pill.as_ref());
 
     match app.active_tab() {
         HOME_TAB_INDEX => home::render(frame, content_area, &app.home),
