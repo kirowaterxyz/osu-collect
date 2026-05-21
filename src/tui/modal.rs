@@ -67,6 +67,12 @@ const DOWNLOAD_TAB: &[HelpRow] = &[
     HelpRow::new("R", "retry all failed maps"),
 ];
 
+const RETRY_ON_START_MODAL: &[HelpRow] = &[
+    HelpRow::new("enter", "retry previously failed"),
+    HelpRow::new("n", "skip previously failed"),
+    HelpRow::new("esc", "cancel download"),
+];
+
 /// Renders a centred keybindings overlay.
 ///
 /// Call this after all other tab content and the footer have been drawn —
@@ -110,6 +116,56 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(outer_block, popup_area);
 
     frame.render_widget(List::new(items[start..end].to_vec()), inner);
+}
+
+/// Renders the pre-download "retry failed?" modal.
+///
+/// `enter` proceeds with retry, `n` proceeds without, `esc` cancels the
+/// download. The caller (`handle_key`) intercepts all other keys.
+pub(crate) fn render_retry_on_start_modal(frame: &mut Frame, area: Rect, count: usize) {
+    let [popup_area] = Layout::vertical([Constraint::Length(5)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(60)])
+        .flex(Flex::Center)
+        .areas(popup_area);
+    frame.render_widget(Clear, popup_area);
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
+        .title(Span::styled(
+            " RETRY FAILED? ",
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
+        ))
+        .padding(Padding::new(1, 1, 0, 0));
+
+    let inner = outer_block.inner(popup_area);
+    frame.render_widget(outer_block, popup_area);
+
+    let items = vec![
+        ListItem::new(Line::from(vec![
+            Span::styled(
+                count.to_string(),
+                Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " failed maps from a previous run. retry them?",
+                Style::default().fg(text_dim()),
+            ),
+        ])),
+        ListItem::new(Line::from("")),
+        ListItem::new(Line::from(vec![Span::styled(
+            "  [enter] yes · [n] no · [esc] cancel",
+            Style::default().fg(text_faint()),
+        )])),
+    ];
+    frame.render_widget(List::new(items), inner);
 }
 
 /// Renders the "retry N failed maps?" confirmation modal.
@@ -173,6 +229,8 @@ fn build_help_items() -> Vec<ListItem<'static>> {
     push_section(&mut items, "config", CONFIG_TAB);
     items.push(spacer());
     push_section(&mut items, "download", DOWNLOAD_TAB);
+    items.push(spacer());
+    push_section(&mut items, "retry-failed prompt", RETRY_ON_START_MODAL);
     items.push(spacer());
     items.push(dismiss_hint());
     items

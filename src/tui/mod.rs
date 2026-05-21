@@ -197,7 +197,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     footer::render(frame, footer_area, app);
 
-    if let Some(modal) = &app.confirm_retry {
+    if let Some(modal) = &app.confirm_retry_on_start {
+        modal::render_retry_on_start_modal(frame, area, modal.failed_count);
+    } else if let Some(modal) = &app.confirm_retry {
         modal::render_confirm_retry_modal(frame, area, modal.retryable_count);
     } else if app.help_open {
         modal::render_help_overlay(frame, area);

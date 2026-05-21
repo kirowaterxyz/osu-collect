@@ -2,6 +2,7 @@ use super::{
     collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ConfigField, ConfigTab},
+    failed_maps,
     home::{HomeField, HomeTab},
     messages::{clear_expired_message, set_error_message, set_info_message},
     snapshots,
@@ -9,7 +10,7 @@ use super::{
 };
 use crate::{
     config::{
-        Config,
+        Config, RetryFailedOnDownload,
         constants::{
             CONFIG_TAB_INDEX, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG_LOWER, TAB_HOME_LOWER,
             TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
@@ -24,7 +25,8 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 pub struct App {
@@ -40,6 +42,13 @@ pub struct App {
     pub help_open: bool,
     /// Pending confirmation for "retry N failed maps?" when count > 50.
     pub confirm_retry: Option<RetryAllConfirmModal>,
+    /// Pre-download prompt: previously failed beatmapsets in
+    /// `failed-beatmapsets.json` intersect with the collection the user just
+    /// submitted. Surfaces only when the config is `Ask`.
+    pub confirm_retry_on_start: Option<RetryOnStartModal>,
+    /// Override for the on-disk failed-maps file, set by tests. Production
+    /// callers always pass `None` and the path is resolved at use-site.
+    pub(crate) failed_maps_path_override: Option<PathBuf>,
     next_download_id: DownloadId,
 }
 
@@ -90,6 +99,19 @@ pub struct RetryAllConfirmModal {
     pub retryable_count: usize,
 }
 
+/// State for the pre-download retry prompt. Surfaces under `Ask` when
+/// previously failed beatmaps for this collection are persisted on disk.
+///
+/// `enter` proceeds with retry, `n` proceeds without, `esc` cancels.
+/// The pending request is dispatched on `enter`/`n` (with the
+/// `include_previously_failed` flag set accordingly) and discarded on `esc`.
+#[derive(Debug)]
+pub struct RetryOnStartModal {
+    pub id: DownloadId,
+    pub failed_count: usize,
+    pub pending: DownloadRequest,
+}
+
 impl App {
     pub fn new(config: Config) -> Self {
         let state_path = collection_state::state_path();
@@ -109,6 +131,8 @@ impl App {
             tick_count: 0,
             help_open: false,
             confirm_retry: None,
+            confirm_retry_on_start: None,
+            failed_maps_path_override: None,
             next_download_id: 1,
         }
     }
@@ -153,6 +177,10 @@ impl App {
     /// `esc` and `q` call this before falling through to the quit flow.
     /// Extend this as new modal types are added.
     fn close_modal(&mut self) -> bool {
+        if self.confirm_retry_on_start.is_some() {
+            self.cancel_retry_on_start();
+            return true;
+        }
         if self.confirm_retry.is_some() {
             self.confirm_retry = None;
             return true;
@@ -166,7 +194,19 @@ impl App {
 
     /// Whether any modal is currently blocking input.
     pub fn any_modal_open(&self) -> bool {
-        self.help_open || self.confirm_retry.is_some()
+        self.help_open || self.confirm_retry.is_some() || self.confirm_retry_on_start.is_some()
+    }
+
+    /// Cancel a pending pre-download retry prompt. Drops the queued page that
+    /// `request_download` allocated for the prospective download so the tab
+    /// list returns to its prior shape.
+    fn cancel_retry_on_start(&mut self) {
+        let Some(modal) = self.confirm_retry_on_start.take() else {
+            return;
+        };
+        self.remove_download_page(modal.id);
+        self.active_tab = HOME_TAB_INDEX;
+        set_info_message(&mut self.home.message, "download cancelled");
     }
 
     fn focus_next_field(&mut self) {
@@ -262,33 +302,110 @@ impl App {
     }
 
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
-        match self.home.build_request(self.config.archive_validation) {
-            Ok(request) => {
-                if self.downloads.len() >= usize::MAX - 1 {
-                    set_error_message(&mut self.home.message, "Too many downloads queued");
-                    return None;
-                }
-
-                let id = self.next_download_id;
-                self.next_download_id += 1;
-
-                let placeholder_title = Self::placeholder_title(&request.collection_input, id);
-                let concurrent = usize::from(request.config.concurrent.max(1));
-                let mut page = CollectionPage::new(id, placeholder_title, concurrent);
-                page.stage = DownloadStage::Resolving;
-                page.download_config = Some(request.config.clone());
-                self.downloads.push(page);
-                self.active_tab = STATIC_TABS + self.downloads.len() - 1;
-
-                set_info_message(&mut self.home.message, format!("Queued download #{id}"));
-
-                Some((id, request))
-            }
+        let mut request = match self.home.build_request(self.config.archive_validation) {
+            Ok(request) => request,
             Err(err) => {
                 set_error_message(&mut self.home.message, err);
+                return None;
+            }
+        };
+
+        if self.downloads.len() >= usize::MAX - 1 {
+            set_error_message(&mut self.home.message, "Too many downloads queued");
+            return None;
+        }
+
+        let collection_id = utils::parse_collection_id(request.collection_input.trim()).ok();
+        let failed_count = collection_id
+            .map(|id| self.previously_failed_count(id))
+            .unwrap_or(0);
+
+        // No prior failures for this collection — skip the modal entirely.
+        if failed_count == 0 {
+            return Some(self.queue_download(request));
+        }
+
+        match self.config.retry_failed_on_download {
+            RetryFailedOnDownload::Yes => {
+                request.include_previously_failed = true;
+                Some(self.queue_download(request))
+            }
+            RetryFailedOnDownload::No => {
+                request.include_previously_failed = false;
+                Some(self.queue_download(request))
+            }
+            RetryFailedOnDownload::Ask => {
+                let id = self.next_download_id;
+                self.next_download_id += 1;
+                self.confirm_retry_on_start = Some(RetryOnStartModal {
+                    id,
+                    failed_count,
+                    pending: request,
+                });
                 None
             }
         }
+    }
+
+    /// Allocate a `CollectionPage` for `request` and return the id + request
+    /// to dispatch to the pipeline.
+    fn queue_download(&mut self, request: DownloadRequest) -> (DownloadId, DownloadRequest) {
+        let id = self.next_download_id;
+        self.next_download_id += 1;
+        self.push_pending_page(id, &request);
+        set_info_message(&mut self.home.message, format!("Queued download #{id}"));
+        (id, request)
+    }
+
+    /// Allocate a `CollectionPage` for an id reserved earlier by the retry
+    /// prompt and dispatch the queued download.
+    fn dispatch_pending(
+        &mut self,
+        id: DownloadId,
+        request: DownloadRequest,
+    ) -> (DownloadId, DownloadRequest) {
+        self.push_pending_page(id, &request);
+        set_info_message(&mut self.home.message, format!("Queued download #{id}"));
+        (id, request)
+    }
+
+    fn push_pending_page(&mut self, id: DownloadId, request: &DownloadRequest) {
+        let placeholder_title = Self::placeholder_title(&request.collection_input, id);
+        let concurrent = usize::from(request.config.concurrent.max(1));
+        let mut page = CollectionPage::new(id, placeholder_title, concurrent);
+        page.stage = DownloadStage::Resolving;
+        page.download_config = Some(request.config.clone());
+        self.downloads.push(page);
+        self.active_tab = STATIC_TABS + self.downloads.len() - 1;
+    }
+
+    /// Count beatmaps in `failed-beatmapsets.json` that belong to
+    /// `collection_id`. The persisted file is not collection-scoped, so we
+    /// pull the resolved id list from the `HomeTab` auto-resolve cache and
+    /// intersect.
+    ///
+    /// Returns 0 when:
+    /// - the failed-maps file path is unavailable, OR
+    /// - no resolved collection metadata is cached for `collection_id` (the
+    ///   user hit `enter` before the 300 ms debounce fired). Suppressing the
+    ///   prompt in that case matches "no prior context to compare" — the
+    ///   pipeline will retry persisted failures in its normal flow.
+    fn previously_failed_count(&self, collection_id: u32) -> usize {
+        let path = self
+            .failed_maps_path_override
+            .clone()
+            .or_else(failed_maps::failed_maps_path);
+        let Some(path) = path else { return 0 };
+
+        let Some((cached_id, ids)) = self.home.resolved_collection.as_ref() else {
+            return 0;
+        };
+        if *cached_id != collection_id {
+            return 0;
+        }
+
+        let resolved_set: HashSet<u32> = ids.iter().copied().collect();
+        intersect_failed_ids(&path, &resolved_set).len()
     }
 
     pub fn request_selective_download(&mut self) -> Option<(DownloadId, SelectiveDownloadRequest)> {
@@ -439,6 +556,33 @@ impl App {
         // ctrl+c always quits unconditionally
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(AppCommand::Quit);
+        }
+
+        // Pre-download retry prompt intercepts enter/n/esc.
+        // `enter` dispatches the queued request with retry enabled; `n`
+        // dispatches without; `esc` cancels the whole download.
+        if self.confirm_retry_on_start.is_some() {
+            match key.code {
+                KeyCode::Enter => {
+                    let modal = self.confirm_retry_on_start.take()?;
+                    let mut request = modal.pending;
+                    request.include_previously_failed = true;
+                    let (id, request) = self.dispatch_pending(modal.id, request);
+                    return Some(AppCommand::StartDownload { id, request });
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    let modal = self.confirm_retry_on_start.take()?;
+                    let mut request = modal.pending;
+                    request.include_previously_failed = false;
+                    let (id, request) = self.dispatch_pending(modal.id, request);
+                    return Some(AppCommand::StartDownload { id, request });
+                }
+                KeyCode::Esc => {
+                    self.cancel_retry_on_start();
+                    return None;
+                }
+                _ => return None,
+            }
         }
 
         // Confirm-retry modal intercepts enter/esc/q and nothing else.
@@ -1077,6 +1221,17 @@ impl App {
     }
 }
 
+/// Load the persisted failed-maps file at `path` and intersect its ids with
+/// `collection_ids`. Returns the intersection.
+pub(crate) fn intersect_failed_ids(path: &Path, collection_ids: &HashSet<u32>) -> Vec<u32> {
+    let file = failed_maps::load(path);
+    file.beatmapset_ids
+        .iter()
+        .copied()
+        .filter(|id| collection_ids.contains(id))
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/app_state.rs"]
 mod tests;
@@ -1084,3 +1239,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../tests/unit/retry_keybind.rs"]
 mod retry_keybind_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/retry_on_download.rs"]
+mod retry_on_download_tests;

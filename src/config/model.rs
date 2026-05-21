@@ -62,6 +62,21 @@ pub struct DownloadConfig {
     pub concurrent: Option<u8>,
     pub no_video: bool,
     pub archive_validation: ArchiveValidation,
+    pub retry_failed_on_download: RetryFailedOnDownload,
+}
+
+/// Policy for retrying beatmaps that failed in a previous run when the user
+/// kicks off a new download for the same collection.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RetryFailedOnDownload {
+    /// Prompt the user before each download when failures intersect.
+    #[default]
+    Ask,
+    /// Always retry — include previously failed beatmaps in the download.
+    Yes,
+    /// Never retry — skip previously failed beatmaps silently.
+    No,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

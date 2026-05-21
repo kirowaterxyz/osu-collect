@@ -83,6 +83,10 @@ pub struct HomeTab {
     /// Resolve status shown below the collection URL field.
     /// Unlike `message`, this is not TTL-expired; it persists until the field changes.
     pub collection_resolve: Option<(ResolveState, String)>,
+    /// Cache of the last successfully resolved collection: `(id, beatmapset_ids)`.
+    /// Used by `App::request_download` to intersect with the persisted
+    /// failed-maps file before dispatching the pipeline.
+    pub resolved_collection: Option<(u32, Vec<u32>)>,
     /// Latency probe results per built-in mirror. `None` = not yet probed,
     /// `Some(None)` = probe in flight (`…`), `Some(Some(_))` = result received.
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
@@ -154,6 +158,7 @@ impl HomeTab {
             focus: HomeField::Collection,
             message: None,
             collection_resolve: None,
+            resolved_collection: None,
             mirror_latency: HashMap::with_capacity(4),
             quit_prompt: false,
             default_threads,
@@ -178,10 +183,17 @@ impl HomeTab {
 
     pub fn clear_collection_resolve(&mut self) {
         self.collection_resolve = None;
+        self.resolved_collection = None;
     }
 
     pub fn set_collection_resolve(&mut self, state: ResolveState, text: impl Into<String>) {
         self.collection_resolve = Some((state, text.into()));
+    }
+
+    /// Cache the resolved beatmapset id list for the current collection. Read
+    /// by `App::request_download` to intersect with persisted failures.
+    pub fn set_resolved_collection(&mut self, collection_id: u32, beatmapset_ids: Vec<u32>) {
+        self.resolved_collection = Some((collection_id, beatmapset_ids));
     }
 
     /// Open the history dropdown if there are entries.
@@ -435,6 +447,10 @@ impl HomeTab {
             collection_input: collection_input.to_string(),
             config,
             auto_overwrite: self.auto_overwrite,
+            // Default `false`; `App::request_download` resolves the
+            // retry-failed-on-download policy and overrides it (or surfaces a
+            // modal under `Ask` before the download is dispatched).
+            include_previously_failed: false,
         })
     }
 

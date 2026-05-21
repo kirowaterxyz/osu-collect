@@ -1,4 +1,4 @@
-use super::model::{LogFormat, LogLevel, ThemeMode};
+use super::model::{LogFormat, LogLevel, RetryFailedOnDownload, ThemeMode};
 use osu_downloader::ArchiveValidation;
 use std::time::Duration;
 
@@ -74,6 +74,12 @@ pub const ARCHIVE_VALIDATIONS: [ArchiveValidation; 3] = [
     ArchiveValidation::Off,
     ArchiveValidation::Magic,
     ArchiveValidation::Eocd,
+];
+
+pub const RETRY_FAILED_ON_DOWNLOAD_MODES: [RetryFailedOnDownload; 3] = [
+    RetryFailedOnDownload::Ask,
+    RetryFailedOnDownload::Yes,
+    RetryFailedOnDownload::No,
 ];
 
 pub const HOME_TAB_INDEX: usize = 0;

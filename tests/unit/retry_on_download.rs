@@ -1,0 +1,245 @@
+//! Pre-download retry-failed prompt — config tri-state + modal flow.
+
+use crate::{
+    app::{
+        App, AppCommand, ConfigField, ConfigTab,
+        failed_maps::{FailedMapsFile, save},
+    },
+    config::{Config, RetryFailedOnDownload, constants::HOME_TAB_INDEX},
+};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use tempfile::TempDir;
+
+const COLLECTION_ID: u32 = 1234;
+const FAILED_SET_IDS: [u32; 3] = [10, 20, 30];
+const COLLECTION_BEATMAPSET_IDS: [u32; 4] = [10, 20, 99, 100];
+
+fn press(code: KeyCode) -> KeyEvent {
+    KeyEvent {
+        code,
+        modifiers: KeyModifiers::empty(),
+        kind: KeyEventKind::Press,
+        state: KeyEventState::empty(),
+    }
+}
+
+/// Build an `App` whose collection field is primed with a numeric ID and
+/// whose home cache already holds resolved beatmapset ids. Writes a
+/// `failed-beatmapsets.json` with two of those ids into a tempdir and points
+/// the app at it via `failed_maps_path_override`.
+fn app_with_failed_maps(mode: RetryFailedOnDownload) -> (App, TempDir) {
+    let mut app = App::new(Config::default());
+    app.config.retry_failed_on_download = mode;
+    app.home.collection.value = COLLECTION_ID.to_string();
+    // Ensure the form passes build_request: any directory is fine, mirrors
+    // already on by default.
+    app.home.directory.value = "/tmp/osu-collect-test".to_string();
+    app.home
+        .set_resolved_collection(COLLECTION_ID, COLLECTION_BEATMAPSET_IDS.to_vec());
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("failed-beatmapsets.json");
+    save(
+        &FailedMapsFile {
+            schema_version: 1,
+            beatmapset_ids: FAILED_SET_IDS.to_vec(),
+        },
+        &path,
+    );
+    app.failed_maps_path_override = Some(path);
+    app.active_tab = HOME_TAB_INDEX;
+    (app, dir)
+}
+
+// ── config: cycle + serde ────────────────────────────────────────────────────
+
+#[test]
+fn cycle_retry_failed_on_download_cycles_ask_yes_no() {
+    let mut tab = ConfigTab::new(&Config::default());
+    tab.focus = ConfigField::RetryFailedOnDownload;
+    assert_eq!(tab.retry_failed_on_download, RetryFailedOnDownload::Ask);
+
+    tab.toggle_current();
+    assert_eq!(tab.retry_failed_on_download, RetryFailedOnDownload::Yes);
+
+    tab.toggle_current();
+    assert_eq!(tab.retry_failed_on_download, RetryFailedOnDownload::No);
+
+    tab.toggle_current();
+    assert_eq!(tab.retry_failed_on_download, RetryFailedOnDownload::Ask);
+}
+
+#[test]
+fn retry_failed_on_download_serde_roundtrip() {
+    let toml_text = toml::to_string(&Config::default()).expect("serialize");
+    let parsed: Config = toml::from_str(&toml_text).expect("parse");
+    assert_eq!(
+        parsed.download.retry_failed_on_download,
+        RetryFailedOnDownload::Ask
+    );
+
+    let yes_text = "[download]\nretry_failed_on_download = \"yes\"\n";
+    let parsed_yes: Config = toml::from_str(yes_text).expect("parse yes");
+    assert_eq!(
+        parsed_yes.download.retry_failed_on_download,
+        RetryFailedOnDownload::Yes
+    );
+}
+
+#[test]
+fn old_config_without_retry_field_loads_with_ask_default() {
+    // Old configs predating the field must still parse.
+    let old_text = "[download]\nconcurrent = 4\nno_video = false\n";
+    let parsed: Config = toml::from_str(old_text).expect("parse old");
+    assert_eq!(
+        parsed.download.retry_failed_on_download,
+        RetryFailedOnDownload::Ask
+    );
+}
+
+// ── intersect & request_download flow ────────────────────────────────────────
+
+#[test]
+fn yes_mode_skips_modal_and_includes_failed_ids() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Yes);
+
+    let result = app.request_download();
+    assert!(result.is_some(), "Yes mode must dispatch without a modal");
+    let (_id, request) = result.unwrap();
+    assert!(
+        request.include_previously_failed,
+        "Yes mode must mark the request to include previously failed ids"
+    );
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "Yes mode must not open the modal"
+    );
+}
+
+#[test]
+fn no_mode_skips_modal_and_excludes_failed_ids() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::No);
+
+    let result = app.request_download();
+    assert!(result.is_some(), "No mode must dispatch without a modal");
+    let (_id, request) = result.unwrap();
+    assert!(
+        !request.include_previously_failed,
+        "No mode must mark the request to skip previously failed ids"
+    );
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "No mode must not open the modal"
+    );
+}
+
+#[test]
+fn ask_mode_opens_modal_when_failures_intersect() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
+
+    let result = app.request_download();
+    assert!(
+        result.is_none(),
+        "Ask mode with intersecting failures must defer the dispatch"
+    );
+    let modal = app
+        .confirm_retry_on_start
+        .as_ref()
+        .expect("modal must be open");
+    assert_eq!(
+        modal.failed_count, 2,
+        "intersection of [10,20,30] and [10,20,99,100] is 2"
+    );
+}
+
+#[test]
+fn ask_mode_enter_dispatches_with_retry() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
+    let _ = app.request_download();
+    assert!(app.confirm_retry_on_start.is_some());
+
+    let cmd = app.handle_key(press(KeyCode::Enter));
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "enter must close the modal"
+    );
+    let Some(AppCommand::StartDownload { request, .. }) = cmd else {
+        panic!("enter must emit StartDownload, got {cmd:?}");
+    };
+    assert!(
+        request.include_previously_failed,
+        "enter must dispatch with include_previously_failed = true"
+    );
+}
+
+#[test]
+fn ask_mode_n_dispatches_without_retry() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
+    let _ = app.request_download();
+    assert!(app.confirm_retry_on_start.is_some());
+
+    let cmd = app.handle_key(press(KeyCode::Char('n')));
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "n must close the modal"
+    );
+    let Some(AppCommand::StartDownload { request, .. }) = cmd else {
+        panic!("n must emit StartDownload, got {cmd:?}");
+    };
+    assert!(
+        !request.include_previously_failed,
+        "n must dispatch with include_previously_failed = false"
+    );
+}
+
+#[test]
+fn ask_mode_esc_cancels_download() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
+    let downloads_before = app.downloads.len();
+    let _ = app.request_download();
+    assert!(app.confirm_retry_on_start.is_some());
+
+    let cmd = app.handle_key(press(KeyCode::Esc));
+    assert!(cmd.is_none(), "esc must not dispatch a command");
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "esc must close the modal"
+    );
+    assert_eq!(
+        app.downloads.len(),
+        downloads_before,
+        "esc must not leave a queued page behind"
+    );
+}
+
+#[test]
+fn no_intersection_skips_modal_under_ask() {
+    let mut app = App::new(Config::default());
+    app.config.retry_failed_on_download = RetryFailedOnDownload::Ask;
+    app.home.collection.value = COLLECTION_ID.to_string();
+    app.home.directory.value = "/tmp/osu-collect-test".to_string();
+    // resolved ids do not overlap with persisted failures
+    app.home
+        .set_resolved_collection(COLLECTION_ID, vec![1, 2, 3]);
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("failed-beatmapsets.json");
+    save(
+        &FailedMapsFile {
+            schema_version: 1,
+            beatmapset_ids: vec![100, 200],
+        },
+        &path,
+    );
+    app.failed_maps_path_override = Some(path);
+
+    let result = app.request_download();
+    assert!(
+        result.is_some(),
+        "no intersection must dispatch without a modal"
+    );
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "no intersection must not open the modal"
+    );
+}

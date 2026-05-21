@@ -63,6 +63,10 @@ pub struct DownloadRequest {
     pub collection_input: String,
     pub config: DownloadConfig,
     pub auto_overwrite: bool,
+    /// Whether beatmaps that failed in a previous run for this collection
+    /// should be retried as part of this download. Resolved by the
+    /// pre-download retry prompt (see `RetryFailedOnDownload`).
+    pub include_previously_failed: bool,
 }
 
 #[derive(Debug, Clone)]

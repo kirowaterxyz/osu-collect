@@ -17,6 +17,8 @@ pub enum HomeResolveEvent {
         url: String,
         name: String,
         map_count: usize,
+        collection_id: u32,
+        beatmapset_ids: Vec<u32>,
     },
     /// Fetch failed; `reason` is a short user-facing message.
     Failed { reason: String },
@@ -81,11 +83,17 @@ async fn run_resolve(
     tokio::select! {
         result = service.fetch_collection(collection_id) => {
             let event = match result {
-                Ok(collection) => HomeResolveEvent::Resolved {
-                    url,
-                    name: collection.name,
-                    map_count: collection.beatmapsets.len(),
-                },
+                Ok(collection) => {
+                    let beatmapset_ids: Vec<u32> =
+                        collection.beatmapsets.iter().map(|set| set.id).collect();
+                    HomeResolveEvent::Resolved {
+                        url,
+                        name: collection.name,
+                        map_count: collection.beatmapsets.len(),
+                        collection_id,
+                        beatmapset_ids,
+                    }
+                }
                 Err(err) => HomeResolveEvent::Failed {
                     reason: user_facing_error(&err.to_string()),
                 },
@@ -118,12 +126,15 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
             url,
             name,
             map_count,
+            collection_id,
+            beatmapset_ids,
         } => {
             let maps_word = if map_count == 1 { "map" } else { "maps" };
             home.set_collection_resolve(
                 ResolveState::Success,
                 format!("\"{}\" · {} {}", name, map_count, maps_word),
             );
+            home.set_resolved_collection(collection_id, beatmapset_ids);
             // Persist to history and save to disk.
             let entry = url_history::UrlHistoryEntry {
                 url,

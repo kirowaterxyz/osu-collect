@@ -6,8 +6,11 @@ use super::{
 use crate::{
     config::{
         Config, DisplayConfig, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
-        ThemeMode,
-        constants::{ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, THEME_MODES, default_threads},
+        RetryFailedOnDownload, ThemeMode,
+        constants::{
+            ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, RETRY_FAILED_ON_DOWNLOAD_MODES,
+            THEME_MODES, default_threads,
+        },
     },
     download::ArchiveValidation,
     utils::expand_tilde,
@@ -33,6 +36,7 @@ pub enum ConfigField {
     DownloadThreads,
     DownloadNoVideo,
     DownloadArchiveValidation,
+    RetryFailedOnDownload,
     LoggingEnabled,
     LoggingLevel,
     LoggingFormat,
@@ -46,6 +50,7 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadArchiveValidation,
+    ConfigField::RetryFailedOnDownload,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
@@ -63,6 +68,7 @@ const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadArchiveValidation,
+    ConfigField::RetryFailedOnDownload,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
@@ -98,6 +104,7 @@ pub struct ConfigTab {
     pub threads: InputField,
     pub no_video: bool,
     pub archive_validation: ArchiveValidation,
+    pub retry_failed_on_download: RetryFailedOnDownload,
     pub logging_enabled: bool,
     pub logging_level: LogLevel,
     pub logging_format: LogFormat,
@@ -122,6 +129,7 @@ impl ConfigTab {
             threads: threads_field(&config.download),
             no_video: config.download.no_video,
             archive_validation: config.download.archive_validation,
+            retry_failed_on_download: config.download.retry_failed_on_download,
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
@@ -196,6 +204,7 @@ impl ConfigTab {
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
             ConfigField::DownloadNoVideo => self.no_video = !self.no_video,
             ConfigField::DownloadArchiveValidation => self.cycle_archive_validation(),
+            ConfigField::RetryFailedOnDownload => self.cycle_retry_failed_on_download(),
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
@@ -223,6 +232,13 @@ impl ConfigTab {
         self.archive_validation = next_value(ARCHIVE_VALIDATIONS, self.archive_validation);
     }
 
+    pub fn cycle_retry_failed_on_download(&mut self) {
+        self.retry_failed_on_download = next_value(
+            RETRY_FAILED_ON_DOWNLOAD_MODES,
+            self.retry_failed_on_download,
+        );
+    }
+
     pub fn build_config(&self) -> Result<Config, String> {
         let concurrent = self.parse_concurrent()?;
         let mirror = MirrorConfig {
@@ -239,6 +255,7 @@ impl ConfigTab {
             concurrent,
             no_video: self.no_video,
             archive_validation: self.archive_validation,
+            retry_failed_on_download: self.retry_failed_on_download,
         };
 
         let logging = LoggingConfig {

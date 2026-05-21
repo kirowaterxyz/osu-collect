@@ -131,7 +131,8 @@ fn logout_evacuates_focus_when_logging_out() {
 fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
-    let total = 15;
+    // Logged-in field count must match `LOGGED_IN_CONFIG_FIELDS`.
+    let total = 16;
     for _ in 0..total {
         tab.next_field();
     }

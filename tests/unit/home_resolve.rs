@@ -99,6 +99,8 @@ fn resolve_success_event_sets_success_state() {
             url: "https://osucollector.com/collections/1".to_string(),
             name: "Top 100 of 2024".to_string(),
             map_count: 100,
+            collection_id: 1,
+            beatmapset_ids: Vec::new(),
         },
         &mut home,
     );
@@ -155,6 +157,8 @@ fn resolve_single_map_uses_singular() {
             url: "https://osucollector.com/collections/2".to_string(),
             name: "Solo".to_string(),
             map_count: 1,
+            collection_id: 2,
+            beatmapset_ids: Vec::new(),
         },
         &mut home,
     );

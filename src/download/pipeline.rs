@@ -116,6 +116,10 @@ async fn run_collection(
         collection_input,
         config,
         auto_overwrite,
+        // Carried into the pipeline for future use (e.g. logging the user's
+        // pre-download retry decision). The library re-downloads the whole
+        // collection either way, so no branching is required here.
+        include_previously_failed: _,
     } = request;
 
     emit_resolving(id, emit.as_ref());

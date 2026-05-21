@@ -1,6 +1,6 @@
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
-    config::{LogFormat, LogLevel, ThemeMode},
+    config::{LogFormat, LogLevel, RetryFailedOnDownload, ThemeMode},
     download::ArchiveValidation,
 };
 use ratatui::{
@@ -30,6 +30,7 @@ const LABEL_THEME: &str = "theme";
 
 const LABEL_SKIP_VIDEOS: &str = "skip videos";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
+const LABEL_RETRY_FAILED: &str = "retry failed on download";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "level";
 const LABEL_LOGGING_FORMAT: &str = "format";
@@ -49,10 +50,13 @@ const THEME_MODE_LABELS: &[&str] = &["auto", "default", "16-color", "colorblind-
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
 const ARCHIVE_VALIDATION_LABELS: &[&str] = &["off", "basic", "strict"];
+const RETRY_FAILED_LABELS: &[&str] = &["ask", "yes", "no"];
 
 const HELP_VERIFY_STRICT: &str = "strict mode may reject beatmaps that osu! would still accept";
 const HELP_VERIFY_INTEGRITY: &str =
     "off skips checks; basic verifies headers; strict also checks eocd footer";
+const HELP_RETRY_FAILED: &str =
+    "ask: prompt before each download · yes: always retry · no: never retry";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     let focus = form.focus;
@@ -113,6 +117,18 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             HELP_VERIFY_INTEGRITY
         };
         items.push(widgets::help_item(help));
+    }
+    items.push_focusable(
+        ConfigField::RetryFailedOnDownload,
+        widgets::cycle_item(
+            LABEL_RETRY_FAILED,
+            RETRY_FAILED_LABELS,
+            retry_failed_label(form.retry_failed_on_download),
+            focus == ConfigField::RetryFailedOnDownload,
+        ),
+    );
+    if focus == ConfigField::RetryFailedOnDownload {
+        items.push(widgets::help_item(HELP_RETRY_FAILED));
     }
     items.push(widgets::spacer());
 
@@ -279,6 +295,14 @@ fn archive_validation_label(mode: ArchiveValidation) -> &'static str {
         ArchiveValidation::Off => "off",
         ArchiveValidation::Magic => "basic",
         ArchiveValidation::Eocd => "strict",
+    }
+}
+
+fn retry_failed_label(mode: RetryFailedOnDownload) -> &'static str {
+    match mode {
+        RetryFailedOnDownload::Ask => "ask",
+        RetryFailedOnDownload::Yes => "yes",
+        RetryFailedOnDownload::No => "no",
     }
 }
 
