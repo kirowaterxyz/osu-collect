@@ -1,5 +1,6 @@
 use std::{fs, io::Write, path::Path};
 
+pub mod banner;
 pub mod collection;
 pub mod collection_state;
 pub mod config;
@@ -12,6 +13,7 @@ pub mod state;
 pub mod updates;
 pub mod url_history;
 
+pub use banner::{Banner, home_banners};
 pub use collection::{ActiveDownloadLine, CollectionPage};
 pub use config::{AuthLoginState, ChipAction, ConfigDiffEntry, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField, ResolveState};

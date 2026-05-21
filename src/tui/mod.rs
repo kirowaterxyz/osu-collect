@@ -1,6 +1,7 @@
 pub mod terminal;
 pub mod theme;
 
+pub(crate) mod banner;
 mod config;
 mod download;
 mod footer;
@@ -12,7 +13,7 @@ mod widgets;
 
 pub use theme::{Theme, init_theme, theme};
 
-use crate::app::App;
+use crate::app::{App, home_banners};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use osu_downloader::MirrorKind;
 use ratatui::{
@@ -191,13 +192,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
     header::render(frame, header_area, &tabs, app.active_tab(), pill.as_ref());
 
+    let home_banners = home_banners(app.disk_free_bytes());
+
     match app.active_tab() {
-        HOME_TAB_INDEX => home::render(frame, content_area, &app.home),
+        HOME_TAB_INDEX => home::render(frame, content_area, &app.home, &home_banners),
         UPDATES_TAB_INDEX => updates::render(frame, content_area, &app.updates),
         CONFIG_TAB_INDEX => config::render(frame, content_area, &app.config),
         tab => match app.download_for_tab(tab) {
             Some(page) => download::render(frame, content_area, page, app.tick_count),
-            None => home::render(frame, content_area, &app.home),
+            None => home::render(frame, content_area, &app.home, &home_banners),
         },
     }
 

@@ -1,6 +1,6 @@
 use crate::app::runtime::ProbeResult;
 use crate::app::url_history::UrlHistoryEntry;
-use crate::app::{HomeField, HomeTab, ResolveState};
+use crate::app::{Banner, HomeField, HomeTab, ResolveState};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
@@ -9,6 +9,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding},
 };
 
+use super::banner::{banner_height, render_banners};
 use super::widgets::{self, Metric};
 use super::{
     HELP_CUSTOM_MIRROR, accent, accent_alt, bg_raised, danger, line, mirror_label, success,
@@ -28,7 +29,17 @@ const LABEL_NO_VIDEO: &str = "no video";
 const METRIC_THREADS: &str = "threads";
 const METRIC_MIRRORS: &str = "mirrors";
 
-pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
+pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, banners: &[Banner]) {
+    let (banner_area, content_area) = split_banner_area(area, banners);
+    render_banners(frame, banner_area, banners);
+    render_content(frame, content_area, form);
+
+    if form.dropdown_open && !form.url_history.entries.is_empty() {
+        render_url_dropdown(frame, content_area, form);
+    }
+}
+
+fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -113,10 +124,6 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
-
-    if form.dropdown_open && !form.url_history.entries.is_empty() {
-        render_url_dropdown(frame, area, form);
-    }
 }
 
 /// Mirror toggle row with an optional latency suffix.
@@ -272,4 +279,31 @@ fn resolve_row(state: ResolveState, text: &str) -> ListItem<'static> {
         Span::styled(RESOLVE_ARROW, Style::default().fg(arrow_color)),
         Span::styled(text.to_string(), Style::default().fg(text_color)),
     ]))
+}
+
+/// Split `area` into a banner strip (top) and the main content area (rest).
+///
+/// When `banners` is empty the banner strip has height 0 and `content_area`
+/// is the full `area`. Only inserts rows for the actual number of banners so
+/// the content area is never unnecessarily shrunk.
+fn split_banner_area(area: Rect, banners: &[Banner]) -> (Rect, Rect) {
+    let n = banner_height(banners);
+    if n == 0 {
+        return (Rect { height: 0, ..area }, area);
+    }
+    let banner_height_clamped = n.min(area.height);
+    let content_height = area.height.saturating_sub(banner_height_clamped);
+    let banner_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: banner_height_clamped,
+    };
+    let content_area = Rect {
+        x: area.x,
+        y: area.y + banner_height_clamped,
+        width: area.width,
+        height: content_height,
+    };
+    (banner_area, content_area)
 }

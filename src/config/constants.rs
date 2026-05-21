@@ -96,7 +96,13 @@ pub const TAB_HOME_LOWER: &str = "home";
 pub const TAB_UPDATES_LOWER: &str = "updates";
 pub const TAB_CONFIG_LOWER: &str = "config";
 
-pub const LOW_SPACE_THRESHOLD_BYTES: u64 = 1024 * 1024 * 1024;
+/// Free-space threshold below which a disk-low banner and warning pill appear (1 GiB).
+pub const DISK_WARN_BYTES: u64 = 1024 * 1024 * 1024;
+/// Free-space threshold below which a disk-full banner and danger pill appear (100 MiB).
+pub const DISK_DANGER_BYTES: u64 = 100 * 1024 * 1024;
+
+/// Alias kept for any code that references the old name.
+pub const LOW_SPACE_THRESHOLD_BYTES: u64 = DISK_WARN_BYTES;
 
 pub const DIRECTORY_LOCK_FILE: &str = ".osu-collect.lock";
 

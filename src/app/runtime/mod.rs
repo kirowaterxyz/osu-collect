@@ -309,6 +309,9 @@ fn handle_key_event(
                 downloads.insert(new_id, handle);
             }
         }
+        Some(AppCommand::FocusOutputDir) => {
+            app.focus_output_dir();
+        }
         Some(AppCommand::Quit) => {
             if downloads.is_empty() {
                 info!("No downloads active; exiting application");

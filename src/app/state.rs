@@ -97,6 +97,9 @@ pub enum AppCommand {
     },
     /// Probe latency for all built-in mirrors.
     ProbeMirrors,
+    /// Switch to the home tab and focus the output directory field.
+    /// Triggered by the disk-low / disk-full banner action.
+    FocusOutputDir,
     Quit,
 }
 
@@ -204,6 +207,13 @@ impl App {
             self.active_tab -= 1;
         }
         self.check_auto_scan()
+    }
+
+    /// Switch to the home tab and place focus on the directory field.
+    /// Called when the user activates the disk-low or disk-full banner action.
+    pub fn focus_output_dir(&mut self) {
+        self.active_tab = HOME_TAB_INDEX;
+        self.home.focus = HomeField::Directory;
     }
 
     fn check_auto_scan(&mut self) -> Option<AppCommand> {
@@ -911,6 +921,10 @@ impl App {
                     // `r` refreshes mirror latency when no text input is focused.
                     if ch == 'r' && !self.home.focus.is_text_input() {
                         return Some(AppCommand::ProbeMirrors);
+                    }
+                    // `d` jumps focus to the directory field (banner action for disk warnings).
+                    if ch == 'd' && !self.home.focus.is_text_input() {
+                        return Some(AppCommand::FocusOutputDir);
                     }
                     if let Some(cmd) = self.mutate_collection_then_resolve(|h| h.handle_char(ch)) {
                         return Some(cmd);

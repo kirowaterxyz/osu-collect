@@ -8,16 +8,14 @@ use ratatui::{
     widgets::Paragraph,
 };
 
+use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
+
 use super::{accent, accent_alt, danger, line, line_soft, text_dim, text_faint, warning};
 
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
 
 const PILL_SEP: &str = " · ";
-/// Free-space threshold below which the disk segment is `warning()` (1 GiB).
-const DISK_WARN_BYTES: u64 = 1024 * 1024 * 1024;
-/// Free-space threshold below which the disk segment is `danger()` (100 MiB).
-const DISK_DANGER_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Aggregated state passed into the header renderer.
 ///
