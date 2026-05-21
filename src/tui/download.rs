@@ -55,6 +55,7 @@ const PLACEHOLDER_RESOLVING: &str = "resolving collection";
 
 const FAILED_SECTION_LABEL: &str = "FAILED";
 const RATE_LIMITED_SECTION_LABEL: &str = "─── rate-limited ───";
+const DONE_LABEL: &str = "done";
 
 const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
 const RESULTS_SKIPPED: &str = "SKIPPED";
@@ -587,6 +588,12 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
                 items.push(rate_limited_item(line, row_width));
             }
         }
+
+        // Footer: show cumulative completed count below active/rate-limited rows.
+        let done = page.stats.downloaded;
+        if done > 0 {
+            items.push(done_footer_item(done, page.stats.skipped));
+        }
     } else if items.is_empty() && page.failed_maps.is_empty() {
         let (text, color) = match page.stage {
             DownloadStage::Rechecking => (ACTIVE_VERIFYING, warning()),
@@ -707,6 +714,40 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+/// Builds the spans for the `done (N) [· skipped (M)]` footer row.
+///
+/// Split from the `ListItem` constructor so tests can inspect content and colors
+/// without depending on ratatui internals.
+pub(crate) fn done_footer_spans(done: u32, skipped: u32) -> Vec<Span<'static>> {
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(DONE_LABEL, Style::default().fg(success())),
+        Span::styled(" (", Style::default().fg(text_dim())),
+        Span::styled(done.to_string(), Style::default().fg(text_dim())),
+        Span::styled(")", Style::default().fg(text_dim())),
+    ];
+    if skipped > 0 {
+        spans.push(Span::styled(
+            " · skipped (",
+            Style::default().fg(text_dim()),
+        ));
+        spans.push(Span::styled(
+            skipped.to_string(),
+            Style::default().fg(text_dim()),
+        ));
+        spans.push(Span::styled(")", Style::default().fg(text_dim())));
+    }
+    spans
+}
+
+/// Builds the `done (N) [· skipped (M)]` footer row shown below active threads.
+///
+/// Renders whenever at least one beatmapset has completed successfully.
+/// The skipped segment is appended only when `skipped > 0`.
+fn done_footer_item(done: u32, skipped: u32) -> ListItem<'static> {
+    ListItem::new(Line::from(done_footer_spans(done, skipped)))
 }
 
 /// Builds a list row for a rate-limited download slot.
