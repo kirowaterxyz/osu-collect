@@ -20,6 +20,7 @@ use crate::mirrors::Mirror;
 use fs2::available_space;
 use osu_downloader::size::SizeFetcher;
 use std::path::Path;
+use std::time::Instant;
 use tokio::{sync::watch, task::JoinHandle};
 use tracing::warn;
 
@@ -143,6 +144,9 @@ pub enum DownloadEvent {
         stage: BeatmapStage,
         message: String,
         rate_limited: bool,
+        /// Instant at which the rate-limit cooldown expires. `Some` only when
+        /// `rate_limited` is true; `None` for all other statuses.
+        cooldown_until: Option<Instant>,
     },
     OverallProgress {
         id: DownloadId,

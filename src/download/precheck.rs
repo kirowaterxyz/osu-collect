@@ -245,6 +245,7 @@ impl PrecheckState {
                 stage: BeatmapStage::Skipped,
                 message: "already present".to_string(),
                 rate_limited: false,
+                cooldown_until: None,
             });
             emit(DownloadEvent::BeatmapVerified {
                 id,
@@ -279,6 +280,7 @@ impl PrecheckState {
                 stage: BeatmapStage::Failed,
                 message: format!("existing file failed validation: {error}"),
                 rate_limited: false,
+                cooldown_until: None,
             });
             emit(DownloadEvent::BeatmapVerified {
                 id,

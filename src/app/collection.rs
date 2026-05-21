@@ -102,6 +102,10 @@ pub struct ActiveDownloadLine {
     bytes_for_speed: u64,
     last_update: Option<Instant>,
     speed_bytes_per_sec: f64,
+    /// Instant at which the rate-limit cooldown expires. Kept outside the debounce
+    /// machinery so the render can compute remaining seconds without waiting for the
+    /// debounce window to elapse.
+    cooldown_until: Option<Instant>,
 }
 
 impl ActiveDownloadLine {
@@ -118,6 +122,7 @@ impl ActiveDownloadLine {
             bytes_for_speed: 0,
             last_update: None,
             speed_bytes_per_sec: 0.0,
+            cooldown_until: None,
         }
     }
 
@@ -148,11 +153,20 @@ impl ActiveDownloadLine {
         }
     }
 
-    fn apply_status(&mut self, stage: BeatmapStage, message: &str, rate_limited: bool) {
+    fn apply_status(
+        &mut self,
+        stage: BeatmapStage,
+        message: &str,
+        rate_limited: bool,
+        cooldown_until: Option<Instant>,
+    ) {
         // stage is structural (bar / slot reuse) and updates immediately. the *text* shown to
         // the user is rate-limited to one write per STATUS_DEBOUNCE for all stages — rapid
         // changes (download → verify → success in <50ms) coalesce to the last write.
         self.stage = stage;
+        // cooldown_until is stored outside the debounce window — the render derives remaining
+        // seconds directly, so it must not wait for the text debounce to elapse.
+        self.cooldown_until = cooldown_until;
         let next = DisplayedStatus {
             message: non_empty_status(stage, self.beatmapset_id, message),
             rate_limited,
@@ -186,6 +200,18 @@ impl ActiveDownloadLine {
     pub fn displayed_rate_limited(&self) -> bool {
         self.resolve_pending();
         self.displayed.borrow().rate_limited
+    }
+
+    /// Remaining cooldown seconds for this rate-limited row.
+    ///
+    /// Updated immediately on every `RateLimited` status (outside the debounce window) so
+    /// the render always shows the freshest countdown without waiting 50ms.
+    /// Returns `None` when the row is not rate-limited or the deadline has already passed.
+    pub fn cooldown_secs_remaining(&self) -> Option<u64> {
+        let until = self.cooldown_until?;
+        let remaining = until.saturating_duration_since(Instant::now());
+        // keep showing 0 until the lib emits the next status (clearing rate_limited)
+        Some(remaining.as_secs())
     }
 
     fn resolve_pending(&self) {
@@ -352,12 +378,13 @@ impl CollectionPage {
         stage: BeatmapStage,
         message: &str,
         rate_limited: bool,
+        cooldown_until: Option<Instant>,
     ) {
         // terminal stages keep the line in place so the slot keeps rendering the final
         // message ("done via nerinyan") until another beatmapset reuses it — otherwise
         // the row would flash blank between completion and reuse
         if let Some(line) = self.find_active_line_mut(beatmapset_id) {
-            line.apply_status(stage, message, rate_limited);
+            line.apply_status(stage, message, rate_limited, cooldown_until);
             return;
         }
 
@@ -371,7 +398,7 @@ impl CollectionPage {
             return;
         };
         let mut line = ActiveDownloadLine::new(beatmapset_id);
-        line.apply_status(stage, message, rate_limited);
+        line.apply_status(stage, message, rate_limited, cooldown_until);
         self.active_downloads[slot_idx] = Some(line);
     }
 

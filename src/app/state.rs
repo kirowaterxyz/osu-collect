@@ -941,10 +941,17 @@ impl App {
                 stage,
                 message,
                 rate_limited,
+                cooldown_until,
             } => {
                 if let Some(page) = self.page_mut(id) {
                     page.update_status(beatmapset_id, stage, &message);
-                    page.update_active_status(beatmapset_id, stage, &message, rate_limited);
+                    page.update_active_status(
+                        beatmapset_id,
+                        stage,
+                        &message,
+                        rate_limited,
+                        cooldown_until,
+                    );
                 }
             }
             DownloadEvent::DownloadTarget { id, remaining } => {

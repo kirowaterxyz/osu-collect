@@ -344,6 +344,7 @@ fn active_view_renders_progress_bar_when_downloading() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
+        None,
     );
     page.update_active_progress(42, 5_000_000, 10_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -373,6 +374,7 @@ fn active_view_requires_percentage_for_discovered_download_size() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
+        None,
     );
     page.update_active_progress(42, 1_500_000, 10_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -402,6 +404,7 @@ fn active_view_renders_bouncing_bar_when_total_is_unknown() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #42 from mirror",
         false,
+        None,
     );
     app.downloads.push(page);
     app.active_tab = 3;
@@ -436,6 +439,7 @@ fn active_panel_height_is_constant_across_completion_and_start() {
             BeatmapStage::Downloading,
             &format!("Downloading #{id} from mirror"),
             false,
+            None,
         );
     }
     app.downloads.push(page);
@@ -449,7 +453,7 @@ fn active_panel_height_is_constant_across_completion_and_start() {
     // complete the middle slot — total row count stays the same and the slot keeps
     // rendering its terminal message ("done") instead of going blank until the next
     // beatmapset arrives. text is debounced so we wait past the window before rendering.
-    app.downloads[0].update_active_status(11, BeatmapStage::Success, "done", false);
+    app.downloads[0].update_active_status(11, BeatmapStage::Success, "done", false, None);
     std::thread::sleep(std::time::Duration::from_millis(75));
     let after_complete = render_app(&app, 120, 30);
     assert_eq!(
@@ -473,6 +477,7 @@ fn active_panel_height_is_constant_across_completion_and_start() {
         BeatmapStage::Downloading,
         "Downloading #99 from mirror",
         false,
+        None,
     );
     let after_refill = render_app(&app, 120, 30);
     assert_eq!(app.downloads[0].thread_total_items.get(), baseline_total);
@@ -504,6 +509,7 @@ fn long_message_does_not_drop_the_progress_bar() {
         BeatmapStage::Downloading,
         "retrying nerinyan-extra-long-mirror-name after Connection timed out (attempt 3/3)",
         false,
+        None,
     );
     page.update_active_progress(42, 7_000_000, 10_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -537,6 +543,7 @@ fn active_view_shows_bar_for_active_download_regardless_of_message() {
         crate::download::BeatmapStage::Downloading,
         "retrying nerinyan after timeout (attempt 2/3)",
         false,
+        None,
     );
     page.update_active_progress(42, 3_000_000, 6_000_000);
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -802,6 +809,7 @@ fn active_progress_is_per_beatmapset() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #100 from mirror",
         false,
+        None,
     );
     page.update_active_progress(100, 1_000_000, 4_000_000);
     page.update_active_status(
@@ -809,6 +817,7 @@ fn active_progress_is_per_beatmapset() {
         crate::download::BeatmapStage::Downloading,
         "Fetching #101 from mirror",
         false,
+        None,
     );
 
     let line_100 = page
@@ -837,6 +846,7 @@ fn precheck_pending_status_does_not_consume_active_slot() {
             BeatmapStage::Pending,
             "file changed during precheck; re-downloading",
             false,
+            None,
         );
     }
     assert_eq!(
@@ -851,6 +861,7 @@ fn precheck_pending_status_does_not_consume_active_slot() {
         BeatmapStage::Downloading,
         "Downloading #7 from mirror",
         false,
+        None,
     );
     assert_eq!(page.active_lines().count(), 1);
 }
@@ -866,6 +877,7 @@ fn active_slot_count_is_capped_at_thread_count() {
             BeatmapStage::Downloading,
             &format!("Downloading #{id}"),
             false,
+            None,
         );
     }
     assert_eq!(
@@ -875,8 +887,14 @@ fn active_slot_count_is_capped_at_thread_count() {
     );
 
     // when one terminates the freed slot can be reused
-    page.update_active_status(10, BeatmapStage::Success, "done", false);
-    page.update_active_status(12, BeatmapStage::Downloading, "Downloading #12", false);
+    page.update_active_status(10, BeatmapStage::Success, "done", false, None);
+    page.update_active_status(
+        12,
+        BeatmapStage::Downloading,
+        "Downloading #12",
+        false,
+        None,
+    );
     let ids: std::collections::BTreeSet<u32> =
         page.active_lines().map(|l| l.beatmapset_id).collect();
     assert_eq!(ids, [11, 12].into_iter().collect());
@@ -893,6 +911,7 @@ fn freed_slot_position_is_reused_for_stability() {
             BeatmapStage::Downloading,
             &format!("Downloading #{id}"),
             false,
+            None,
         );
     }
     let position_of = |page: &CollectionPage, target: u32| -> Option<usize> {
@@ -905,8 +924,14 @@ fn freed_slot_position_is_reused_for_stability() {
 
     // the middle slot frees; a new download must take that exact slot so the bottom row
     // doesn't shift visually.
-    page.update_active_status(21, BeatmapStage::Success, "done", false);
-    page.update_active_status(99, BeatmapStage::Downloading, "Downloading #99", false);
+    page.update_active_status(21, BeatmapStage::Success, "done", false, None);
+    page.update_active_status(
+        99,
+        BeatmapStage::Downloading,
+        "Downloading #99",
+        false,
+        None,
+    );
 
     assert_eq!(position_of(&page, 99), Some(1));
     assert_eq!(
@@ -929,7 +954,13 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
 
     // once the status event lands the slot allocates with a real message; subsequent
     // progress updates land on the same slot.
-    page.update_active_status(42, BeatmapStage::Downloading, "contacting nerinyan", false);
+    page.update_active_status(
+        42,
+        BeatmapStage::Downloading,
+        "contacting nerinyan",
+        false,
+        None,
+    );
     page.update_active_progress(42, 1_024, 4_096);
     let line = page
         .active_lines()
@@ -946,7 +977,13 @@ fn bar_visible_during_downloading_before_bytes_flow() {
     use super::accent;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
-    page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
+    page.update_active_status(
+        7,
+        BeatmapStage::Downloading,
+        "contacting nerinyan",
+        false,
+        None,
+    );
     let line = page.active_lines().next().expect("slot allocated");
     assert_eq!(
         line.bar_color(),
@@ -973,6 +1010,7 @@ fn first_status_lands_immediately_then_text_is_debounced() {
         BeatmapStage::Downloading,
         "Downloading #200 ...",
         false,
+        None,
     );
     let initial = page.active_downloads[0]
         .as_ref()
@@ -990,6 +1028,7 @@ fn first_status_lands_immediately_then_text_is_debounced() {
         BeatmapStage::Downloading,
         "Rate limited on X, ...",
         true,
+        None,
     );
     std::thread::sleep(std::time::Duration::from_millis(75));
     let line = page.active_downloads[0]
@@ -1002,7 +1041,7 @@ fn first_status_lands_immediately_then_text_is_debounced() {
     );
     assert!(line.displayed_rate_limited());
 
-    page.update_active_status(200, BeatmapStage::Downloading, "", false);
+    page.update_active_status(200, BeatmapStage::Downloading, "", false, None);
     std::thread::sleep(std::time::Duration::from_millis(75));
     let fallback = page.active_downloads[0]
         .as_ref()
@@ -1021,13 +1060,21 @@ fn rapid_status_transitions_coalesce_to_latest() {
         BeatmapStage::Downloading,
         "downloading from nerinyan",
         false,
+        None,
     );
-    page.update_active_status(400, BeatmapStage::Downloading, "checking nerinyan", false);
+    page.update_active_status(
+        400,
+        BeatmapStage::Downloading,
+        "checking nerinyan",
+        false,
+        None,
+    );
     page.update_active_status(
         400,
         BeatmapStage::Downloading,
         "rate limited on nerinyan, waiting 5s",
         true,
+        None,
     );
     std::thread::sleep(std::time::Duration::from_millis(75));
 
@@ -1051,6 +1098,7 @@ fn terminal_stage_clears_active_downloads() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #100",
         false,
+        None,
     );
     app.downloads.push(page);
 
@@ -1069,6 +1117,7 @@ fn terminal_stage_clears_active_downloads() {
         crate::download::BeatmapStage::Downloading,
         "Downloading #101",
         false,
+        None,
     );
     app.handle_download_event(DownloadEvent::StageChanged {
         id: 1,

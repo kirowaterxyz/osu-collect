@@ -54,6 +54,7 @@ const PLACEHOLDER_PREPARING: &str = "preparing";
 const PLACEHOLDER_RESOLVING: &str = "resolving collection";
 
 const FAILED_SECTION_LABEL: &str = "FAILED";
+const RATE_LIMITED_SECTION_LABEL: &str = "─── rate-limited ───";
 
 const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
 const RESULTS_SKIPPED: &str = "SKIPPED";
@@ -546,10 +547,44 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let mut items: Vec<ListItem> = Vec::new();
 
     if matches!(page.stage, DownloadStage::Downloading) {
+        // Render non-rate-limited slots first (preserving slot order), then a separator when
+        // both groups are non-empty, then the rate-limited rows with countdown.
+        let mut non_rate_limited_count = 0usize;
+        let mut rate_limited_count = 0usize;
+        for line in page.active_downloads.iter().flatten() {
+            if line.stage.is_terminal() {
+                continue;
+            }
+            if line.displayed_rate_limited() {
+                rate_limited_count += 1;
+            } else {
+                non_rate_limited_count += 1;
+            }
+        }
+
         for slot in &page.active_downloads {
             match slot {
+                Some(line) if !line.stage.is_terminal() && line.displayed_rate_limited() => {
+                    // rendered in second pass below
+                }
                 Some(line) => items.push(widgets::active_download_item(line, row_width)),
                 None => items.push(ListItem::new("")),
+            }
+        }
+
+        if rate_limited_count > 0 && non_rate_limited_count > 0 {
+            items.push(ListItem::new(Line::from(vec![Span::styled(
+                RATE_LIMITED_SECTION_LABEL,
+                Style::default().fg(text_faint()),
+            )])));
+        }
+
+        for slot in &page.active_downloads {
+            if let Some(line) = slot
+                && !line.stage.is_terminal()
+                && line.displayed_rate_limited()
+            {
+                items.push(rate_limited_item(line, row_width));
             }
         }
     } else if items.is_empty() && page.failed_maps.is_empty() {
@@ -672,6 +707,31 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+/// Builds a list row for a rate-limited download slot.
+///
+/// Uses the standard `active_download_item_msg` layout but appends a `Ns`
+/// countdown suffix so the user sees how long until the mirror is eligible again.
+/// When no cooldown deadline is recorded, delegates to the plain item builder.
+fn rate_limited_item(
+    line: &crate::app::collection::ActiveDownloadLine,
+    width: u16,
+) -> ListItem<'static> {
+    let base = line.displayed_message();
+    let msg = match line.cooldown_secs_remaining() {
+        Some(secs) => {
+            let s = secs.to_string();
+            let mut buf = String::with_capacity(base.len() + 1 + s.len() + 1);
+            buf.push_str(&base);
+            buf.push(' ');
+            buf.push_str(&s);
+            buf.push('s');
+            buf
+        }
+        None => base,
+    };
+    widgets::active_download_item_msg(line, &msg, width)
 }
 
 /// Returns `(display_label, color)` for a failure reason.

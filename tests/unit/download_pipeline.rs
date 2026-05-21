@@ -351,6 +351,48 @@ fn only_newly_downloaded_hashes_are_included() {
     assert_eq!(hashes.len(), 2);
 }
 
+#[test]
+fn rate_limited_status_forwards_cooldown_until() {
+    let cooldown = std::time::Duration::from_secs(30);
+    let before = std::time::Instant::now();
+    let event = drive_status(Status::RateLimited { cooldown });
+    let after = std::time::Instant::now();
+
+    let DownloadEvent::BeatmapStatus {
+        rate_limited,
+        cooldown_until,
+        ..
+    } = event
+    else {
+        panic!("expected BeatmapStatus");
+    };
+    assert!(rate_limited);
+    let deadline = cooldown_until.expect("cooldown_until must be Some for RateLimited");
+    // remaining must be ≈ 30s — within a 1s tolerance for test execution time
+    let remaining = deadline.saturating_duration_since(before);
+    let upper = deadline.saturating_duration_since(after);
+    assert!(
+        remaining.as_secs() <= 30,
+        "cooldown_until must not be more than 30s from now, got {remaining:?}"
+    );
+    assert!(
+        upper.as_secs() >= 29,
+        "cooldown_until must be at least 29s from start, got {upper:?}"
+    );
+}
+
+#[test]
+fn non_rate_limited_status_has_no_cooldown_until() {
+    use osu_downloader::MirrorKind;
+    let event = drive_status(Status::Contacting {
+        mirror: MirrorKind::Nerinyan,
+    });
+    let DownloadEvent::BeatmapStatus { cooldown_until, .. } = event else {
+        panic!("expected BeatmapStatus");
+    };
+    assert!(cooldown_until.is_none());
+}
+
 fn failure_reason_for(error: osu_downloader::Error) -> FailureReason {
     let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetFailed {
         beatmapset_id: 99,

@@ -372,6 +372,18 @@ pub fn status_style(stage: DownloadStage) -> Style {
 }
 
 pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'static> {
+    active_download_item_msg(line, &line.displayed_message(), width)
+}
+
+/// Like [`active_download_item`] but accepts an explicit message string.
+///
+/// Used by the rate-limited renderer to splice a countdown suffix into the
+/// message before truncation without duplicating the progress-bar layout logic.
+pub fn active_download_item_msg(
+    line: &ActiveDownloadLine,
+    message_text: &str,
+    width: u16,
+) -> ListItem<'static> {
     const BAR_WIDTH: u16 = 12;
     const LABEL_WIDTH: u16 = 5;
     const GAP: u16 = 1;
@@ -397,7 +409,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
         .saturating_sub(prefix_w)
         .saturating_sub(RESERVED_RIGHT)
         .saturating_sub(GAP);
-    let (message, message_w) = truncate_to_width(&line.displayed_message(), message_budget);
+    let (message, message_w) = truncate_to_width(message_text, message_budget);
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(text_faint())),

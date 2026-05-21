@@ -8,6 +8,7 @@ use crate::config::constants::status::{
 };
 use osu_downloader::{Error as LibError, Event as LibEvent, Skip, Status};
 use std::collections::HashSet;
+use std::time::Instant;
 use tracing::warn;
 
 /// Running counters for a pipeline run. Consumed by `translate_event` and converted
@@ -196,6 +197,7 @@ fn emit_terminal_status(
         stage,
         message,
         rate_limited: false,
+        cooldown_until: None,
     });
 }
 
@@ -207,12 +209,13 @@ fn status_msg(prefix: &str, label: &str) -> String {
 }
 
 fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>) {
-    let (message, stage, rate_limited) = match event {
+    let (message, stage, rate_limited, cooldown_until) = match event {
         // dont remove this
         Status::Contacting { mirror } => (
             status_msg(CHECKING_PREFIX, mirror.label()),
             BeatmapStage::Downloading,
             false,
+            None,
         ),
         Status::Downloading { mirror } => {
             let label = mirror.label();
@@ -221,12 +224,13 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
             s.push_str(status::DOWNLOADING);
             s.push_str(FROM_SUFFIX);
             s.push_str(label);
-            (s, BeatmapStage::Downloading, false)
+            (s, BeatmapStage::Downloading, false, None)
         }
         Status::Verifying { mirror } => (
             status_msg(VERIFYING_PREFIX, mirror.label()),
             BeatmapStage::Verifying,
             false,
+            None,
         ),
         Status::RateLimited { cooldown } => {
             let secs = cooldown.as_secs().max(1).to_string();
@@ -237,7 +241,12 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
             s.push_str(RATE_LIMITED_SUFFIX);
             s.push_str(&secs);
             s.push('s');
-            (s, BeatmapStage::Downloading, true)
+            (
+                s,
+                BeatmapStage::Downloading,
+                true,
+                Some(Instant::now() + cooldown),
+            )
         }
         Status::RetryingTransient {
             mirror,
@@ -268,7 +277,7 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
             s.push('/');
             s.push_str(&max_s);
             s.push(')');
-            (s, BeatmapStage::Downloading, false)
+            (s, BeatmapStage::Downloading, false, None)
         }
     };
     emit(DownloadEvent::BeatmapStatus {
@@ -277,6 +286,7 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
         stage,
         message,
         rate_limited,
+        cooldown_until,
     });
 }
 
