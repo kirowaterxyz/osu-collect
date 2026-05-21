@@ -14,8 +14,8 @@ use ratatui::{
 
 use super::widgets::{self, SEPARATOR};
 use super::{
-    ACCENT, BG_RAISED, DANGER, FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, INFO, LINE_SOFT,
-    SUCCESS, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, WARNING, eyebrow, glyph_fill, spinner_char,
+    FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, eyebrow,
+    glyph_fill, info, line_soft, spinner_char, success, text_dim, text_faint, text_muted, warning,
 };
 
 const INFO_HEIGHT: u16 = 8;
@@ -113,7 +113,7 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             format_bytes(available, "B")
         );
         frame.render_widget(
-            Paragraph::new(text).style(Style::default().fg(WARNING)),
+            Paragraph::new(text).style(Style::default().fg(warning())),
             area,
         );
     }
@@ -130,8 +130,8 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let speed = current_speed(page);
     let bytes = bytes_display(page);
 
-    let key_style = Style::default().fg(TEXT_FAINT);
-    let value_style = Style::default().fg(TEXT_MUTED);
+    let key_style = Style::default().fg(text_faint());
+    let value_style = Style::default().fg(text_muted());
 
     let mut status_spans = vec![
         Span::styled(KEY_STATUS, key_style),
@@ -139,17 +139,17 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     ];
     if let Some(speed) = speed {
         status_spans.push(Span::styled(KEY_SPEED, key_style));
-        status_spans.push(Span::styled(speed, Style::default().fg(SUCCESS)));
+        status_spans.push(Span::styled(speed, Style::default().fg(success())));
     }
     if let Some(bytes) = bytes {
         status_spans.push(Span::styled(KEY_SIZE, key_style));
-        status_spans.push(Span::styled(bytes, Style::default().fg(WARNING)));
+        status_spans.push(Span::styled(bytes, Style::default().fg(warning())));
     }
 
     let lines = vec![
         Line::from(vec![
             Span::styled(KEY_COLLECTION, key_style),
-            Span::styled(page.title.as_str(), Style::default().fg(ACCENT)),
+            Span::styled(page.title.as_str(), Style::default().fg(accent())),
         ]),
         Line::from(vec![
             Span::styled(KEY_UPLOADER, key_style),
@@ -174,7 +174,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
                     s.push_str(VALUE_THREADS_SUFFIX);
                     s
                 },
-                Style::default().fg(ACCENT),
+                Style::default().fg(accent()),
             ),
         ]),
         Line::from(status_spans),
@@ -226,9 +226,9 @@ fn bytes_display(page: &CollectionPage) -> Option<String> {
 
 fn status_color(stage: DownloadStage, status: &str) -> Color {
     if status == RATE_LIMITED {
-        WARNING
+        warning()
     } else {
-        widgets::status_style(stage).fg.unwrap_or(TEXT_DIM)
+        widgets::status_style(stage).fg.unwrap_or(text_dim())
     }
 }
 
@@ -253,25 +253,25 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
 
     let displayed_skipped = skipped.saturating_add(unverified);
     let mut spans = vec![
-        Span::styled(format!("{label}: "), Style::default().fg(TEXT_FAINT)),
+        Span::styled(format!("{label}: "), Style::default().fg(text_faint())),
         Span::styled(
             {
                 let mut s = downloaded.to_string();
                 s.push_str(" downloaded");
                 s
             },
-            Style::default().fg(SUCCESS),
+            Style::default().fg(success()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
         Span::styled(
             {
                 let mut s = displayed_skipped.to_string();
                 s.push_str(" skipped");
                 s
             },
-            Style::default().fg(TEXT_MUTED),
+            Style::default().fg(text_muted()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
         Span::styled(
             {
                 let mut s = failed.to_string();
@@ -279,21 +279,21 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
                 s
             },
             if failed > 0 {
-                Style::default().fg(DANGER)
+                Style::default().fg(danger())
             } else {
-                Style::default().fg(TEXT_MUTED)
+                Style::default().fg(text_muted())
             },
         ),
     ];
     if unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
         spans.push(Span::styled(
             {
                 let mut s = unverified.to_string();
                 s.push_str(" unverified");
                 s
             },
-            Style::default().fg(WARNING),
+            Style::default().fg(warning()),
         ));
     }
     spans
@@ -337,9 +337,11 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let verified_ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
     let failed_ratio = (failed_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    let mut top_style = Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD);
+    let mut top_style = Style::default()
+        .fg(text_muted())
+        .add_modifier(Modifier::BOLD);
     if is_rechecking {
-        top_style = top_style.fg(WARNING);
+        top_style = top_style.fg(warning());
     }
 
     let top_title = if is_rechecking {
@@ -361,12 +363,12 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         .title_bottom(
             Line::from(Span::styled(
                 verified_title,
-                Style::default().fg(TEXT_FAINT),
+                Style::default().fg(text_faint()),
             ))
             .right_aligned(),
         );
 
-    let fill_color = if is_rechecking { WARNING } else { ACCENT };
+    let fill_color = if is_rechecking { warning() } else { accent() };
 
     if failed_display == 0 {
         frame.render_widget(
@@ -374,7 +376,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
                 .block(block)
                 .ratio(verified_ratio)
                 .label(Span::raw(""))
-                .gauge_style(Style::default().fg(fill_color).bg(BG_RAISED)),
+                .gauge_style(Style::default().fg(fill_color).bg(bg_raised())),
             area,
         );
         return;
@@ -398,11 +400,11 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         ),
         Span::styled(
             glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, failed_cells).into_owned(),
-            Style::default().fg(DANGER),
+            Style::default().fg(danger()),
         ),
         Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty_cells).into_owned(),
-            Style::default().fg(BG_RAISED),
+            Style::default().fg(bg_raised()),
         ),
     ]);
     frame.render_widget(Paragraph::new(bar), inner);
@@ -433,7 +435,7 @@ fn render_resolve_progress_gauge(
 ) {
     let spinner = spinner_char(tick);
     let title = format!(" {spinner} resolving {current}/{total} collections ");
-    let title_style = Style::default().fg(INFO).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(info()).add_modifier(Modifier::BOLD);
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
@@ -455,11 +457,11 @@ fn render_resolve_progress_gauge(
     let bar = Line::from(vec![
         Span::styled(
             glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, filled).into_owned(),
-            Style::default().fg(INFO),
+            Style::default().fg(info()),
         ),
         Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty).into_owned(),
-            Style::default().fg(BG_RAISED),
+            Style::default().fg(bg_raised()),
         ),
     ]);
     let bar_area = Rect {
@@ -478,7 +480,7 @@ fn render_indeterminate_block(
     page: &CollectionPage,
     tick: u64,
 ) {
-    let title_style = Style::default().fg(INFO).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(info()).add_modifier(Modifier::BOLD);
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
@@ -513,15 +515,15 @@ fn render_indeterminate_block(
     let bar = Line::from(vec![
         Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, chunk_start).into_owned(),
-            Style::default().fg(BG_RAISED),
+            Style::default().fg(bg_raised()),
         ),
         Span::styled(
             glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, visible).into_owned(),
-            Style::default().fg(INFO),
+            Style::default().fg(info()),
         ),
         Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, trailing).into_owned(),
-            Style::default().fg(BG_RAISED),
+            Style::default().fg(bg_raised()),
         ),
     ]);
     frame.render_widget(Paragraph::new(bar), inner);
@@ -551,9 +553,9 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         }
     } else if items.is_empty() && page.failed_maps.is_empty() {
         let (text, color) = match page.stage {
-            DownloadStage::Rechecking => (ACTIVE_VERIFYING, WARNING),
-            DownloadStage::Pending | DownloadStage::Resolving => (ACTIVE_FETCHING, INFO),
-            _ => (ACTIVE_NONE, TEXT_FAINT),
+            DownloadStage::Rechecking => (ACTIVE_VERIFYING, warning()),
+            DownloadStage::Pending | DownloadStage::Resolving => (ACTIVE_FETCHING, info()),
+            _ => (ACTIVE_NONE, text_faint()),
         };
         items.push(ListItem::new(Line::from(vec![
             Span::raw("  "),
@@ -568,11 +570,14 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         for failure in &page.failed_maps {
             items.push(ListItem::new(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("#{}", failure.id), Style::default().fg(TEXT_FAINT)),
+                Span::styled(
+                    format!("#{}", failure.id),
+                    Style::default().fg(text_faint()),
+                ),
                 Span::raw("  "),
                 Span::styled(
                     summarize_failure(&failure.reason),
-                    Style::default().fg(DANGER),
+                    Style::default().fg(danger()),
                 ),
             ])));
         }
@@ -597,34 +602,37 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     let eyebrow_style = eyebrow().add_modifier(Modifier::DIM);
     let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
     let failed_style = if summary.failed > 0 {
-        Style::default().fg(DANGER)
+        Style::default().fg(danger())
     } else {
-        Style::default().fg(TEXT_MUTED)
+        Style::default().fg(text_muted())
     };
     let mut spans = vec![
         Span::raw("  "),
         Span::styled(RESULTS_DOWNLOADED, eyebrow_style),
         Span::raw(" "),
-        Span::styled(summary.downloaded.to_string(), Style::default().fg(ACCENT)),
-        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(
+            summary.downloaded.to_string(),
+            Style::default().fg(accent()),
+        ),
+        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
         Span::styled(RESULTS_SKIPPED, eyebrow_style),
         Span::raw(" "),
         Span::styled(
             displayed_skipped.to_string(),
-            Style::default().fg(TEXT_MUTED),
+            Style::default().fg(text_muted()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)),
+        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
         Span::styled(RESULTS_FAILED, eyebrow_style),
         Span::raw(" "),
         Span::styled(summary.failed.to_string(), failed_style),
     ];
     if summary.unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
         spans.push(Span::styled(RESULTS_UNVERIFIED, eyebrow_style));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
             summary.unverified.to_string(),
-            Style::default().fg(WARNING),
+            Style::default().fg(warning()),
         ));
     }
 
@@ -633,12 +641,12 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(RESULTS_OUTRO_1, Style::default().fg(TEXT_MUTED)),
+            Span::styled(RESULTS_OUTRO_1, Style::default().fg(text_muted())),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(RESULTS_OUTRO_2, Style::default().fg(TEXT_FAINT)),
+            Span::styled(RESULTS_OUTRO_2, Style::default().fg(text_faint())),
         ]),
     ];
 

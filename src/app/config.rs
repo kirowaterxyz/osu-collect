@@ -5,8 +5,9 @@ use super::{
 };
 use crate::{
     config::{
-        Config, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
-        constants::{ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, default_threads},
+        Config, DisplayConfig, DownloadConfig, LogFormat, LogLevel, LoggingConfig, MirrorConfig,
+        ThemeMode,
+        constants::{ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, THEME_MODES, default_threads},
     },
     download::ArchiveValidation,
 };
@@ -20,6 +21,7 @@ pub enum AuthLoginState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
+    Theme,
     MirrorNerinyan,
     MirrorOsuDirect,
     MirrorSayobot,
@@ -39,6 +41,7 @@ pub enum ConfigField {
 const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LoginEntry,
     ConfigField::LogoutEntry,
+    ConfigField::Theme,
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadArchiveValidation,
@@ -55,6 +58,7 @@ const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
 
 const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::LoginEntry,
+    ConfigField::Theme,
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
     ConfigField::DownloadArchiveValidation,
@@ -95,6 +99,7 @@ pub struct ConfigTab {
     pub logging_level: LogLevel,
     pub logging_format: LogFormat,
     pub logging_dir: InputField,
+    pub theme: ThemeMode,
     pub focus: ConfigField,
     pub message: Option<AppMessage>,
 }
@@ -117,6 +122,7 @@ impl ConfigTab {
             logging_level: config.logging.level,
             logging_format: config.logging.format,
             logging_dir: logging_dir_field(&config.logging),
+            theme: config.display.theme,
             focus: ConfigField::LoginEntry,
             message: None,
         }
@@ -163,6 +169,7 @@ impl ConfigTab {
     pub fn toggle_current(&mut self) {
         clear_app_message(&mut self.message);
         match self.focus {
+            ConfigField::Theme => self.cycle_theme(),
             ConfigField::MirrorNerinyan => self.nerinyan = !self.nerinyan,
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
@@ -178,6 +185,10 @@ impl ConfigTab {
             | ConfigField::DownloadThreads
             | ConfigField::LoggingDirectory => {}
         }
+    }
+
+    pub fn cycle_theme(&mut self) {
+        self.theme = next_value(THEME_MODES, self.theme);
     }
 
     pub fn cycle_logging_level(&mut self) {
@@ -223,6 +234,7 @@ impl ConfigTab {
             mirror,
             download,
             logging,
+            display: DisplayConfig { theme: self.theme },
         })
     }
 

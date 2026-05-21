@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use super::widgets::{self, FOCUS_MARK, FOCUS_PAD, Metric};
-use super::{ACCENT, ACCENT_ALT, TEXT, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, focused_label};
+use super::{accent, accent_alt, focused_label, text, text_dim, text_faint, text_muted};
 
 const PANEL_TITLE: &str = " UPDATES ";
 
@@ -169,11 +169,13 @@ fn display_item(
                 Span::styled(marker, marker_style),
                 Span::styled(
                     format!(" #{collection_id}"),
-                    Style::default().fg(TEXT_FAINT),
+                    Style::default().fg(text_faint()),
                 ),
                 Span::styled(
                     format!("  {name}"),
-                    Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(accent_alt())
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]))
         }
@@ -188,7 +190,7 @@ fn display_item(
 
 fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
     if is_scroll_pos {
-        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT))
+        Span::styled(FOCUS_MARK, Style::default().fg(accent()))
     } else {
         Span::raw(FOCUS_PAD)
     }
@@ -208,11 +210,11 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
     let field = &form.path.osu_path;
 
     let value = if field.value.is_empty() {
-        Span::styled(field.placeholder.clone(), Style::default().fg(TEXT_FAINT))
+        Span::styled(field.placeholder.clone(), Style::default().fg(text_faint()))
     } else if form.is_path_auto_detected() {
-        Span::styled(field.value.clone(), Style::default().fg(TEXT_FAINT))
+        Span::styled(field.value.clone(), Style::default().fg(text_faint()))
     } else {
-        Span::styled(field.value.clone(), Style::default().fg(ACCENT))
+        Span::styled(field.value.clone(), Style::default().fg(accent()))
     };
 
     ListItem::new(Line::from(vec![
@@ -247,19 +249,19 @@ fn collection_item(collection: &CollectionEntry, is_scroll_pos: bool) -> ListIte
         .map(|id| format!("#{id}"))
         .unwrap_or_else(|| DETAIL_LOCAL.to_string());
     let name_style = if is_scroll_pos {
-        Style::default().fg(TEXT)
+        Style::default().fg(text())
     } else {
-        Style::default().fg(TEXT_MUTED)
+        Style::default().fg(text_muted())
     };
 
     ListItem::new(Line::from(vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {id}"), Style::default().fg(TEXT_FAINT)),
+        Span::styled(format!(" {id}"), Style::default().fg(text_faint())),
         Span::styled(format!("  {}", collection.name), name_style),
         Span::styled(
             format!("  {} {COUNT_SUFFIX_MAPS}", collection.beatmap_count),
-            Style::default().fg(TEXT_FAINT),
+            Style::default().fg(text_faint()),
         ),
     ]))
 }
@@ -291,14 +293,17 @@ fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'s
     let mut spans = vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" #{}", beatmap.id), Style::default().fg(TEXT_DIM)),
-        Span::styled(format!("  {status_text}"), Style::default().fg(TEXT_FAINT)),
+        Span::styled(format!(" #{}", beatmap.id), Style::default().fg(text_dim())),
+        Span::styled(
+            format!("  {status_text}"),
+            Style::default().fg(text_faint()),
+        ),
     ];
 
     if beatmap.previously_deleted {
         spans.push(Span::styled(
             format!("  {TAG_PREVIOUSLY_DELETED}"),
-            Style::default().fg(ACCENT_ALT),
+            Style::default().fg(accent_alt()),
         ));
     }
 

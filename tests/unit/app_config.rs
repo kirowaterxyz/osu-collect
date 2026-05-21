@@ -84,6 +84,8 @@ fn next_field_cycles_through_login_entries() {
     tab.next_field();
     assert_eq!(tab.focus, ConfigField::LogoutEntry);
     tab.next_field();
+    assert_eq!(tab.focus, ConfigField::Theme);
+    tab.next_field();
     assert_eq!(tab.focus, ConfigField::DownloadThreads);
 }
 
@@ -91,6 +93,8 @@ fn next_field_cycles_through_login_entries() {
 fn prev_field_cycles_through_login_entries() {
     let mut tab = tab_logged_in();
     tab.focus = ConfigField::DownloadThreads;
+    tab.prev_field();
+    assert_eq!(tab.focus, ConfigField::Theme);
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::LogoutEntry);
     tab.prev_field();
@@ -104,13 +108,13 @@ fn next_field_skips_logout_when_logged_out() {
     let mut tab = tab_logged_out();
     tab.focus = ConfigField::LoginEntry;
     tab.next_field();
-    assert_eq!(tab.focus, ConfigField::DownloadThreads);
+    assert_eq!(tab.focus, ConfigField::Theme);
 }
 
 #[test]
 fn prev_field_skips_logout_when_logged_out() {
     let mut tab = tab_logged_out();
-    tab.focus = ConfigField::DownloadThreads;
+    tab.focus = ConfigField::Theme;
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::LoginEntry);
 }
@@ -127,7 +131,7 @@ fn logout_evacuates_focus_when_logging_out() {
 fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
-    let total = 14;
+    let total = 15;
     for _ in 0..total {
         tab.next_field();
     }

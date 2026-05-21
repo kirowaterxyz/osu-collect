@@ -15,8 +15,8 @@ use crate::{
     app::failed_maps,
     config::Config,
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
-    tui::draw,
     tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
+    tui::{draw, init_theme},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
@@ -31,6 +31,7 @@ pub async fn run(
     startup_notice: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting application runtime loop");
+    init_theme(config.display.theme);
     let validation_issue = config.validate().err().map(|e| e.to_string());
     let mut terminal = setup_terminal()?;
     let mut app = App::new(config);

@@ -8,10 +8,38 @@ use tracing::warn;
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Config {
+    #[serde(default)]
     pub mirror: MirrorConfig,
+    #[serde(default)]
     pub download: DownloadConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub display: DisplayConfig,
+}
+
+/// Theme selection for the TUI.
+///
+/// `Auto` detects the terminal's color depth at startup and falls back to the
+/// 16-color palette when only basic ANSI colors are available.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThemeMode {
+    /// Auto-detect: truecolor → default palette; 16-color terminal → sixteen palette.
+    #[default]
+    Auto,
+    /// Force the default Catppuccin-style truecolor palette.
+    Default,
+    /// Force the 16-color ANSI fallback palette.
+    Sixteen,
+    /// Force the colorblind-safe (Wong/IBM) palette.
+    ColorblindSafe,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct DisplayConfig {
+    pub theme: ThemeMode,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -156,3 +184,7 @@ impl Config {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/config_theme.rs"]
+mod tests;

@@ -19,7 +19,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding},
 };
 
-use super::{ACCENT, ACCENT_ALT, BG_RAISED, LINE, TEXT_DIM, TEXT_FAINT};
+use super::{accent, accent_alt, bg_raised, line, text_dim, text_faint};
 
 /// Returns a [`Rect`] centred in `area` of the requested proportional size.
 ///
@@ -86,12 +86,12 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
     let outer_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(LINE))
-        .style(Style::default().bg(BG_RAISED))
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
         .title(Span::styled(
             " KEYBINDINGS ",
             Style::default()
-                .fg(ACCENT_ALT)
+                .fg(accent_alt())
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::ITALIC),
         ))
@@ -130,7 +130,9 @@ fn push_section(items: &mut Vec<ListItem<'static>>, heading: &'static str, rows:
 fn section_heading(label: &'static str) -> ListItem<'static> {
     ListItem::new(Line::from(vec![Span::styled(
         label.to_uppercase(),
-        Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(accent_alt())
+            .add_modifier(Modifier::BOLD),
     )]))
 }
 
@@ -146,9 +148,9 @@ fn help_row(key: &'static str, action: &'static str) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
         Span::styled(
             key_cell,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(action, Style::default().fg(TEXT_DIM)),
+        Span::styled(action, Style::default().fg(text_dim())),
     ]))
 }
 
@@ -159,6 +161,6 @@ fn spacer() -> ListItem<'static> {
 fn dismiss_hint() -> ListItem<'static> {
     ListItem::new(Line::from(vec![Span::styled(
         "  press ? or esc to close",
-        Style::default().fg(TEXT_FAINT),
+        Style::default().fg(text_faint()),
     )]))
 }

@@ -13,9 +13,9 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use super::{
-    ACCENT, ACCENT_ALT, DANGER, FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK,
-    GLYPH_H_LINE, GLYPH_SHADE, GLYPH_SPACE, INFO, LINE, LINE_SOFT, SUCCESS, TEXT_DIM, TEXT_FAINT,
-    TEXT_MUTED, WARNING, eyebrow, focused_label, glyph_fill,
+    FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
+    GLYPH_SPACE, accent, accent_alt, danger, eyebrow, focused_label, glyph_fill, info, line,
+    line_soft, success, text_dim, text_faint, text_muted, warning,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
@@ -35,19 +35,19 @@ pub struct Metric<'a> {
 #[allow(dead_code)]
 impl<'a> Metric<'a> {
     pub fn muted(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, TEXT_MUTED)
+        Self::colored(label, value, text_muted())
     }
 
     pub fn accent(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, ACCENT)
+        Self::colored(label, value, accent())
     }
 
     pub fn success(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, SUCCESS)
+        Self::colored(label, value, success())
     }
 
     pub fn danger(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, DANGER)
+        Self::colored(label, value, danger())
     }
 
     fn colored(label: &'a str, value: impl Into<String>, color: Color) -> Self {
@@ -135,11 +135,11 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(LINE_SOFT))
+        .border_style(Style::default().fg(line_soft()))
         .title(Span::styled(
             title,
             Style::default()
-                .fg(ACCENT_ALT)
+                .fg(accent_alt())
                 .add_modifier(Modifier::BOLD)
                 .add_modifier(Modifier::ITALIC),
         ))
@@ -153,14 +153,14 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
     }
     let line = glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, area.width as usize);
     frame.render_widget(
-        Paragraph::new(line.into_owned()).style(Style::default().fg(LINE_SOFT)),
+        Paragraph::new(line.into_owned()).style(Style::default().fg(line_soft())),
         area,
     );
 }
 
 pub fn focus_span(focused: bool) -> Span<'static> {
     if focused {
-        Span::styled(FOCUS_MARK, Style::default().fg(ACCENT).bold())
+        Span::styled(FOCUS_MARK, Style::default().fg(accent()).bold())
     } else {
         Span::raw(FOCUS_PAD)
     }
@@ -168,17 +168,17 @@ pub fn focus_span(focused: bool) -> Span<'static> {
 
 pub fn check_marker(state: bool) -> (&'static str, Style) {
     if state {
-        (CHECK_ON, Style::default().fg(ACCENT))
+        (CHECK_ON, Style::default().fg(accent()))
     } else {
-        (CHECK_OFF, Style::default().fg(TEXT_FAINT))
+        (CHECK_OFF, Style::default().fg(text_faint()))
     }
 }
 
 pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     let value = if field.value.is_empty() {
-        Span::styled(field.placeholder.clone(), Style::default().fg(TEXT_FAINT))
+        Span::styled(field.placeholder.clone(), Style::default().fg(text_faint()))
     } else {
-        Span::styled(field.value.clone(), Style::default().fg(ACCENT))
+        Span::styled(field.value.clone(), Style::default().fg(accent()))
     };
 
     ListItem::new(Line::from(vec![
@@ -203,12 +203,12 @@ pub fn cycle_item(
     ];
     for (index, &option) in options.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  ", Style::default().fg(LINE)));
+            spans.push(Span::styled("  ", Style::default().fg(line())));
         }
         let style = if option == selected {
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+            Style::default().fg(accent()).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(TEXT_FAINT)
+            Style::default().fg(text_faint())
         };
         spans.push(Span::styled(option.to_string(), style));
     }
@@ -220,15 +220,17 @@ pub fn section_header(label: &str) -> ListItem<'static> {
         Span::raw("  "),
         Span::styled(
             label.to_uppercase(),
-            Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD),
         ),
     ]))
 }
 
 pub fn help_item(text: impl Into<String>) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
-        Span::styled("  └ ", Style::default().fg(LINE)),
-        Span::styled(text.into(), Style::default().fg(TEXT_FAINT)),
+        Span::styled("  └ ", Style::default().fg(line())),
+        Span::styled(text.into(), Style::default().fg(text_faint())),
     ]))
 }
 
@@ -240,7 +242,7 @@ pub fn disclosure_row(
 ) -> ListItem<'static> {
     let marker = if expanded { EXPANDED } else { COLLAPSED };
     let label_style = if expanded {
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
+        Style::default().fg(accent()).add_modifier(Modifier::BOLD)
     } else {
         focused_label(focused)
     };
@@ -248,12 +250,12 @@ pub fn disclosure_row(
         focus_span(focused && !expanded),
         Span::styled(
             marker,
-            Style::default().fg(if expanded { ACCENT } else { TEXT_FAINT }),
+            Style::default().fg(if expanded { accent() } else { text_faint() }),
         ),
         Span::styled(format!(" {label}"), label_style),
         Span::styled(
             format!("  {}", detail.into()),
-            Style::default().fg(TEXT_FAINT),
+            Style::default().fg(text_faint()),
         ),
     ]))
 }
@@ -273,7 +275,7 @@ pub fn row_item(
     if let Some(detail) = detail {
         spans.push(Span::styled(
             format!("  {detail}"),
-            Style::default().fg(TEXT_FAINT),
+            Style::default().fg(text_faint()),
         ));
     }
     ListItem::new(Line::from(spans))
@@ -283,7 +285,7 @@ pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
     let mut spans = vec![Span::raw("  ")];
     for (index, metric) in metrics.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(SEPARATOR, Style::default().fg(LINE_SOFT)));
+            spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
         }
         spans.push(Span::styled(metric.label.to_uppercase(), eyebrow()));
         spans.push(Span::raw(" "));
@@ -308,11 +310,11 @@ pub fn spacer() -> ListItem<'static> {
 pub fn status_style(stage: DownloadStage) -> Style {
     match stage {
         DownloadStage::Pending | DownloadStage::Resolving | DownloadStage::Rechecking => {
-            Style::default().fg(WARNING)
+            Style::default().fg(warning())
         }
-        DownloadStage::Downloading => Style::default().fg(INFO),
-        DownloadStage::Completed => Style::default().fg(SUCCESS),
-        DownloadStage::Failed => Style::default().fg(DANGER),
+        DownloadStage::Downloading => Style::default().fg(info()),
+        DownloadStage::Completed => Style::default().fg(success()),
+        DownloadStage::Failed => Style::default().fg(danger()),
     }
 }
 
@@ -345,7 +347,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
     let (message, message_w) = truncate_to_width(&line.displayed_message(), message_budget);
 
     let mut spans = vec![
-        Span::styled(prefix, Style::default().fg(TEXT_FAINT)),
+        Span::styled(prefix, Style::default().fg(text_faint())),
         Span::styled(message, message_style(line.stage, rate_limited)),
     ];
 
@@ -365,24 +367,24 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
             ));
             spans.push(Span::styled(
                 glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty as usize).into_owned(),
-                Style::default().fg(LINE_SOFT),
+                Style::default().fg(line_soft()),
             ));
             let pct = (ratio * 100.0).round() as u16;
             spans.push(Span::styled(
                 pct_label(pct),
-                Style::default().fg(TEXT_FAINT),
+                Style::default().fg(text_faint()),
             ));
         }
         None if matches!(line.stage, crate::download::BeatmapStage::Downloading) => {
             spans.extend(indeterminate_bar_spans(BAR_WIDTH, bar_color));
-            spans.push(Span::styled("  ...", Style::default().fg(TEXT_FAINT)));
+            spans.push(Span::styled("  ...", Style::default().fg(text_faint())));
         }
         None => {
             spans.push(Span::styled(
                 glyph_fill(&FILL_SHADE, GLYPH_SHADE, BAR_WIDTH as usize).into_owned(),
-                Style::default().fg(LINE_SOFT),
+                Style::default().fg(line_soft()),
             ));
-            spans.push(Span::styled("     ", Style::default().fg(TEXT_FAINT)));
+            spans.push(Span::styled("     ", Style::default().fg(text_faint())));
         }
     }
 
@@ -406,7 +408,7 @@ fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
     if offset > 0 {
         spans.push(Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, offset).into_owned(),
-            Style::default().fg(LINE_SOFT),
+            Style::default().fg(line_soft()),
         ));
     }
     spans.push(Span::styled(
@@ -417,7 +419,7 @@ fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
     if right > 0 {
         spans.push(Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, right).into_owned(),
-            Style::default().fg(LINE_SOFT),
+            Style::default().fg(line_soft()),
         ));
     }
     spans
@@ -468,14 +470,14 @@ fn pct_label(pct: u16) -> &'static str {
 fn message_style(stage: crate::download::BeatmapStage, rate_limited: bool) -> Style {
     use crate::download::BeatmapStage;
     if rate_limited {
-        return Style::default().fg(WARNING);
+        return Style::default().fg(warning());
     }
     match stage {
-        BeatmapStage::Failed | BeatmapStage::Aborted => Style::default().fg(DANGER),
-        BeatmapStage::Success => Style::default().fg(SUCCESS),
-        BeatmapStage::Skipped => Style::default().fg(TEXT_FAINT),
+        BeatmapStage::Failed | BeatmapStage::Aborted => Style::default().fg(danger()),
+        BeatmapStage::Success => Style::default().fg(success()),
+        BeatmapStage::Skipped => Style::default().fg(text_faint()),
         BeatmapStage::Pending | BeatmapStage::Downloading | BeatmapStage::Verifying => {
-            Style::default().fg(TEXT_DIM)
+            Style::default().fg(text_dim())
         }
     }
 }

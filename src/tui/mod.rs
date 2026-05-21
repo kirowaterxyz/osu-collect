@@ -1,4 +1,5 @@
 pub mod terminal;
+pub mod theme;
 
 mod config;
 mod download;
@@ -8,6 +9,8 @@ mod home;
 pub(crate) mod modal;
 mod updates;
 mod widgets;
+
+pub use theme::{Theme, init_theme, theme};
 
 use crate::app::App;
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
@@ -76,20 +79,51 @@ pub(crate) fn glyph_fill<'a>(
     }
 }
 
-pub const ACCENT: Color = Color::Rgb(67, 171, 229);
-pub const ACCENT_ALT: Color = Color::Rgb(217, 119, 87);
-pub const INFO: Color = Color::Rgb(116, 199, 236);
-pub const SUCCESS: Color = Color::Rgb(166, 227, 161);
-pub const WARNING: Color = Color::Rgb(249, 226, 175);
-pub const DANGER: Color = Color::Rgb(243, 139, 168);
-pub const TEXT: Color = Color::Rgb(205, 214, 244);
-pub const TEXT_MUTED: Color = Color::Rgb(186, 194, 222);
-pub const TEXT_DIM: Color = Color::Rgb(166, 173, 200);
-pub const TEXT_FAINT: Color = Color::Rgb(127, 132, 156);
-pub const LINE: Color = Color::Rgb(69, 71, 90);
-pub const LINE_SOFT: Color = Color::Rgb(49, 50, 68);
-pub const BG: Color = Color::Rgb(30, 30, 46);
-pub const BG_RAISED: Color = Color::Rgb(24, 24, 37);
+// Palette accessors — always go through the process-wide theme so that the
+// selected variant (truecolor / 16-color / colorblind-safe) is respected.
+// Internal modules import these functions; external callers use `theme()`.
+pub(crate) fn accent() -> Color {
+    theme().accent
+}
+pub(crate) fn accent_alt() -> Color {
+    theme().accent_alt
+}
+pub(crate) fn info() -> Color {
+    theme().info
+}
+pub(crate) fn success() -> Color {
+    theme().success
+}
+pub(crate) fn warning() -> Color {
+    theme().warning
+}
+pub(crate) fn danger() -> Color {
+    theme().danger
+}
+pub(crate) fn text() -> Color {
+    theme().text
+}
+pub(crate) fn text_muted() -> Color {
+    theme().text_muted
+}
+pub(crate) fn text_dim() -> Color {
+    theme().text_dim
+}
+pub(crate) fn text_faint() -> Color {
+    theme().text_faint
+}
+pub(crate) fn line() -> Color {
+    theme().line
+}
+pub(crate) fn line_soft() -> Color {
+    theme().line_soft
+}
+pub(crate) fn bg() -> Color {
+    theme().bg
+}
+pub(crate) fn bg_raised() -> Color {
+    theme().bg_raised
+}
 
 pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -100,14 +134,16 @@ pub fn spinner_char(tick: u64) -> char {
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";
 
 pub fn eyebrow() -> Style {
-    Style::default().fg(TEXT_FAINT).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(text_faint())
+        .add_modifier(Modifier::BOLD)
 }
 
 pub fn focused_label(focused: bool) -> Style {
     if focused {
-        Style::default().fg(TEXT).add_modifier(Modifier::BOLD)
+        Style::default().fg(text()).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(TEXT_MUTED)
+        Style::default().fg(text_muted())
     }
 }
 
@@ -117,7 +153,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         return;
     }
 
-    frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
+    frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
     let compact = area.height < 14;
     let chunks: Rc<[_]> = if compact {

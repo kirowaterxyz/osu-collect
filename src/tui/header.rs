@@ -8,7 +8,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::{ACCENT, ACCENT_ALT, LINE, LINE_SOFT, TEXT_FAINT};
+use super::{accent, accent_alt, line, line_soft, text_faint};
 
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
@@ -31,21 +31,23 @@ pub fn render<'t>(frame: &mut Frame, area: Rect, tabs: &[Cow<'t, str>], active: 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             BRAND,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
         ))),
         layout[0],
     );
 
     let mut spans: Vec<Span<'t>> = Vec::with_capacity(tabs.len() * 3);
-    spans.push(Span::styled("  ", Style::default().fg(LINE)));
+    spans.push(Span::styled("  ", Style::default().fg(line())));
     for (index, title) in tabs.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  │  ", Style::default().fg(LINE_SOFT)));
+            spans.push(Span::styled("  │  ", Style::default().fg(line_soft())));
         }
         let style = if index == active {
-            Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(TEXT_FAINT)
+            Style::default().fg(text_faint())
         };
         spans.push(Span::styled(title.clone(), style));
     }
@@ -56,7 +58,7 @@ pub fn render<'t>(frame: &mut Frame, area: Rect, tabs: &[Cow<'t, str>], active: 
 
     frame.render_widget(
         Paragraph::new(VERSION)
-            .style(Style::default().fg(TEXT_FAINT))
+            .style(Style::default().fg(text_faint()))
             .alignment(Alignment::Right),
         layout[2],
     );

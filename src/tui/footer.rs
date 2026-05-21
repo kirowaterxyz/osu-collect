@@ -12,7 +12,7 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    ACCENT, DANGER, INFO, LINE_SOFT, TEXT_DIM, TEXT_FAINT, TEXT_MUTED, WARNING, spinner_char,
+    accent, danger, info, line_soft, spinner_char, text_dim, text_faint, text_muted, warning,
 };
 
 const HINT_SEPARATOR: &str = "  ·  ";
@@ -127,34 +127,34 @@ fn quit_prompt_paragraph(has_downloads: bool) -> Paragraph<'static> {
         QUIT_PROMPT_TEXT
     };
     Paragraph::new(Line::from(vec![
-        Span::styled(QUIT_PROMPT_WARN, Style::default().fg(WARNING)),
-        Span::styled(text, Style::default().fg(TEXT_DIM)),
+        Span::styled(QUIT_PROMPT_WARN, Style::default().fg(warning())),
+        Span::styled(text, Style::default().fg(text_dim())),
     ]))
 }
 
 fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     let text = msg.text.trim_start().to_string();
-    let muted = Style::default().fg(TEXT_MUTED);
+    let muted = Style::default().fg(text_muted());
     match msg.kind {
         MessageKind::Loading => {
             let frame_char = spinner_char(tick);
             Line::from(vec![
                 Span::styled(
                     format!(" {frame_char} "),
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    Style::default().fg(accent()).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(text, muted),
             ])
         }
         MessageKind::Info => Line::from(vec![
             Span::raw(" "),
-            widgets::status_pill(PILL_INFO, INFO),
+            widgets::status_pill(PILL_INFO, info()),
             Span::raw(" "),
             Span::styled(text, muted),
         ]),
         MessageKind::Error => Line::from(vec![
             Span::raw(" "),
-            widgets::status_pill(PILL_ERROR, DANGER),
+            widgets::status_pill(PILL_ERROR, danger()),
             Span::raw(" "),
             Span::styled(text, muted),
         ]),
@@ -163,9 +163,9 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
 
 fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
-    let label_style = Style::default().fg(TEXT_FAINT);
-    let key_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
-    let separator_style = Style::default().fg(LINE_SOFT);
+    let label_style = Style::default().fg(text_faint());
+    let key_style = Style::default().fg(accent()).add_modifier(Modifier::BOLD);
+    let separator_style = Style::default().fg(line_soft());
 
     for (index, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();

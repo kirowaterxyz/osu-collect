@@ -1,4 +1,4 @@
-use super::model::{LogFormat, LogLevel};
+use super::model::{LogFormat, LogLevel, ThemeMode};
 use osu_downloader::ArchiveValidation;
 use std::time::Duration;
 
@@ -52,6 +52,13 @@ pub const COMPLETION_PREFIXES: [&str; 4] = ["Done", "Skipped", "Failed", "Accept
 pub const MAX_LOG_LINES: usize = 5;
 
 pub const VALIDATION_CACHE_LIMIT: usize = 4096;
+
+pub const THEME_MODES: [ThemeMode; 4] = [
+    ThemeMode::Auto,
+    ThemeMode::Default,
+    ThemeMode::Sixteen,
+    ThemeMode::ColorblindSafe,
+];
 
 pub const LOG_LEVELS: [LogLevel; 5] = [
     LogLevel::Error,

@@ -1,6 +1,6 @@
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
-    config::{LogFormat, LogLevel},
+    config::{LogFormat, LogLevel, ThemeMode},
     download::ArchiveValidation,
 };
 use ratatui::{
@@ -13,7 +13,7 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    ACCENT_ALT, HELP_CUSTOM_MIRROR, SUCCESS, TEXT_FAINT, WARNING, focused_label, mirror_label,
+    HELP_CUSTOM_MIRROR, accent_alt, focused_label, mirror_label, success, text_faint, warning,
 };
 use osu_downloader::MirrorKind;
 
@@ -21,9 +21,12 @@ const PANEL_TITLE: &str = " CONFIG ";
 
 const TOP_BANNER: &str = "default settings and config options";
 
+const SECTION_DISPLAY: &str = "display";
 const SECTION_DOWNLOAD: &str = "download";
 const SECTION_MIRRORS: &str = "mirrors";
 const SECTION_LOGGING: &str = "logging";
+
+const LABEL_THEME: &str = "theme";
 
 const LABEL_SKIP_VIDEOS: &str = "skip videos";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
@@ -41,6 +44,8 @@ const LOGIN_LOG_OUT: &str = "log out";
 const STATUS_LOGGED_OUT: &str = "logged out";
 const STATUS_LOGGED_IN: &str = "logged in";
 
+const THEME_MODE_LABELS: &[&str] = &["auto", "default", "16-color", "colorblind-safe"];
+
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
 const ARCHIVE_VALIDATION_LABELS: &[&str] = &["off", "basic", "strict"];
@@ -57,6 +62,18 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     items.push(login_section_header(&form.login_state));
     items.push_focusable(ConfigField::LoginEntry, login_entry_item(form));
     items.push_focusable(ConfigField::LogoutEntry, logout_entry_item(form));
+    items.push(widgets::spacer());
+
+    items.push(widgets::section_header(SECTION_DISPLAY));
+    items.push_focusable(
+        ConfigField::Theme,
+        widgets::cycle_item(
+            LABEL_THEME,
+            THEME_MODE_LABELS,
+            theme_mode_label(form.theme),
+            focus == ConfigField::Theme,
+        ),
+    );
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_DOWNLOAD));
@@ -152,7 +169,7 @@ fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {
     if !available {
         spans.push(Span::styled(
             LOGIN_UNAVAILABLE,
-            Style::default().fg(TEXT_FAINT),
+            Style::default().fg(text_faint()),
         ));
     } else {
         match &form.login_state {
@@ -160,7 +177,10 @@ fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {
                 spans.push(Span::styled(LOGIN_LOG_IN, focused_label(focused)));
             }
             AuthLoginState::InProgress(_) => {
-                spans.push(Span::styled(LOGIN_LOGGING_IN, Style::default().fg(WARNING)));
+                spans.push(Span::styled(
+                    LOGIN_LOGGING_IN,
+                    Style::default().fg(warning()),
+                ));
                 spans.push(Span::styled(LOGIN_CANCEL_HINT, focused_label(focused)));
             }
             AuthLoginState::LoggedIn => {
@@ -179,7 +199,7 @@ fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {
     let style = if enabled {
         focused_label(focused)
     } else {
-        Style::default().fg(TEXT_FAINT)
+        Style::default().fg(text_faint())
     };
 
     ListItem::new(Line::from(vec![
@@ -192,16 +212,18 @@ fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
     let status = match state {
         AuthLoginState::LoggedOut => Some((
             STATUS_LOGGED_OUT.to_string(),
-            Style::default().fg(TEXT_FAINT),
+            Style::default().fg(text_faint()),
         )),
         AuthLoginState::InProgress(step) if !step.is_empty() => Some((
             step.clone(),
-            Style::default().fg(WARNING).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(warning())
+                .add_modifier(Modifier::ITALIC),
         )),
         AuthLoginState::InProgress(_) => None,
         AuthLoginState::LoggedIn => Some((
             STATUS_LOGGED_IN.to_string(),
-            Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+            Style::default().fg(success()).add_modifier(Modifier::BOLD),
         )),
     };
 
@@ -209,7 +231,9 @@ fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
         Span::raw("  "),
         Span::styled(
             LOGIN_HEADER,
-            Style::default().fg(ACCENT_ALT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD),
         ),
     ];
     if let Some((text, style)) = status {
@@ -241,5 +265,14 @@ fn archive_validation_label(mode: ArchiveValidation) -> &'static str {
         ArchiveValidation::Off => "off",
         ArchiveValidation::Magic => "basic",
         ArchiveValidation::Eocd => "strict",
+    }
+}
+
+fn theme_mode_label(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::Auto => "auto",
+        ThemeMode::Default => "default",
+        ThemeMode::Sixteen => "16-color",
+        ThemeMode::ColorblindSafe => "colorblind-safe",
     }
 }
