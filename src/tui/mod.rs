@@ -207,6 +207,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         modal::render_retry_on_start_modal(frame, area, modal.failed_count);
     } else if let Some(modal) = &app.confirm_retry {
         modal::render_confirm_retry_modal(frame, area, modal.retryable_count);
+    } else if app.config_save_modal {
+        let diff = app
+            .config
+            .build_config()
+            .map(|pending| app.config.diff_entries(&pending))
+            .unwrap_or_default();
+        modal::render_config_save_modal(frame, area, &diff);
     } else if app.help_open {
         modal::render_help_overlay(frame, area);
     }

@@ -13,7 +13,7 @@ pub mod updates;
 pub mod url_history;
 
 pub use collection::{ActiveDownloadLine, CollectionPage};
-pub use config::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
+pub use config::{AuthLoginState, ChipAction, ConfigDiffEntry, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField, ResolveState};
 pub use messages::MessageKind;
 pub use runtime::run as run_app;

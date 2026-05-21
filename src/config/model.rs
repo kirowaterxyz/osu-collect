@@ -6,7 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub mirror: MirrorConfig,
@@ -36,13 +36,13 @@ pub enum ThemeMode {
     ColorblindSafe,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct DisplayConfig {
     pub theme: ThemeMode,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MirrorConfig {
     #[serde(default = "default_enabled")]
     pub nerinyan: bool,
@@ -56,7 +56,7 @@ pub struct MirrorConfig {
     pub url: Option<Box<str>>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct DownloadConfig {
     pub concurrent: Option<u8>,
@@ -79,7 +79,7 @@ pub enum RetryFailedOnDownload {
     No,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct LoggingConfig {
     pub enabled: bool,

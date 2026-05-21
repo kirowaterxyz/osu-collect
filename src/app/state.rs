@@ -43,6 +43,8 @@ pub struct App {
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
     pub help_open: bool,
+    /// Pending confirmation for "save config?" diff modal shown when `s` is pressed.
+    pub config_save_modal: bool,
     /// Pending confirmation for "retry N failed maps?" when count > 50.
     pub confirm_retry: Option<RetryAllConfirmModal>,
     /// Pre-download prompt: previously failed beatmapsets in
@@ -137,6 +139,7 @@ impl App {
             scan_handle: None,
             tick_count: 0,
             help_open: false,
+            config_save_modal: false,
             confirm_retry: None,
             confirm_retry_on_start: None,
             failed_maps_path_override: None,
@@ -231,6 +234,10 @@ impl App {
             self.confirm_retry = None;
             return true;
         }
+        if self.config_save_modal {
+            self.config_save_modal = false;
+            return true;
+        }
         if self.help_open {
             self.help_open = false;
             return true;
@@ -240,7 +247,10 @@ impl App {
 
     /// Whether any modal is currently blocking input.
     pub fn any_modal_open(&self) -> bool {
-        self.help_open || self.confirm_retry.is_some() || self.confirm_retry_on_start.is_some()
+        self.help_open
+            || self.config_save_modal
+            || self.confirm_retry.is_some()
+            || self.confirm_retry_on_start.is_some()
     }
 
     /// Cancel a pending pre-download retry prompt. Drops the queued page that
@@ -285,6 +295,9 @@ impl App {
         }
     }
 
+    /// Opens the save-diff modal if there are pending changes; shows an info
+    /// toast if the form is identical to the loaded config; shows an error if
+    /// the form values are invalid.
     fn try_save_config(&mut self) {
         match self.config.build_config() {
             Ok(new_config) => {
@@ -293,17 +306,33 @@ impl App {
                     return;
                 }
 
-                match save_config(&new_config) {
-                    Ok(path) => {
-                        let message = format!(
-                            "Config saved to {} (applies on next launch)",
-                            path.display()
-                        );
-                        set_info_message(&mut self.config.message, message);
-                    }
-                    Err(err) => set_error_message(&mut self.config.message, err.to_string()),
+                if self.config.has_pending_changes(&new_config) {
+                    self.config_save_modal = true;
+                } else {
+                    set_info_message(&mut self.config.message, "no changes to save");
                 }
             }
+            Err(err) => set_error_message(&mut self.config.message, err),
+        }
+    }
+
+    /// Writes the pending config to disk. Called when the user confirms the
+    /// save-diff modal with `enter`.
+    pub fn confirm_save_config(&mut self) {
+        self.config_save_modal = false;
+        match self.config.build_config() {
+            Ok(new_config) => match save_config(&new_config) {
+                Ok(path) => {
+                    let mut msg = String::with_capacity(64);
+                    msg.push_str("config saved to ");
+                    msg.push_str(&path.display().to_string());
+                    msg.push_str(" (applies on next launch)");
+                    set_info_message(&mut self.config.message, msg);
+                    // Advance the snapshot so the diff clears after a successful save.
+                    self.config.loaded_config = new_config;
+                }
+                Err(err) => set_error_message(&mut self.config.message, err.to_string()),
+            },
             Err(err) => set_error_message(&mut self.config.message, err),
         }
     }
@@ -641,6 +670,22 @@ impl App {
                 }
                 KeyCode::Esc | KeyCode::Char('q') => {
                     self.confirm_retry = None;
+                    return None;
+                }
+                _ => return None,
+            }
+        }
+
+        // Config save-diff modal intercepts enter/esc. `enter` writes to disk;
+        // `esc` cancels — form values stay as edited.
+        if self.config_save_modal {
+            match key.code {
+                KeyCode::Enter => {
+                    self.confirm_save_config();
+                    return None;
+                }
+                KeyCode::Esc => {
+                    self.config_save_modal = false;
                     return None;
                 }
                 _ => return None,

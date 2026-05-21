@@ -16,6 +16,17 @@ use crate::{
     utils::expand_tilde,
 };
 
+/// A single changed field in the config diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigDiffEntry {
+    /// Display label for the field (matches what appears in the config tab).
+    pub label: &'static str,
+    /// Current on-disk value as a display string.
+    pub old_value: String,
+    /// Pending form value as a display string.
+    pub new_value: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthLoginState {
     LoggedOut,
@@ -101,6 +112,9 @@ pub struct ConfigTab {
     pub focus: ConfigField,
     pub message: Option<AppMessage>,
     pub default_threads: u8,
+    /// Snapshot of the config as it was when the tab was loaded. Used to
+    /// compute the pending-changes diff before saving.
+    pub loaded_config: Config,
 }
 
 impl ConfigTab {
@@ -126,6 +140,7 @@ impl ConfigTab {
             focus: ConfigField::AuthChip,
             message: None,
             default_threads: default_threads(),
+            loaded_config: config.clone(),
         }
     }
 
@@ -222,6 +237,113 @@ impl ConfigTab {
             RETRY_FAILED_ON_DOWNLOAD_MODES,
             self.retry_failed_on_download,
         );
+    }
+
+    /// Returns `true` if the pending form values differ from the loaded config.
+    pub fn has_pending_changes(&self, pending: &Config) -> bool {
+        !self.diff_entries(pending).is_empty()
+    }
+
+    /// Returns one [`ConfigDiffEntry`] per field that differs between the
+    /// loaded config and `pending`. Fields that are identical are omitted.
+    pub fn diff_entries(&self, pending: &Config) -> Vec<ConfigDiffEntry> {
+        let loaded = &self.loaded_config;
+        let mut entries = Vec::new();
+
+        macro_rules! diff {
+            ($label:expr, $old:expr, $new:expr) => {
+                let old_s = $old.to_string();
+                let new_s = $new.to_string();
+                if old_s != new_s {
+                    entries.push(ConfigDiffEntry {
+                        label: $label,
+                        old_value: old_s,
+                        new_value: new_s,
+                    });
+                }
+            };
+        }
+
+        diff!(
+            "theme",
+            theme_label(loaded.display.theme),
+            theme_label(pending.display.theme)
+        );
+        diff!(
+            "threads",
+            loaded
+                .download
+                .concurrent
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| self.default_threads.to_string()),
+            pending
+                .download
+                .concurrent
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| self.default_threads.to_string())
+        );
+        diff!(
+            "skip videos",
+            bool_label(loaded.download.no_video),
+            bool_label(pending.download.no_video)
+        );
+        diff!(
+            "verify integrity",
+            archive_label(loaded.download.archive_validation),
+            archive_label(pending.download.archive_validation)
+        );
+        diff!(
+            "retry failed",
+            retry_label(loaded.download.retry_failed_on_download),
+            retry_label(pending.download.retry_failed_on_download)
+        );
+        diff!(
+            "mirror: osu!direct",
+            bool_label(loaded.mirror.osu_direct),
+            bool_label(pending.mirror.osu_direct)
+        );
+        diff!(
+            "mirror: nerinyan",
+            bool_label(loaded.mirror.nerinyan),
+            bool_label(pending.mirror.nerinyan)
+        );
+        diff!(
+            "mirror: sayobot",
+            bool_label(loaded.mirror.sayobot),
+            bool_label(pending.mirror.sayobot)
+        );
+        diff!(
+            "mirror: nekoha",
+            bool_label(loaded.mirror.nekoha),
+            bool_label(pending.mirror.nekoha)
+        );
+        diff!(
+            "custom mirror",
+            loaded.mirror.url.as_deref().unwrap_or(""),
+            pending.mirror.url.as_deref().unwrap_or("")
+        );
+        diff!(
+            "logging",
+            bool_label(loaded.logging.enabled),
+            bool_label(pending.logging.enabled)
+        );
+        diff!(
+            "log level",
+            log_level_label(loaded.logging.level),
+            log_level_label(pending.logging.level)
+        );
+        diff!(
+            "log format",
+            log_format_label(loaded.logging.format),
+            log_format_label(pending.logging.format)
+        );
+        diff!(
+            "log directory",
+            loaded.logging.file_dir.as_deref().unwrap_or(""),
+            pending.logging.file_dir.as_deref().unwrap_or("")
+        );
+
+        entries
     }
 
     pub fn build_config(&self) -> Result<Config, String> {
@@ -377,6 +499,52 @@ fn logging_dir_field(logging: &LoggingConfig) -> InputField {
     }
 }
 
+fn bool_label(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
+}
+
+fn theme_label(mode: ThemeMode) -> &'static str {
+    match mode {
+        ThemeMode::Auto => "auto",
+        ThemeMode::Default => "default",
+        ThemeMode::Sixteen => "16-color",
+        ThemeMode::ColorblindSafe => "colorblind-safe",
+    }
+}
+
+fn archive_label(mode: ArchiveValidation) -> &'static str {
+    match mode {
+        ArchiveValidation::Off => "off",
+        ArchiveValidation::Magic => "basic",
+        ArchiveValidation::Eocd => "strict",
+    }
+}
+
+fn retry_label(mode: RetryFailedOnDownload) -> &'static str {
+    match mode {
+        RetryFailedOnDownload::Ask => "ask",
+        RetryFailedOnDownload::Yes => "yes",
+        RetryFailedOnDownload::No => "no",
+    }
+}
+
+fn log_level_label(level: LogLevel) -> &'static str {
+    match level {
+        LogLevel::Error => "error",
+        LogLevel::Warn => "warn",
+        LogLevel::Info => "info",
+        LogLevel::Debug => "debug",
+        LogLevel::Trace => "trace",
+    }
+}
+
+fn log_format_label(format: LogFormat) -> &'static str {
+    match format {
+        LogFormat::Compact => "compact",
+        LogFormat::Pretty => "pretty",
+    }
+}
+
 fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -> T {
     values
         .iter()
@@ -388,3 +556,7 @@ fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -
 #[cfg(test)]
 #[path = "../../tests/unit/app_config.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/config_save_modal.rs"]
+mod tests_save_modal;

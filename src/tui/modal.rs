@@ -11,6 +11,7 @@
 //! `Layout::vertical` + `Layout::horizontal`, and call
 //! `frame.render_widget(Clear, popup_area)` before drawing.
 
+use crate::app::ConfigDiffEntry;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
@@ -21,6 +22,10 @@ use ratatui::{
 
 use super::widgets;
 use super::{accent, accent_alt, bg_raised, line, text_dim, text_faint};
+
+const MODAL_TITLE_SAVE: &str = " SAVE CONFIG ";
+const SAVE_HINT: &str = "  [enter] save  ·  [esc] cancel";
+const NO_CHANGES_HINT: &str = "  [esc] dismiss";
 
 /// Key/action pair for the help overlay.
 struct HelpRow {
@@ -215,6 +220,105 @@ pub(crate) fn render_confirm_retry_modal(frame: &mut Frame, area: Rect, count: u
         )])),
     ];
     frame.render_widget(List::new(items), inner);
+}
+
+/// Renders the config save-diff modal.
+///
+/// Shows each changed field as `  <label>   <old> → <new>`. If `diff` is
+/// empty the popup still renders but shows "no changes" with only an esc hint.
+/// `enter` confirms the save; `esc` cancels — the caller (`handle_key`)
+/// enforces this via early return.
+pub(crate) fn render_config_save_modal(frame: &mut Frame, area: Rect, diff: &[ConfigDiffEntry]) {
+    // 2 border rows + 1 blank line + diff rows + 1 blank line + 1 hint line
+    let content_rows = if diff.is_empty() {
+        3u16 // "no changes to save" + blank + hint
+    } else {
+        (diff.len() as u16).saturating_add(4) // header + blank + rows + blank + hint
+    };
+    let needed_height = content_rows.saturating_add(2).min(area.height);
+    let [popup_area] = Layout::vertical([Constraint::Length(needed_height)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(62)])
+        .flex(Flex::Center)
+        .areas(popup_area);
+    frame.render_widget(Clear, popup_area);
+
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
+        .title(Span::styled(
+            MODAL_TITLE_SAVE,
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
+        ))
+        .padding(Padding::new(1, 1, 0, 0));
+
+    let inner = outer_block.inner(popup_area);
+    frame.render_widget(outer_block, popup_area);
+
+    let items = build_diff_items(diff);
+    frame.render_widget(List::new(items), inner);
+}
+
+fn build_diff_items(diff: &[ConfigDiffEntry]) -> Vec<ListItem<'static>> {
+    if diff.is_empty() {
+        return vec![
+            ListItem::new(Line::from(Span::styled(
+                "no changes to save",
+                Style::default().fg(text_dim()),
+            ))),
+            ListItem::new(Line::from("")),
+            ListItem::new(Line::from(Span::styled(
+                NO_CHANGES_HINT,
+                Style::default().fg(text_faint()),
+            ))),
+        ];
+    }
+
+    // Compute the label column width so arrows align across all rows.
+    let label_width = diff.iter().map(|e| e.label.len()).max().unwrap_or(0).max(8);
+
+    let mut items = Vec::with_capacity(diff.len() + 4);
+
+    items.push(ListItem::new(Line::from(Span::styled(
+        "changes about to save:",
+        Style::default().fg(text_dim()),
+    ))));
+    items.push(ListItem::new(Line::from("")));
+
+    for entry in diff {
+        let pad = label_width.saturating_sub(entry.label.len());
+        let mut label_cell = String::with_capacity(label_width + 4);
+        label_cell.push_str("  ");
+        label_cell.push_str(entry.label);
+        for _ in 0..pad {
+            label_cell.push(' ');
+        }
+        label_cell.push_str("   ");
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(label_cell, Style::default().fg(text_dim())),
+            Span::styled(entry.old_value.clone(), Style::default().fg(text_faint())),
+            Span::styled(" → ", Style::default().fg(text_faint())),
+            Span::styled(
+                entry.new_value.clone(),
+                Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+            ),
+        ])));
+    }
+
+    items.push(ListItem::new(Line::from("")));
+    items.push(ListItem::new(Line::from(Span::styled(
+        SAVE_HINT,
+        Style::default().fg(text_faint()),
+    ))));
+
+    items
 }
 
 fn build_help_items() -> Vec<ListItem<'static>> {
