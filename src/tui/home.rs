@@ -51,7 +51,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::CustomMirror,
         widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
     );
-    items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+    if focus == HomeField::CustomMirror {
+        items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+    }
 
     let mirror_states = [
         (HomeField::MirrorOsuDirect, form.osu_direct),

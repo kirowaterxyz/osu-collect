@@ -1152,3 +1152,148 @@ fn home_hint_shows_plus_minus_when_threads_focused() {
         "footer must show +/- hint when threads stepper is focused: {output}"
     );
 }
+
+#[test]
+fn config_archive_validation_help_shows_when_focused() {
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadArchiveValidation;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        output.contains("basic verifies headers"),
+        "archive validation help must appear when field is focused: {output}"
+    );
+}
+
+#[test]
+fn config_archive_validation_help_hidden_when_not_focused() {
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadThreads;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        !output.contains("basic verifies headers"),
+        "archive validation help must not appear when field is not focused: {output}"
+    );
+    assert!(
+        !output.contains("strict mode may reject"),
+        "strict help must not appear when field is not focused: {output}"
+    );
+}
+
+#[test]
+fn config_archive_validation_strict_help_when_strict_selected_and_focused() {
+    use crate::download::ArchiveValidation;
+
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadArchiveValidation;
+    app.config.archive_validation = ArchiveValidation::Eocd;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        output.contains("strict mode may reject"),
+        "strict help must appear when strict is selected and field is focused: {output}"
+    );
+    assert!(
+        !output.contains("off skips checks"),
+        "generic help must not appear alongside the strict help: {output}"
+    );
+}
+
+#[test]
+fn config_custom_mirror_help_shows_when_focused() {
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::MirrorCustomUrl;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        output.contains("must contain {id}"),
+        "custom mirror help must appear when field is focused: {output}"
+    );
+}
+
+#[test]
+fn config_custom_mirror_help_hidden_when_not_focused() {
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadThreads;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        !output.contains("must contain {id}"),
+        "custom mirror help must not appear when field is not focused: {output}"
+    );
+}
+
+#[test]
+fn home_custom_mirror_help_shows_when_focused() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::CustomMirror;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        output.contains("must contain {id}"),
+        "custom mirror help must appear when field is focused: {output}"
+    );
+}
+
+#[test]
+fn home_custom_mirror_help_hidden_when_not_focused() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::MirrorNerinyan;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        !output.contains("must contain {id}"),
+        "custom mirror help must not appear when field is not focused: {output}"
+    );
+}
+
+#[test]
+fn updates_osu_path_help_shows_when_focused() {
+    use crate::app::UpdatesField;
+    use crate::config::constants::UPDATES_TAB_INDEX;
+
+    let mut app = App::new(Config::default());
+    app.active_tab = UPDATES_TAB_INDEX;
+    app.updates.selection.focus = UpdatesField::OsuPath;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        output.contains("must contain osu!.db"),
+        "osu! path help must appear when field is focused: {output}"
+    );
+}
+
+#[test]
+fn updates_osu_path_help_hidden_when_not_focused() {
+    use crate::app::UpdatesField;
+    use crate::config::constants::UPDATES_TAB_INDEX;
+
+    let mut app = App::new(Config::default());
+    app.active_tab = UPDATES_TAB_INDEX;
+    app.updates.selection.focus = UpdatesField::ClientType;
+
+    let output = render_app(&app, 100, 30);
+
+    assert!(
+        !output.contains("must contain osu!.db"),
+        "osu! path help must not appear when field is not focused: {output}"
+    );
+}

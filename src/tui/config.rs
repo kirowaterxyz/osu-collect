@@ -51,6 +51,8 @@ const LOG_FORMATS: &[&str] = &["compact", "pretty"];
 const ARCHIVE_VALIDATION_LABELS: &[&str] = &["off", "basic", "strict"];
 
 const HELP_VERIFY_STRICT: &str = "strict mode may reject beatmaps that osu! would still accept";
+const HELP_VERIFY_INTEGRITY: &str =
+    "off skips checks; basic verifies headers; strict also checks eocd footer";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     let focus = form.focus;
@@ -104,8 +106,13 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
             focus == ConfigField::DownloadArchiveValidation,
         ),
     );
-    if form.archive_validation == ArchiveValidation::Eocd {
-        items.push(widgets::help_item(HELP_VERIFY_STRICT));
+    if focus == ConfigField::DownloadArchiveValidation {
+        let help = if form.archive_validation == ArchiveValidation::Eocd {
+            HELP_VERIFY_STRICT
+        } else {
+            HELP_VERIFY_INTEGRITY
+        };
+        items.push(widgets::help_item(help));
     }
     items.push(widgets::spacer());
 
@@ -126,7 +133,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::MirrorCustomUrl,
         widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
     );
-    items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+    if focus == ConfigField::MirrorCustomUrl {
+        items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+    }
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_LOGGING));

@@ -36,6 +36,8 @@ const METRIC_SELECTED: &str = "selected";
 const METRIC_MISSING: &str = "missing";
 const METRIC_FAILED: &str = "failed";
 
+const HELP_OSU_PATH: &str = "your osu! install dir; must contain osu!.db or client.realm";
+
 const STATUS_NOT_INSTALLED: &str = "not installed";
 const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
 
@@ -77,6 +79,9 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
         focused_index = items.len();
     }
     items.push(osu_path_item(form));
+    if focus == UpdatesField::OsuPath && !in_list {
+        items.push(widgets::help_item(HELP_OSU_PATH));
+    }
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_COLLECTIONS));
