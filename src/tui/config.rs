@@ -96,7 +96,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::DownloadNoVideo,
         widgets::row_item(
             LABEL_SKIP_VIDEOS,
-            None,
+            Some(bool_label(form.no_video)),
             form.no_video,
             focus == ConfigField::DownloadNoVideo,
         ),
@@ -159,7 +159,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         ConfigField::LoggingEnabled,
         widgets::row_item(
             LABEL_LOGGING_ENABLED,
-            None,
+            Some(bool_label(form.logging_enabled)),
             form.logging_enabled,
             focus == ConfigField::LoggingEnabled,
         ),
@@ -271,6 +271,10 @@ fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
         spans.push(Span::styled(text, style));
     }
     ListItem::new(Line::from(spans))
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {
