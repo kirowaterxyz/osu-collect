@@ -149,7 +149,7 @@ pub fn render<'t>(
         let style = if index == active {
             Style::default()
                 .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
             Style::default().fg(text_faint())
         };
@@ -183,3 +183,7 @@ pub fn render<'t>(
         layout[3],
     );
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui_header.rs"]
+mod tests;
