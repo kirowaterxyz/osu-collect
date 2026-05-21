@@ -54,10 +54,11 @@ fn updates_tab_shows_recheck_failed_control() {
     let mut app = make_app();
     app.next_tab();
     app.updates.set_failed_beatmapset_count(2);
-    let content = render_content(&app, 120, 40);
+    // use a tall terminal so the summary_metrics row (last in the list) stays visible
+    let content = render_content(&app, 120, 60);
 
     assert!(
-        content.contains("failed"),
+        content.contains("FAILED") || content.contains("failed"),
         "summary metrics must surface the failed count"
     );
     assert!(
@@ -128,13 +129,27 @@ fn updates_footer_hides_recheck_without_failed_maps() {
 }
 
 #[test]
-fn updates_footer_in_list_shows_scroll_and_back() {
+fn updates_footer_in_list_shows_scroll_and_select_hints() {
     let mut app = make_app();
     app.next_tab();
     app.updates.selection.in_collection_list = true;
     let content = render_content(&app, 120, 24);
-    assert!(content.contains("scroll"));
-    assert!(content.contains("esc"));
+    assert!(
+        content.contains("scroll"),
+        "in-list footer must show scroll hint"
+    );
+    assert!(
+        content.contains("space toggle"),
+        "in-list footer must show space toggle hint"
+    );
+    assert!(
+        content.contains("all") && content.contains("none"),
+        "in-list footer must show select-all / select-none hint"
+    );
+    assert!(
+        content.contains('?'),
+        "in-list footer must show ? help hint"
+    );
 }
 
 #[test]
@@ -157,6 +172,145 @@ fn config_footer_omits_space_on_text_input() {
     let content = render_content(&app, 120, 24);
     assert!(!content.contains("space change"));
     assert!(!content.contains("enter confirm"));
+}
+
+// ── footer hint count & content per context ──────────────────────────────────
+
+/// Returns the content of the last rendered row (footer area).
+fn render_footer_row(app: &App, width: u16, height: u16) -> String {
+    let buf = render_to_buffer(app, width, height);
+    let last_row = (height - 1) as usize;
+    buf.content()
+        .iter()
+        .skip(last_row * width as usize)
+        .take(width as usize)
+        .map(|c| c.symbol())
+        .collect()
+}
+
+fn hint_count(footer: &str) -> usize {
+    // hints are separated by "  │  " in the rendered footer; count separators + 1
+    footer.matches('│').count() + 1
+}
+
+#[test]
+fn home_footer_toggle_focus_has_four_hints_ending_with_help() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::AutoOverwrite;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("↑↓"), "must show move hint");
+    assert!(footer.contains("space toggle"), "must show space toggle");
+    assert!(footer.contains("enter"), "must show enter download");
+    assert!(footer.contains('?'), "must end with ? help");
+    assert_eq!(
+        hint_count(&footer),
+        4,
+        "toggle focus must show exactly 4 hints"
+    );
+}
+
+#[test]
+fn home_footer_text_input_focus_has_four_hints_with_quit() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::Collection;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("↑↓"), "must show move hint");
+    assert!(footer.contains("enter"), "must show enter download");
+    assert!(footer.contains('q'), "must show q quit");
+    assert!(footer.contains('?'), "must show ? help");
+    assert_eq!(
+        hint_count(&footer),
+        4,
+        "text input focus must show exactly 4 hints"
+    );
+}
+
+#[test]
+fn updates_footer_not_in_list_has_at_most_four_hints() {
+    let mut app = make_app();
+    app.next_tab();
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("↑↓"), "must show move hint");
+    assert!(footer.contains('?'), "must show ? help");
+    assert!(
+        hint_count(&footer) <= 4,
+        "updates not-in-list footer must show at most 4 hints, got {}",
+        hint_count(&footer)
+    );
+}
+
+#[test]
+fn updates_footer_in_list_has_exactly_four_hints() {
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.selection.in_collection_list = true;
+    let footer = render_footer_row(&app, 200, 24);
+    assert_eq!(
+        hint_count(&footer),
+        4,
+        "updates in-list footer must show exactly 4 hints"
+    );
+}
+
+#[test]
+fn config_footer_non_text_has_four_hints_with_help() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::DownloadNoVideo;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("space toggle"), "must show space toggle");
+    assert!(footer.contains('s'), "must show s save");
+    assert!(footer.contains('?'), "must show ? help");
+    assert_eq!(
+        hint_count(&footer),
+        4,
+        "config non-text footer must show exactly 4 hints"
+    );
+}
+
+#[test]
+fn config_footer_text_input_shows_esc_back_not_space_toggle() {
+    use osu_collect::app::ConfigField;
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+
+    let mut app = make_app();
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.focus = ConfigField::MirrorCustomUrl;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("esc"), "text field must show esc back");
+    assert!(footer.contains('?'), "text field must show ? help");
+    assert!(
+        !footer.contains("space toggle"),
+        "text field must not show space toggle"
+    );
+    assert_eq!(
+        hint_count(&footer),
+        4,
+        "config text field footer must show exactly 4 hints"
+    );
+}
+
+#[test]
+fn download_tab_footer_shows_help_hint() {
+    use osu_collect::app::CollectionPage;
+
+    let mut app = make_app();
+    let page = CollectionPage::new(1, "test".to_string(), 1);
+    app.downloads.push(page);
+    app.active_tab = 3;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains('?'), "download tab footer must show ? help");
+    assert!(
+        footer.contains("scroll"),
+        "download tab must show scroll hint"
+    );
 }
 
 // ── gauge label ──────────────────────────────────────────────────────────────

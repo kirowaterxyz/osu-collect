@@ -37,7 +37,7 @@ pub struct App {
     pub collection_state_path: Option<PathBuf>,
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
-    pub(crate) help_open: bool,
+    pub help_open: bool,
     next_download_id: DownloadId,
 }
 

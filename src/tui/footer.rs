@@ -20,23 +20,19 @@ const HINT_SEPARATOR: &str = "  ·  ";
 const QUIT_PROMPT_WARN: &str = " ⚠ ";
 const QUIT_PROMPT_TEXT: &str = "press q again to quit — active downloads will stop";
 
-const DOWNLOAD_TAB_HINT: &str = "↑↓ scroll threads  ·  q quit/cancel";
+const DOWNLOAD_TAB_HINT: &str = "↑↓ scroll  ·  q cancel  ·  ? help";
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
 const HINT_SPACE_TOGGLE: &str = "space toggle";
-const HINT_SPACE_SWITCH: &str = "space switch";
 const HINT_ENTER_OPEN: &str = "enter open";
 const HINT_ENTER_CONFIRM: &str = "enter confirm";
-const HINT_SPACE_CHANGE: &str = "space change";
 const HINT_ENTER_DOWNLOAD: &str = "enter download";
-const HINT_TAB_NEXT: &str = "tab next";
 const HINT_ESC_BACK: &str = "esc back";
-const HINT_SELECT_ALL: &str = "a all";
-const HINT_SELECT_NONE: &str = "d none";
-const HINT_RECHECK_FAILED: &str = "r recheck failed";
+const HINT_ALL_NONE: &str = "a all / d none";
 const HINT_SAVE: &str = "s save";
 const HINT_QUIT: &str = "q quit";
+const HINT_HELP: &str = "? help";
 
 const PILL_INFO: &str = "info";
 const PILL_ERROR: &str = "error";
@@ -87,36 +83,27 @@ fn home_hint(form: &HomeTab) -> String {
         segments.push(HINT_SPACE_TOGGLE);
     }
     segments.push(HINT_ENTER_DOWNLOAD);
-    segments.push(HINT_TAB_NEXT);
-    segments.push(HINT_QUIT);
+    if form.focus.is_text_input() {
+        segments.push(HINT_QUIT);
+    }
+    segments.push(HINT_HELP);
     join(&segments)
 }
 
 fn updates_hint(form: &UpdatesTab) -> String {
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
     if in_list {
-        return join(&[
-            HINT_SCROLL,
-            HINT_SPACE_TOGGLE,
-            HINT_SELECT_ALL,
-            HINT_SELECT_NONE,
-            HINT_ESC_BACK,
-        ]);
+        return join(&[HINT_SCROLL, HINT_SPACE_TOGGLE, HINT_ALL_NONE, HINT_HELP]);
     }
 
     let mut segments = vec![HINT_MOVE];
     match form.selection.focus {
-        UpdatesField::ClientType => segments.push(HINT_SPACE_SWITCH),
+        UpdatesField::ClientType => segments.push(HINT_SPACE_TOGGLE),
         UpdatesField::Collections | UpdatesField::BeatmapList => segments.push(HINT_ENTER_OPEN),
         UpdatesField::OsuPath => {}
     }
-    if form.can_recheck_failed_maps() {
-        segments.push(HINT_RECHECK_FAILED);
-    }
-    if form.selected_beatmap_count() > 0 {
-        segments.push(HINT_ENTER_DOWNLOAD);
-    }
     segments.push(HINT_QUIT);
+    segments.push(HINT_HELP);
     join(&segments)
 }
 
@@ -124,11 +111,11 @@ fn config_hint(focus: ConfigField) -> String {
     let mut segments = vec![HINT_MOVE];
     match focus {
         ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push(HINT_ENTER_CONFIRM),
-        field if field.is_text_input() => {}
-        _ => segments.push(HINT_SPACE_CHANGE),
+        field if field.is_text_input() => segments.push(HINT_ESC_BACK),
+        _ => segments.push(HINT_SPACE_TOGGLE),
     }
     segments.push(HINT_SAVE);
-    segments.push(HINT_QUIT);
+    segments.push(HINT_HELP);
     join(&segments)
 }
 
