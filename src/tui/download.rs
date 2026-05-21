@@ -1,6 +1,6 @@
 use crate::{
-    app::CollectionPage,
-    config::constants::{MAX_TRUNCATED_CHARS, status::RATE_LIMITED},
+    app::{CollectionPage, collection::FailureReason},
+    config::constants::status::RATE_LIMITED,
     download::{DownloadStage, DownloadSummary},
     utils::{format_bytes, pretty_path},
 };
@@ -53,8 +53,7 @@ const ACTIVE_NONE: &str = "no active threads";
 const PLACEHOLDER_PREPARING: &str = "preparing";
 const PLACEHOLDER_RESOLVING: &str = "resolving collection";
 
-const FAILED_SECTION: &str = "failed";
-const FAILED_UNKNOWN: &str = "unknown error";
+const FAILED_SECTION_LABEL: &str = "FAILED";
 
 const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
 const RESULTS_SKIPPED: &str = "SKIPPED";
@@ -565,23 +564,32 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         ])));
     }
 
-    if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed)
-        && !page.failed_maps.is_empty()
-    {
-        items.push(widgets::section_header(FAILED_SECTION));
-        for failure in &page.failed_maps {
-            items.push(ListItem::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    format!("#{}", failure.id),
-                    Style::default().fg(text_faint()),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    summarize_failure(&failure.reason),
-                    Style::default().fg(danger()),
-                ),
-            ])));
+    if !page.failed_maps.is_empty() {
+        let count = page.failed_maps.len();
+        let detail = format!("({count})");
+        items.push(widgets::disclosure_row(
+            FAILED_SECTION_LABEL,
+            detail,
+            page.failed_section_expanded,
+            false,
+        ));
+        if page.failed_section_expanded {
+            for failure in &page.failed_maps {
+                let (reason_label, reason_color) = failure_display(failure.reason);
+                let id_str = format!("#{}", failure.beatmapset_id);
+                let title_part = failure
+                    .title
+                    .as_deref()
+                    .map(|t| format!(" · {t}"))
+                    .unwrap_or_default();
+                items.push(ListItem::new(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(id_str, Style::default().fg(text_faint())),
+                    Span::styled(title_part, Style::default().fg(text_faint())),
+                    Span::raw("  "),
+                    Span::styled(reason_label, Style::default().fg(reason_color)),
+                ])));
+            }
         }
     }
 
@@ -666,19 +674,17 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     );
 }
 
-fn summarize_failure(reason: &str) -> String {
-    if reason.is_empty() {
-        return FAILED_UNKNOWN.to_string();
-    }
-
-    let mut truncated: String = reason.chars().take(MAX_TRUNCATED_CHARS).collect();
-    if reason.chars().count() > MAX_TRUNCATED_CHARS {
-        if truncated.len() >= 3 {
-            truncated.truncate(truncated.len().saturating_sub(3));
+/// Returns `(display_label, color)` for a failure reason.
+///
+/// Transient errors (`NetworkError`, `RateLimited`) use warning color; definitive
+/// failures use danger color.
+fn failure_display(reason: FailureReason) -> (&'static str, ratatui::style::Color) {
+    match reason {
+        FailureReason::NetworkError | FailureReason::RateLimited => (reason.label(), warning()),
+        FailureReason::NotFound | FailureReason::ValidationFailed | FailureReason::Unknown => {
+            (reason.label(), danger())
         }
-        truncated.push_str("...");
     }
-    truncated
 }
 
 #[cfg(test)]

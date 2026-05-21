@@ -1,4 +1,5 @@
 use super::try_remove_empty_output_dir;
+use crate::app::collection::FailureReason;
 use crate::core::collection::{test_beatmapset, test_collection};
 use crate::download::collection_db::create_selective_collection_db;
 use crate::download::events::{Tally, translate_event};
@@ -105,7 +106,7 @@ fn network_error_counts_as_failed() {
         mirror: None,
     }]);
     assert_eq!(tally.failed, 1);
-    assert!(tally.failures.iter().any(|(id, _)| *id == 77));
+    assert!(tally.failures.iter().any(|f| f.beatmapset_id == 77));
     assert!(events.iter().any(|event| matches!(
         event,
         DownloadEvent::BeatmapStatus {
@@ -203,7 +204,7 @@ fn unavailable_on_mirrors_is_recorded_as_failure() {
         tally
             .failures
             .iter()
-            .any(|(id, msg)| *id == 7 && msg.contains("unavailable on all mirrors"))
+            .any(|f| f.beatmapset_id == 7 && f.reason == FailureReason::NotFound)
     );
 }
 
@@ -348,4 +349,75 @@ fn only_newly_downloaded_hashes_are_included() {
         .flatten()
         .collect();
     assert_eq!(hashes.len(), 2);
+}
+
+fn failure_reason_for(error: osu_downloader::Error) -> FailureReason {
+    let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetFailed {
+        beatmapset_id: 99,
+        error,
+        mirror: None,
+    }]);
+    tally
+        .failures
+        .into_iter()
+        .find(|f| f.beatmapset_id == 99)
+        .expect("failure recorded")
+        .reason
+}
+
+#[test]
+fn not_found_error_maps_to_not_found_reason() {
+    assert_eq!(
+        failure_reason_for(osu_downloader::Error::NotFound),
+        FailureReason::NotFound
+    );
+}
+
+#[test]
+fn rate_limited_error_maps_to_rate_limited_reason() {
+    assert_eq!(
+        failure_reason_for(osu_downloader::Error::RateLimited { retry_after: None }),
+        FailureReason::RateLimited
+    );
+}
+
+#[test]
+fn network_error_maps_to_network_error_reason() {
+    assert_eq!(
+        failure_reason_for(osu_downloader::Error::Network("connection refused".into())),
+        FailureReason::NetworkError
+    );
+}
+
+#[test]
+fn timeout_maps_to_network_error_reason() {
+    assert_eq!(
+        failure_reason_for(osu_downloader::Error::Timeout),
+        FailureReason::NetworkError
+    );
+}
+
+#[test]
+fn validation_error_maps_to_validation_failed_reason() {
+    assert_eq!(
+        failure_reason_for(osu_downloader::Error::Validation(
+            "checksum mismatch".into()
+        )),
+        FailureReason::ValidationFailed
+    );
+}
+
+#[test]
+fn unavailable_on_mirrors_maps_to_not_found_reason() {
+    let (tally, _events) = drive_translate(vec![LibEvent::BeatmapsetSkipped {
+        beatmapset_id: 7,
+        reason: Skip::UnavailableOnMirrors,
+    }]);
+    let reason = tally
+        .failures
+        .into_iter()
+        .find(|f| f.beatmapset_id == 7)
+        .expect("failure recorded")
+        .reason;
+    assert_eq!(reason, FailureReason::NotFound);
 }

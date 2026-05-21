@@ -15,6 +15,7 @@ pub use pipeline::{spawn_download, spawn_selective_download, try_remove_empty_ou
 pub use crate::config::constants::status;
 pub use osu_downloader::ArchiveValidation;
 
+use crate::app::collection::FailureReason;
 use crate::mirrors::Mirror;
 use fs2::available_space;
 use osu_downloader::size::SizeFetcher;
@@ -81,6 +82,17 @@ pub struct SelectiveDownloadRequest {
     pub snapshots: Vec<crate::app::snapshots::CollectionSnapshotFile>,
 }
 
+/// A beatmapset that failed during a download run. Carried both in the
+/// `FailedMaps` event and rendered in `CollectionPage::failed_maps`.
+#[derive(Debug, Clone)]
+pub struct FailedMap {
+    pub beatmapset_id: u32,
+    /// Beatmapset title, when the library was able to resolve it. `None` for
+    /// failures that occurred before metadata was fetched.
+    pub title: Option<String>,
+    pub reason: FailureReason,
+}
+
 #[derive(Debug, Clone)]
 pub enum DownloadEvent {
     CollectionReady {
@@ -145,7 +157,7 @@ pub enum DownloadEvent {
     },
     FailedMaps {
         id: DownloadId,
-        failures: Vec<(u32, String)>,
+        failures: Vec<FailedMap>,
     },
     BeatmapVerified {
         id: DownloadId,

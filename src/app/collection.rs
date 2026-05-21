@@ -1,4 +1,4 @@
-use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary};
+use crate::download::{BeatmapStage, DownloadId, DownloadStage, DownloadSummary, FailedMap};
 use ratatui::style::Color;
 use std::{
     cell::{Cell, RefCell},
@@ -54,10 +54,32 @@ pub struct BeatmapRow {
     pub progress: Option<(u64, u64)>,
 }
 
-#[derive(Debug, Clone)]
-pub struct FailedBeatmap {
-    pub id: u32,
-    pub reason: String,
+/// Why a beatmapset failed. Categorized from the library's `Error` at the app boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureReason {
+    /// Not found on any mirror (HTTP 404 or `UnavailableOnMirrors`).
+    NotFound,
+    /// Rate-limited on all mirrors with retries exhausted.
+    RateLimited,
+    /// Connection / timeout / DNS failure.
+    NetworkError,
+    /// Hash mismatch, bad ZIP, or EOCD validation failure.
+    ValidationFailed,
+    /// Any error not covered by the above categories.
+    Unknown,
+}
+
+impl FailureReason {
+    /// Short human-readable label shown in the failed list.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NotFound => "not found",
+            Self::RateLimited => "rate-limited",
+            Self::NetworkError => "network error",
+            Self::ValidationFailed => "archive invalid",
+            Self::Unknown => "unknown error",
+        }
+    }
 }
 
 /// One line in the "active downloads" panel. Keyed by `beatmapset_id`.
@@ -196,7 +218,9 @@ pub struct CollectionPage {
     index: HashMap<u32, usize>,
     pub logs: VecDeque<String>,
     pub summary: Option<DownloadSummary>,
-    pub failed_maps: Vec<FailedBeatmap>,
+    pub failed_maps: Vec<FailedMap>,
+    /// Whether the FAILED collapsible section is currently expanded.
+    pub failed_section_expanded: bool,
     pub low_disk_space: Option<u64>,
     pub resolve_progress: Option<(u32, u32)>,
     pub thread_scroll: usize,
@@ -228,6 +252,7 @@ impl CollectionPage {
             logs: VecDeque::new(),
             summary: None,
             failed_maps: Vec::new(),
+            failed_section_expanded: false,
             low_disk_space: None,
             resolve_progress: None,
             thread_scroll: 0,
@@ -397,12 +422,18 @@ impl CollectionPage {
         self.cached_cumulative_speed.get()
     }
 
-    pub fn set_failed_maps(&mut self, failures: Vec<(u32, String)>) {
-        self.failed_maps = failures
-            .into_iter()
-            .map(|(id, reason)| FailedBeatmap { id, reason })
-            .collect();
-        self.failed_maps.sort_by_key(|f| f.id);
+    /// Store the failure list shown in the FAILED collapsible section,
+    /// sorted ascending by `beatmapset_id` so the order is stable across runs.
+    pub fn set_failed_maps(&mut self, failures: Vec<FailedMap>) {
+        self.failed_maps = failures;
+        self.failed_maps.sort_by_key(|f| f.beatmapset_id);
+    }
+
+    /// Toggle the failed-maps section expanded/collapsed. No-op when empty.
+    pub fn toggle_failed_section(&mut self) {
+        if !self.failed_maps.is_empty() {
+            self.failed_section_expanded = !self.failed_section_expanded;
+        }
     }
 
     pub fn scroll_threads_up(&mut self) {
@@ -436,3 +467,7 @@ impl CollectionPage {
 #[cfg(test)]
 #[path = "../../tests/unit/active_download_line.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/collection_page.rs"]
+mod collection_page_tests;

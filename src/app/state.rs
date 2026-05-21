@@ -578,7 +578,11 @@ impl App {
                     field if field.is_text_input() => self.config.handle_char(' '),
                     _ => self.config.toggle_current(),
                 },
-                _ => {}
+                _ => {
+                    if let Some(page) = self.active_download_page_mut() {
+                        page.toggle_failed_section();
+                    }
+                }
             },
             KeyCode::Char(ch) => match self.active_tab() {
                 HOME_TAB_INDEX => {
@@ -779,7 +783,14 @@ impl App {
             }
             DownloadEvent::FailedMaps { id, failures } => {
                 if let Some(page) = self.page_mut(id) {
+                    // auto-expand only the first time failures appear — if the
+                    // user manually collapsed the section, don't reopen it on
+                    // a follow-up batch
+                    let was_empty = page.failed_maps.is_empty();
                     page.set_failed_maps(failures);
+                    if was_empty && !page.failed_maps.is_empty() {
+                        page.failed_section_expanded = true;
+                    }
                 }
             }
             DownloadEvent::Finished { id, summary } => {

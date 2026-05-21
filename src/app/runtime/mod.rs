@@ -296,7 +296,7 @@ fn persist_failed_maps(event: &DownloadEvent) {
         warn!("failed maps path unavailable");
         return;
     };
-    let ids: Vec<u32> = failures.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<u32> = failures.iter().map(|f| f.beatmapset_id).collect();
     tokio::task::spawn_blocking(move || failed_maps::record_failures(&path, ids));
 }
 

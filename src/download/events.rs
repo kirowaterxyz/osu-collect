@@ -1,4 +1,7 @@
-use super::{BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit};
+use super::{
+    BeatmapStage, DownloadEvent, DownloadId, DownloadStage, DownloadSummary, Emit, FailedMap,
+};
+use crate::app::collection::FailureReason;
 use crate::config::constants::status::{
     self, CHECKING_PREFIX, DOWNLOADED_FROM_PREFIX, FROM_SUFFIX, RATE_LIMITED_SUFFIX,
     RETRYING_AFTER, RETRYING_ATTEMPT_PREFIX, RETRYING_PREFIX, VERIFYING_PREFIX,
@@ -15,7 +18,9 @@ pub struct Tally {
     pub skipped: u32,
     pub failed: u32,
     pub unverified: u32,
-    pub failures: Vec<(u32, String)>,
+    /// Per-beatmapset failure detail, surfaced in the UI failed-maps panel and
+    /// persisted by `failed_maps`.
+    pub failures: Vec<FailedMap>,
     /// Beatmapset IDs that this run downloaded successfully.
     pub successful: HashSet<u32>,
 }
@@ -42,9 +47,13 @@ impl Tally {
         self.skipped = self.skipped.saturating_add(1);
     }
 
-    fn record_failed(&mut self, beatmapset_id: u32, reason: String) {
+    fn record_failed(&mut self, beatmapset_id: u32, reason: FailureReason) {
         self.failed = self.failed.saturating_add(1);
-        self.failures.push((beatmapset_id, reason));
+        self.failures.push(FailedMap {
+            beatmapset_id,
+            title: None,
+            reason,
+        });
     }
 }
 
@@ -108,6 +117,7 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
                     id,
                     beatmapset_id,
                     "unavailable on all mirrors".to_string(),
+                    FailureReason::NotFound,
                     tally,
                     emit,
                 );
@@ -118,22 +128,11 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
             error,
             ..
         } => {
+            let (msg, failure_reason) = classify_error(&error);
             if error.is_transient() {
-                let reason = match &error {
-                    LibError::Network(msg) => msg.clone(),
-                    other => other.to_string(),
-                };
-                warn!(beatmapset_id, %reason, "network error, all mirrors exhausted");
-                record_and_emit_failed(
-                    id,
-                    beatmapset_id,
-                    format!("network error: {reason}"),
-                    tally,
-                    emit,
-                );
-            } else {
-                record_and_emit_failed(id, beatmapset_id, error.to_string(), tally, emit);
+                warn!(beatmapset_id, reason = %msg, "network error, all mirrors exhausted");
             }
+            record_and_emit_failed(id, beatmapset_id, msg, failure_reason, tally, emit);
         }
     }
 }
@@ -142,12 +141,46 @@ fn record_and_emit_failed(
     id: DownloadId,
     beatmapset_id: u32,
     message: String,
+    failure_reason: FailureReason,
     tally: &mut Tally,
     emit: Emit<'_>,
 ) {
-    tally.record_failed(beatmapset_id, message.clone());
+    tally.record_failed(beatmapset_id, failure_reason);
     emit_terminal_status(id, beatmapset_id, BeatmapStage::Failed, message, emit);
     emit_overall_progress(id, tally, emit);
+}
+
+/// Map a library `Error` to a `(display_string, FailureReason)` pair.
+fn classify_error(error: &LibError) -> (String, FailureReason) {
+    match error {
+        LibError::NotFound => ("not found".to_string(), FailureReason::NotFound),
+        LibError::RateLimited { .. } => (
+            "rate limited, all mirrors exhausted".to_string(),
+            FailureReason::RateLimited,
+        ),
+        LibError::Network(msg) => (format!("network error: {msg}"), FailureReason::NetworkError),
+        LibError::Timeout => (
+            "operation timed out".to_string(),
+            FailureReason::NetworkError,
+        ),
+        LibError::Validation(msg) => (
+            format!("archive validation failed: {msg}"),
+            FailureReason::ValidationFailed,
+        ),
+        // The lib usually returns typed `NotFound` / `RateLimited`, but a few
+        // call sites bubble up a raw `HttpStatus(...)` — bucket the well-known
+        // codes so the UI still picks the right category.
+        LibError::HttpStatus(404) => ("not found".to_string(), FailureReason::NotFound),
+        LibError::HttpStatus(429) => (
+            "rate limited (HTTP 429)".to_string(),
+            FailureReason::RateLimited,
+        ),
+        LibError::HttpStatus(code) if (500..600).contains(code) => {
+            (format!("HTTP {code}"), FailureReason::NetworkError)
+        }
+        LibError::Io(msg) => (format!("I/O error: {msg}"), FailureReason::ValidationFailed),
+        other => (other.to_string(), FailureReason::Unknown),
+    }
 }
 
 fn emit_terminal_status(
