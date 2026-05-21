@@ -3,12 +3,13 @@ use super::{
     next_field, prev_field,
 };
 use crate::{
+    app::runtime::ProbeResult,
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
     utils::{CompletionResult, complete_dir, expand_tilde, pretty_path},
 };
-use std::{env, str::FromStr};
+use std::{collections::HashMap, env, str::FromStr};
 
 /// Indicates what the collection-resolve row should look like.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +81,9 @@ pub struct HomeTab {
     /// Resolve status shown below the collection URL field.
     /// Unlike `message`, this is not TTL-expired; it persists until the field changes.
     pub collection_resolve: Option<(ResolveState, String)>,
+    /// Latency probe results per built-in mirror. `None` = not yet probed,
+    /// `Some(None)` = probe in flight (`…`), `Some(Some(_))` = result received.
+    pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
     pub quit_prompt: bool,
     default_threads: u8,
     default_directory: String,
@@ -142,10 +146,23 @@ impl HomeTab {
             focus: HomeField::Collection,
             message: None,
             collection_resolve: None,
+            mirror_latency: HashMap::with_capacity(4),
             quit_prompt: false,
             default_threads,
             default_directory,
         }
+    }
+
+    /// Mark all built-in mirrors as "probe in flight" (`…`).
+    pub fn mirror_probe_started(&mut self) {
+        for kind in MirrorKind::BUILTINS {
+            self.mirror_latency.insert(*kind, None);
+        }
+    }
+
+    /// Store the result for a single mirror.
+    pub fn set_mirror_latency(&mut self, kind: MirrorKind, result: ProbeResult) {
+        self.mirror_latency.insert(kind, Some(result));
     }
 
     pub fn clear_collection_resolve(&mut self) {

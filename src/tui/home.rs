@@ -1,3 +1,4 @@
+use crate::app::runtime::ProbeResult;
 use crate::app::{HomeField, HomeTab, ResolveState};
 use ratatui::{
     Frame,
@@ -8,7 +9,7 @@ use ratatui::{
 };
 
 use super::widgets::{self, Metric};
-use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_faint, text_muted};
+use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_dim, text_faint, text_muted};
 use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
@@ -55,9 +56,16 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         (HomeField::MirrorNekoha, form.nekoha),
     ];
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
+        let latency = form.mirror_latency.get(kind).copied();
         items.push_focusable(
             field,
-            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
+            mirror_row_item(
+                mirror_label(*kind),
+                kind.host(),
+                on,
+                focus == field,
+                latency,
+            ),
         );
     }
     items.push(widgets::spacer());
@@ -94,6 +102,59 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+}
+
+/// Mirror toggle row with an optional latency suffix.
+///
+/// `latency` mirrors `HomeTab::mirror_latency` semantics:
+/// - `None`         → not yet probed (no suffix)
+/// - `Some(None)`   → probe in flight (`…`)
+/// - `Some(Some(_))` → result received
+fn mirror_row_item(
+    label: &str,
+    host: &str,
+    on: bool,
+    focused: bool,
+    latency: Option<Option<ProbeResult>>,
+) -> ListItem<'static> {
+    use super::focused_label;
+    use widgets::{check_marker, focus_span};
+
+    let (marker, marker_style) = check_marker(on);
+    let mut spans = vec![
+        focus_span(focused),
+        Span::styled(marker, marker_style),
+        Span::styled(format!(" {label}"), focused_label(focused)),
+        Span::styled(format!("  {host}"), Style::default().fg(text_faint())),
+    ];
+
+    match latency {
+        None => {}
+        Some(None) => {
+            spans.push(Span::styled("  …", Style::default().fg(text_dim())));
+        }
+        Some(Some(ProbeResult::Ms(ms))) => {
+            let mut s = String::with_capacity(10);
+            s.push_str("  \u{2713} ");
+            s.push_str(&ms.to_string());
+            s.push_str("ms");
+            spans.push(Span::styled(s, Style::default().fg(success())));
+        }
+        Some(Some(ProbeResult::Timeout)) => {
+            spans.push(Span::styled(
+                "  \u{2717} timeout",
+                Style::default().fg(danger()),
+            ));
+        }
+        Some(Some(ProbeResult::Error)) => {
+            spans.push(Span::styled(
+                "  \u{2717} N/A",
+                Style::default().fg(danger()),
+            ));
+        }
+    }
+
+    ListItem::new(Line::from(spans))
 }
 
 const RESOLVE_PREFIX: &str = "  └ ";

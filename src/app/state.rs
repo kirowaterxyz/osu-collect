@@ -66,6 +66,8 @@ pub enum AppCommand {
     ResolveCollectionUrl {
         value: String,
     },
+    /// Probe latency for all built-in mirrors.
+    ProbeMirrors,
     Quit,
 }
 
@@ -115,6 +117,8 @@ impl App {
         if self.active_tab == UPDATES_TAB_INDEX && self.updates.needs_initial_scan() {
             self.updates.scan.scan_generation = self.updates.scan.scan_generation.wrapping_add(1);
             Some(AppCommand::ScanLocalDatabase)
+        } else if self.active_tab == HOME_TAB_INDEX {
+            Some(AppCommand::ProbeMirrors)
         } else {
             None
         }
@@ -540,6 +544,10 @@ impl App {
             },
             KeyCode::Char(ch) => match self.active_tab() {
                 HOME_TAB_INDEX => {
+                    // `r` refreshes mirror latency when no text input is focused.
+                    if ch == 'r' && !self.home.focus.is_text_input() {
+                        return Some(AppCommand::ProbeMirrors);
+                    }
                     if let Some(cmd) = self.mutate_collection_then_resolve(|h| h.handle_char(ch)) {
                         return Some(cmd);
                     }

@@ -1,7 +1,9 @@
 mod auth;
+mod mirror_probe;
 mod resolve;
 mod scan;
 
+pub use mirror_probe::{MirrorProbeEvent, ProbeResult, probe_url};
 pub use scan::{
     FetchCompareSettings, UpdatesEvent, collection_ids_for_scan, deleted_maps_for_scan,
     fetch_missing_beatmapsets, manually_added_count, read_local_database,
@@ -17,6 +19,7 @@ use super::{
 use crate::{
     app::failed_maps,
     config::Config,
+    config::constants::HOME_TAB_INDEX,
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
     tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
     tui::{draw, init_theme},
@@ -27,6 +30,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
 use auth::{AuthEvent, handle_auth_event, spawn_login_task, spawn_logout_task};
+use mirror_probe::{handle_mirror_probe_event, schedule_probe};
 use resolve::schedule_resolve;
 use scan::{handle_updates_event, spawn_failed_map_recheck_task, spawn_scan_task};
 
@@ -58,6 +62,7 @@ pub async fn run(
     let (auth_tx, mut auth_rx) = mpsc::unbounded_channel::<AuthEvent>();
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<InputEvent>();
     let (home_resolve_tx, mut home_resolve_rx) = mpsc::unbounded_channel::<HomeResolveEvent>();
+    let (mirror_probe_tx, mut mirror_probe_rx) = mpsc::unbounded_channel::<MirrorProbeEvent>();
     let input_handle = spawn_input_thread(input_tx.clone());
 
     let mut should_quit = false;
@@ -67,7 +72,19 @@ pub async fn run(
         resolve: None,
         resolve_cancel: None,
         home_resolve_tx,
+        mirror_probe: None,
+        mirror_probe_cancel: None,
+        mirror_probe_tx: mirror_probe_tx.clone(),
     };
+
+    // Start the initial mirror probe if the app opens on the home tab.
+    if app.active_tab == HOME_TAB_INDEX {
+        schedule_probe(
+            &mut tasks.mirror_probe,
+            &mut tasks.mirror_probe_cancel,
+            &tasks.mirror_probe_tx,
+        );
+    }
 
     while !should_quit {
         terminal.draw(|f| draw(f, &app))?;
@@ -113,6 +130,10 @@ pub async fn run(
                 trace!(?event, "Received home resolve event");
                 handle_home_resolve_event(event, &mut app.home);
             }
+            Some(event) = mirror_probe_rx.recv() => {
+                trace!(?event, "Received mirror probe event");
+                handle_mirror_probe_event(event, &mut app.home);
+            }
             else => break,
         }
     }
@@ -121,6 +142,9 @@ pub async fn run(
         handle.abort();
     }
     if let Some(handle) = tasks.resolve.take() {
+        handle.abort();
+    }
+    if let Some(handle) = tasks.mirror_probe.take() {
         handle.abort();
     }
 
@@ -233,6 +257,13 @@ fn handle_key_event(
                 &tasks.home_resolve_tx,
             );
         }
+        Some(AppCommand::ProbeMirrors) => {
+            schedule_probe(
+                &mut tasks.mirror_probe,
+                &mut tasks.mirror_probe_cancel,
+                &tasks.mirror_probe_tx,
+            );
+        }
         Some(AppCommand::ScanLocalDatabase) => {
             spawn_scan_task(app, updates_tx.clone());
         }
@@ -323,4 +354,7 @@ struct BackgroundTasks {
     resolve: Option<tokio::task::JoinHandle<()>>,
     resolve_cancel: Option<tokio::sync::watch::Sender<bool>>,
     home_resolve_tx: mpsc::UnboundedSender<HomeResolveEvent>,
+    mirror_probe: Option<tokio::task::JoinHandle<()>>,
+    mirror_probe_cancel: Option<tokio::sync::watch::Sender<bool>>,
+    mirror_probe_tx: mpsc::UnboundedSender<MirrorProbeEvent>,
 }
