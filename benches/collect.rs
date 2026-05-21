@@ -1781,7 +1781,7 @@ fn bench_header_tab_to_lowercase(c: &mut Criterion) {
         |b, tabs| {
             b.iter(|| {
                 // Simulates header receiving already-lowercase strings: zero work.
-                let result: Vec<&str> = black_box(tabs).iter().copied().collect();
+                let result = black_box(tabs).to_vec();
                 black_box(result)
             })
         },
@@ -1791,7 +1791,7 @@ fn bench_header_tab_to_lowercase(c: &mut Criterion) {
         dynamic_lower,
         |b, tabs| {
             b.iter(|| {
-                let result: Vec<&str> = black_box(tabs).iter().copied().collect();
+                let result = black_box(tabs).to_vec();
                 black_box(result)
             })
         },
