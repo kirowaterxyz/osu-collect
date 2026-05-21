@@ -137,6 +137,8 @@ pub struct CollectionEntry {
     pub collection_id: Option<u64>,
     pub beatmap_count: usize,
     pub selected: bool,
+    /// Beatmaps present in the local snapshot but absent from the upstream collection.
+    pub removed_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -586,6 +588,7 @@ impl UpdatesTab {
                         collection_id,
                         beatmap_count: c.beatmap_checksums.len(),
                         selected: true,
+                        removed_count: 0,
                     })
                 } else {
                     debug!(name = %c.name, "Skipped collection without ID");
@@ -657,6 +660,24 @@ impl UpdatesTab {
 
     pub fn set_failed_beatmapset_count(&mut self, count: usize) {
         self.scan.failed_beatmapset_count = count;
+    }
+
+    /// Apply per-collection removed-beatmap counts to the collection list.
+    ///
+    /// `counts` maps collection_id (as `u32`, matching the API) to the number of local
+    /// checksums absent from the upstream collection at the time of the scan.
+    pub fn set_removed_counts(&mut self, counts: &std::collections::HashMap<u32, usize>) {
+        for entry in &mut self.selection.local_collections {
+            if let Some(cid) = entry.collection_id.and_then(|id| u32::try_from(id).ok()) {
+                entry.removed_count = counts.get(&cid).copied().unwrap_or(0);
+            }
+        }
+        // Keep the default-order snapshot in sync so cycling back to Default restores the counts.
+        for entry in &mut self.selection.collections_default_order {
+            if let Some(cid) = entry.collection_id.and_then(|id| u32::try_from(id).ok()) {
+                entry.removed_count = counts.get(&cid).copied().unwrap_or(0);
+            }
+        }
     }
 
     pub fn can_recheck_failed_maps(&self) -> bool {

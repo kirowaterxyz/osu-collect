@@ -186,17 +186,20 @@ pub async fn run_update_collections(
     info!("fetching collections from API");
     let t_fetch = Instant::now();
 
-    let (missing, collection_seen) = runtime::fetch_missing_beatmapsets(
+    let fetch_result = runtime::fetch_missing_beatmapsets(
         args.client,
         collection_ids.clone(),
         local_set_ids,
         local_checksums_set,
+        &collections,
         snapshot_diffs,
         runtime::FetchCompareSettings {
             hidden_failed_beatmapset_ids: failed_beatmapset_ids,
         },
     )
     .await?;
+    let missing = fetch_result.missing;
+    let collection_seen = fetch_result.collection_seen;
 
     let fetch_ms = t_fetch.elapsed().as_millis();
     let previously_deleted_count = missing.iter().filter(|m| m.previously_deleted).count();

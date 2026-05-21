@@ -122,6 +122,7 @@ mod tests {
             collection_ids,
             local_set_ids,
             local_checksums,
+            &collections,
             HashMap::new(),
             runtime::FetchCompareSettings::default(),
         )
@@ -131,8 +132,8 @@ mod tests {
         println!("phase fetch+compare: {}ms", fetch_ms);
 
         match result {
-            Ok((missing, _)) => {
-                println!("missing beatmapsets: {}", missing.len());
+            Ok(res) => {
+                println!("missing beatmapsets: {}", res.missing.len());
                 // Generous budget: 60s total for network-dependent operations
                 assert!(
                     fetch_ms < 60_000,

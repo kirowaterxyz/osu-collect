@@ -2,7 +2,8 @@ use super::{
     BeatmapSort, CollectionSort, MissingBeatmapset, MissingStatus, ScanStatus, UpdatesTab,
     scroll_list,
 };
-use crate::osu_db::LocalCollection;
+use crate::osu_db::{LocalCollection, checksum};
+use std::collections::HashMap;
 
 #[test]
 fn needs_initial_scan_reflects_cache_state() {
@@ -54,6 +55,19 @@ fn local_col(name: &str, count: usize) -> LocalCollection {
     LocalCollection {
         name: name.to_string(),
         beatmap_checksums: vec![Default::default(); count].into_boxed_slice(),
+    }
+}
+
+fn md5(seed: u8) -> crate::osu_db::Md5 {
+    let mut out = [0u8; 16];
+    out[0] = seed;
+    out
+}
+
+fn local_col_with_checksums(name: &str, checksums: &[crate::osu_db::Md5]) -> LocalCollection {
+    LocalCollection {
+        name: name.to_string(),
+        beatmap_checksums: checksums.to_vec().into_boxed_slice(),
     }
 }
 
@@ -270,4 +284,155 @@ fn s_key_does_not_cycle_sort_outside_list() {
         CollectionSort::Default,
         "'s' outside list must not advance sort"
     );
+}
+
+// --- removed count ---
+
+#[test]
+fn set_removed_counts_applies_to_matching_collection() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Pack - 11111", 3)]);
+
+    let mut counts = HashMap::new();
+    counts.insert(11111u32, 7usize);
+    tab.set_removed_counts(&counts);
+
+    let entry = &tab.selection.local_collections[0];
+    assert_eq!(entry.removed_count, 7);
+}
+
+#[test]
+fn set_removed_counts_leaves_unmatched_at_zero() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![
+        local_col("Alpha - 11111", 2),
+        local_col("Beta - 22222", 4),
+    ]);
+
+    // Only set a count for 11111; 22222 gets nothing.
+    let mut counts = HashMap::new();
+    counts.insert(11111u32, 3usize);
+    tab.set_removed_counts(&counts);
+
+    let removed: Vec<usize> = tab
+        .selection
+        .local_collections
+        .iter()
+        .map(|e| e.removed_count)
+        .collect();
+    assert_eq!(removed, [3, 0]);
+}
+
+#[test]
+fn set_removed_counts_also_updates_default_order_snapshot() {
+    // The default-order snapshot must be kept in sync so that cycling back to
+    // Default sort restores the correct removed_count values.
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![
+        local_col("Alpha - 11111", 2),
+        local_col("Beta - 22222", 4),
+    ]);
+
+    let mut counts = HashMap::new();
+    counts.insert(11111u32, 5usize);
+    tab.set_removed_counts(&counts);
+
+    // Cycle sort away from Default and back; the snapshot must carry the count.
+    tab.cycle_collection_sort(); // Default → Name
+    tab.cycle_collection_sort(); // Name → Size
+    tab.cycle_collection_sort(); // Size → Default (restores from snapshot)
+
+    let entry = tab
+        .selection
+        .local_collections
+        .iter()
+        .find(|e| e.collection_id == Some(11111))
+        .expect("entry for 11111 must exist");
+    assert_eq!(
+        entry.removed_count, 5,
+        "removed_count must survive sort round-trip"
+    );
+}
+
+#[test]
+fn removed_count_is_zero_when_no_counts_provided() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Pack - 33333", 5)]);
+
+    // Apply an empty map — no collection gets a removed_count.
+    tab.set_removed_counts(&HashMap::new());
+
+    let entry = &tab.selection.local_collections[0];
+    assert_eq!(entry.removed_count, 0, "no counts → removed_count stays 0");
+}
+
+// --- checksum set diff correctness ---
+
+#[test]
+fn removed_count_reflects_local_minus_upstream_checksums() {
+    // Simulate what fetch_missing_beatmapsets computes for removed_count:
+    // local checksums for the collection that are absent from the upstream set.
+    use std::collections::HashSet;
+
+    let local = [md5(1), md5(2), md5(3), md5(4)];
+    let upstream: HashSet<_> = [checksum::to_hex(md5(1)), checksum::to_hex(md5(3))]
+        .iter()
+        .filter_map(|h| checksum::parse_hex(h))
+        .filter(|cs| !checksum::is_empty(cs))
+        .collect();
+
+    let local_set: HashSet<_> = local
+        .iter()
+        .copied()
+        .filter(|cs| !checksum::is_empty(cs))
+        .collect();
+
+    let removed = local_set.difference(&upstream).count();
+    // md5(2) and md5(4) are local but not upstream → removed = 2
+    assert_eq!(removed, 2);
+}
+
+#[test]
+fn removed_count_is_zero_when_all_local_checksums_present_upstream() {
+    use std::collections::HashSet;
+
+    let local = [md5(10), md5(20)];
+    let upstream: HashSet<_> = [
+        checksum::to_hex(md5(10)),
+        checksum::to_hex(md5(20)),
+        checksum::to_hex(md5(30)), // extra upstream, not in local
+    ]
+    .iter()
+    .filter_map(|h| checksum::parse_hex(h))
+    .filter(|cs| !checksum::is_empty(cs))
+    .collect();
+
+    let local_set: HashSet<_> = local
+        .iter()
+        .copied()
+        .filter(|cs| !checksum::is_empty(cs))
+        .collect();
+
+    assert_eq!(local_set.difference(&upstream).count(), 0);
+}
+
+#[test]
+fn set_removed_counts_applied_to_local_col_with_checksums() {
+    // End-to-end: build a tab with a real checksum collection, apply counts,
+    // and verify the entry reflects the expected removed_count.
+    let checksums = [md5(0xaa), md5(0xbb), md5(0xcc)];
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col_with_checksums("Songs - 55555", &checksums)]);
+
+    let mut counts = HashMap::new();
+    counts.insert(55555u32, 2usize); // 2 of the 3 local checksums are absent upstream
+    tab.set_removed_counts(&counts);
+
+    let entry = tab
+        .selection
+        .local_collections
+        .iter()
+        .find(|e| e.collection_id == Some(55555))
+        .expect("entry must exist");
+    assert_eq!(entry.removed_count, 2);
 }

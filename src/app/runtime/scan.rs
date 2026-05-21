@@ -38,6 +38,8 @@ pub enum UpdatesEvent {
         generation: u64,
         missing: Vec<MissingBeatmapset>,
         collection_seen: HashMap<u32, Vec<u32>>,
+        /// Number of local-snapshot checksums absent from upstream, per collection_id.
+        collection_removed_counts: HashMap<u32, usize>,
         manually_added_count: usize,
         hidden_failed_count: usize,
     },
@@ -106,6 +108,7 @@ pub(super) fn handle_updates_event(
             generation,
             missing,
             collection_seen,
+            collection_removed_counts,
             manually_added_count,
             hidden_failed_count,
         } => {
@@ -130,6 +133,7 @@ pub(super) fn handle_updates_event(
             let local_snapshot: Vec<u32> = local_ids.iter().copied().collect();
             let count = missing.len();
             app.updates.set_missing_beatmaps(missing);
+            app.updates.set_removed_counts(&collection_removed_counts);
             app.updates.set_failed_beatmapset_count(hidden_failed_count);
             app.updates.scan.scan_status = ScanStatus::Ready;
 
@@ -421,6 +425,7 @@ fn spawn_fetch_task(
         .map(|bs| bs.id)
         .collect();
     let all_local_checksums = std::mem::take(&mut app.updates.scan.all_local_checksums);
+    let local_collections_raw = app.updates.scan.local_collections_raw.clone();
     let generation = app.updates.scan.scan_generation;
     let client_type = app.updates.path.client_type;
     let current_snapshots = snapshots::current_snapshots(
@@ -453,6 +458,7 @@ fn spawn_fetch_task(
             selected_collection_ids,
             local_set_ids,
             all_local_checksums,
+            &local_collections_raw,
             snapshot_diffs,
             FetchCompareSettings {
                 hidden_failed_beatmapset_ids: failed_beatmapset_ids,
@@ -461,11 +467,12 @@ fn spawn_fetch_task(
         .await;
 
         match result {
-            Ok((missing, collection_seen)) => {
+            Ok(res) => {
                 let _ = tx.send(UpdatesEvent::ScanComplete {
                     generation,
-                    missing,
-                    collection_seen,
+                    missing: res.missing,
+                    collection_seen: res.collection_seen,
+                    collection_removed_counts: res.collection_removed_counts,
                     manually_added_count: added_count,
                     hidden_failed_count,
                 });
@@ -518,23 +525,49 @@ impl CollectionBeatmapset {
     }
 }
 
+/// Result of `fetch_missing_beatmapsets`.
+pub struct FetchMissingResult {
+    pub missing: Vec<MissingBeatmapset>,
+    /// Upstream beatmapset IDs seen per collection.
+    pub collection_seen: HashMap<u32, Vec<u32>>,
+    /// Per-collection count of local checksums absent from the upstream collection.
+    pub collection_removed_counts: HashMap<u32, usize>,
+}
+
 pub async fn fetch_missing_beatmapsets(
     client_type: OsuClient,
     collection_ids: Vec<u32>,
     local_set_ids: HashSet<u32>,
     local_checksums: HashSet<Md5>,
+    local_collections_raw: &[LocalCollection],
     snapshot_diffs: HashMap<u32, snapshots::SnapshotDiff>,
     settings: FetchCompareSettings,
-) -> Result<(Vec<MissingBeatmapset>, HashMap<u32, Vec<u32>>), String> {
+) -> Result<FetchMissingResult, String> {
     let client = osu_downloader::collection::CollectionClient::new();
     let mut candidates_to_check: Vec<(CollectionBeatmapset, u32, String)> = Vec::new();
     let mut collection_seen: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut collection_removed_counts: HashMap<u32, usize> = HashMap::new();
 
     debug!(
         local_beatmapset_count = local_set_ids.len(),
         local_checksums_count = local_checksums.len(),
         "Starting fetch_and_compare"
     );
+
+    // Build a fast lookup: collection_id → local checksums for that collection
+    let local_collection_checksums: HashMap<u32, HashSet<Md5>> = local_collections_raw
+        .iter()
+        .filter_map(|c| {
+            let id = extract_collection_id(&c.name).and_then(|id| u32::try_from(id).ok())?;
+            let set: HashSet<Md5> = c
+                .beatmap_checksums
+                .iter()
+                .copied()
+                .filter(|cs| !checksum::is_empty(cs))
+                .collect();
+            Some((id, set))
+        })
+        .collect();
 
     let t_api = std::time::Instant::now();
 
@@ -570,6 +603,27 @@ pub async fn fetch_missing_beatmapsets(
 
         let api_ids: Vec<u32> = collection.beatmapsets.iter().map(|b| b.id).collect();
         collection_seen.insert(collection_id, api_ids);
+
+        // Compute removed count: local checksums for this collection absent from upstream.
+        // Both sides use the same Md5 ([u8;16]) type; upstream hex strings are parsed via
+        // checksum::parse_hex, same as the stable reader does when building local_collections_raw.
+        let upstream_checksums: HashSet<Md5> = collection
+            .beatmapsets
+            .iter()
+            .flat_map(|bs| bs.beatmaps.iter())
+            .filter(|bm| !bm.checksum.is_empty())
+            .filter_map(|bm| checksum::parse_hex(&bm.checksum))
+            .filter(|cs| !checksum::is_empty(cs))
+            .collect();
+
+        let removed = local_collection_checksums
+            .get(&collection_id)
+            .map(|local| local.difference(&upstream_checksums).count())
+            .unwrap_or(0);
+
+        if removed > 0 {
+            collection_removed_counts.insert(collection_id, removed);
+        }
 
         // Dedupe within this collection only — the same beatmapset can appear
         // in multiple collections and must be tracked per collection_id.
@@ -663,5 +717,9 @@ pub async fn fetch_missing_beatmapsets(
             .cmp(&b.collection_id)
             .then_with(|| a.id.cmp(&b.id))
     });
-    Ok((all_missing, collection_seen))
+    Ok(FetchMissingResult {
+        missing: all_missing,
+        collection_seen,
+        collection_removed_counts,
+    })
 }

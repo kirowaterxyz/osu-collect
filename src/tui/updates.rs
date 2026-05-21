@@ -47,6 +47,12 @@ const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
 const COUNT_SUFFIX_MAPS: &str = "maps";
 const SUFFIX_SELECTED: &str = "selected";
 
+const DIFF_PREFIX_NEW: &str = "+";
+const DIFF_SUFFIX_NEW: &str = "new";
+const DIFF_PREFIX_REMOVED: &str = "-";
+const DIFF_SUFFIX_REMOVED: &str = "removed";
+const DIFF_SEPARATOR: &str = ", ";
+
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     let block = widgets::panel_block(PANEL_TITLE);
     let inner = block.inner(area);
@@ -313,6 +319,29 @@ fn collection_item(
             format!("  [{n}/{total} {SUFFIX_SELECTED}]"),
             Style::default().fg(text_faint()),
         ));
+    }
+
+    let new_count = missing_counts.map(|(_, total)| total).unwrap_or(0);
+    let removed_count = collection.removed_count;
+    if new_count > 0 || removed_count > 0 {
+        spans.push(Span::raw("  "));
+        let mut diff_parts = Vec::with_capacity(2);
+        if new_count > 0 {
+            diff_parts.push(Span::styled(
+                format!("{DIFF_PREFIX_NEW}{new_count} {DIFF_SUFFIX_NEW}"),
+                Style::default().fg(accent()),
+            ));
+        }
+        if removed_count > 0 {
+            if new_count > 0 {
+                diff_parts.push(Span::raw(DIFF_SEPARATOR));
+            }
+            diff_parts.push(Span::styled(
+                format!("{DIFF_PREFIX_REMOVED}{removed_count} {DIFF_SUFFIX_REMOVED}"),
+                Style::default().fg(text_muted()),
+            ));
+        }
+        spans.extend(diff_parts);
     }
 
     ListItem::new(Line::from(spans))

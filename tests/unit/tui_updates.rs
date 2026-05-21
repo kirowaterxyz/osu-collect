@@ -67,3 +67,33 @@ fn counts_ignore_other_collections() {
     assert_eq!(total2, 1);
     assert_eq!(n2, 1);
 }
+
+// --- diff indicator show/hide ---
+
+/// The diff visibility rule is: render diff spans only when new_count > 0 or removed_count > 0.
+/// This helper encodes the rule and is tested for each show/hide case.
+/// It mirrors the condition in `collection_item` without depending on ratatui internals.
+fn diff_is_visible(new_count: usize, removed_count: usize) -> bool {
+    new_count > 0 || removed_count > 0
+}
+
+#[test]
+fn diff_hidden_when_both_counts_zero() {
+    assert!(!diff_is_visible(0, 0), "zero diff must be hidden");
+}
+
+#[test]
+fn diff_shows_new_only_when_removed_is_zero() {
+    assert!(diff_is_visible(3, 0), "+N new alone must show");
+    assert!(!diff_is_visible(0, 0), "zero still hidden");
+}
+
+#[test]
+fn diff_shows_removed_only_when_new_is_zero() {
+    assert!(diff_is_visible(0, 7), "-N removed alone must show");
+}
+
+#[test]
+fn diff_shows_both_when_both_nonzero() {
+    assert!(diff_is_visible(3, 4), "both nonzero must show");
+}
