@@ -96,6 +96,7 @@ fn resolve_success_event_sets_success_state() {
 
     handle_home_resolve_event(
         HomeResolveEvent::Resolved {
+            url: "https://osucollector.com/collections/1".to_string(),
             name: "Top 100 of 2024".to_string(),
             map_count: 100,
         },
@@ -151,6 +152,7 @@ fn resolve_single_map_uses_singular() {
 
     handle_home_resolve_event(
         HomeResolveEvent::Resolved {
+            url: "https://osucollector.com/collections/2".to_string(),
             name: "Solo".to_string(),
             map_count: 1,
         },

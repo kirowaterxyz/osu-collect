@@ -142,7 +142,13 @@ impl App {
 
     fn focus_next_field(&mut self) {
         match self.active_tab() {
-            HOME_TAB_INDEX => self.home.next_field(),
+            HOME_TAB_INDEX => {
+                self.home.close_dropdown();
+                self.home.next_field();
+                if self.home.focus == HomeField::Collection {
+                    self.home.open_dropdown();
+                }
+            }
             UPDATES_TAB_INDEX => self.updates.next_field(),
             CONFIG_TAB_INDEX => self.config.next_field(),
             _ => {}
@@ -151,7 +157,13 @@ impl App {
 
     fn focus_prev_field(&mut self) {
         match self.active_tab() {
-            HOME_TAB_INDEX => self.home.prev_field(),
+            HOME_TAB_INDEX => {
+                self.home.close_dropdown();
+                self.home.prev_field();
+                if self.home.focus == HomeField::Collection {
+                    self.home.open_dropdown();
+                }
+            }
             UPDATES_TAB_INDEX => self.updates.prev_field(),
             CONFIG_TAB_INDEX => self.config.prev_field(),
             _ => {}
@@ -407,6 +419,13 @@ impl App {
                 if self.close_modal() {
                     return None;
                 }
+                if self.active_tab() == HOME_TAB_INDEX
+                    && self.home.focus == HomeField::Collection
+                    && self.home.dropdown_open
+                {
+                    self.home.close_dropdown();
+                    return None;
+                }
                 if self.active_tab() == UPDATES_TAB_INDEX && self.updates.handle_escape().is_some()
                 {
                     return None;
@@ -448,7 +467,12 @@ impl App {
                 }
             }
             KeyCode::Up => {
-                if self.active_tab() == UPDATES_TAB_INDEX
+                if self.active_tab() == HOME_TAB_INDEX
+                    && self.home.focus == HomeField::Collection
+                    && self.home.dropdown_open
+                {
+                    self.home.dropdown_prev();
+                } else if self.active_tab() == UPDATES_TAB_INDEX
                     && (self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list)
                 {
@@ -460,7 +484,12 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                if self.active_tab() == UPDATES_TAB_INDEX
+                if self.active_tab() == HOME_TAB_INDEX
+                    && self.home.focus == HomeField::Collection
+                    && self.home.dropdown_open
+                {
+                    self.home.dropdown_next();
+                } else if self.active_tab() == UPDATES_TAB_INDEX
                     && (self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list)
                 {
@@ -472,6 +501,15 @@ impl App {
                 }
             }
             KeyCode::Enter => {
+                if self.active_tab() == HOME_TAB_INDEX
+                    && self.home.focus == HomeField::Collection
+                    && self.home.dropdown_open
+                {
+                    if let Some(url) = self.home.dropdown_accept() {
+                        return Some(AppCommand::ResolveCollectionUrl { value: url });
+                    }
+                    return None;
+                }
                 if self.active_tab() == HOME_TAB_INDEX
                     && let Some((id, request)) = self.request_download()
                 {

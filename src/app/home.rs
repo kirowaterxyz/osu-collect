@@ -1,6 +1,7 @@
 use super::{
     messages::{AppMessage, set_info_message},
     next_field, prev_field,
+    url_history::UrlHistoryFile,
 };
 use crate::{
     app::runtime::ProbeResult,
@@ -87,6 +88,12 @@ pub struct HomeTab {
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
     pub quit_prompt: bool,
     pub default_threads: u8,
+    /// Previously resolved URLs, loaded from disk on startup.
+    pub url_history: UrlHistoryFile,
+    /// Whether the history dropdown is currently visible.
+    pub dropdown_open: bool,
+    /// Index of the highlighted entry in the dropdown (0 = first).
+    pub dropdown_selected: Option<usize>,
     default_directory: String,
 }
 
@@ -150,6 +157,9 @@ impl HomeTab {
             mirror_latency: HashMap::with_capacity(4),
             quit_prompt: false,
             default_threads,
+            url_history: super::url_history::load(),
+            dropdown_open: false,
+            dropdown_selected: None,
             default_directory,
         }
     }
@@ -172,6 +182,57 @@ impl HomeTab {
 
     pub fn set_collection_resolve(&mut self, state: ResolveState, text: impl Into<String>) {
         self.collection_resolve = Some((state, text.into()));
+    }
+
+    /// Open the history dropdown if there are entries.
+    /// Does nothing when the collection field already has text.
+    pub fn open_dropdown(&mut self) {
+        if self.url_history.entries.is_empty() || !self.collection.value.is_empty() {
+            return;
+        }
+        self.dropdown_open = true;
+        self.dropdown_selected = Some(0);
+    }
+
+    /// Close the history dropdown and clear the selection.
+    pub fn close_dropdown(&mut self) {
+        self.dropdown_open = false;
+        self.dropdown_selected = None;
+    }
+
+    /// Move the dropdown selection up (wraps).
+    pub fn dropdown_prev(&mut self) {
+        let len = self.url_history.entries.len();
+        if len == 0 {
+            return;
+        }
+        self.dropdown_selected = Some(match self.dropdown_selected {
+            None | Some(0) => len - 1,
+            Some(i) => i - 1,
+        });
+    }
+
+    /// Move the dropdown selection down (wraps).
+    pub fn dropdown_next(&mut self) {
+        let len = self.url_history.entries.len();
+        if len == 0 {
+            return;
+        }
+        self.dropdown_selected = Some(match self.dropdown_selected {
+            None => 0,
+            Some(i) => (i + 1) % len,
+        });
+    }
+
+    /// Accept the highlighted dropdown entry: fill the collection field and close.
+    /// Returns the selected URL (to trigger resolve), or `None` if nothing is selected.
+    pub fn dropdown_accept(&mut self) -> Option<String> {
+        let idx = self.dropdown_selected?;
+        let entry = self.url_history.entries.get(idx)?;
+        let url = entry.url.clone();
+        self.collection.value = url.clone();
+        self.close_dropdown();
+        Some(url)
     }
 
     pub fn next_field(&mut self) {
@@ -233,6 +294,10 @@ impl HomeTab {
     }
 
     pub fn handle_char(&mut self, ch: char) {
+        // Any character typed while the dropdown is open dismisses it first.
+        if self.dropdown_open {
+            self.close_dropdown();
+        }
         match self.focus {
             HomeField::Collection => self.collection.value.push(ch),
             HomeField::Directory => self.directory.value.push(ch),

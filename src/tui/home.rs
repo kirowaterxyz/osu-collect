@@ -1,15 +1,19 @@
 use crate::app::runtime::ProbeResult;
+use crate::app::url_history::UrlHistoryEntry;
 use crate::app::{HomeField, HomeTab, ResolveState};
 use ratatui::{
     Frame,
-    layout::Rect,
-    style::Style,
+    layout::{Constraint, Flex, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::ListItem,
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding},
 };
 
 use super::widgets::{self, Metric};
-use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_dim, text_faint, text_muted};
+use super::{
+    HELP_CUSTOM_MIRROR, accent, accent_alt, bg_raised, danger, line, mirror_label, success,
+    text_dim, text_faint, text_muted,
+};
 use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
@@ -107,6 +111,10 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+
+    if form.dropdown_open && !form.url_history.entries.is_empty() {
+        render_url_dropdown(frame, area, form);
+    }
 }
 
 /// Mirror toggle row with an optional latency suffix.
@@ -160,6 +168,92 @@ fn mirror_row_item(
     }
 
     ListItem::new(Line::from(spans))
+}
+
+/// Max visible rows in the dropdown before scroll indicator kicks in.
+const DROPDOWN_MAX_VISIBLE: usize = 5;
+
+/// Renders the URL history dropdown anchored below the collection field.
+///
+/// The dropdown floats as an overlay inside `area`. It is sized to fit up to
+/// `DROPDOWN_MAX_VISIBLE` entries plus a border (2 rows), and is
+/// horizontally shrunk to 80 % of the panel width.
+fn render_url_dropdown(frame: &mut Frame, area: Rect, form: &HomeTab) {
+    let entries = &form.url_history.entries;
+    let visible = DROPDOWN_MAX_VISIBLE.min(entries.len());
+    // +2 for top/bottom borders
+    let popup_height = (visible as u16).saturating_add(2).min(area.height);
+
+    // Place the popup near the top of the area (just below the field rows).
+    // Use Flex::Start so the popup anchors at the top of the available space.
+    let [popup_area] = Layout::vertical([Constraint::Length(popup_height)])
+        .flex(Flex::Start)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(80)])
+        .flex(Flex::Start)
+        .areas(popup_area);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
+        .title(Span::styled(
+            " HISTORY ",
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
+        ))
+        .padding(Padding::new(1, 1, 0, 0));
+
+    let inner = block.inner(popup_area);
+    let total = entries.len();
+    let selected = form.dropdown_selected.unwrap_or(0);
+    let (start, end) = widgets::scroll_window(entries.as_slice(), selected, inner.height as usize);
+
+    let block = match widgets::scroll_indicator(start, end, total) {
+        Some(span) => block.title_top(Line::from(span).right_aligned()),
+        None => block,
+    };
+    frame.render_widget(block, popup_area);
+
+    let items: Vec<ListItem<'static>> = entries[start..end]
+        .iter()
+        .enumerate()
+        .map(|(rel_idx, entry)| {
+            let abs_idx = start + rel_idx;
+            dropdown_entry_item(entry, abs_idx == selected)
+        })
+        .collect();
+
+    frame.render_widget(List::new(items), inner);
+}
+
+fn dropdown_entry_item(entry: &UrlHistoryEntry, selected: bool) -> ListItem<'static> {
+    // Single-line: "Name (count) — url"
+    let label_style = if selected {
+        Style::default().fg(accent()).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(text_dim())
+    };
+    let url_style = Style::default().fg(text_faint());
+
+    let mut name_part = entry.name.clone();
+    name_part.push_str("  (");
+    name_part.push_str(&entry.count.to_string());
+    name_part.push(')');
+
+    let mut url_part = String::with_capacity(4 + entry.url.len());
+    url_part.push_str(" — ");
+    url_part.push_str(&entry.url);
+
+    ListItem::new(Line::from(vec![
+        Span::styled(name_part, label_style),
+        Span::styled(url_part, url_style),
+    ]))
 }
 
 const RESOLVE_PREFIX: &str = "  └ ";

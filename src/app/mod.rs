@@ -10,6 +10,7 @@ pub mod runtime;
 pub mod snapshots;
 pub mod state;
 pub mod updates;
+pub mod url_history;
 
 pub use collection::{ActiveDownloadLine, CollectionPage};
 pub use config::{AuthLoginState, ConfigField, ConfigTab};
