@@ -1,4 +1,4 @@
-use super::{done_footer_spans, format_avg_verify};
+use super::{done_footer_spans, format_avg_verify, format_eta, session_eta};
 use crate::utils::format_bytes;
 
 #[test]
@@ -71,5 +71,99 @@ fn done_footer_omits_skipped_when_zero() {
     assert!(
         !text.contains("skipped"),
         "footer must not contain 'skipped': {text:?}"
+    );
+}
+
+// ── format_eta ───────────────────────────────────────────────────────────────
+
+#[test]
+fn format_eta_sub_minute() {
+    assert_eq!(format_eta(0), "0s");
+    assert_eq!(format_eta(1), "1s");
+    assert_eq!(format_eta(45), "45s");
+    assert_eq!(format_eta(59), "59s");
+}
+
+#[test]
+fn format_eta_minutes() {
+    assert_eq!(format_eta(60), "1m 00s");
+    assert_eq!(format_eta(90), "1m 30s");
+    assert_eq!(format_eta(150), "2m 30s");
+    assert_eq!(format_eta(3599), "59m 59s");
+}
+
+#[test]
+fn format_eta_hours() {
+    assert_eq!(format_eta(3600), "1h 00m");
+    assert_eq!(format_eta(3660), "1h 01m");
+    assert_eq!(format_eta(4320), "1h 12m");
+    assert_eq!(format_eta(7200), "2h 00m");
+}
+
+// ── session_eta ───────────────────────────────────────────────────────────────
+
+use crate::app::collection::CollectionPage;
+use std::time::{Duration, Instant};
+
+fn page_for_eta(bytes_done: u64, total_bytes: Option<u64>, elapsed: Duration) -> CollectionPage {
+    let mut page = CollectionPage::new(1, "test".to_string(), 1);
+    page.stats.bytes_downloaded = bytes_done;
+    page.stats.total_collection_bytes = total_bytes;
+    // Back-date the session start so elapsed matches what we intend.
+    page.session_start = Some(Instant::now() - elapsed);
+    page
+}
+
+/// No ETA when session start is not set.
+#[test]
+fn session_eta_none_when_no_start() {
+    let mut page = CollectionPage::new(1, "test".to_string(), 1);
+    page.stats.bytes_downloaded = 1024 * 1024;
+    page.stats.total_collection_bytes = Some(10 * 1024 * 1024);
+    assert!(session_eta(&page).is_none());
+}
+
+/// No ETA when elapsed < 1 s (too early to trust the average).
+#[test]
+fn session_eta_none_when_elapsed_under_1s() {
+    let page = page_for_eta(1024, Some(10 * 1024), Duration::from_millis(200));
+    assert!(session_eta(&page).is_none());
+}
+
+/// No ETA when no bytes have been downloaded yet.
+#[test]
+fn session_eta_none_when_zero_bytes() {
+    let page = page_for_eta(0, Some(10 * 1024 * 1024), Duration::from_secs(5));
+    assert!(session_eta(&page).is_none());
+}
+
+/// No ETA when total collection size is unknown.
+#[test]
+fn session_eta_none_when_no_total() {
+    let page = page_for_eta(1024 * 1024, None, Duration::from_secs(5));
+    assert!(session_eta(&page).is_none());
+}
+
+/// When downloaded >= total, remaining is 0 and ETA should be "0s".
+#[test]
+fn session_eta_zero_remaining_when_done() {
+    let total = 5 * 1024 * 1024u64;
+    let page = page_for_eta(total + 1024, Some(total), Duration::from_secs(10));
+    let (_, eta) = session_eta(&page).expect("should compute ETA");
+    assert_eq!(eta, "0s");
+}
+
+/// Happy path: reasonable speed and ETA strings are returned.
+#[test]
+fn session_eta_returns_speed_and_eta() {
+    // 50 MB downloaded in 10 s → 5 MB/s; 450 MB remaining → 90 s ETA.
+    // Use 50× to stay well above the KB/MB boundary regardless of timing jitter.
+    let mb = 1024 * 1024u64;
+    let page = page_for_eta(50 * mb, Some(500 * mb), Duration::from_secs(10));
+    let (speed, eta) = session_eta(&page).expect("should compute ETA");
+    assert!(speed.contains("MB/s"), "expected MB/s in speed: {speed:?}");
+    assert!(
+        eta.contains('m') || eta.contains('s'),
+        "expected time unit in eta: {eta:?}"
     );
 }

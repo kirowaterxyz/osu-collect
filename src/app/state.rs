@@ -893,6 +893,9 @@ impl App {
                     page.download_target = total_maps;
                     page.output_dir = Some(output_dir);
                     page.stage = DownloadStage::Downloading;
+                    if page.session_start.is_none() {
+                        page.session_start = Some(std::time::Instant::now());
+                    }
                     page.push_log("Collection fetched");
                 }
             }

@@ -303,6 +303,45 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     spans
 }
 
+/// Returns `(avg_speed_str, eta_str)` for the session gauge label, or `None`
+/// if there is not yet enough data (elapsed < 1s, no bytes downloaded, or no
+/// total size known).
+fn session_eta(page: &CollectionPage) -> Option<(String, String)> {
+    let start = page.session_start?;
+    let elapsed = start.elapsed();
+    if elapsed.as_secs_f64() < 1.0 {
+        return None;
+    }
+    let bytes_done = page.stats.bytes_downloaded;
+    if bytes_done == 0 {
+        return None;
+    }
+    let total = page.stats.total_collection_bytes?;
+    let speed = bytes_done as f64 / elapsed.as_secs_f64();
+    let remaining = total.saturating_sub(bytes_done);
+    let eta_secs = (remaining as f64 / speed) as u64;
+    let speed_str = format_bytes(speed as u64, "B/s");
+    let eta_str = format_eta(eta_secs);
+    Some((speed_str, eta_str))
+}
+
+/// Format a duration in seconds as a compact human label: `45s`, `2m 30s`, `1h 12m`.
+pub(crate) fn format_eta(secs: u64) -> String {
+    if secs < 60 {
+        let mut s = secs.to_string();
+        s.push('s');
+        s
+    } else if secs < 3600 {
+        let m = secs / 60;
+        let s = secs % 60;
+        format!("{m}m {s:02}s")
+    } else {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        format!("{h}h {m:02}m")
+    }
+}
+
 fn format_avg_verify(avg_us: u64) -> String {
     if avg_us < 1_000 {
         format!("{avg_us}us")
@@ -351,7 +390,10 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let top_title = if is_rechecking {
         format!(" rechecking {verified_display}/{total_collection} ")
     } else {
-        format!(" {downloaded} downloaded  {queue_remaining} queued ")
+        let eta_suffix = session_eta(page)
+            .map(|(speed, eta)| format!("  {speed}  ETA {eta}"))
+            .unwrap_or_default();
+        format!(" {downloaded} downloaded  {queue_remaining} queued{eta_suffix} ")
     };
     let verified_title = if let Some(avg_us) = page.avg_verify_us() {
         format!(

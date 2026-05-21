@@ -263,6 +263,9 @@ pub struct CollectionPage {
     pub indeterminate_anim_start: Cell<Option<u64>>,
     cached_cumulative_speed: Cell<f64>,
     last_speed_update: Cell<Option<Instant>>,
+    /// Instant when the first `DownloadStage::Downloading` entry occurred.
+    /// Set once on `CollectionReady`; never overwritten so retries don't reset the clock.
+    pub session_start: Option<Instant>,
 }
 
 impl CollectionPage {
@@ -297,6 +300,7 @@ impl CollectionPage {
             indeterminate_anim_start: Cell::new(None),
             cached_cumulative_speed: Cell::new(0.0),
             last_speed_update: Cell::new(None),
+            session_start: None,
         }
     }
 
