@@ -382,7 +382,7 @@ impl HomeTab {
             .count();
         let custom_count = usize::from(
             !self.custom_mirror.value.trim().is_empty()
-                && Mirror::custom(self.custom_mirror.value.trim()).is_ok(),
+                && Mirror::validate_template(self.custom_mirror.value.trim()).is_ok(),
         );
         builtin_count + custom_count
     }

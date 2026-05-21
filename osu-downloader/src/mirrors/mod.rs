@@ -155,9 +155,10 @@ impl Mirror {
     /// Custom mirror with a URL template.
     ///
     /// Template must contain `{id}` and start with `http://` or `https://`.
+    /// Use [`Mirror::validate_template`] to check a template without allocating.
     pub fn custom(template: impl Into<String>) -> Result<Self> {
         let template = template.into();
-        validate_template(&template)?;
+        Self::validate_template(&template)?;
         let split = SplitTemplate::new(&template);
         Ok(Self {
             kind: MirrorKind::Custom,
@@ -166,6 +167,31 @@ impl Mirror {
             headers: None,
             no_video: false,
         })
+    }
+
+    /// Validate a custom mirror URL template without constructing a [`Mirror`].
+    ///
+    /// The template must contain exactly one `{id}` placeholder and start with
+    /// `http://` or `https://`. Prefer this over [`Mirror::custom`] when only
+    /// checking validity (e.g. live input validation in a UI).
+    pub fn validate_template(template: &str) -> Result<()> {
+        match template.matches("{id}").count() {
+            0 => return Err(Error::mirror("Mirror URL must contain {id} placeholder")),
+            1 => {}
+            _ => {
+                return Err(Error::mirror(
+                    "Mirror URL must contain exactly one {id} placeholder",
+                ));
+            }
+        }
+
+        if !template.starts_with("http://") && !template.starts_with("https://") {
+            return Err(Error::mirror(
+                "Mirror URL must start with http:// or https://",
+            ));
+        }
+
+        Ok(())
     }
 
     /// Construct a built-in mirror from its [`MirrorKind`].
@@ -284,23 +310,3 @@ impl Mirror {
 #[cfg(test)]
 #[path = "../../tests/mirrors.rs"]
 mod tests;
-
-fn validate_template(template: &str) -> Result<()> {
-    match template.matches("{id}").count() {
-        0 => return Err(Error::mirror("Mirror URL must contain {id} placeholder")),
-        1 => {}
-        _ => {
-            return Err(Error::mirror(
-                "Mirror URL must contain exactly one {id} placeholder",
-            ));
-        }
-    }
-
-    if !template.starts_with("http://") && !template.starts_with("https://") {
-        return Err(Error::mirror(
-            "Mirror URL must start with http:// or https://",
-        ));
-    }
-
-    Ok(())
-}

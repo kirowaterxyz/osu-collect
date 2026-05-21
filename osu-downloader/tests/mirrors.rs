@@ -92,3 +92,44 @@ fn custom_mirror_rejects_multiple_id_placeholders() {
     // gives operators an early error instead of a malformed URL at request time.
     assert!(Mirror::custom("https://example.com/{id}/folder/{id}.osz").is_err());
 }
+
+#[test]
+fn validate_template_accepts_valid() {
+    assert!(Mirror::validate_template("https://example.com/dl/{id}").is_ok());
+    assert!(Mirror::validate_template("http://example.com/{id}").is_ok());
+}
+
+#[test]
+fn validate_template_rejects_missing_placeholder() {
+    assert!(Mirror::validate_template("https://example.com/dl/").is_err());
+}
+
+#[test]
+fn validate_template_rejects_multiple_placeholders() {
+    assert!(Mirror::validate_template("https://example.com/{id}/folder/{id}.osz").is_err());
+}
+
+#[test]
+fn validate_template_rejects_non_http_scheme() {
+    assert!(Mirror::validate_template("ftp://example.com/{id}").is_err());
+}
+
+#[test]
+fn validate_template_matches_custom_constructor() {
+    // validate_template and Mirror::custom must agree on every case.
+    let cases = [
+        "https://example.com/dl/{id}",
+        "http://example.com/{id}",
+        "https://example.com/dl/",
+        "ftp://example.com/{id}",
+        "https://example.com/{id}/folder/{id}.osz",
+        "",
+    ];
+    for template in cases {
+        assert_eq!(
+            Mirror::validate_template(template).is_ok(),
+            Mirror::custom(template).is_ok(),
+            "validate_template and Mirror::custom disagree for {template:?}"
+        );
+    }
+}
