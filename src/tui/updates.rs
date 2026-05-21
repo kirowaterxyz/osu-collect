@@ -42,6 +42,7 @@ const STATUS_NOT_INSTALLED: &str = "not installed";
 const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
 
 const COUNT_SUFFIX_MAPS: &str = "maps";
+const SUFFIX_SELECTED: &str = "selected";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     let block = widgets::panel_block(PANEL_TITLE);
@@ -96,7 +97,10 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
             if is_sel && focus == UpdatesField::Collections {
                 focused_index = items.len();
             }
-            items.push(collection_item(collection, is_sel));
+            let counts = collection
+                .collection_id
+                .map(|cid| count_selected(&form.selection.cached_missing_sets, cid));
+            items.push(collection_item(collection, is_sel, counts));
         }
     }
     items.push(widgets::spacer());
@@ -265,7 +269,11 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     )
 }
 
-fn collection_item(collection: &CollectionEntry, is_scroll_pos: bool) -> ListItem<'static> {
+fn collection_item(
+    collection: &CollectionEntry,
+    is_scroll_pos: bool,
+    missing_counts: Option<(usize, usize)>,
+) -> ListItem<'static> {
     let (marker, marker_style) = widgets::check_marker(collection.selected);
     let id = collection
         .collection_id
@@ -277,7 +285,7 @@ fn collection_item(collection: &CollectionEntry, is_scroll_pos: bool) -> ListIte
         Style::default().fg(text_muted())
     };
 
-    ListItem::new(Line::from(vec![
+    let mut spans = vec![
         indent_marker(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::styled(format!(" {id}"), Style::default().fg(text_faint())),
@@ -286,7 +294,31 @@ fn collection_item(collection: &CollectionEntry, is_scroll_pos: bool) -> ListIte
             format!("  {} {COUNT_SUFFIX_MAPS}", collection.beatmap_count),
             Style::default().fg(text_faint()),
         ),
-    ]))
+    ];
+
+    if let Some((n, total)) = missing_counts {
+        spans.push(Span::styled(
+            format!("  [{n}/{total} {SUFFIX_SELECTED}]"),
+            Style::default().fg(text_faint()),
+        ));
+    }
+
+    ListItem::new(Line::from(spans))
+}
+
+/// Returns `(n_selected, total)` for `cached` entries belonging to `collection_id`.
+pub(super) fn count_selected(cached: &[MissingBeatmapset], collection_id: u64) -> (usize, usize) {
+    let mut total = 0usize;
+    let mut selected = 0usize;
+    for beatmap in cached {
+        if beatmap.collection_id as u64 == collection_id {
+            total += 1;
+            if beatmap.selected {
+                selected += 1;
+            }
+        }
+    }
+    (selected, total)
 }
 
 fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
@@ -341,3 +373,7 @@ fn is_scanning(form: &UpdatesTab) -> bool {
             | ScanStatus::CheckingFailedMaps
     )
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/tui_updates.rs"]
+mod tests;
