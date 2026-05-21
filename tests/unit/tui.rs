@@ -71,7 +71,9 @@ fn config_render_scrolls_to_focused_logging_field() {
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::LoggingDirectory;
 
-    let output = render_app(&app, 40, 12);
+    // height=20 keeps the render in normal mode (content area > 12)
+    // so section headers are visible and the scroll-to-focus assertion holds.
+    let output = render_app(&app, 40, 20);
 
     assert!(output.contains("LOGGING"));
     assert!(output.contains("logs directory"));
@@ -1337,6 +1339,95 @@ fn updates_osu_path_help_hidden_when_not_focused() {
     assert!(
         !output.contains("must contain osu!.db"),
         "osu! path help must not appear when field is not focused: {output}"
+    );
+}
+
+// --- compact mode smoke tests ---
+// These verify that rendering at terminal height < 14 does not panic and
+// that the most-critical information is still visible.
+
+#[test]
+fn compact_home_renders_without_panic() {
+    let app = App::new(Config::default());
+    // total height 10 → content area 8 → compact path
+    let output = render_app(&app, 60, 10);
+    assert!(!output.is_empty(), "compact home must produce output");
+    // section header dividers must be absent (decorative chrome stripped)
+    assert!(
+        !output.contains("── collection") && !output.contains("── mirrors"),
+        "section header dividers must be hidden in compact home"
+    );
+}
+
+#[test]
+fn compact_home_shows_url_field_and_summary() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Collection;
+    let output = render_app(&app, 60, 10);
+    // The collection input label is always rendered
+    assert!(
+        output.contains("collection"),
+        "collection field must appear in compact home: {output}"
+    );
+}
+
+#[test]
+fn compact_download_renders_without_panic() {
+    let mut app = App::new(Config::default());
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 2);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 10;
+    page.download_target = 10;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let output = render_app(&app, 60, 10);
+    assert!(!output.is_empty(), "compact download must produce output");
+    // per-row breakdown is hidden, but active/failed counts must appear
+    assert!(
+        output.contains("active:"),
+        "compact download must show active count: {output}"
+    );
+    assert!(
+        output.contains("failed:"),
+        "compact download must show failed count: {output}"
+    );
+}
+
+#[test]
+fn compact_config_renders_without_panic() {
+    let mut app = App::new(Config::default());
+    app.active_tab = CONFIG_TAB_INDEX;
+    let output = render_app(&app, 60, 10);
+    assert!(!output.is_empty(), "compact config must produce output");
+    // section headers hidden
+    assert!(
+        !output.contains("DISPLAY"),
+        "section headers must be hidden in compact config"
+    );
+    // auth chip still visible
+    assert!(
+        output.contains("signed out")
+            || output.contains("signed in")
+            || output.contains("login unavailable"),
+        "auth chip must still appear in compact config: {output}"
+    );
+}
+
+#[test]
+fn compact_updates_renders_without_panic() {
+    use crate::config::constants::UPDATES_TAB_INDEX;
+
+    let mut app = App::new(Config::default());
+    app.active_tab = UPDATES_TAB_INDEX;
+    let output = render_app(&app, 60, 10);
+    assert!(!output.is_empty(), "compact updates must produce output");
+    // source/missing sections are hidden
+    assert!(
+        !output.contains("SOURCE"),
+        "source section header must be hidden in compact updates"
     );
 }
 

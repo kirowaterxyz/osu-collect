@@ -20,6 +20,9 @@ use super::{accent, accent_alt, focused_label, text, text_dim, text_faint, text_
 
 const PANEL_TITLE: &str = " UPDATES ";
 
+/// Minimum content-area height before switching to compact layout.
+const COMPACT_HEIGHT: u16 = 12;
+
 const SECTION_SOURCE: &str = "source";
 const SECTION_COLLECTIONS: &str = "collections";
 const SECTION_MISSING: &str = "missing beatmaps";
@@ -54,10 +57,53 @@ const DIFF_SUFFIX_REMOVED: &str = "removed";
 const DIFF_SEPARATOR: &str = ", ";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
+    if area.height < COMPACT_HEIGHT {
+        render_compact(frame, area, form);
+        return;
+    }
+
     let block = widgets::panel_block(PANEL_TITLE);
     let inner = block.inner(area);
 
     let (items, focused_index) = build_items(form);
+    let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
+    let block = match widgets::scroll_indicator(start, end, items.len()) {
+        Some(span) => block.title_top(Line::from(span).right_aligned()),
+        None => block,
+    };
+    frame.render_widget(block, area);
+
+    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
+    frame.render_widget(list, inner);
+}
+
+/// Compact render: collection list with `[selected] name (+N -M)`.
+///
+/// Inline beatmap list, sort label, and help text are hidden.
+fn render_compact(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
+    let block = widgets::panel_block(PANEL_TITLE);
+    let inner = block.inner(area);
+
+    let selected_idx = form.selection.collections_state.unwrap_or(0);
+    let items: Vec<ListItem<'static>> = form
+        .selection
+        .local_collections
+        .iter()
+        .enumerate()
+        .map(|(i, collection)| {
+            let is_sel = i == selected_idx && form.selection.in_collection_list;
+            let counts = collection
+                .collection_id
+                .map(|cid| count_selected(&form.selection.cached_missing_sets, cid));
+            collection_item(collection, is_sel, counts)
+        })
+        .collect();
+
+    let focused_index = if form.selection.in_collection_list {
+        selected_idx
+    } else {
+        0
+    };
     let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
     let block = match widgets::scroll_indicator(start, end, items.len()) {
         Some(span) => block.title_top(Line::from(span).right_aligned()),

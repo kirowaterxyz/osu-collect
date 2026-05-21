@@ -67,7 +67,17 @@ const RESULTS_OUTRO_2: &str = "and leave a star while you're at it :3";
 const LOW_DISK_PREFIX: &str = " low disk space: ";
 const LOW_DISK_SUFFIX: &str = " available";
 
+/// Minimum content-area height before switching to compact layout.
+const COMPACT_HEIGHT: u16 = 12;
+
+const COMPACT_ACTIVE: &str = "active: ";
+const COMPACT_FAILED: &str = " failed: ";
+
 pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
+    if area.height < COMPACT_HEIGHT {
+        render_compact(frame, area, page, tick);
+        return;
+    }
     let show_disk_warning = should_render_disk_warning(page);
 
     let sections = match show_disk_warning {
@@ -93,6 +103,39 @@ pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
     render_info(frame, sections[idx], page);
     render_gauge(frame, sections[idx + 1], page, tick);
     render_threads(frame, sections[idx + 2], page);
+}
+
+/// Compact render: overall gauge + active-download count + failed count.
+///
+/// Per-row breakdown, failed-maps collapsible, and session ETA are hidden.
+/// The gauge alone tells the user "is it making progress."
+fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
+    let sections = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
+    render_gauge(frame, sections[0], page, tick);
+
+    let active_count = page
+        .active_downloads
+        .iter()
+        .flatten()
+        .filter(|l| !l.stage.is_terminal())
+        .count();
+    let failed = page.stats.failed;
+
+    let key_style = Style::default().fg(text_faint());
+    let line = Line::from(vec![
+        Span::styled(COMPACT_ACTIVE, key_style),
+        Span::styled(active_count.to_string(), Style::default().fg(text_muted())),
+        Span::styled(COMPACT_FAILED, key_style),
+        Span::styled(
+            failed.to_string(),
+            if failed > 0 {
+                Style::default().fg(danger())
+            } else {
+                Style::default().fg(text_muted())
+            },
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), sections[1]);
 }
 
 fn should_render_disk_warning(page: &CollectionPage) -> bool {

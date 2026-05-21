@@ -22,6 +22,9 @@ use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " CONFIG ";
 
+/// Minimum content-area height before switching to compact layout.
+const COMPACT_HEIGHT: u16 = 12;
+
 const TOP_BANNER: &str = "default settings and config options";
 
 const SECTION_DISPLAY: &str = "display";
@@ -60,6 +63,11 @@ const HELP_RETRY_FAILED: &str =
     "ask: prompt before each download · yes: always retry · no: never retry";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
+    if area.height < COMPACT_HEIGHT {
+        render_compact(frame, area, form);
+        return;
+    }
+
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -154,6 +162,111 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_LOGGING));
+    items.push_focusable(
+        ConfigField::LoggingEnabled,
+        widgets::row_item(
+            LABEL_LOGGING_ENABLED,
+            Some(bool_label(form.logging_enabled)),
+            form.logging_enabled,
+            focus == ConfigField::LoggingEnabled,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::LoggingLevel,
+        widgets::cycle_item(
+            LABEL_LOGGING_LEVEL,
+            LOG_LEVELS,
+            log_level_label(form.logging_level),
+            focus == ConfigField::LoggingLevel,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::LoggingFormat,
+        widgets::cycle_item(
+            LABEL_LOGGING_FORMAT,
+            LOG_FORMATS,
+            log_format_label(form.logging_format),
+            focus == ConfigField::LoggingFormat,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::LoggingDirectory,
+        widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
+    );
+
+    let (items, focused_index) = items.into_parts();
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+}
+
+/// Compact render: auth chip + flat field list, no section headers, no help lines.
+///
+/// All fields remain focusable and navigable; only the decorative chrome is stripped.
+fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) {
+    let focus = form.focus;
+    let mut items = widgets::FormItems::new(focus);
+
+    items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
+
+    items.push_focusable(
+        ConfigField::Theme,
+        widgets::cycle_item(
+            LABEL_THEME,
+            THEME_MODE_LABELS,
+            theme_mode_label(form.theme),
+            focus == ConfigField::Theme,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadThreads,
+        widgets::stepper_item(
+            form.threads.label,
+            form.resolved_threads(),
+            form.default_threads,
+            focus == ConfigField::DownloadThreads,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadNoVideo,
+        widgets::row_item(
+            LABEL_SKIP_VIDEOS,
+            Some(bool_label(form.no_video)),
+            form.no_video,
+            focus == ConfigField::DownloadNoVideo,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadArchiveValidation,
+        widgets::cycle_item(
+            LABEL_VERIFY_INTEGRITY,
+            ARCHIVE_VALIDATION_LABELS,
+            archive_validation_label(form.archive_validation),
+            focus == ConfigField::DownloadArchiveValidation,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::RetryFailedOnDownload,
+        widgets::cycle_item(
+            LABEL_RETRY_FAILED,
+            RETRY_FAILED_LABELS,
+            retry_failed_label(form.retry_failed_on_download),
+            focus == ConfigField::RetryFailedOnDownload,
+        ),
+    );
+    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip([
+        (ConfigField::MirrorOsuDirect, form.osu_direct),
+        (ConfigField::MirrorNerinyan, form.nerinyan),
+        (ConfigField::MirrorSayobot, form.sayobot),
+        (ConfigField::MirrorNekoha, form.nekoha),
+    ]) {
+        items.push_focusable(
+            field,
+            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
+        );
+    }
+    items.push_focusable(
+        ConfigField::MirrorCustomUrl,
+        widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
+    );
     items.push_focusable(
         ConfigField::LoggingEnabled,
         widgets::row_item(

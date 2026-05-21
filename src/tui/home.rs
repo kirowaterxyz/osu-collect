@@ -23,6 +23,9 @@ const SECTION_COLLECTION: &str = "collection";
 const SECTION_MIRRORS: &str = "mirrors";
 const SECTION_DOWNLOAD: &str = "download";
 
+/// Minimum content-area height before switching to compact layout.
+const COMPACT_HEIGHT: u16 = 12;
+
 const LABEL_OVERWRITE: &str = "overwrite existing";
 const LABEL_NO_VIDEO: &str = "no video";
 
@@ -30,6 +33,11 @@ const METRIC_THREADS: &str = "threads";
 const METRIC_MIRRORS: &str = "mirrors";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, banners: &[Banner]) {
+    if area.height < COMPACT_HEIGHT {
+        render_compact(frame, area, form);
+        return;
+    }
+
     let (banner_area, content_area) = split_banner_area(area, banners);
     render_banners(frame, banner_area, banners);
     render_content(frame, content_area, form);
@@ -37,6 +45,88 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, banners: &[Banner])
     if form.dropdown_open && !form.url_history.entries.is_empty() {
         render_url_dropdown(frame, content_area, form);
     }
+}
+
+/// Compact render: all focusable fields without section headers, spacers, or help lines.
+///
+/// Navigation is identical to normal mode — the full `HOME_FIELDS` cycle still applies.
+/// Only decorative chrome is stripped to reclaim vertical space.
+fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) {
+    let focus = form.focus;
+    let mut items = widgets::FormItems::new(focus);
+
+    items.push_focusable(
+        HomeField::Collection,
+        widgets::input_item(&form.collection, focus == HomeField::Collection),
+    );
+    if let Some((state, text)) = &form.collection_resolve {
+        items.push(resolve_row(*state, text));
+    }
+    items.push_focusable(
+        HomeField::Directory,
+        widgets::input_item(&form.directory, focus == HomeField::Directory),
+    );
+
+    items.push_focusable(
+        HomeField::CustomMirror,
+        widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
+    );
+
+    let mirror_states = [
+        (HomeField::MirrorOsuDirect, form.osu_direct),
+        (HomeField::MirrorNerinyan, form.nerinyan),
+        (HomeField::MirrorSayobot, form.sayobot),
+        (HomeField::MirrorNekoha, form.nekoha),
+    ];
+    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
+        let latency = form.mirror_latency.get(kind).copied();
+        items.push_focusable(
+            field,
+            mirror_row_item(
+                mirror_label(*kind),
+                kind.host(),
+                on,
+                focus == field,
+                latency,
+            ),
+        );
+    }
+
+    items.push_focusable(
+        HomeField::Threads,
+        widgets::stepper_item(
+            form.threads.label,
+            form.resolved_threads(),
+            form.default_threads,
+            focus == HomeField::Threads,
+        ),
+    );
+    items.push_focusable(
+        HomeField::AutoOverwrite,
+        widgets::row_item(
+            LABEL_OVERWRITE,
+            None,
+            form.auto_overwrite,
+            focus == HomeField::AutoOverwrite,
+        ),
+    );
+    items.push_focusable(
+        HomeField::NoVideo,
+        widgets::row_item(
+            LABEL_NO_VIDEO,
+            None,
+            form.no_video,
+            focus == HomeField::NoVideo,
+        ),
+    );
+
+    items.push(widgets::summary_item(&[
+        Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
+        Metric::accent(METRIC_MIRRORS, form.build_mirror_list().len().to_string()),
+    ]));
+
+    let (items, focused_index) = items.into_parts();
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
 }
 
 fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
