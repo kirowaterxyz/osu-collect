@@ -7,6 +7,14 @@ use crate::{
 };
 use std::{env, str::FromStr};
 
+/// Indicates what the collection-resolve row should look like.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolveState {
+    Loading,
+    Success,
+    Error,
+}
+
 #[derive(Debug, Clone)]
 pub struct InputField {
     pub label: &'static str,
@@ -66,6 +74,9 @@ pub struct HomeTab {
     pub no_video: bool,
     pub focus: HomeField,
     pub message: Option<AppMessage>,
+    /// Resolve status shown below the collection URL field.
+    /// Unlike `message`, this is not TTL-expired; it persists until the field changes.
+    pub collection_resolve: Option<(ResolveState, String)>,
     pub quit_prompt: bool,
     default_threads: u8,
     default_directory: String,
@@ -127,10 +138,19 @@ impl HomeTab {
             no_video: config.download.no_video,
             focus: HomeField::Collection,
             message: None,
+            collection_resolve: None,
             quit_prompt: false,
             default_threads,
             default_directory,
         }
+    }
+
+    pub fn clear_collection_resolve(&mut self) {
+        self.collection_resolve = None;
+    }
+
+    pub fn set_collection_resolve(&mut self, state: ResolveState, text: impl Into<String>) {
+        self.collection_resolve = Some((state, text.into()));
     }
 
     pub fn next_field(&mut self) {

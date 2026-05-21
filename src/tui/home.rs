@@ -1,8 +1,14 @@
-use crate::app::{HomeField, HomeTab};
-use ratatui::{Frame, layout::Rect};
+use crate::app::{HomeField, HomeTab, ResolveState};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::Style,
+    text::{Line, Span},
+    widgets::ListItem,
+};
 
 use super::widgets::{self, Metric};
-use super::{HELP_CUSTOM_MIRROR, mirror_label};
+use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_faint, text_muted};
 use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
@@ -26,6 +32,9 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
         HomeField::Collection,
         widgets::input_item(&form.collection, focus == HomeField::Collection),
     );
+    if let Some((state, text)) = &form.collection_resolve {
+        items.push(resolve_row(*state, text));
+    }
     items.push_focusable(
         HomeField::Directory,
         widgets::input_item(&form.directory, focus == HomeField::Directory),
@@ -85,4 +94,20 @@ pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+}
+
+const RESOLVE_PREFIX: &str = "  └ ";
+const RESOLVE_ARROW: &str = "→ ";
+
+fn resolve_row(state: ResolveState, text: &str) -> ListItem<'static> {
+    let (arrow_color, text_color) = match state {
+        ResolveState::Loading => (text_muted(), text_faint()),
+        ResolveState::Success => (success(), text_faint()),
+        ResolveState::Error => (danger(), danger()),
+    };
+    ListItem::new(Line::from(vec![
+        Span::styled(RESOLVE_PREFIX, Style::default().fg(text_faint())),
+        Span::styled(RESOLVE_ARROW, Style::default().fg(arrow_color)),
+        Span::styled(text.to_string(), Style::default().fg(text_color)),
+    ]))
 }

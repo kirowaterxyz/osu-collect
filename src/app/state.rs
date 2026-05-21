@@ -62,6 +62,10 @@ pub enum AppCommand {
     Logout,
     ScanLocalDatabase,
     RecheckFailedMaps,
+    /// Collection URL field changed; schedule a debounced metadata resolve.
+    ResolveCollectionUrl {
+        value: String,
+    },
     Quit,
 }
 
@@ -354,6 +358,31 @@ impl App {
         Some((id, request))
     }
 
+    /// Run `mutate` against the home form, then — only when focus is the
+    /// collection field AND its value actually changed — return a
+    /// `ResolveCollectionUrl` command carrying the new value.
+    ///
+    /// No-op keystrokes (backspace on an empty field, digits typed into the
+    /// threads input) thus do not spawn a wasted resolve task.
+    fn mutate_collection_then_resolve(
+        &mut self,
+        mutate: impl FnOnce(&mut HomeTab),
+    ) -> Option<AppCommand> {
+        let before = if self.home.focus == HomeField::Collection {
+            Some(self.home.collection.value.clone())
+        } else {
+            None
+        };
+        mutate(&mut self.home);
+        let before = before?;
+        if self.home.focus != HomeField::Collection || self.home.collection.value == before {
+            return None;
+        }
+        Some(AppCommand::ResolveCollectionUrl {
+            value: self.home.collection.value.clone(),
+        })
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<AppCommand> {
         // ctrl+c always quits unconditionally
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -483,8 +512,10 @@ impl App {
                             | HomeField::NoVideo
                     ) {
                         self.home.toggle_current();
-                    } else {
-                        self.home.handle_char(' ');
+                    } else if let Some(cmd) =
+                        self.mutate_collection_then_resolve(|h| h.handle_char(' '))
+                    {
+                        return Some(cmd);
                     }
                 }
                 UPDATES_TAB_INDEX => match self.updates.toggle_current() {
@@ -502,7 +533,11 @@ impl App {
                 _ => {}
             },
             KeyCode::Char(ch) => match self.active_tab() {
-                HOME_TAB_INDEX => self.home.handle_char(ch),
+                HOME_TAB_INDEX => {
+                    if let Some(cmd) = self.mutate_collection_then_resolve(|h| h.handle_char(ch)) {
+                        return Some(cmd);
+                    }
+                }
                 UPDATES_TAB_INDEX => {
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
@@ -528,7 +563,11 @@ impl App {
                 _ => {}
             },
             KeyCode::Backspace => match self.active_tab() {
-                HOME_TAB_INDEX => self.home.backspace(),
+                HOME_TAB_INDEX => {
+                    if let Some(cmd) = self.mutate_collection_then_resolve(HomeTab::backspace) {
+                        return Some(cmd);
+                    }
+                }
                 UPDATES_TAB_INDEX => self.updates.backspace(),
                 CONFIG_TAB_INDEX => self.config.backspace(),
                 _ => {}

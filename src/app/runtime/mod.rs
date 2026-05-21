@@ -1,4 +1,5 @@
 mod auth;
+mod resolve;
 mod scan;
 
 pub use scan::{
@@ -6,6 +7,8 @@ pub use scan::{
     fetch_missing_beatmapsets, manually_added_count, read_local_database,
     should_hide_failed_beatmapset, snapshot_diffs_for_scan,
 };
+
+pub use resolve::{HomeResolveEvent, handle_home_resolve_event};
 
 use super::{
     App, AppCommand,
@@ -24,6 +27,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
 use auth::{AuthEvent, handle_auth_event, spawn_login_task, spawn_logout_task};
+use resolve::schedule_resolve;
 use scan::{handle_updates_event, spawn_failed_map_recheck_task, spawn_scan_task};
 
 pub async fn run(
@@ -53,11 +57,17 @@ pub async fn run(
     let (updates_tx, mut updates_rx) = mpsc::unbounded_channel::<UpdatesEvent>();
     let (auth_tx, mut auth_rx) = mpsc::unbounded_channel::<AuthEvent>();
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<InputEvent>();
+    let (home_resolve_tx, mut home_resolve_rx) = mpsc::unbounded_channel::<HomeResolveEvent>();
     let input_handle = spawn_input_thread(input_tx.clone());
 
     let mut should_quit = false;
     let mut active_downloads: HashMap<DownloadId, DownloadHandle> = HashMap::new();
-    let mut login_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut tasks = BackgroundTasks {
+        login: None,
+        resolve: None,
+        resolve_cancel: None,
+        home_resolve_tx,
+    };
 
     while !should_quit {
         terminal.draw(|f| draw(f, &app))?;
@@ -83,7 +93,7 @@ pub async fn run(
             Some(event) = auth_rx.recv() => {
                 trace!(?event, "Received auth event");
                 if matches!(event, AuthEvent::LoginComplete(_)) {
-                    login_task = None;
+                    tasks.login = None;
                 }
                 handle_auth_event(event, &mut app);
             }
@@ -96,14 +106,21 @@ pub async fn run(
                     &updates_tx,
                     &auth_tx,
                     &mut active_downloads,
-                    &mut login_task,
+                    &mut tasks,
                 );
+            }
+            Some(event) = home_resolve_rx.recv() => {
+                trace!(?event, "Received home resolve event");
+                handle_home_resolve_event(event, &mut app.home);
             }
             else => break,
         }
     }
 
-    if let Some(handle) = login_task.take() {
+    if let Some(handle) = tasks.login.take() {
+        handle.abort();
+    }
+    if let Some(handle) = tasks.resolve.take() {
         handle.abort();
     }
 
@@ -133,18 +150,12 @@ fn handle_input(
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
     auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
-    login_task: &mut Option<tokio::task::JoinHandle<()>>,
+    tasks: &mut BackgroundTasks,
 ) -> bool {
     match input {
-        InputEvent::Key(key) => handle_key_event(
-            key,
-            app,
-            download_tx,
-            updates_tx,
-            auth_tx,
-            downloads,
-            login_task,
-        ),
+        InputEvent::Key(key) => {
+            handle_key_event(key, app, download_tx, updates_tx, auth_tx, downloads, tasks)
+        }
         InputEvent::Resize => false,
         InputEvent::Tick => {
             app.clear_expired_messages();
@@ -160,7 +171,7 @@ fn handle_key_event(
     updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
     auth_tx: &mpsc::UnboundedSender<AuthEvent>,
     downloads: &mut HashMap<DownloadId, DownloadHandle>,
-    login_task: &mut Option<tokio::task::JoinHandle<()>>,
+    tasks: &mut BackgroundTasks,
 ) -> bool {
     trace!(?key, "Handling key event");
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -200,19 +211,27 @@ fn handle_key_event(
             client_id,
             client_secret,
         }) => {
-            if let Some(prev) = login_task.take() {
+            if let Some(prev) = tasks.login.take() {
                 prev.abort();
             }
-            *login_task = Some(spawn_login_task(client_id, client_secret, auth_tx.clone()));
+            tasks.login = Some(spawn_login_task(client_id, client_secret, auth_tx.clone()));
         }
         Some(AppCommand::CancelLogin) => {
-            if let Some(handle) = login_task.take() {
+            if let Some(handle) = tasks.login.take() {
                 handle.abort();
                 info!("Login cancelled by user");
             }
         }
         Some(AppCommand::Logout) => {
             spawn_logout_task(auth_tx.clone());
+        }
+        Some(AppCommand::ResolveCollectionUrl { value }) => {
+            schedule_resolve(
+                &value,
+                &mut tasks.resolve,
+                &mut tasks.resolve_cancel,
+                &tasks.home_resolve_tx,
+            );
         }
         Some(AppCommand::ScanLocalDatabase) => {
             spawn_scan_task(app, updates_tx.clone());
@@ -296,4 +315,12 @@ pub enum InputEvent {
     Key(KeyEvent),
     Resize,
     Tick,
+}
+
+/// Background task handles and their associated channels, kept by the runtime loop.
+struct BackgroundTasks {
+    login: Option<tokio::task::JoinHandle<()>>,
+    resolve: Option<tokio::task::JoinHandle<()>>,
+    resolve_cancel: Option<tokio::sync::watch::Sender<bool>>,
+    home_resolve_tx: mpsc::UnboundedSender<HomeResolveEvent>,
 }

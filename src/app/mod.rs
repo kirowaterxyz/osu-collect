@@ -13,7 +13,7 @@ pub mod updates;
 
 pub use collection::{ActiveDownloadLine, CollectionPage};
 pub use config::{AuthLoginState, ConfigField, ConfigTab};
-pub use home::{HomeField, HomeTab, InputField};
+pub use home::{HomeField, HomeTab, InputField, ResolveState};
 pub use messages::MessageKind;
 pub use runtime::run as run_app;
 pub use state::{App, AppCommand};

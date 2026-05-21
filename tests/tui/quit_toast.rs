@@ -88,8 +88,8 @@ fn any_char_key_clears_toast_without_quitting() {
     let cmd = app.handle_key(press(KeyCode::Char('a')));
     assert!(!app.home.quit_prompt, "non-quit key must clear the toast");
     assert!(
-        cmd.is_none(),
-        "non-quit key after toast must not issue a quit command"
+        !matches!(cmd, Some(AppCommand::Quit)),
+        "non-quit key after toast must not quit: {cmd:?}"
     );
 }
 
