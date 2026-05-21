@@ -13,7 +13,7 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    accent, danger, info, line_soft, spinner_char, text_dim, text_faint, text_muted, warning,
+    accent, danger, info, line_soft, spinner_str, text_dim, text_faint, text_muted, warning,
 };
 
 const HINT_SEPARATOR: &str = "  ·  ";
@@ -156,16 +156,13 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     let text = msg.text.trim_start().to_string();
     let muted = Style::default().fg(text_muted());
     match msg.kind {
-        MessageKind::Loading => {
-            let frame_char = spinner_char(tick);
-            Line::from(vec![
-                Span::styled(
-                    format!(" {frame_char} "),
-                    Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(text, muted),
-            ])
-        }
+        MessageKind::Loading => Line::from(vec![
+            Span::styled(
+                spinner_str(tick),
+                Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(text, muted),
+        ]),
         MessageKind::Info => Line::from(vec![
             Span::raw(" "),
             widgets::status_pill(PILL_INFO, info()),

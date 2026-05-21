@@ -152,10 +152,12 @@ fn should_render_disk_warning(page: &CollectionPage) -> bool {
 
 fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(available) = page.low_disk_space {
-        let text = format!(
-            "{LOW_DISK_PREFIX}{}{LOW_DISK_SUFFIX}",
-            format_bytes(available, "B")
-        );
+        let bytes = format_bytes(available, "B");
+        let mut text =
+            String::with_capacity(LOW_DISK_PREFIX.len() + bytes.len() + LOW_DISK_SUFFIX.len());
+        text.push_str(LOW_DISK_PREFIX);
+        text.push_str(&bytes);
+        text.push_str(LOW_DISK_SUFFIX);
         frame.render_widget(
             Paragraph::new(text).style(Style::default().fg(warning())),
             area,

@@ -371,6 +371,22 @@ impl HomeTab {
         }
     }
 
+    /// Count of enabled mirrors without allocating a `Vec`.
+    ///
+    /// Use this for display-only contexts (e.g. the summary metric in the TUI).
+    /// Call `build_mirror_list` when the actual list of mirrors is needed.
+    pub fn mirror_count(&self) -> usize {
+        let builtin_count = [self.nerinyan, self.osu_direct, self.sayobot, self.nekoha]
+            .iter()
+            .filter(|&&enabled| enabled)
+            .count();
+        let custom_count = usize::from(
+            !self.custom_mirror.value.trim().is_empty()
+                && Mirror::custom(self.custom_mirror.value.trim()).is_ok(),
+        );
+        builtin_count + custom_count
+    }
+
     pub fn build_mirror_list(&self) -> Vec<Mirror> {
         let builtin_checks: &[(bool, MirrorKind)] = &[
             (self.nerinyan, MirrorKind::Nerinyan),

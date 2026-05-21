@@ -128,8 +128,24 @@ pub(crate) fn bg_raised() -> Color {
 
 pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+/// Spinner frames pre-padded with a leading and trailing space.
+///
+/// Use `spinner_str` when the frame is the only content in a span — no
+/// `format!` needed, zero allocation.
+pub const SPINNER_FRAMES_PADDED: [&str; 10] = [
+    " ⠋ ", " ⠙ ", " ⠹ ", " ⠸ ", " ⠼ ", " ⠴ ", " ⠦ ", " ⠧ ", " ⠇ ", " ⠏ ",
+];
+
 pub fn spinner_char(tick: u64) -> char {
     SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()]
+}
+
+/// Returns the current spinner frame pre-padded as `&'static str`.
+///
+/// Use this when the frame is the only content in a span to avoid allocating.
+/// When embedding in a larger `format!` string, use `spinner_char` instead.
+pub fn spinner_str(tick: u64) -> &'static str {
+    SPINNER_FRAMES_PADDED[tick as usize % SPINNER_FRAMES_PADDED.len()]
 }
 
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";
