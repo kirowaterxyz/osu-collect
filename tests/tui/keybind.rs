@@ -199,7 +199,7 @@ fn enter_on_config_login_triggers_login_attempt() {
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
-    app.config.focus = ConfigField::LoginEntry;
+    app.config.focus = ConfigField::AuthChip;
 
     // enter must reach the login request path (command depends on bundled creds)
     let cmd = app.handle_key(press(KeyCode::Enter));
@@ -213,7 +213,7 @@ fn enter_on_config_login_triggers_login_attempt() {
 }
 
 #[test]
-fn space_on_config_login_does_nothing() {
+fn space_on_auth_chip_does_nothing() {
     use osu_collect::app::ConfigField;
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
@@ -221,13 +221,13 @@ fn space_on_config_login_does_nothing() {
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
-    app.config.focus = ConfigField::LoginEntry;
+    app.config.focus = ConfigField::AuthChip;
 
-    // space must no longer trigger login — enter is the confirm key
+    // space must not trigger any action on the chip — enter is the confirm key
     let cmd = app.handle_key(press(KeyCode::Char(' ')));
     assert!(
         cmd.is_none(),
-        "space on login entry must not issue any command"
+        "space on auth chip must not issue any command"
     );
 }
 

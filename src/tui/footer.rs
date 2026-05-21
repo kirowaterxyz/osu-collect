@@ -129,7 +129,7 @@ fn updates_hint(form: &UpdatesTab) -> String {
 fn config_hint(focus: ConfigField) -> String {
     let mut segments = vec![HINT_MOVE];
     match focus {
-        ConfigField::LoginEntry | ConfigField::LogoutEntry => segments.push(HINT_ENTER_CONFIRM),
+        ConfigField::AuthChip => segments.push(HINT_ENTER_CONFIRM),
         field if field.is_stepper() => segments.push(HINT_PLUS_MINUS),
         field if field.is_text_input() => segments.push(HINT_ESC_BACK),
         _ => segments.push(HINT_SPACE_TOGGLE),

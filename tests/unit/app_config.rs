@@ -1,4 +1,4 @@
-use super::{AuthLoginState, ConfigField, ConfigTab};
+use super::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
 use crate::app::messages::{MessageKind, set_info_message};
 use crate::config::Config;
 use crate::download::ArchiveValidation;
@@ -76,13 +76,11 @@ fn logout_loading_message_does_not_expire() {
 }
 
 #[test]
-fn next_field_cycles_through_login_entries() {
+fn next_field_cycles_through_auth_chip() {
     let mut tab = tab_logged_in();
     tab.focus = ConfigField::LoggingDirectory;
     tab.next_field();
-    assert_eq!(tab.focus, ConfigField::LoginEntry);
-    tab.next_field();
-    assert_eq!(tab.focus, ConfigField::LogoutEntry);
+    assert_eq!(tab.focus, ConfigField::AuthChip);
     tab.next_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.next_field();
@@ -90,53 +88,63 @@ fn next_field_cycles_through_login_entries() {
 }
 
 #[test]
-fn prev_field_cycles_through_login_entries() {
+fn prev_field_cycles_through_auth_chip() {
     let mut tab = tab_logged_in();
     tab.focus = ConfigField::DownloadThreads;
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.prev_field();
-    assert_eq!(tab.focus, ConfigField::LogoutEntry);
-    tab.prev_field();
-    assert_eq!(tab.focus, ConfigField::LoginEntry);
+    assert_eq!(tab.focus, ConfigField::AuthChip);
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::LoggingDirectory);
 }
 
 #[test]
-fn next_field_skips_logout_when_logged_out() {
+fn auth_chip_present_when_logged_out() {
     let mut tab = tab_logged_out();
-    tab.focus = ConfigField::LoginEntry;
+    tab.focus = ConfigField::AuthChip;
     tab.next_field();
     assert_eq!(tab.focus, ConfigField::Theme);
-}
-
-#[test]
-fn prev_field_skips_logout_when_logged_out() {
-    let mut tab = tab_logged_out();
-    tab.focus = ConfigField::Theme;
     tab.prev_field();
-    assert_eq!(tab.focus, ConfigField::LoginEntry);
-}
-
-#[test]
-fn logout_evacuates_focus_when_logging_out() {
-    let mut tab = tab_logged_in();
-    tab.focus = ConfigField::LogoutEntry;
-    tab.set_logged_out();
-    assert_eq!(tab.focus, ConfigField::LoginEntry);
+    assert_eq!(tab.focus, ConfigField::AuthChip);
 }
 
 #[test]
 fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
-    // Logged-in field count must match `LOGGED_IN_CONFIG_FIELDS`.
-    let total = 16;
+    // Field count must match `ALL_CONFIG_FIELDS`.
+    let total = 15;
     for _ in 0..total {
         tab.next_field();
     }
     assert_eq!(tab.focus, start, "next_field must complete a full cycle");
+}
+
+#[test]
+fn chip_action_is_login_when_logged_out() {
+    let tab = tab_logged_out();
+    assert_eq!(tab.chip_action(), ChipAction::Login);
+}
+
+#[test]
+fn chip_action_is_logout_when_logged_in() {
+    let tab = tab_logged_in();
+    assert_eq!(tab.chip_action(), ChipAction::Logout);
+}
+
+#[test]
+fn chip_action_is_cancel_during_login_flow() {
+    let mut tab = tab_logged_out();
+    tab.set_login_in_progress();
+    assert_eq!(tab.chip_action(), ChipAction::Cancel);
+}
+
+#[test]
+fn chip_action_is_cancel_with_step_text() {
+    let mut tab = tab_logged_out();
+    tab.set_loading("opening browser...");
+    assert_eq!(tab.chip_action(), ChipAction::Cancel);
 }
 
 #[test]

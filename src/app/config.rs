@@ -23,16 +23,23 @@ pub enum AuthLoginState {
     LoggedIn,
 }
 
+/// Action the auth chip's enter key triggers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipAction {
+    Login,
+    Cancel,
+    Logout,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
+    AuthChip,
     Theme,
     MirrorNerinyan,
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
     MirrorCustomUrl,
-    LoginEntry,
-    LogoutEntry,
     DownloadThreads,
     DownloadNoVideo,
     DownloadArchiveValidation,
@@ -43,27 +50,8 @@ pub enum ConfigField {
     LoggingDirectory,
 }
 
-const LOGGED_IN_CONFIG_FIELDS: &[ConfigField] = &[
-    ConfigField::LoginEntry,
-    ConfigField::LogoutEntry,
-    ConfigField::Theme,
-    ConfigField::DownloadThreads,
-    ConfigField::DownloadNoVideo,
-    ConfigField::DownloadArchiveValidation,
-    ConfigField::RetryFailedOnDownload,
-    ConfigField::MirrorOsuDirect,
-    ConfigField::MirrorNerinyan,
-    ConfigField::MirrorSayobot,
-    ConfigField::MirrorNekoha,
-    ConfigField::MirrorCustomUrl,
-    ConfigField::LoggingEnabled,
-    ConfigField::LoggingLevel,
-    ConfigField::LoggingFormat,
-    ConfigField::LoggingDirectory,
-];
-
-const LOGGED_OUT_CONFIG_FIELDS: &[ConfigField] = &[
-    ConfigField::LoginEntry,
+const ALL_CONFIG_FIELDS: &[ConfigField] = &[
+    ConfigField::AuthChip,
     ConfigField::Theme,
     ConfigField::DownloadThreads,
     ConfigField::DownloadNoVideo,
@@ -135,20 +123,18 @@ impl ConfigTab {
             logging_format: config.logging.format,
             logging_dir: logging_dir_field(&config.logging),
             theme: config.display.theme,
-            focus: ConfigField::LoginEntry,
+            focus: ConfigField::AuthChip,
             message: None,
             default_threads: default_threads(),
         }
     }
 
     pub fn next_field(&mut self) {
-        let fields = self.fields();
-        self.focus = next_field(fields, self.focus);
+        self.focus = next_field(ALL_CONFIG_FIELDS, self.focus);
     }
 
     pub fn prev_field(&mut self) {
-        let fields = self.fields();
-        self.focus = prev_field(fields, self.focus);
+        self.focus = prev_field(ALL_CONFIG_FIELDS, self.focus);
     }
 
     /// Increment the thread count by one, capped at `default_threads`.
@@ -208,9 +194,8 @@ impl ConfigTab {
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
-            ConfigField::MirrorCustomUrl
-            | ConfigField::LoginEntry
-            | ConfigField::LogoutEntry
+            ConfigField::AuthChip
+            | ConfigField::MirrorCustomUrl
             | ConfigField::DownloadThreads
             | ConfigField::LoggingDirectory => {}
         }
@@ -279,12 +264,10 @@ impl ConfigTab {
         let text: String = message.into();
         self.login_state = AuthLoginState::InProgress(text.clone());
         set_loading_message(&mut self.message, text);
-        self.evacuate_logout_focus();
     }
 
     pub fn set_login_in_progress(&mut self) {
         self.login_state = AuthLoginState::InProgress(String::new());
-        self.evacuate_logout_focus();
     }
 
     pub fn set_login_complete(&mut self) {
@@ -295,17 +278,20 @@ impl ConfigTab {
     pub fn set_login_failed(&mut self) {
         self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
-        self.evacuate_logout_focus();
     }
 
     pub fn set_logged_out(&mut self) {
         self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
-        self.evacuate_logout_focus();
     }
 
-    pub fn logout_selectable(&self) -> bool {
-        matches!(self.login_state, AuthLoginState::LoggedIn)
+    /// Returns the action the chip's enter key should trigger given the current `login_state`.
+    pub fn chip_action(&self) -> ChipAction {
+        match &self.login_state {
+            AuthLoginState::LoggedOut => ChipAction::Login,
+            AuthLoginState::InProgress(_) => ChipAction::Cancel,
+            AuthLoginState::LoggedIn => ChipAction::Logout,
+        }
     }
 
     pub fn resolved_threads(&self) -> u8 {
@@ -317,20 +303,6 @@ impl ConfigTab {
                 .trim()
                 .parse::<u8>()
                 .unwrap_or(self.default_threads)
-        }
-    }
-
-    fn fields(&self) -> &'static [ConfigField] {
-        if self.logout_selectable() {
-            LOGGED_IN_CONFIG_FIELDS
-        } else {
-            LOGGED_OUT_CONFIG_FIELDS
-        }
-    }
-
-    fn evacuate_logout_focus(&mut self) {
-        if self.focus == ConfigField::LogoutEntry && !self.logout_selectable() {
-            self.focus = ConfigField::LoginEntry;
         }
     }
 

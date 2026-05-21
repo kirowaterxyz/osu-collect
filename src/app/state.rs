@@ -1,7 +1,7 @@
 use super::{
     collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
-    config::{AuthLoginState, ConfigField, ConfigTab},
+    config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
     failed_maps,
     home::{HomeField, HomeTab},
     messages::{clear_expired_message, set_error_message, set_info_message},
@@ -790,12 +790,14 @@ impl App {
                         UpdatesAction::None | UpdatesAction::RefreshAll => {}
                     }
                 }
-                if self.active_tab() == CONFIG_TAB_INDEX {
-                    match self.config.focus {
-                        ConfigField::LoginEntry => return self.request_login(),
-                        ConfigField::LogoutEntry => return self.request_logout(),
-                        _ => {}
-                    }
+                if self.active_tab() == CONFIG_TAB_INDEX
+                    && self.config.focus == ConfigField::AuthChip
+                {
+                    return match self.config.chip_action() {
+                        // Cancel routes through request_login, which detects InProgress and cancels.
+                        ChipAction::Login | ChipAction::Cancel => self.request_login(),
+                        ChipAction::Logout => self.request_logout(),
+                    };
                 }
             }
             KeyCode::Char(' ') => match self.active_tab() {
@@ -824,7 +826,7 @@ impl App {
                     UpdatesAction::None | UpdatesAction::Download => {}
                 },
                 CONFIG_TAB_INDEX => match self.config.focus {
-                    ConfigField::LoginEntry | ConfigField::LogoutEntry => {}
+                    ConfigField::AuthChip => {}
                     field if field.is_text_input() => self.config.handle_char(' '),
                     _ => self.config.toggle_current(),
                 },

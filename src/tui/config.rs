@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     app::{AuthLoginState, ConfigField, ConfigTab},
     config::{LogFormat, LogLevel, RetryFailedOnDownload, ThemeMode},
@@ -13,7 +15,8 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    HELP_CUSTOM_MIRROR, accent_alt, focused_label, mirror_label, success, text_faint, warning,
+    HELP_CUSTOM_MIRROR, accent_alt, bg_raised, mirror_label, success, text_faint, text_muted,
+    warning,
 };
 use osu_downloader::MirrorKind;
 
@@ -35,15 +38,13 @@ const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "level";
 const LABEL_LOGGING_FORMAT: &str = "format";
 
-const LOGIN_HEADER: &str = "OSU! LOGIN";
-const LOGIN_UNAVAILABLE: &str = "login unavailable (no credentials in build)";
-const LOGIN_LOG_IN: &str = "log in";
-const LOGIN_LOGGING_IN: &str = "logging in...";
-const LOGIN_CANCEL_HINT: &str = " (cancel?)";
-const LOGIN_RE_LOGIN: &str = "re-login";
-const LOGIN_LOG_OUT: &str = "log out";
-const STATUS_LOGGED_OUT: &str = "logged out";
-const STATUS_LOGGED_IN: &str = "logged in";
+const CHIP_UNAVAILABLE: &str = " login unavailable · no credentials in build ";
+const CHIP_LOGGED_OUT: &str = " signed out";
+const CHIP_LOGGED_IN: &str = " signed in";
+const CHIP_ACTION_LOGIN: &str = " · log in ";
+const CHIP_ACTION_LOGOUT: &str = " · log out ";
+const CHIP_ACTION_CANCEL: &str = " · cancel";
+const CHIP_LOGGING_IN: &str = " logging in… ";
 
 const THEME_MODE_LABELS: &[&str] = &["auto", "default", "16-color", "colorblind-safe"];
 
@@ -65,9 +66,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     items.push(widgets::disclosure_row(TOP_BANNER, "", false, false));
     items.push(widgets::spacer());
 
-    items.push(login_section_header(&form.login_state));
-    items.push_focusable(ConfigField::LoginEntry, login_entry_item(form));
-    items.push_focusable(ConfigField::LogoutEntry, logout_entry_item(form));
+    items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_DISPLAY));
@@ -191,85 +190,57 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
 }
 
-fn login_entry_item(form: &ConfigTab) -> ListItem<'static> {
-    let focused = form.focus == ConfigField::LoginEntry;
+/// Renders the auth state chip: a single styled row at the top of the config tab.
+///
+/// - Signed in:   ` signed in · log out `
+/// - Signed out:  ` signed out · log in `
+/// - In progress: ` logging in… · cancel`
+/// - Unavailable: ` login unavailable · no credentials in build `
+fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
+    let focused = form.focus == ConfigField::AuthChip;
+    let chip_bg = Style::default().bg(bg_raised());
+    let action_style = chip_bg
+        .fg(if focused { accent_alt() } else { text_muted() })
+        .add_modifier(if focused {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
+
     let available = crate::auth::bundled_credentials().is_some();
-
-    let mut spans = vec![widgets::focus_span(focused)];
     if !available {
-        spans.push(Span::styled(
-            LOGIN_UNAVAILABLE,
-            Style::default().fg(text_faint()),
-        ));
-    } else {
-        match &form.login_state {
-            AuthLoginState::LoggedOut => {
-                spans.push(Span::styled(LOGIN_LOG_IN, focused_label(focused)));
-            }
-            AuthLoginState::InProgress(_) => {
-                spans.push(Span::styled(
-                    LOGIN_LOGGING_IN,
-                    Style::default().fg(warning()),
-                ));
-                spans.push(Span::styled(LOGIN_CANCEL_HINT, focused_label(focused)));
-            }
-            AuthLoginState::LoggedIn => {
-                spans.push(Span::styled(LOGIN_RE_LOGIN, focused_label(focused)));
-            }
+        return ListItem::new(Line::from(Span::styled(
+            CHIP_UNAVAILABLE,
+            chip_bg.fg(text_faint()),
+        )));
+    }
+
+    let spans: Vec<Span<'static>> = match &form.login_state {
+        AuthLoginState::LoggedOut => vec![
+            Span::styled(CHIP_LOGGED_OUT, chip_bg.fg(text_faint())),
+            Span::styled(CHIP_ACTION_LOGIN, action_style),
+        ],
+        AuthLoginState::InProgress(step) => {
+            let label: Cow<'static, str> = if step.is_empty() {
+                CHIP_LOGGING_IN.into()
+            } else {
+                format!(" {step} ").into()
+            };
+            vec![
+                Span::styled(label, chip_bg.fg(warning()).add_modifier(Modifier::ITALIC)),
+                Span::styled(CHIP_ACTION_CANCEL, action_style),
+                Span::styled(" ", chip_bg),
+            ]
         }
-    }
-
-    ListItem::new(Line::from(spans))
-}
-
-fn logout_entry_item(form: &ConfigTab) -> ListItem<'static> {
-    let focused = form.focus == ConfigField::LogoutEntry;
-    let enabled = matches!(form.login_state, AuthLoginState::LoggedIn);
-
-    let style = if enabled {
-        focused_label(focused)
-    } else {
-        Style::default().fg(text_faint())
+        AuthLoginState::LoggedIn => vec![
+            Span::styled(
+                CHIP_LOGGED_IN,
+                chip_bg.fg(success()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(CHIP_ACTION_LOGOUT, action_style),
+        ],
     };
 
-    ListItem::new(Line::from(vec![
-        widgets::focus_span(focused && enabled),
-        Span::styled(LOGIN_LOG_OUT, style),
-    ]))
-}
-
-fn login_section_header(state: &AuthLoginState) -> ListItem<'static> {
-    let status = match state {
-        AuthLoginState::LoggedOut => Some((
-            STATUS_LOGGED_OUT.to_string(),
-            Style::default().fg(text_faint()),
-        )),
-        AuthLoginState::InProgress(step) if !step.is_empty() => Some((
-            step.clone(),
-            Style::default()
-                .fg(warning())
-                .add_modifier(Modifier::ITALIC),
-        )),
-        AuthLoginState::InProgress(_) => None,
-        AuthLoginState::LoggedIn => Some((
-            STATUS_LOGGED_IN.to_string(),
-            Style::default().fg(success()).add_modifier(Modifier::BOLD),
-        )),
-    };
-
-    let mut spans = vec![
-        Span::raw("  "),
-        Span::styled(
-            LOGIN_HEADER,
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD),
-        ),
-    ];
-    if let Some((text, style)) = status {
-        spans.push(" ".into());
-        spans.push(Span::styled(text, style));
-    }
     ListItem::new(Line::from(spans))
 }
 

@@ -117,15 +117,19 @@ fn config_render_shows_strict_help_only_when_strict_selected() {
 }
 
 #[test]
-fn config_render_shows_official_login_status() {
+fn config_render_shows_auth_chip() {
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::LoginEntry;
+    app.config.focus = ConfigField::AuthChip;
 
     let output = render_app(&app, 80, 24);
 
-    assert!(output.contains("osu! login") || output.contains("OSU! LOGIN"));
-    assert!(output.contains("logged out") || output.contains("logged in"));
+    assert!(
+        output.contains("signed out")
+            || output.contains("signed in")
+            || output.contains("login unavailable"),
+        "auth chip must render auth state: {output}"
+    );
     assert!(!output.contains("client id:"));
     assert!(!output.contains("client secret:"));
 }
@@ -273,16 +277,12 @@ fn login_key_on_non_login_field_does_not_produce_login_command() {
 }
 
 #[test]
-fn login_field_is_reachable_via_focus_cycle() {
-    use crate::app::AuthLoginState;
+fn auth_chip_is_reachable_via_focus_cycle() {
     use crate::app::ConfigField;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    // logout entry only appears when logged in
-    app.config.auth_loaded = true;
-    app.config.login_state = AuthLoginState::LoggedIn;
 
     let down = KeyEvent {
         code: KeyCode::Down,
@@ -291,43 +291,36 @@ fn login_field_is_reachable_via_focus_cycle() {
         state: KeyEventState::empty(),
     };
 
-    // cycle through all fields and check that LoginEntry and LogoutEntry appear
-    let mut found_login = false;
-    let mut found_logout = false;
-    for _ in 0..25 {
-        if app.config.focus == ConfigField::LoginEntry {
-            found_login = true;
-        }
-        if app.config.focus == ConfigField::LogoutEntry {
-            found_logout = true;
-        }
-        if found_login && found_logout {
+    // cycle through all fields and check that AuthChip is reachable
+    let mut found_chip = false;
+    for _ in 0..20 {
+        if app.config.focus == ConfigField::AuthChip {
+            found_chip = true;
             break;
         }
         app.handle_key(down);
     }
     assert!(
-        found_login,
-        "LoginEntry field must be reachable via down-arrow navigation"
-    );
-    assert!(
-        found_logout,
-        "LogoutEntry field must be reachable via down-arrow navigation"
+        found_chip,
+        "AuthChip field must be reachable via down-arrow navigation"
     );
 }
 
 #[test]
-fn login_action_row_renders_when_focused() {
+fn auth_chip_renders_when_focused() {
     use crate::app::ConfigField;
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::LoginEntry;
+    app.config.focus = ConfigField::AuthChip;
 
     let output = render_app(&app, 120, 30);
     assert!(
-        output.contains("log in") || output.contains("re-login") || output.contains("logging in"),
-        "LoginEntry row must render a visible action label"
+        output.contains("signed out")
+            || output.contains("signed in")
+            || output.contains("logging in")
+            || output.contains("login unavailable"),
+        "AuthChip must render a visible auth state label"
     );
 }
 

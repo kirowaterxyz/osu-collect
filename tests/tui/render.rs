@@ -79,12 +79,18 @@ fn updates_tab_shows_client_toggle() {
 // ── config view ──────────────────────────────────────────────────────────────
 
 #[test]
-fn config_tab_shows_login_section() {
+fn config_tab_shows_auth_chip() {
     let mut app = make_app();
     app.next_tab();
     app.next_tab();
     let content = render_content(&app, 120, 40);
-    assert!(content.contains("login") || content.contains("LOGIN"));
+    assert!(
+        content.contains("signed out")
+            || content.contains("signed in")
+            || content.contains("log in")
+            || content.contains("login unavailable"),
+        "auth chip must render a visible auth state: {content}"
+    );
 }
 
 // ── error / message footer ───────────────────────────────────────────────────
