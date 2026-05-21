@@ -1,6 +1,9 @@
 use crate::app::{
     UpdatesField, UpdatesTab,
-    updates::{BeatmapDisplayItem, CollectionEntry, MissingBeatmapset, MissingStatus, ScanStatus},
+    updates::{
+        BeatmapDisplayItem, BeatmapSort, CollectionEntry, CollectionSort, MissingBeatmapset,
+        MissingStatus, ScanStatus,
+    },
 };
 use crate::osu_db::OsuClient;
 use crate::utils::pretty_path;
@@ -257,10 +260,19 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
 fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
     let focused =
         form.selection.focus == UpdatesField::Collections && !form.selection.in_beatmap_list;
-    let detail = format!(
-        "{} {DETAIL_LOADED_SUFFIX}",
-        form.selection.local_collections.len()
-    );
+    let sort = form.selection.collection_sort;
+    let detail = if sort == CollectionSort::Default {
+        format!(
+            "{} {DETAIL_LOADED_SUFFIX}",
+            form.selection.local_collections.len()
+        )
+    } else {
+        format!(
+            "{} {DETAIL_LOADED_SUFFIX}  · {}",
+            form.selection.local_collections.len(),
+            sort.label(),
+        )
+    };
     widgets::disclosure_row(
         LABEL_COLLECTIONS,
         detail,
@@ -325,10 +337,17 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
     let focused = form.selection.focus == UpdatesField::BeatmapList
         && !form.selection.in_collection_list
         && !form.selection.in_beatmap_list;
+    let sort = form.selection.beatmap_sort;
     let detail = if is_scanning(form) {
         DETAIL_LOADING.to_string()
-    } else {
+    } else if sort == BeatmapSort::Default {
         format!("{} {DETAIL_MISSING_SUFFIX}", form.total_missing_count())
+    } else {
+        format!(
+            "{} {DETAIL_MISSING_SUFFIX}  · {}",
+            form.total_missing_count(),
+            sort.label(),
+        )
     };
 
     widgets::disclosure_row(

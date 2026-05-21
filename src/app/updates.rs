@@ -43,6 +43,79 @@ pub enum ScanStatus {
     Error,
 }
 
+/// Sort order for the collection list.
+///
+/// Cycles: `Default` → `Name` → `Size` → `Default`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CollectionSort {
+    /// Original insertion order from the osu! database.
+    #[default]
+    Default,
+    /// Case-insensitive alphabetical by collection name.
+    Name,
+    /// Largest beatmap count first.
+    Size,
+}
+
+impl CollectionSort {
+    /// Advance to the next sort mode.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Default => Self::Name,
+            Self::Name => Self::Size,
+            Self::Size => Self::Default,
+        }
+    }
+
+    /// Short label shown in the section header.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => SORT_LABEL_DEFAULT,
+            Self::Name => SORT_LABEL_NAME,
+            Self::Size => SORT_LABEL_SIZE,
+        }
+    }
+}
+
+/// Sort order for the missing-beatmap list.
+///
+/// Cycles: `Default` → `Name` → `Status` → `Default`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BeatmapSort {
+    /// Original order from the failed-map check pass.
+    #[default]
+    Default,
+    /// Case-insensitive alphabetical by collection name.
+    Name,
+    /// Previously-deleted entries last.
+    Status,
+}
+
+impl BeatmapSort {
+    /// Advance to the next sort mode.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Default => Self::Name,
+            Self::Name => Self::Status,
+            Self::Status => Self::Default,
+        }
+    }
+
+    /// Short label shown in the section header.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => SORT_LABEL_DEFAULT,
+            Self::Name => SORT_LABEL_NAME,
+            Self::Status => SORT_LABEL_STATUS,
+        }
+    }
+}
+
+const SORT_LABEL_DEFAULT: &str = "default";
+const SORT_LABEL_NAME: &str = "name ↑";
+const SORT_LABEL_SIZE: &str = "size ↓";
+const SORT_LABEL_STATUS: &str = "status";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MissingStatus {
     NotInstalled,
@@ -129,28 +202,38 @@ impl ScanState {
 #[derive(Debug, Clone)]
 pub struct SelectionState {
     pub local_collections: Vec<CollectionEntry>,
+    /// Snapshot of `local_collections` in insertion order; used to restore `Default` sort.
+    pub collections_default_order: Vec<CollectionEntry>,
     pub cached_missing_sets: Vec<MissingBeatmapset>,
     pub visible_missing: Vec<usize>,
+    /// Snapshot of `visible_missing` in insertion order; used to restore `Default` sort.
+    pub visible_missing_default_order: Vec<usize>,
     pub display_items: Vec<BeatmapDisplayItem>,
     pub collections_state: Option<usize>,
     pub beatmaps_state: Option<usize>,
     pub in_collection_list: bool,
     pub in_beatmap_list: bool,
     pub focus: UpdatesField,
+    pub collection_sort: CollectionSort,
+    pub beatmap_sort: BeatmapSort,
 }
 
 impl SelectionState {
     fn new() -> Self {
         Self {
             local_collections: Vec::new(),
+            collections_default_order: Vec::new(),
             cached_missing_sets: Vec::new(),
             visible_missing: Vec::new(),
+            visible_missing_default_order: Vec::new(),
             display_items: Vec::new(),
             collections_state: None,
             beatmaps_state: None,
             in_collection_list: false,
             in_beatmap_list: false,
             focus: UpdatesField::ClientType,
+            collection_sort: CollectionSort::Default,
+            beatmap_sort: BeatmapSort::Default,
         }
     }
 }
@@ -190,10 +273,21 @@ impl UpdatesTab {
     }
 
     pub fn handle_char(&mut self, ch: char) {
-        if self.selection.in_collection_list || self.selection.in_beatmap_list {
+        if self.selection.in_collection_list {
             match ch {
                 'a' => self.set_all_selected(true),
                 'd' => self.set_all_selected(false),
+                's' => self.cycle_collection_sort(),
+                _ => {}
+            }
+            return;
+        }
+
+        if self.selection.in_beatmap_list {
+            match ch {
+                'a' => self.set_all_selected(true),
+                'd' => self.set_all_selected(false),
+                's' => self.cycle_beatmap_sort(),
                 _ => {}
             }
             return;
@@ -201,6 +295,69 @@ impl UpdatesTab {
 
         if self.selection.focus == UpdatesField::OsuPath {
             self.path.osu_path.value.push(ch);
+        }
+    }
+
+    /// Advance the collection sort mode and re-sort `local_collections` in place.
+    pub fn cycle_collection_sort(&mut self) {
+        self.selection.collection_sort = self.selection.collection_sort.next();
+        self.apply_collection_sort();
+    }
+
+    fn apply_collection_sort(&mut self) {
+        match self.selection.collection_sort {
+            CollectionSort::Default => {
+                self.selection.local_collections = self.selection.collections_default_order.clone();
+            }
+            CollectionSort::Name => {
+                self.selection
+                    .local_collections
+                    .sort_by_key(|a| a.name.to_lowercase());
+            }
+            CollectionSort::Size => {
+                self.selection
+                    .local_collections
+                    .sort_by_key(|c| std::cmp::Reverse(c.beatmap_count));
+            }
+        }
+    }
+
+    /// Advance the beatmap sort mode and re-sort `visible_missing` in place.
+    pub fn cycle_beatmap_sort(&mut self) {
+        self.selection.beatmap_sort = self.selection.beatmap_sort.next();
+        self.apply_beatmap_sort();
+        self.rebuild_display_items();
+    }
+
+    fn apply_beatmap_sort(&mut self) {
+        match self.selection.beatmap_sort {
+            BeatmapSort::Default => {
+                self.selection.visible_missing =
+                    self.selection.visible_missing_default_order.clone();
+            }
+            BeatmapSort::Name => {
+                let cached = &self.selection.cached_missing_sets;
+                self.selection.visible_missing.sort_by(|&a, &b| {
+                    let name_a = cached
+                        .get(a)
+                        .map(|m| m.collection_name.as_str())
+                        .unwrap_or("");
+                    let name_b = cached
+                        .get(b)
+                        .map(|m| m.collection_name.as_str())
+                        .unwrap_or("");
+                    name_a.to_lowercase().cmp(&name_b.to_lowercase())
+                });
+            }
+            BeatmapSort::Status => {
+                let cached = &self.selection.cached_missing_sets;
+                self.selection.visible_missing.sort_by_key(|&idx| {
+                    cached
+                        .get(idx)
+                        .map(|m| m.previously_deleted as u8)
+                        .unwrap_or(0)
+                });
+            }
         }
     }
 
@@ -442,6 +599,9 @@ impl UpdatesTab {
             "Finished filtering updatable collections"
         );
 
+        // Snapshot the insertion order so we can restore it when cycling back to Default.
+        self.selection.collections_default_order = self.selection.local_collections.clone();
+        self.apply_collection_sort();
         self.selection.collections_state = Some(0);
     }
 
@@ -568,6 +728,9 @@ impl UpdatesTab {
             .map(|(idx, _)| idx)
             .collect();
 
+        // Snapshot the natural filter order before any sort is applied.
+        self.selection.visible_missing_default_order = self.selection.visible_missing.clone();
+        self.apply_beatmap_sort();
         self.rebuild_display_items();
         self.selection.beatmaps_state = Some(0);
     }

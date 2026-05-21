@@ -1,4 +1,8 @@
-use super::{ScanStatus, UpdatesTab, scroll_list};
+use super::{
+    BeatmapSort, CollectionSort, MissingBeatmapset, MissingStatus, ScanStatus, UpdatesTab,
+    scroll_list,
+};
+use crate::osu_db::LocalCollection;
 
 #[test]
 fn needs_initial_scan_reflects_cache_state() {
@@ -44,4 +48,226 @@ fn scroll_list_none_starts_at_zero() {
     let mut state: Option<usize> = None;
     scroll_list(&mut state, 5, 1);
     assert_eq!(state, Some(1));
+}
+
+fn local_col(name: &str, count: usize) -> LocalCollection {
+    LocalCollection {
+        name: name.to_string(),
+        beatmap_checksums: vec![Default::default(); count].into_boxed_slice(),
+    }
+}
+
+fn missing_beatmap(
+    id: u32,
+    collection_id: u32,
+    collection_name: &str,
+    previously_deleted: bool,
+) -> MissingBeatmapset {
+    MissingBeatmapset {
+        id,
+        status: MissingStatus::NotInstalled,
+        collection_id,
+        collection_name: collection_name.to_string(),
+        selected: true,
+        previously_deleted,
+    }
+}
+
+#[test]
+fn collection_sort_cycles_through_all_modes() {
+    let sort = CollectionSort::Default;
+    let sort = sort.next();
+    assert_eq!(sort, CollectionSort::Name);
+    let sort = sort.next();
+    assert_eq!(sort, CollectionSort::Size);
+    let sort = sort.next();
+    assert_eq!(sort, CollectionSort::Default);
+}
+
+#[test]
+fn beatmap_sort_cycles_through_all_modes() {
+    let sort = BeatmapSort::Default;
+    let sort = sort.next();
+    assert_eq!(sort, BeatmapSort::Name);
+    let sort = sort.next();
+    assert_eq!(sort, BeatmapSort::Status);
+    let sort = sort.next();
+    assert_eq!(sort, BeatmapSort::Default);
+}
+
+#[test]
+fn collection_sort_name_orders_case_insensitively() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![
+        local_col("Zebra Maps - 11111", 5),
+        local_col("alpha Maps - 22222", 2),
+        local_col("Beta Maps - 33333", 8),
+    ]);
+    tab.cycle_collection_sort(); // Default → Name
+    let names: Vec<&str> = tab
+        .selection
+        .local_collections
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "alpha Maps - 22222",
+            "Beta Maps - 33333",
+            "Zebra Maps - 11111"
+        ]
+    );
+}
+
+#[test]
+fn collection_sort_size_orders_largest_first() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![
+        local_col("Small - 11111", 2),
+        local_col("Large - 22222", 10),
+        local_col("Medium - 33333", 5),
+    ]);
+    tab.cycle_collection_sort(); // Default → Name
+    tab.cycle_collection_sort(); // Name → Size
+    let counts: Vec<usize> = tab
+        .selection
+        .local_collections
+        .iter()
+        .map(|c| c.beatmap_count)
+        .collect();
+    assert_eq!(counts, [10, 5, 2]);
+}
+
+#[test]
+fn collection_sort_default_restores_insertion_order() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![
+        local_col("Zebra Maps - 11111", 5),
+        local_col("Alpha Maps - 22222", 2),
+        local_col("Beta Maps - 33333", 8),
+    ]);
+    let original_names: Vec<String> = tab
+        .selection
+        .local_collections
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    tab.cycle_collection_sort(); // Default → Name
+    tab.cycle_collection_sort(); // Name → Size
+    tab.cycle_collection_sort(); // Size → Default
+    let restored_names: Vec<String> = tab
+        .selection
+        .local_collections
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    assert_eq!(
+        original_names, restored_names,
+        "cycling back to Default restores insertion order"
+    );
+}
+
+#[test]
+fn beatmap_sort_name_orders_by_collection_name() {
+    let mut tab = UpdatesTab::new();
+    // collection_id 11111 must match the ID extracted from the collection name
+    tab.set_collections(vec![local_col("Maps - 11111", 3)]);
+    tab.set_missing_beatmaps(vec![
+        missing_beatmap(1, 11111, "Zebra pack", false),
+        missing_beatmap(2, 11111, "Alpha pack", false),
+        missing_beatmap(3, 11111, "Beta pack", false),
+    ]);
+    tab.filter_cached();
+    tab.cycle_beatmap_sort(); // Default → Name
+    let names: Vec<&str> = tab
+        .selection
+        .visible_missing
+        .iter()
+        .map(|&idx| {
+            tab.selection.cached_missing_sets[idx]
+                .collection_name
+                .as_str()
+        })
+        .collect();
+    assert_eq!(names, ["Alpha pack", "Beta pack", "Zebra pack"]);
+}
+
+#[test]
+fn beatmap_sort_status_puts_previously_deleted_last() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Collection - 11111", 4)]);
+    tab.set_missing_beatmaps(vec![
+        missing_beatmap(1, 11111, "col", true),
+        missing_beatmap(2, 11111, "col", false),
+        missing_beatmap(3, 11111, "col", true),
+        missing_beatmap(4, 11111, "col", false),
+    ]);
+    tab.filter_cached();
+    tab.cycle_beatmap_sort(); // Default → Name
+    tab.cycle_beatmap_sort(); // Name → Status
+    let deleted_flags: Vec<bool> = tab
+        .selection
+        .visible_missing
+        .iter()
+        .map(|&idx| tab.selection.cached_missing_sets[idx].previously_deleted)
+        .collect();
+    // previously_deleted=false entries first, then true
+    assert!(
+        deleted_flags.iter().take_while(|&&d| !d).count() >= 2,
+        "non-deleted entries should appear before deleted ones"
+    );
+    assert!(
+        deleted_flags.iter().rev().take_while(|&&d| d).count() >= 2,
+        "deleted entries should appear at the end"
+    );
+}
+
+#[test]
+fn beatmap_sort_default_restores_filter_order() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Collection - 11111", 3)]);
+    tab.set_missing_beatmaps(vec![
+        missing_beatmap(10, 11111, "Zebra", false),
+        missing_beatmap(20, 11111, "Alpha", false),
+        missing_beatmap(30, 11111, "Beta", false),
+    ]);
+    tab.filter_cached();
+    let original: Vec<usize> = tab.selection.visible_missing.clone();
+    tab.cycle_beatmap_sort(); // Default → Name (reorders)
+    tab.cycle_beatmap_sort(); // Name → Status
+    tab.cycle_beatmap_sort(); // Status → Default (restores)
+    assert_eq!(
+        tab.selection.visible_missing, original,
+        "cycling back to Default restores filter order"
+    );
+}
+
+#[test]
+fn s_key_cycles_collection_sort_in_list() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Test - 11111", 1)]);
+    tab.selection.in_collection_list = true;
+    assert_eq!(tab.selection.collection_sort, CollectionSort::Default);
+    tab.handle_char('s');
+    assert_eq!(tab.selection.collection_sort, CollectionSort::Name);
+    tab.handle_char('s');
+    assert_eq!(tab.selection.collection_sort, CollectionSort::Size);
+    tab.handle_char('s');
+    assert_eq!(tab.selection.collection_sort, CollectionSort::Default);
+}
+
+#[test]
+fn s_key_does_not_cycle_sort_outside_list() {
+    let mut tab = UpdatesTab::new();
+    tab.set_collections(vec![local_col("Test - 11111", 1)]);
+    // Not in any list — 's' should be treated as path input when OsuPath is focused,
+    // but the sort must not change.
+    assert_eq!(tab.selection.collection_sort, CollectionSort::Default);
+    tab.handle_char('s');
+    assert_eq!(
+        tab.selection.collection_sort,
+        CollectionSort::Default,
+        "'s' outside list must not advance sort"
+    );
 }
