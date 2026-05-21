@@ -234,6 +234,49 @@ fn space_on_config_login_does_nothing() {
     );
 }
 
+// ── help overlay ─────────────────────────────────────────────────────────────
+
+#[test]
+fn question_mark_opens_help_overlay() {
+    let mut app = make_app();
+    assert!(!app.help_open);
+    app.handle_key(press(KeyCode::Char('?')));
+    assert!(app.help_open, "? must open the help overlay");
+}
+
+#[test]
+fn question_mark_closes_open_help_overlay() {
+    let mut app = make_app();
+    app.help_open = true;
+    app.handle_key(press(KeyCode::Char('?')));
+    assert!(!app.help_open, "? must close an already-open help overlay");
+}
+
+#[test]
+fn esc_closes_help_overlay_without_quitting() {
+    let mut app = make_app();
+    app.help_open = true;
+    let cmd = app.handle_key(press(KeyCode::Esc));
+    assert!(!app.help_open, "esc must close the help overlay");
+    assert!(cmd.is_none(), "esc while help is open must not quit");
+}
+
+#[test]
+fn q_closes_help_overlay_without_quitting() {
+    let mut app = make_app();
+    app.help_open = true;
+    let cmd = app.handle_key(press(KeyCode::Char('q')));
+    assert!(!app.help_open, "q must close the help overlay");
+    assert!(cmd.is_none(), "q while help is open must not quit");
+}
+
+#[test]
+fn question_mark_returns_no_command() {
+    let mut app = make_app();
+    let cmd = app.handle_key(press(KeyCode::Char('?')));
+    assert!(cmd.is_none(), "? must not issue any AppCommand");
+}
+
 // ── updates tab: enter does not exit lists ────────────────────────────────────
 
 #[test]

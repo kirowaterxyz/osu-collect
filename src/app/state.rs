@@ -37,6 +37,7 @@ pub struct App {
     pub collection_state_path: Option<PathBuf>,
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
+    pub(crate) help_open: bool,
     next_download_id: DownloadId,
 }
 
@@ -81,6 +82,7 @@ impl App {
             collection_state_path: state_path,
             scan_handle: None,
             tick_count: 0,
+            help_open: false,
             next_download_id: 1,
         }
     }
@@ -119,11 +121,14 @@ impl App {
             && (self.updates.selection.in_collection_list || self.updates.selection.in_beatmap_list)
     }
 
-    /// Returns `true` when any modal or popup is currently open.
-    /// `esc` and `q` close modals before falling through to the quit flow.
+    /// Closes the topmost open modal. Returns `true` if one was closed.
+    /// `esc` and `q` call this before falling through to the quit flow.
     /// Extend this as new modal types are added.
-    fn any_modal_open(&self) -> bool {
-        // currently no modals; this is the cascade entry point
+    fn close_modal(&mut self) -> bool {
+        if self.help_open {
+            self.help_open = false;
+            return true;
+        }
         false
     }
 
@@ -361,8 +366,12 @@ impl App {
         }
 
         match key.code {
+            KeyCode::Char('?') => {
+                self.help_open = !self.help_open;
+                return None;
+            }
             KeyCode::Char('q') | KeyCode::Esc => {
-                if self.any_modal_open() {
+                if self.close_modal() {
                     return None;
                 }
                 if self.active_tab() == UPDATES_TAB_INDEX && self.updates.handle_escape().is_some()

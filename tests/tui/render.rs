@@ -194,6 +194,38 @@ fn gauge_label_none_when_avg_rounds_to_zero() {
     assert_eq!(page.avg_verify_us(), None);
 }
 
+// ── help overlay render ───────────────────────────────────────────────────────
+
+#[test]
+fn help_overlay_renders_keybindings_heading() {
+    let mut app = make_app();
+    app.help_open = true;
+    let content = render_content(&app, 120, 40);
+    assert!(
+        content.contains("KEYBINDINGS") || content.contains("keybindings"),
+        "help overlay must render a KEYBINDINGS heading"
+    );
+}
+
+#[test]
+fn help_overlay_contains_question_mark_entry() {
+    let mut app = make_app();
+    app.help_open = true;
+    let content = render_content(&app, 120, 40);
+    assert!(content.contains('?'), "help overlay must show ? key");
+}
+
+#[test]
+fn help_overlay_hidden_when_closed() {
+    let app = make_app();
+    // help_open defaults to false
+    let content = render_content(&app, 120, 40);
+    assert!(
+        !content.contains("KEYBINDINGS"),
+        "KEYBINDINGS heading must not appear when help is closed"
+    );
+}
+
 // ── config item order ─────────────────────────────────────────────────────────
 
 #[test]

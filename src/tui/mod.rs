@@ -5,6 +5,7 @@ mod download;
 mod footer;
 mod header;
 mod home;
+pub(crate) mod modal;
 mod updates;
 mod widgets;
 
@@ -159,6 +160,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     footer::render(frame, footer_area, app);
+
+    if app.help_open {
+        modal::render_help_overlay(frame, area);
+    }
 }
 
 #[cfg(test)]
