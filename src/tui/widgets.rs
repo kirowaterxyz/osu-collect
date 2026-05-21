@@ -110,6 +110,30 @@ pub fn scroll_window<T>(
     (start, (start + visible_height).min(items.len()))
 }
 
+/// Returns a muted `Span` showing how many items lie above or below the
+/// visible window, e.g. `▲ 5 above · 12 below ▼`.
+///
+/// Returns `None` when the whole list fits in view (`start == 0 && end ==
+/// total`) or the inputs are degenerate (`total == 0`, `start > end`).
+pub(crate) fn scroll_indicator(start: usize, end: usize, total: usize) -> Option<Span<'static>> {
+    if total == 0 || start > end || end > total {
+        return None;
+    }
+    let above = start;
+    let below = total.saturating_sub(end);
+    if above == 0 && below == 0 {
+        return None;
+    }
+
+    let text = match (above > 0, below > 0) {
+        (true, true) => format!(" ▲ {above} above · {below} below ▼ "),
+        (true, false) => format!(" ▲ {above} above "),
+        (false, true) => format!(" {below} below ▼ "),
+        (false, false) => unreachable!(),
+    };
+    Some(Span::styled(text, Style::default().fg(text_faint())))
+}
+
 pub fn render_scrollable_panel(
     frame: &mut Frame,
     area: Rect,
@@ -119,9 +143,13 @@ pub fn render_scrollable_panel(
 ) {
     let block = panel_block(title);
     let inner = block.inner(area);
+    let (start, end) = scroll_window(items, focused_index, inner.height as usize);
+    let block = match scroll_indicator(start, end, items.len()) {
+        Some(span) => block.title_top(Line::from(span).right_aligned()),
+        None => block,
+    };
     frame.render_widget(block, area);
 
-    let (start, end) = scroll_window(items, focused_index, inner.height as usize);
     frame.render_widget(
         List::new(items[start..end].to_vec()).highlight_symbol(""),
         inner,

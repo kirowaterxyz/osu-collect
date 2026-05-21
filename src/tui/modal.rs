@@ -2,14 +2,14 @@
 //!
 //! # Usage
 //!
-//! 1. Compute the popup area with [`centered_rect`].
-//! 2. Render [`ratatui::widgets::Clear`] over that area to erase the content
-//!    behind the popup.
-//! 3. Call the specific overlay renderer (e.g. [`render_help_overlay`]).
+//! 1. Render [`ratatui::widgets::Clear`] over the popup area to erase the
+//!    content behind it.
+//! 2. Call the specific overlay renderer (e.g. [`render_help_overlay`]).
 //!
-//! Future modals (retry-confirm, pre-save diff, etc.) follow the same pattern:
-//! add a render function here that accepts `frame` and `area`, and call
-//! [`centered_rect`] in the draw entry point to position it.
+//! Future modals follow the same pattern: add a render function here that
+//! accepts `frame` and `area`, compute the popup rect with inline
+//! `Layout::vertical` + `Layout::horizontal`, and call
+//! `frame.render_widget(Clear, popup_area)` before drawing.
 
 use ratatui::{
     Frame,
@@ -19,23 +19,8 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding},
 };
 
+use super::widgets;
 use super::{accent, accent_alt, bg_raised, line, text_dim, text_faint};
-
-/// Returns a [`Rect`] centred in `area` of the requested proportional size.
-///
-/// `percent_x` and `percent_y` are clamped to `[0, 100]`. The popup is never
-/// larger than `area` itself.
-pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let px = percent_x.min(100);
-    let py = percent_y.min(100);
-    let [popup_area] = Layout::vertical([Constraint::Percentage(py)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [popup_area] = Layout::horizontal([Constraint::Percentage(px)])
-        .flex(Flex::Center)
-        .areas(popup_area);
-    popup_area
-}
 
 /// Key/action pair for the help overlay.
 struct HelpRow {
@@ -80,7 +65,17 @@ const CONFIG_TAB: &[HelpRow] = &[
 /// Call this after all other tab content and the footer have been drawn —
 /// it clears the area it occupies and draws on top.
 pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
-    let popup_area = centered_rect(58, 72, area);
+    let items = build_help_items();
+
+    // Size the popup to fit all items exactly (border = 2 rows), capped at the
+    // terminal height so it never overflows on very small terminals.
+    let needed_height = (items.len() as u16).saturating_add(2).min(area.height);
+    let [popup_area] = Layout::vertical([Constraint::Length(needed_height)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(58)])
+        .flex(Flex::Center)
+        .areas(popup_area);
     frame.render_widget(Clear, popup_area);
 
     let outer_block = Block::default()
@@ -98,10 +93,16 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
         .padding(Padding::new(1, 1, 0, 0));
 
     let inner = outer_block.inner(popup_area);
+    let total = items.len();
+    let visible_height = inner.height as usize;
+    let (start, end) = widgets::scroll_window(&items, 0, visible_height);
+    let outer_block = match widgets::scroll_indicator(start, end, total) {
+        Some(span) => outer_block.title_top(Line::from(span).right_aligned()),
+        None => outer_block,
+    };
     frame.render_widget(outer_block, popup_area);
 
-    let items = build_help_items();
-    frame.render_widget(List::new(items), inner);
+    frame.render_widget(List::new(items[start..end].to_vec()), inner);
 }
 
 fn build_help_items() -> Vec<ListItem<'static>> {

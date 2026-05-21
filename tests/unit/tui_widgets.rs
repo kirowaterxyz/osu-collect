@@ -1,4 +1,4 @@
-use super::{message_style, scroll_window, truncate_to_width};
+use super::{message_style, scroll_indicator, scroll_window, truncate_to_width};
 use crate::download::BeatmapStage;
 use crate::tui::{
     FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
@@ -82,6 +82,51 @@ fn message_style_stage_classification() {
         message_style(BeatmapStage::Verifying, false),
         Style::default().fg(text_dim())
     );
+}
+
+#[test]
+fn scroll_indicator_none_when_all_visible() {
+    assert!(scroll_indicator(0, 10, 10).is_none());
+}
+
+#[test]
+fn scroll_indicator_none_when_total_zero() {
+    assert!(scroll_indicator(0, 0, 0).is_none());
+}
+
+#[test]
+fn scroll_indicator_none_on_degenerate_start_after_end() {
+    assert!(scroll_indicator(10, 5, 20).is_none());
+}
+
+#[test]
+fn scroll_indicator_both_above_and_below() {
+    let span = scroll_indicator(5, 15, 100).expect("expected Some");
+    let text = span.content.as_ref();
+    assert!(text.contains("above"), "missing 'above': {text}");
+    assert!(text.contains("below"), "missing 'below': {text}");
+    assert!(text.contains('▲'), "missing '▲': {text}");
+    assert!(text.contains('▼'), "missing '▼': {text}");
+    assert!(text.contains('5'), "above count missing: {text}");
+    assert!(text.contains("85"), "below count missing: {text}");
+}
+
+#[test]
+fn scroll_indicator_only_below() {
+    let span = scroll_indicator(0, 15, 100).expect("expected Some");
+    let text = span.content.as_ref();
+    assert!(!text.contains("above"), "unexpected 'above': {text}");
+    assert!(text.contains("below"), "missing 'below': {text}");
+    assert!(text.contains('▼'), "missing '▼': {text}");
+}
+
+#[test]
+fn scroll_indicator_only_above() {
+    let span = scroll_indicator(50, 100, 100).expect("expected Some");
+    let text = span.content.as_ref();
+    assert!(text.contains("above"), "missing 'above': {text}");
+    assert!(!text.contains("below"), "unexpected 'below': {text}");
+    assert!(text.contains('▲'), "missing '▲': {text}");
 }
 
 #[test]

@@ -542,7 +542,6 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let block = widgets::panel_block(PANEL_ACTIVE);
     let inner = block.inner(area);
-    frame.render_widget(block, area);
 
     let row_width = inner.width;
     let mut items: Vec<ListItem> = Vec::new();
@@ -594,6 +593,12 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let max_scroll = total.saturating_sub(visible_height);
     let start = page.thread_scroll.min(max_scroll);
     let end = (start + visible_height).min(total);
+
+    let block = match widgets::scroll_indicator(start, end, total) {
+        Some(span) => block.title_top(Line::from(span).right_aligned()),
+        None => block,
+    };
+    frame.render_widget(block, area);
 
     frame.render_widget(
         List::new(items[start..end].to_vec()).highlight_symbol(""),

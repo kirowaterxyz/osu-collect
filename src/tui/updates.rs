@@ -44,10 +44,15 @@ const COUNT_SUFFIX_MAPS: &str = "maps";
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     let block = widgets::panel_block(PANEL_TITLE);
     let inner = block.inner(area);
-    frame.render_widget(block, area);
 
     let (items, focused_index) = build_items(form);
     let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
+    let block = match widgets::scroll_indicator(start, end, items.len()) {
+        Some(span) => block.title_top(Line::from(span).right_aligned()),
+        None => block,
+    };
+    frame.render_widget(block, area);
+
     let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
 }
