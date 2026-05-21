@@ -3,6 +3,7 @@ use crate::app::{
     updates::{BeatmapDisplayItem, CollectionEntry, MissingBeatmapset, MissingStatus, ScanStatus},
 };
 use crate::osu_db::OsuClient;
+use crate::utils::pretty_path;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -209,12 +210,24 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
         && !form.selection.in_beatmap_list;
     let field = &form.path.osu_path;
 
-    let value = if field.value.is_empty() {
-        Span::styled(field.placeholder.clone(), Style::default().fg(text_faint()))
-    } else if form.is_path_auto_detected() {
-        Span::styled(field.value.clone(), Style::default().fg(text_faint()))
+    // When focused and the user is actively typing, show the raw value so
+    // they can see and edit exactly what they typed. When not focused,
+    // collapse the home prefix to `~` for readability.
+    let display_value = if focused || field.value.is_empty() {
+        field.value.clone()
     } else {
-        Span::styled(field.value.clone(), Style::default().fg(accent()))
+        pretty_path(&field.value).into_owned()
+    };
+
+    let value = if field.value.is_empty() {
+        Span::styled(
+            pretty_path(&field.placeholder).into_owned(),
+            Style::default().fg(text_faint()),
+        )
+    } else if form.is_path_auto_detected() {
+        Span::styled(display_value, Style::default().fg(text_faint()))
+    } else {
+        Span::styled(display_value, Style::default().fg(accent()))
     };
 
     ListItem::new(Line::from(vec![

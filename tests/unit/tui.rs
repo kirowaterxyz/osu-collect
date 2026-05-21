@@ -943,14 +943,14 @@ fn progress_alone_must_not_allocate_an_empty_slot() {
 fn bar_visible_during_downloading_before_bytes_flow() {
     use crate::download::BeatmapStage;
 
-    use super::ACCENT;
+    use super::accent;
 
     let mut page = CollectionPage::new(1, "ranked".into(), 1);
     page.update_active_status(7, BeatmapStage::Downloading, "contacting nerinyan", false);
     let line = page.active_lines().next().expect("slot allocated");
     assert_eq!(
         line.bar_color(),
-        ACCENT,
+        accent(),
         "active downloads without a total should show an indeterminate bar in accent color"
     );
 
@@ -958,7 +958,7 @@ fn bar_visible_during_downloading_before_bytes_flow() {
     let line = page.active_lines().next().expect("slot allocated");
     assert_eq!(
         line.bar_color(),
-        ACCENT,
+        accent(),
         "bar must remain in accent color once real progress data is available"
     );
 }

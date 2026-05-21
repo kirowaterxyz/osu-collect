@@ -3,6 +3,7 @@ use crate::{
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
+    utils::{expand_tilde, pretty_path},
 };
 use std::{env, str::FromStr};
 
@@ -78,11 +79,17 @@ impl HomeTab {
         let nekoha = config.mirror.nekoha;
         let custom_template = config.mirror.custom_template().unwrap_or("");
 
-        let default_directory = env::current_dir()
+        // One syscall: raw form for submit fallback, pretty form for placeholder.
+        let cwd = env::current_dir();
+        let default_directory = cwd
+            .as_deref()
             .map(|dir| dir.to_string_lossy().into_owned())
             .unwrap_or_else(|_| ".".to_string());
-
-        let placeholder_directory = default_directory.clone();
+        // Placeholder shows the tilde-collapsed path so long cwd is readable.
+        let placeholder_directory = cwd
+            .as_deref()
+            .map(|dir| pretty_path(dir).into_owned())
+            .unwrap_or_else(|_| ".".to_string());
 
         let default_threads = config.download.resolved_concurrent();
         let threads_value = config
@@ -245,7 +252,9 @@ impl HomeTab {
         let directory = if self.directory.value.trim().is_empty() {
             self.default_directory.clone()
         } else {
-            self.directory.value.trim().to_string()
+            // Expand `~` at submit time so the filesystem layer receives an
+            // absolute path regardless of how the user typed the value.
+            expand_tilde(self.directory.value.trim())
         };
 
         let threads_value = if self.threads.value.trim().is_empty() {

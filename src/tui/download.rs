@@ -2,7 +2,7 @@ use crate::{
     app::CollectionPage,
     config::constants::{MAX_TRUNCATED_CHARS, status::RATE_LIMITED},
     download::{DownloadStage, DownloadSummary},
-    utils::format_bytes,
+    utils::{format_bytes, pretty_path},
 };
 use ratatui::{
     Frame,
@@ -161,7 +161,10 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         Line::from(vec![
             Span::styled(KEY_OUTPUT, key_style),
             Span::styled(
-                page.output_dir.as_deref().unwrap_or(VALUE_PREPARING),
+                page.output_dir
+                    .as_deref()
+                    .map(|p| pretty_path(p).into_owned())
+                    .unwrap_or_else(|| VALUE_PREPARING.to_string()),
                 value_style,
             ),
         ]),

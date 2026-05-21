@@ -274,7 +274,7 @@ impl App {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_string())
         } else {
-            self.home.directory.value.trim().to_string()
+            utils::expand_tilde(self.home.directory.value.trim())
         };
 
         if self.downloads.len() >= usize::MAX - 1 {

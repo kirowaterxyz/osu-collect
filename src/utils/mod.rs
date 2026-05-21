@@ -3,7 +3,7 @@ pub mod fs;
 pub mod logging;
 
 pub use error::{AppError, Result};
-pub use fs::{format_bytes, is_low_disk_space, prepare_directory};
+pub use fs::{expand_tilde, format_bytes, is_low_disk_space, prepare_directory, pretty_path};
 
 pub use logging::init_logging;
 

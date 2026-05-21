@@ -1,5 +1,5 @@
 use crate::app::runtime::InputEvent;
-use crate::tui::BG;
+use crate::tui::bg;
 use crossterm::{
     event::{self, Event as CrosstermEvent, KeyEventKind},
     execute,
@@ -23,7 +23,7 @@ pub fn setup_terminal() -> io::Result<TuiTerminal> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
-    let _ = set_terminal_bg(&mut stdout, BG);
+    let _ = set_terminal_bg(&mut stdout, bg());
     let backend = CrosstermBackend::new(stdout);
     Terminal::new(backend)
 }

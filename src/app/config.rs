@@ -10,6 +10,7 @@ use crate::{
         constants::{ARCHIVE_VALIDATIONS, LOG_FORMATS, LOG_LEVELS, THEME_MODES, default_threads},
     },
     download::ArchiveValidation,
+    utils::expand_tilde,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,7 +316,8 @@ impl ConfigTab {
         if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            // Expand `~` at save time so the stored path is always absolute.
+            Some(expand_tilde(trimmed))
         }
     }
 }

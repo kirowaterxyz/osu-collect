@@ -3,8 +3,56 @@ use crate::{
     utils::error::{AppError, Result},
 };
 use fs2::available_space;
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 use tokio::fs;
+
+/// Replace the home directory prefix in `path` with `~`.
+///
+/// Returns `"~"` (a `&'static str` borrow) when `path` is exactly the home
+/// directory, `"~/…"` (owned) when it is a subdirectory, and the result of
+/// `to_string_lossy().into_owned()` (owned) for all other paths. Always
+/// allocates for paths outside the home directory because `Path::to_string_lossy`
+/// does not hand out a borrow tied to the caller's `path` argument.
+pub fn pretty_path(path: impl AsRef<Path>) -> Cow<'static, str> {
+    let path = path.as_ref();
+    if let Some(home) = dirs::home_dir() {
+        if path == home {
+            return Cow::Borrowed("~");
+        }
+        if let Ok(stripped) = path.strip_prefix(&home) {
+            let mut s = String::with_capacity(2 + stripped.as_os_str().len());
+            s.push_str("~/");
+            s.push_str(&stripped.to_string_lossy());
+            return Cow::Owned(s);
+        }
+    }
+    Cow::Owned(path.to_string_lossy().into_owned())
+}
+
+/// Expand a leading `~` or `~/` to the user's home directory.
+///
+/// Only the literal leading `~` followed by `/` or end-of-string is
+/// substituted. Absolute paths, relative paths, and paths starting with `~`
+/// followed by a non-`/` character are returned unchanged.
+pub fn expand_tilde(path: &str) -> String {
+    if path == "~" {
+        return dirs::home_dir()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+    }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        let mut s = home.to_string_lossy().into_owned();
+        s.push('/');
+        s.push_str(rest);
+        return s;
+    }
+    path.to_string()
+}
 
 pub fn is_low_disk_space(path: &Path) -> bool {
     available_space(path).is_ok_and(|space| space < LOW_SPACE_THRESHOLD_BYTES)
@@ -26,15 +74,7 @@ pub fn format_bytes(bytes: u64, unit: &str) -> String {
 }
 
 pub async fn prepare_directory(directory: &str) -> Result<PathBuf> {
-    let expanded_path = if let Some(stripped) = directory.strip_prefix("~/") {
-        if let Some(home_dir) = dirs::home_dir() {
-            home_dir.join(stripped)
-        } else {
-            PathBuf::from(directory)
-        }
-    } else {
-        PathBuf::from(directory)
-    };
+    let expanded_path = PathBuf::from(expand_tilde(directory));
 
     if !expanded_path.exists() {
         fs::create_dir_all(&expanded_path).await.map_err(|err| {
@@ -71,3 +111,7 @@ pub async fn prepare_directory(directory: &str) -> Result<PathBuf> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/utils_fs.rs"]
+mod tests;

@@ -1,8 +1,8 @@
 use super::{message_style, scroll_window, truncate_to_width};
 use crate::download::BeatmapStage;
 use crate::tui::{
-    DANGER, FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE,
-    GLYPH_SHADE, GLYPH_SPACE, SUCCESS, TEXT_DIM, TEXT_FAINT, WARNING, glyph_fill,
+    FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
+    GLYPH_SPACE, danger, glyph_fill, success, text_dim, text_faint, warning,
 };
 
 #[test]
@@ -47,7 +47,7 @@ fn message_style_rate_limited_overrides() {
     use ratatui::style::Style;
     assert_eq!(
         message_style(BeatmapStage::Success, true),
-        Style::default().fg(WARNING)
+        Style::default().fg(warning())
     );
 }
 
@@ -56,31 +56,31 @@ fn message_style_stage_classification() {
     use ratatui::style::Style;
     assert_eq!(
         message_style(BeatmapStage::Success, false),
-        Style::default().fg(SUCCESS)
+        Style::default().fg(success())
     );
     assert_eq!(
         message_style(BeatmapStage::Skipped, false),
-        Style::default().fg(TEXT_FAINT)
+        Style::default().fg(text_faint())
     );
     assert_eq!(
         message_style(BeatmapStage::Failed, false),
-        Style::default().fg(DANGER)
+        Style::default().fg(danger())
     );
     assert_eq!(
         message_style(BeatmapStage::Aborted, false),
-        Style::default().fg(DANGER)
+        Style::default().fg(danger())
     );
     assert_eq!(
         message_style(BeatmapStage::Downloading, false),
-        Style::default().fg(TEXT_DIM)
+        Style::default().fg(text_dim())
     );
     assert_eq!(
         message_style(BeatmapStage::Pending, false),
-        Style::default().fg(TEXT_DIM)
+        Style::default().fg(text_dim())
     );
     assert_eq!(
         message_style(BeatmapStage::Verifying, false),
-        Style::default().fg(TEXT_DIM)
+        Style::default().fg(text_dim())
     );
 }
 

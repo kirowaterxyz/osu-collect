@@ -4,6 +4,7 @@ use super::{
     next_field, prev_field,
 };
 use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
+use crate::utils::expand_tilde;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use tracing::{debug, info};
@@ -479,8 +480,11 @@ impl UpdatesTab {
         self.selection.visible_missing.len()
     }
 
-    pub fn osu_path(&self) -> &str {
-        &self.path.osu_path.value
+    /// Returns the osu! path with any leading `~` expanded to the home
+    /// directory. Call this only when passing the path to the filesystem layer,
+    /// never for rendering (the raw typed value is shown to the user).
+    pub fn osu_path(&self) -> String {
+        expand_tilde(&self.path.osu_path.value)
     }
 
     pub fn set_local_beatmapsets(&mut self, beatmapsets: Vec<LocalBeatmapset>) {

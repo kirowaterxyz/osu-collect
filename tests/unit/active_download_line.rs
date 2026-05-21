@@ -1,6 +1,6 @@
 use super::{ActiveDownloadLine, STATUS_DEBOUNCE};
 use crate::download::BeatmapStage;
-use crate::tui::{ACCENT, INFO, WARNING};
+use crate::tui::{accent, info, warning};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ fn first_update_applies_immediately() {
     let mut line = ActiveDownloadLine::new(1);
     line.apply_status(BeatmapStage::Downloading, "checking osu.direct", false);
     assert_eq!(line.displayed_message(), "checking osu.direct");
-    assert_eq!(line.bar_color(), ACCENT);
+    assert_eq!(line.bar_color(), accent());
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn second_update_within_window_queues_text_but_stage_updates_immediately() {
     assert_eq!(line.displayed_message(), "downloading from osu.direct");
     assert_eq!(
         line.bar_color(),
-        INFO,
+        info(),
         "Verifying must switch bar to info color instantly"
     );
 }
@@ -50,7 +50,7 @@ fn pending_update_resolves_after_window() {
     line.apply_status(BeatmapStage::Verifying, "verifying from osu.direct", false);
     sleep(STATUS_DEBOUNCE + Duration::from_millis(5));
     assert_eq!(line.displayed_message(), "verifying from osu.direct");
-    assert_eq!(line.bar_color(), INFO);
+    assert_eq!(line.bar_color(), info());
 }
 
 #[test]
@@ -73,5 +73,5 @@ fn rapid_transitions_coalesce_to_latest() {
 fn bar_color_downloading_rate_limited_is_warning() {
     let mut line = ActiveDownloadLine::new(42);
     line.apply_status(BeatmapStage::Downloading, "", true);
-    assert_eq!(line.bar_color(), WARNING);
+    assert_eq!(line.bar_color(), warning());
 }
