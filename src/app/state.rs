@@ -4,7 +4,7 @@ use super::{
     config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
     failed_maps,
     home::{HomeField, HomeTab},
-    messages::{clear_expired_message, set_error_message, set_info_message},
+    messages::{clear_expired_message, dismiss_error_message, set_error_message, set_info_message},
     snapshots,
     updates::{UpdatesAction, UpdatesTab, extract_collection_id},
 };
@@ -697,6 +697,17 @@ impl App {
             self.home.quit_prompt = false;
         }
 
+        // Sticky error toasts swallow `x` before any per-tab handler sees it.
+        // Mirrors the universal `esc`/`q` cascade: a visible error is more
+        // attention-grabbing than the settled-tab close binding it would
+        // otherwise route to.
+        if key.code == KeyCode::Char('x')
+            && !key.modifiers.contains(KeyModifiers::CONTROL)
+            && self.dismiss_active_error_toast()
+        {
+            return None;
+        }
+
         match key.code {
             KeyCode::Char('?') => {
                 self.help_open = !self.help_open;
@@ -968,6 +979,15 @@ impl App {
         clear_expired_message(&mut self.updates.message);
         clear_expired_message(&mut self.config.message);
         self.tick_count = self.tick_count.wrapping_add(1);
+    }
+
+    /// Dismiss any sticky error toast currently visible in a static tab's
+    /// message slot. Returns `true` when an error was cleared so callers can
+    /// short-circuit further `x` handling on the same keypress.
+    pub fn dismiss_active_error_toast(&mut self) -> bool {
+        dismiss_error_message(&mut self.home.message)
+            || dismiss_error_message(&mut self.updates.message)
+            || dismiss_error_message(&mut self.config.message)
     }
 
     pub fn handle_download_event(&mut self, event: DownloadEvent) {

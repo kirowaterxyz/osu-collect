@@ -28,8 +28,14 @@ impl AppMessage {
         Self::new(MessageKind::Loading, text)
     }
 
+    /// Errors stick until the user dismisses them; loading toasts stick until
+    /// the operation resolves. Info ages out after [`MESSAGE_TTL`].
     pub fn is_expired(&self) -> bool {
-        self.kind != MessageKind::Loading && self.created_at.elapsed() >= MESSAGE_TTL
+        matches!(self.kind, MessageKind::Info) && self.created_at.elapsed() >= MESSAGE_TTL
+    }
+
+    pub fn is_dismissible_error(&self) -> bool {
+        self.kind == MessageKind::Error
     }
 
     fn new(kind: MessageKind, text: impl Into<String>) -> Self {
@@ -61,6 +67,17 @@ pub(crate) fn clear_expired_message(slot: &mut Option<AppMessage>) {
     if slot.as_ref().is_some_and(AppMessage::is_expired) {
         *slot = None;
     }
+}
+
+/// Clears the slot if it holds a sticky error toast. Returns `true` when an
+/// error was actually dismissed, so callers can short-circuit other handlers
+/// for the same keypress.
+pub(crate) fn dismiss_error_message(slot: &mut Option<AppMessage>) -> bool {
+    if slot.as_ref().is_some_and(AppMessage::is_dismissible_error) {
+        *slot = None;
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]

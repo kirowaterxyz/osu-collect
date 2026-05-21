@@ -40,6 +40,7 @@ const HINT_HELP: &str = "? help";
 
 const PILL_INFO: &str = "info";
 const PILL_ERROR: &str = "error";
+const ERROR_DISMISS_HINT: &str = "  [x to dismiss]";
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
@@ -175,7 +176,8 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
             Span::raw(" "),
             widgets::status_pill(PILL_ERROR, danger()),
             Span::raw(" "),
-            Span::styled(text, muted),
+            Span::styled(text, Style::default().fg(danger())),
+            Span::styled(ERROR_DISMISS_HINT, Style::default().fg(text_faint())),
         ]),
     }
 }

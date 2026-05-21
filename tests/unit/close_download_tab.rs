@@ -217,6 +217,65 @@ fn q_on_running_tab_still_emits_cancel_command() {
     assert_eq!(app.downloads.len(), 1, "page must stay until runtime acks");
 }
 
+// ── x cascade: sticky error toast dismisses before closing a settled tab ─────
+
+#[test]
+fn x_dismisses_error_toast_instead_of_closing_settled_tab() {
+    use crate::app::messages::AppMessage;
+
+    let mut app = make_app();
+    push_page(&mut app, 1, DownloadStage::Completed);
+    let tab_before = app.active_tab;
+    // simulate an error toast that was raised on the home tab; it should
+    // intercept `x` regardless of which tab is currently active
+    app.home.message = Some(AppMessage::error("network unreachable"));
+
+    let cmd = app.handle_key(press(KeyCode::Char('x')));
+
+    assert!(cmd.is_none(), "x must not emit a command");
+    assert!(
+        app.home.message.is_none(),
+        "x must dismiss the sticky error toast"
+    );
+    assert_eq!(
+        app.downloads.len(),
+        1,
+        "settled tab must stay open while the error toast was dismissed"
+    );
+    assert_eq!(app.active_tab, tab_before);
+}
+
+#[test]
+fn x_after_dismiss_falls_through_to_close_settled_tab() {
+    use crate::app::messages::AppMessage;
+
+    let mut app = make_app();
+    push_page(&mut app, 1, DownloadStage::Completed);
+    app.home.message = Some(AppMessage::error("network unreachable"));
+
+    // first `x`: dismisses the error toast, tab stays
+    app.handle_key(press(KeyCode::Char('x')));
+    assert!(app.home.message.is_none());
+    assert_eq!(app.downloads.len(), 1);
+
+    // second `x`: no error toast in the way, the settled tab closes
+    app.handle_key(press(KeyCode::Char('x')));
+    assert!(
+        app.downloads.is_empty(),
+        "without a sticky error, x must close the settled tab"
+    );
+}
+
+#[test]
+fn x_on_static_tab_without_error_is_unchanged() {
+    let mut app = make_app();
+    app.active_tab = CONFIG_TAB_INDEX;
+    // no error toast — x must remain a no-op on static tabs as before
+    let cmd = app.handle_key(press(KeyCode::Char('x')));
+    assert!(cmd.is_none());
+    assert_eq!(app.active_tab, CONFIG_TAB_INDEX);
+}
+
 // ── help overlay surface ──────────────────────────────────────────────────────
 
 #[test]
