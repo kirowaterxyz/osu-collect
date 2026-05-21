@@ -1035,7 +1035,7 @@ impl App {
         titles.push(Cow::Borrowed(TAB_UPDATES_LOWER));
         titles.push(Cow::Borrowed(TAB_CONFIG_LOWER));
         for page in &self.downloads {
-            titles.push(Cow::Borrowed(page.title_lower()));
+            titles.push(download_tab_title(page));
         }
         titles
     }
@@ -1231,6 +1231,55 @@ impl App {
     }
 }
 
+/// "0" through "100" as `&'static str`, indexed by value.
+static PCT_STR: [&str; 101] = [
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+    "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
+    "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48",
+    "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "61", "62", "63", "64",
+    "65", "66", "67", "68", "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "80",
+    "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96",
+    "97", "98", "99", "100",
+];
+
+/// Build the tab title for one download page.
+///
+/// - No progress data yet (`download_target == 0`): returns the bare name.
+/// - In-progress: appends ` (N%)` where N = `(downloaded + skipped) / target * 100`.
+/// - Completed (`DownloadStage::Completed`): appends ` (✓)`.
+/// - Any failed maps: appends `*` after the progress suffix.
+fn download_tab_title(page: &CollectionPage) -> Cow<'_, str> {
+    let has_progress = page.download_target > 0;
+    let has_failures = page.stats.failed > 0;
+
+    if !has_progress && !has_failures {
+        return Cow::Borrowed(page.title_lower());
+    }
+
+    let name = page.title_lower();
+    // Reserve: name + " (100%)" + "*" = name + 8 bytes at most
+    let mut s = String::with_capacity(name.len() + 8);
+    s.push_str(name);
+
+    if has_progress {
+        if page.stage == DownloadStage::Completed {
+            s.push_str(" (✓)");
+        } else {
+            let done = u64::from(page.stats.downloaded) + u64::from(page.stats.skipped);
+            let pct = ((done * 100) / page.download_target as u64).min(100) as usize;
+            s.push_str(" (");
+            s.push_str(PCT_STR[pct]);
+            s.push_str("%)");
+        }
+    }
+
+    if has_failures {
+        s.push('*');
+    }
+
+    Cow::Owned(s)
+}
+
 /// Load the persisted failed-maps file at `path` and intersect its ids with
 /// `collection_ids`. Returns the intersection.
 pub(crate) fn intersect_failed_ids(path: &Path, collection_ids: &HashSet<u32>) -> Vec<u32> {
@@ -1253,3 +1302,7 @@ mod retry_keybind_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/retry_on_download.rs"]
 mod retry_on_download_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/tab_titles.rs"]
+mod tab_titles_tests;
