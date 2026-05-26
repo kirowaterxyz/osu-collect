@@ -68,36 +68,39 @@ fetch_latest_release() {
   curl -fsSL --retry 3 "$API_URL"
 }
 
+# Emits three lines on stdout: tag, download URL, sha256 URL.
+# Returns values via stdout rather than globals — a command-substitution
+# subshell cannot write back to the caller's variables.
 parse_release() {
   local json="$1"
   local asset_name="$2"
 
-  local tag
+  local tag download_url sha256_url
   if command -v jq &>/dev/null; then
     tag="$(printf '%s' "$json" | jq -r '.tag_name')"
-    DOWNLOAD_URL="$(printf '%s' "$json" \
+    download_url="$(printf '%s' "$json" \
       | jq -r --arg n "$asset_name" '.assets[] | select(.name == $n) | .browser_download_url')"
-    SHA256_URL="$(printf '%s' "$json" \
+    sha256_url="$(printf '%s' "$json" \
       | jq -r --arg n "${asset_name}.sha256" '.assets[] | select(.name == $n) | .browser_download_url')"
   else
     tag="$(parse_field "$json" "tag_name")"
     # extract browser_download_url for asset_name
     # GitHub API asset blocks span ~30 lines; -A5 is too short
-    DOWNLOAD_URL="$(printf '%s' "$json" \
+    download_url="$(printf '%s' "$json" \
       | grep -A30 "\"name\":.*\"${asset_name}\"" \
       | grep "browser_download_url" | head -1 \
       | sed 's/.*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/')"
-    SHA256_URL="$(printf '%s' "$json" \
+    sha256_url="$(printf '%s' "$json" \
       | grep -A30 "\"name\":.*\"${asset_name}\.sha256\"" \
       | grep "browser_download_url" | head -1 \
       | sed 's/.*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/')"
   fi
 
   [[ -n "$tag" ]]          || { error "could not parse tag_name from release JSON"; exit 1; }
-  [[ -n "$DOWNLOAD_URL" ]] || { error "asset '${asset_name}' not found in release ${tag}"; exit 1; }
-  [[ -n "$SHA256_URL" ]]   || { error "checksum file '${asset_name}.sha256' not found in release ${tag}"; exit 1; }
+  [[ -n "$download_url" ]] || { error "asset '${asset_name}' not found in release ${tag}"; exit 1; }
+  [[ -n "$sha256_url" ]]   || { error "checksum file '${asset_name}.sha256' not found in release ${tag}"; exit 1; }
 
-  printf '%s' "$tag"
+  printf '%s\n%s\n%s\n' "$tag" "$download_url" "$sha256_url"
 }
 
 # ── sha256 verification ──────────────────────────────────────────────────────
@@ -206,9 +209,14 @@ main() {
   local json
   json="$(fetch_latest_release)"
 
-  local DOWNLOAD_URL SHA256_URL
-  local tag
-  tag="$(parse_release "$json" "$asset_name")"
+  # parse_release prints tag / download URL / sha256 URL on three lines and
+  # exits non-zero on failure; command substitution propagates that exit
+  # under `set -e`, so a parse failure still aborts the installer.
+  local release_info
+  release_info="$(parse_release "$json" "$asset_name")"
+
+  local tag DOWNLOAD_URL SHA256_URL
+  { read -r tag; read -r DOWNLOAD_URL; read -r SHA256_URL; } <<< "$release_info"
 
   info "latest release: $tag"
 
