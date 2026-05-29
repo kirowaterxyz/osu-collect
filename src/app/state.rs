@@ -686,9 +686,12 @@ impl App {
             return Some(AppCommand::Quit);
         }
 
-        // ctrl+w deletes the previous word in the focused text field (no-op
-        // elsewhere). Intercepted early so it never types a literal 'w'.
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('w') {
+        // ctrl+w and ctrl+backspace delete the previous word in the focused text
+        // field (no-op elsewhere). Many terminals send ctrl+backspace as ^H
+        // (ctrl+h), so both are intercepted early — otherwise they type 'w'/'h'.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('w') | KeyCode::Char('h'))
+        {
             return self.backspace_word_focused();
         }
 

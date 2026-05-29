@@ -39,6 +39,26 @@ fn ctrl_c_quits() {
     assert!(matches!(cmd, Some(AppCommand::Quit)));
 }
 
+#[test]
+fn ctrl_w_deletes_word_in_text_field() {
+    let mut app = make_app();
+    app.home.collection.value = "hello world".to_string();
+    app.handle_key(ctrl(KeyCode::Char('w')));
+    assert_eq!(app.home.collection.value, "hello ");
+}
+
+#[test]
+fn ctrl_backspace_as_ctrl_h_deletes_word_not_types_h() {
+    // many terminals deliver ctrl+backspace as ^H (ctrl+h)
+    let mut app = make_app();
+    app.home.collection.value = "hello world".to_string();
+    app.handle_key(ctrl(KeyCode::Char('h')));
+    assert_eq!(
+        app.home.collection.value, "hello ",
+        "ctrl+h must delete a word, never type a literal 'h'"
+    );
+}
+
 // ── tab navigation ────────────────────────────────────────────────────────────
 
 #[test]
