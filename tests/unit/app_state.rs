@@ -13,8 +13,11 @@ fn key(code: KeyCode) -> KeyEvent {
 
 #[test]
 fn right_tab_switch_ignores_stale_updates_list_on_home() {
+    use crate::app::HomeField;
     let mut app = App::new(Config::default());
     app.active_tab = HOME_TAB_INDEX;
+    // Focus a non-text field so Right switches tabs rather than moving the caret.
+    app.home.focus = HomeField::NoVideo;
     app.updates.selection.in_collection_list = true;
 
     let cmd = app.handle_key(key(KeyCode::Right));

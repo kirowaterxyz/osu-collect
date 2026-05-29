@@ -1,5 +1,5 @@
 use crate::{
-    app::home::{HomeField, HomeTab},
+    app::home::{HomeField, HomeTab, InputField},
     config::Config,
     download::ArchiveValidation,
     mirrors::MirrorKind,
@@ -182,4 +182,104 @@ fn r_key_is_not_suppressed_when_threads_focused() {
         matches!(cmd, Some(AppCommand::ProbeMirrors)),
         "'r' with threads focused must trigger mirror probe, got {cmd:?}"
     );
+}
+
+// ── InputField caret model ──────────────────────────────────────────────────
+
+#[test]
+fn new_field_parks_caret_at_end() {
+    let field = InputField::new("label", "hello", "ph");
+    assert_eq!(field.caret(), 5);
+
+    let empty = InputField::new("label", "", "ph");
+    assert_eq!(empty.caret(), 0, "empty value parks the caret at 0");
+}
+
+#[test]
+fn set_value_resets_caret_to_end() {
+    let mut field = InputField::new("label", "hello", "ph");
+    field.caret_home();
+    field.set_value("re-routed");
+    assert_eq!(field.caret(), "re-routed".chars().count());
+}
+
+#[test]
+fn insert_at_caret_lands_mid_string() {
+    let mut field = InputField::new("label", "ac", "ph");
+    field.caret_left(); // caret between 'a' and 'c'
+    field.insert_char('b');
+    assert_eq!(field.value, "abc");
+    assert_eq!(field.caret(), 2, "caret advances past the inserted char");
+}
+
+#[test]
+fn backspace_deletes_char_before_caret() {
+    let mut field = InputField::new("label", "abc", "ph");
+    field.caret_left(); // caret between 'b' and 'c'
+    field.delete_before_caret();
+    assert_eq!(field.value, "ac");
+    assert_eq!(field.caret(), 1);
+
+    // No-op at the start of the value.
+    field.caret_home();
+    field.delete_before_caret();
+    assert_eq!(field.value, "ac");
+    assert_eq!(field.caret(), 0);
+}
+
+#[test]
+fn delete_at_caret_removes_forward_char() {
+    let mut field = InputField::new("label", "abc", "ph");
+    field.caret_home();
+    field.delete_at_caret();
+    assert_eq!(field.value, "bc");
+    assert_eq!(field.caret(), 0, "delete leaves the caret in place");
+
+    // No-op at the end of the value.
+    field.caret_end();
+    field.delete_at_caret();
+    assert_eq!(field.value, "bc");
+}
+
+#[test]
+fn word_delete_acts_left_of_caret_only() {
+    let mut field = InputField::new("label", "foo bar baz", "ph");
+    // Park the caret right after "bar" (index 7).
+    field.caret_left();
+    field.caret_left();
+    field.caret_left();
+    field.caret_left();
+    assert_eq!(field.caret(), 7);
+    field.delete_word_before_caret();
+    assert_eq!(
+        field.value, "foo  baz",
+        "only the word left of the caret goes"
+    );
+    assert_eq!(field.caret(), 4, "caret lands at the deletion start");
+}
+
+#[test]
+fn caret_ops_respect_char_boundaries() {
+    let mut field = InputField::new("label", "café", "ph");
+    assert_eq!(field.caret(), 4);
+    field.caret_left(); // between 'f' and 'é'
+    field.insert_char('x');
+    assert_eq!(field.value, "cafxé");
+    assert_eq!(field.caret(), 4);
+    field.delete_at_caret(); // removes 'é'
+    assert_eq!(field.value, "cafx");
+    field.delete_before_caret(); // removes 'x'
+    assert_eq!(field.value, "caf");
+}
+
+#[test]
+fn caret_movement_clamps_to_bounds() {
+    let mut field = InputField::new("label", "ab", "ph");
+    field.caret_right();
+    field.caret_right();
+    assert_eq!(field.caret(), 2, "right clamps at the value end");
+    field.caret_left();
+    field.caret_left();
+    field.caret_left();
+    assert_eq!(field.caret(), 0, "left clamps at the value start");
 }

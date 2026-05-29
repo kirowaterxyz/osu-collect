@@ -34,13 +34,18 @@ fn scroll_window_empty_visible() {
 
 #[test]
 fn input_cursor_col_counts_prefix_label_and_value() {
-    let field = InputField {
-        label: "Threads", // lowercased to "threads" (7 chars)
-        value: "ab".to_string(),
-        placeholder: String::new(),
-    };
-    // focus marker (2) + "threads" (7) + ": " (2) + "ab" (2) = 13
+    // `new` parks the caret at the end, so the column lands past the full value.
+    let field = InputField::new("Threads", "ab", ""); // label lowercases to "threads" (7)
+    // focus marker (2) + "threads" (7) + ": " (2) + caret offset (2) = 13
     assert_eq!(input_cursor_col(&field), 13);
+}
+
+#[test]
+fn input_cursor_col_tracks_caret_offset_not_value_length() {
+    let mut field = InputField::new("Threads", "ab", "");
+    field.caret_home();
+    // caret at 0: focus marker (2) + "threads" (7) + ": " (2) + 0 = 11
+    assert_eq!(input_cursor_col(&field), 11);
 }
 
 #[test]

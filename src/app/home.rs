@@ -8,7 +8,7 @@ use crate::{
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
-    utils::{CompletionResult, complete_dir, delete_last_word, expand_tilde, pretty_path},
+    utils::{CompletionResult, complete_dir, expand_tilde, pretty_path},
 };
 use std::{collections::HashMap, env, str::FromStr};
 
@@ -25,6 +25,117 @@ pub struct InputField {
     pub label: &'static str,
     pub value: String,
     pub placeholder: String,
+    /// Caret position as a **char index** into `value` (not a byte offset).
+    /// Invariant: `0 ..= value.chars().count()`. Char indices keep the caret
+    /// math aligned with the renderer, which measures columns in chars.
+    caret: usize,
+}
+
+impl InputField {
+    /// Build a field with the caret parked at the end of `value`.
+    pub fn new(
+        label: &'static str,
+        value: impl Into<String>,
+        placeholder: impl Into<String>,
+    ) -> Self {
+        let value = value.into();
+        let caret = value.chars().count();
+        Self {
+            label,
+            value,
+            placeholder: placeholder.into(),
+            caret,
+        }
+    }
+
+    /// Current caret position, clamped to the value length.
+    pub fn caret(&self) -> usize {
+        self.caret.min(self.value.chars().count())
+    }
+
+    /// Byte offset of the caret, for slicing/inserting without splitting a
+    /// multi-byte char.
+    fn caret_byte(&self) -> usize {
+        char_to_byte(&self.value, self.caret())
+    }
+
+    /// Replace the value and park the caret at its end. Every programmatic
+    /// write (dropdown accept, tab-completion, stepper, client-path detection)
+    /// routes through here so the caret never lands mid-char or past the end.
+    pub fn set_value(&mut self, value: impl Into<String>) {
+        self.value = value.into();
+        self.caret = self.value.chars().count();
+    }
+
+    /// Insert `ch` at the caret and advance the caret past it.
+    pub(crate) fn insert_char(&mut self, ch: char) {
+        let byte = self.caret_byte();
+        self.value.insert(byte, ch);
+        self.caret = self.caret() + 1;
+    }
+
+    /// Delete the char before the caret, moving the caret back one. No-op at
+    /// the start of the value.
+    pub(crate) fn delete_before_caret(&mut self) {
+        let caret = self.caret();
+        if caret == 0 {
+            return;
+        }
+        let start = char_to_byte(&self.value, caret - 1);
+        let end = char_to_byte(&self.value, caret);
+        self.value.replace_range(start..end, "");
+        self.caret = caret - 1;
+    }
+
+    /// Delete the char at the caret, leaving the caret in place. No-op at the
+    /// end of the value.
+    pub(crate) fn delete_at_caret(&mut self) {
+        let caret = self.caret();
+        let len = self.value.chars().count();
+        if caret >= len {
+            return;
+        }
+        let start = char_to_byte(&self.value, caret);
+        let end = char_to_byte(&self.value, caret + 1);
+        self.value.replace_range(start..end, "");
+        self.caret = caret;
+    }
+
+    /// Delete the word immediately left of the caret (path/URL friendly),
+    /// moving the caret to the deletion start.
+    pub(crate) fn delete_word_before_caret(&mut self) {
+        let caret = self.caret();
+        self.caret = crate::utils::delete_word_left(&mut self.value, caret);
+    }
+
+    /// Move the caret one char left.
+    pub(crate) fn caret_left(&mut self) {
+        self.caret = self.caret().saturating_sub(1);
+    }
+
+    /// Move the caret one char right, clamped to the value length.
+    pub(crate) fn caret_right(&mut self) {
+        self.caret = (self.caret() + 1).min(self.value.chars().count());
+    }
+
+    /// Move the caret to the start of the value.
+    pub(crate) fn caret_home(&mut self) {
+        self.caret = 0;
+    }
+
+    /// Move the caret to the end of the value.
+    pub(crate) fn caret_end(&mut self) {
+        self.caret = self.value.chars().count();
+    }
+}
+
+/// Byte offset of char index `idx` in `s`, or `s.len()` when `idx` is at or
+/// past the end. Never splits a multi-byte char.
+fn char_to_byte(s: &str, idx: usize) -> usize {
+    s.char_indices()
+        .nth(idx)
+        .map(|(byte, _)| byte)
+        .unwrap_or(s.len())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,26 +256,18 @@ impl HomeTab {
             .unwrap_or_default();
 
         Self {
-            collection: InputField {
-                label: "Collection URL or ID",
-                value: String::new(),
-                placeholder: "https://osucollector.com/collections/...".to_string(),
-            },
-            directory: InputField {
-                label: "Download directory",
-                value: String::new(),
-                placeholder: placeholder_directory,
-            },
-            custom_mirror: InputField {
-                label: "Custom mirror URL (optional)",
-                value: custom_template.to_string(),
-                placeholder: "https://example.com/d/{id}".to_string(),
-            },
-            threads: InputField {
-                label: "Threads",
-                value: threads_value,
-                placeholder: default_threads.to_string(),
-            },
+            collection: InputField::new(
+                "Collection URL or ID",
+                "",
+                "https://osucollector.com/collections/...",
+            ),
+            directory: InputField::new("Download directory", "", placeholder_directory),
+            custom_mirror: InputField::new(
+                "Custom mirror URL (optional)",
+                custom_template,
+                "https://example.com/d/{id}",
+            ),
+            threads: InputField::new("Threads", threads_value, default_threads.to_string()),
             auto_overwrite: false,
             nerinyan,
             osu_direct,
@@ -258,7 +361,7 @@ impl HomeTab {
         let idx = self.dropdown_selected?;
         let entry = self.url_history.entries.get(idx)?;
         let url = entry.url.clone();
-        self.collection.value = url.clone();
+        self.collection.set_value(url.clone());
         self.close_dropdown();
         Some(url)
     }
@@ -283,13 +386,13 @@ impl HomeTab {
         }
         match complete_dir(&self.directory.value) {
             CompletionResult::Single(completed) => {
-                self.directory.value = completed;
+                self.directory.set_value(completed);
             }
             CompletionResult::Ambiguous {
                 completed,
                 candidates,
             } => {
-                self.directory.value = completed;
+                self.directory.set_value(completed);
                 // Show up to 5 candidates; truncate with "…" if more.
                 const MAX_SHOWN: usize = 5;
                 let display = if candidates.len() <= MAX_SHOWN {
@@ -318,7 +421,7 @@ impl HomeTab {
         let current = self.resolved_threads() as i16;
         let max = self.default_threads as i16;
         let next = (current + delta).clamp(1, max) as u8;
-        self.threads.value = next.to_string();
+        self.threads.set_value(next.to_string());
     }
 
     pub fn handle_char(&mut self, ch: char) {
@@ -326,49 +429,55 @@ impl HomeTab {
         if self.dropdown_open {
             self.close_dropdown();
         }
-        match self.focus {
-            HomeField::Collection => self.collection.value.push(ch),
-            HomeField::Directory => self.directory.value.push(ch),
-            HomeField::CustomMirror => self.custom_mirror.value.push(ch),
-            // Threads is a stepper — char input is silently ignored.
-            HomeField::Threads
-            | HomeField::MirrorNerinyan
-            | HomeField::MirrorOsuDirect
-            | HomeField::MirrorSayobot
-            | HomeField::MirrorNekoha
-            | HomeField::AutoOverwrite
-            | HomeField::NoVideo
-            | HomeField::Download => {}
+        if let Some(field) = self.focused_input_mut() {
+            field.insert_char(ch);
         }
     }
 
     pub fn backspace(&mut self) {
-        match self.focus {
-            HomeField::Collection => {
-                self.collection.value.pop();
-            }
-            HomeField::Directory => {
-                self.directory.value.pop();
-            }
-            HomeField::CustomMirror => {
-                self.custom_mirror.value.pop();
-            }
-            // Threads is a stepper — backspace is silently ignored.
-            HomeField::Threads
-            | HomeField::MirrorNerinyan
-            | HomeField::MirrorOsuDirect
-            | HomeField::MirrorSayobot
-            | HomeField::MirrorNekoha
-            | HomeField::AutoOverwrite
-            | HomeField::NoVideo
-            | HomeField::Download => {}
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_before_caret();
         }
     }
 
-    /// Delete the last word from the focused text field (alt/ctrl+backspace).
+    /// Delete the char at the caret in the focused text field (`Delete` key).
+    pub fn delete_forward(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_at_caret();
+        }
+    }
+
+    /// Delete the word left of the caret in the focused text field
+    /// (alt/ctrl+backspace).
     pub fn backspace_word(&mut self) {
-        if let Some(value) = self.focused_input_value_mut() {
-            delete_last_word(value);
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_word_before_caret();
+        }
+    }
+
+    /// Move the caret in the focused text field. No-op when focus is on a
+    /// non-text field.
+    pub fn caret_left(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_left();
+        }
+    }
+
+    pub fn caret_right(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_right();
+        }
+    }
+
+    pub fn caret_home(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_home();
+        }
+    }
+
+    pub fn caret_end(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_end();
         }
     }
 
@@ -383,11 +492,11 @@ impl HomeTab {
         }
     }
 
-    fn focused_input_value_mut(&mut self) -> Option<&mut String> {
+    fn focused_input_mut(&mut self) -> Option<&mut InputField> {
         match self.focus {
-            HomeField::Collection => Some(&mut self.collection.value),
-            HomeField::Directory => Some(&mut self.directory.value),
-            HomeField::CustomMirror => Some(&mut self.custom_mirror.value),
+            HomeField::Collection => Some(&mut self.collection),
+            HomeField::Directory => Some(&mut self.directory),
+            HomeField::CustomMirror => Some(&mut self.custom_mirror),
             _ => None,
         }
     }

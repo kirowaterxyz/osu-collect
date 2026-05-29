@@ -35,7 +35,8 @@ fn typing_collection_url_emits_resolve_command() {
 fn backspace_collection_field_emits_resolve_command() {
     let mut app = App::new(Config::default());
     app.home.focus = HomeField::Collection;
-    app.home.collection.value = "12345".to_string();
+    // set_value parks the caret at the end so backspace deletes the last char.
+    app.home.collection.set_value("12345");
 
     let cmd = app.handle_key(key(KeyCode::Backspace));
 

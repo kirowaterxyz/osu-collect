@@ -127,13 +127,9 @@ impl Default for MirrorConfig {
 
 impl MirrorConfig {
     pub fn custom_template(&self) -> Option<&str> {
-        self.url.as_deref().and_then(|value| {
-            if value.trim().is_empty() {
-                None
-            } else {
-                Some(value)
-            }
-        })
+        self.url
+            .as_deref()
+            .filter(|&value| !value.trim().is_empty())
     }
 
     fn any_enabled(&self) -> bool {

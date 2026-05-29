@@ -36,14 +36,18 @@ fn cursor_pos(app: &App, width: u16, height: u16) -> (u16, u16) {
 
 #[test]
 fn caret_advances_as_collection_field_is_typed() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use osu_collect::app::HomeField;
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
 
-    app.home.collection.value.clear();
+    app.home.collection.set_value("");
     let empty = cursor_pos(&app, 120, 24);
 
-    app.home.collection.value = "abcde".to_string();
+    // Type through the key handler so the caret advances with each char.
+    for ch in "abcde".chars() {
+        app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()));
+    }
     let typed = cursor_pos(&app, 120, 24);
 
     assert_eq!(typed.1, empty.1, "caret stays on the same row");
@@ -51,6 +55,43 @@ fn caret_advances_as_collection_field_is_typed() {
         typed.0,
         empty.0 + 5,
         "caret advances one column per typed char"
+    );
+}
+
+#[test]
+fn caret_follows_left_arrow_then_home_and_end() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::Collection;
+    app.home.collection.set_value("");
+    let origin = cursor_pos(&app, 120, 24);
+
+    for ch in "abcde".chars() {
+        app.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()));
+    }
+
+    // Two lefts park the caret three chars in.
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::empty()));
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::empty()));
+    assert_eq!(
+        cursor_pos(&app, 120, 24).0,
+        origin.0 + 3,
+        "two left arrows move the caret back two columns"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::empty()));
+    assert_eq!(
+        cursor_pos(&app, 120, 24).0,
+        origin.0,
+        "Home parks the caret at the value start"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::empty()));
+    assert_eq!(
+        cursor_pos(&app, 120, 24).0,
+        origin.0 + 5,
+        "End parks the caret at the value end"
     );
 }
 
@@ -225,10 +266,12 @@ fn updates_footer_in_list_shows_scroll_and_select_hints() {
 
 #[test]
 fn config_footer_omits_space_on_text_input() {
-    use osu_collect::app::ConfigField;
+    use osu_collect::app::{ConfigField, HomeField};
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
     let mut app = make_app();
+    // Focus a non-text field so Right switches tabs rather than moving the caret.
+    app.home.focus = HomeField::NoVideo;
     app.handle_key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,
         crossterm::event::KeyModifiers::empty(),

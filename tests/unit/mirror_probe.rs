@@ -226,8 +226,11 @@ fn switching_to_home_tab_emits_probe_mirrors() {
 /// Switching away from the home tab to updates emits ScanLocalDatabase, not ProbeMirrors.
 #[test]
 fn switching_to_updates_tab_emits_scan_not_probe() {
+    use crate::app::HomeField;
     let mut app = App::new(Config::default());
     app.active_tab = HOME_TAB_INDEX;
+    // Focus a non-text field so Right switches tabs rather than moving the caret.
+    app.home.focus = HomeField::NoVideo;
 
     let cmd = app.handle_key(key(KeyCode::Right));
 

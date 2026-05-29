@@ -662,6 +662,62 @@ impl App {
         }
     }
 
+    /// Move the caret one char in the focused text field. Caret moves never
+    /// re-resolve the collection (the value is unchanged), so unlike typing they
+    /// return no command.
+    fn caret_left_focused(&mut self) {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.caret_left(),
+            UPDATES_TAB_INDEX => self.updates.caret_left(),
+            CONFIG_TAB_INDEX => self.config.caret_left(),
+            _ => {}
+        }
+    }
+
+    fn caret_right_focused(&mut self) {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.caret_right(),
+            UPDATES_TAB_INDEX => self.updates.caret_right(),
+            CONFIG_TAB_INDEX => self.config.caret_right(),
+            _ => {}
+        }
+    }
+
+    fn caret_home_focused(&mut self) {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.caret_home(),
+            UPDATES_TAB_INDEX => self.updates.caret_home(),
+            CONFIG_TAB_INDEX => self.config.caret_home(),
+            _ => {}
+        }
+    }
+
+    fn caret_end_focused(&mut self) {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.caret_end(),
+            UPDATES_TAB_INDEX => self.updates.caret_end(),
+            CONFIG_TAB_INDEX => self.config.caret_end(),
+            _ => {}
+        }
+    }
+
+    /// Delete the char at the caret in the focused text field (`Delete` key).
+    /// On the home collection field this re-resolves, matching backspace.
+    fn delete_forward_focused(&mut self) -> Option<AppCommand> {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.mutate_collection_then_resolve(HomeTab::delete_forward),
+            UPDATES_TAB_INDEX => {
+                self.updates.delete_forward();
+                None
+            }
+            CONFIG_TAB_INDEX => {
+                self.config.delete_forward();
+                None
+            }
+            _ => None,
+        }
+    }
+
     /// Delete the previous word from the focused text field (alt/ctrl+backspace,
     /// ctrl+w). No-op when focus is not on a text input. On the home collection
     /// field this re-resolves, matching plain backspace.
@@ -800,17 +856,30 @@ impl App {
                 }
                 return self.handle_quit_key();
             }
+            // In a focused text field, ←/→ move the caret instead of switching
+            // tabs. Home/End jump to the field edges (text-field only).
             KeyCode::Left => {
-                if !self.updates_list_open()
+                if typing {
+                    self.caret_left_focused();
+                } else if !self.updates_list_open()
                     && let Some(cmd) = self.prev_tab()
                 {
                     return Some(cmd);
                 }
             }
             KeyCode::Right => {
-                if !self.updates_list_open()
+                if typing {
+                    self.caret_right_focused();
+                } else if !self.updates_list_open()
                     && let Some(cmd) = self.next_tab()
                 {
+                    return Some(cmd);
+                }
+            }
+            KeyCode::Home if typing => self.caret_home_focused(),
+            KeyCode::End if typing => self.caret_end_focused(),
+            KeyCode::Delete if typing => {
+                if let Some(cmd) = self.delete_forward_focused() {
                     return Some(cmd);
                 }
             }

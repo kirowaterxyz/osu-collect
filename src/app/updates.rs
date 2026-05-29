@@ -161,11 +161,7 @@ impl PathState {
         let default_path = Self::detect_default_path(client_type);
         Self {
             client_type,
-            osu_path: InputField {
-                label: "osu! path",
-                value: default_path.clone(),
-                placeholder: default_path,
-            },
+            osu_path: InputField::new("osu! path", default_path.clone(), default_path),
         }
     }
 
@@ -298,8 +294,8 @@ impl UpdatesTab {
             return;
         }
 
-        if self.selection.focus == UpdatesField::OsuPath {
-            self.path.osu_path.value.push(ch);
+        if self.osu_path_editable() {
+            self.path.osu_path.insert_char(ch);
         }
     }
 
@@ -368,14 +364,47 @@ impl UpdatesTab {
 
     pub fn backspace(&mut self) {
         if self.osu_path_editable() {
-            self.path.osu_path.value.pop();
+            self.path.osu_path.delete_before_caret();
         }
     }
 
-    /// Delete the last word from the osu! path field (alt/ctrl+backspace).
+    /// Delete the char at the caret in the osu! path field (`Delete` key).
+    pub fn delete_forward(&mut self) {
+        if self.osu_path_editable() {
+            self.path.osu_path.delete_at_caret();
+        }
+    }
+
+    /// Delete the word left of the caret in the osu! path field
+    /// (alt/ctrl+backspace).
     pub fn backspace_word(&mut self) {
         if self.osu_path_editable() {
-            crate::utils::delete_last_word(&mut self.path.osu_path.value);
+            self.path.osu_path.delete_word_before_caret();
+        }
+    }
+
+    /// Move the caret in the osu! path field. No-op when it is not editable.
+    pub fn caret_left(&mut self) {
+        if self.osu_path_editable() {
+            self.path.osu_path.caret_left();
+        }
+    }
+
+    pub fn caret_right(&mut self) {
+        if self.osu_path_editable() {
+            self.path.osu_path.caret_right();
+        }
+    }
+
+    pub fn caret_home(&mut self) {
+        if self.osu_path_editable() {
+            self.path.osu_path.caret_home();
+        }
+    }
+
+    pub fn caret_end(&mut self) {
+        if self.osu_path_editable() {
+            self.path.osu_path.caret_end();
         }
     }
 
@@ -395,7 +424,7 @@ impl UpdatesTab {
                 if self.path.osu_path.value.is_empty()
                     || self.path.osu_path.value == self.path.osu_path.placeholder
                 {
-                    self.path.osu_path.value = new_path.clone();
+                    self.path.osu_path.set_value(new_path.clone());
                 }
                 self.path.osu_path.placeholder = new_path;
                 // Clear current data and trigger full rescan

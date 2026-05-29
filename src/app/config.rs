@@ -166,46 +166,62 @@ impl ConfigTab {
         let current = self.resolved_threads() as i16;
         let max = self.default_threads as i16;
         let next = (current + delta).clamp(1, max) as u8;
-        self.threads.value = next.to_string();
+        self.threads.set_value(next.to_string());
     }
 
     pub fn handle_char(&mut self, ch: char) {
         clear_app_message(&mut self.message);
-        match self.focus {
-            ConfigField::MirrorCustomUrl => self.custom_mirror.value.push(ch),
-            // DownloadThreads is a stepper — char input is silently ignored.
-            ConfigField::DownloadThreads => {}
-            ConfigField::LoggingDirectory => self.logging_dir.value.push(ch),
-            _ => {}
+        if let Some(field) = self.focused_input_mut() {
+            field.insert_char(ch);
         }
     }
 
     pub fn backspace(&mut self) {
         clear_app_message(&mut self.message);
-        match self.focus {
-            ConfigField::MirrorCustomUrl => {
-                self.custom_mirror.value.pop();
-            }
-            // DownloadThreads is a stepper — backspace is silently ignored.
-            ConfigField::DownloadThreads => {}
-            ConfigField::LoggingDirectory => {
-                self.logging_dir.value.pop();
-            }
-            _ => {}
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_before_caret();
         }
     }
 
-    /// Delete the last word from the focused text field (alt/ctrl+backspace).
+    /// Delete the char at the caret in the focused text field (`Delete` key).
+    pub fn delete_forward(&mut self) {
+        clear_app_message(&mut self.message);
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_at_caret();
+        }
+    }
+
+    /// Delete the word left of the caret in the focused text field
+    /// (alt/ctrl+backspace).
     pub fn backspace_word(&mut self) {
         clear_app_message(&mut self.message);
-        match self.focus {
-            ConfigField::MirrorCustomUrl => {
-                crate::utils::delete_last_word(&mut self.custom_mirror.value);
-            }
-            ConfigField::LoggingDirectory => {
-                crate::utils::delete_last_word(&mut self.logging_dir.value);
-            }
-            _ => {}
+        if let Some(field) = self.focused_input_mut() {
+            field.delete_word_before_caret();
+        }
+    }
+
+    /// Move the caret in the focused text field. No-op on non-text fields.
+    pub fn caret_left(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_left();
+        }
+    }
+
+    pub fn caret_right(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_right();
+        }
+    }
+
+    pub fn caret_home(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_home();
+        }
+    }
+
+    pub fn caret_end(&mut self) {
+        if let Some(field) = self.focused_input_mut() {
+            field.caret_end();
         }
     }
 
@@ -215,6 +231,14 @@ impl ConfigTab {
         match self.focus {
             ConfigField::MirrorCustomUrl => Some(&self.custom_mirror),
             ConfigField::LoggingDirectory => Some(&self.logging_dir),
+            _ => None,
+        }
+    }
+
+    fn focused_input_mut(&mut self) -> Option<&mut InputField> {
+        match self.focus {
+            ConfigField::MirrorCustomUrl => Some(&mut self.custom_mirror),
+            ConfigField::LoggingDirectory => Some(&mut self.logging_dir),
             _ => None,
         }
     }
@@ -489,11 +513,11 @@ impl ConfigTab {
 }
 
 fn custom_mirror_field(mirror: &MirrorConfig) -> InputField {
-    InputField {
-        label: "Custom mirror URL",
-        value: mirror.custom_template().unwrap_or("").to_string(),
-        placeholder: "https://example.com/d/{id}".to_string(),
-    }
+    InputField::new(
+        "Custom mirror URL",
+        mirror.custom_template().unwrap_or(""),
+        "https://example.com/d/{id}",
+    )
 }
 
 fn login_state(auth_loaded: bool) -> AuthLoginState {
@@ -505,22 +529,22 @@ fn login_state(auth_loaded: bool) -> AuthLoginState {
 }
 
 fn threads_field(download: &DownloadConfig) -> InputField {
-    InputField {
-        label: "Default thread count",
-        value: download
+    InputField::new(
+        "Default thread count",
+        download
             .concurrent
             .map(|value| value.to_string())
             .unwrap_or_default(),
-        placeholder: default_threads().to_string(),
-    }
+        default_threads().to_string(),
+    )
 }
 
 fn logging_dir_field(logging: &LoggingConfig) -> InputField {
-    InputField {
-        label: "Logs directory",
-        value: logging.file_dir.as_deref().unwrap_or("").to_string(),
-        placeholder: "~/.local/share/osu-collect/logs".to_string(),
-    }
+    InputField::new(
+        "Logs directory",
+        logging.file_dir.as_deref().unwrap_or(""),
+        "~/.local/share/osu-collect/logs",
+    )
 }
 
 fn bool_label(value: bool) -> &'static str {

@@ -42,7 +42,8 @@ fn ctrl_c_quits() {
 #[test]
 fn ctrl_w_deletes_word_in_text_field() {
     let mut app = make_app();
-    app.home.collection.value = "hello world".to_string();
+    // set_value parks the caret at the end so word-delete acts on "world".
+    app.home.collection.set_value("hello world");
     app.handle_key(ctrl(KeyCode::Char('w')));
     assert_eq!(app.home.collection.value, "hello ");
 }
@@ -51,7 +52,7 @@ fn ctrl_w_deletes_word_in_text_field() {
 fn ctrl_backspace_as_ctrl_h_deletes_word_not_types_h() {
     // many terminals deliver ctrl+backspace as ^H (ctrl+h)
     let mut app = make_app();
-    app.home.collection.value = "hello world".to_string();
+    app.home.collection.set_value("hello world");
     app.handle_key(ctrl(KeyCode::Char('h')));
     assert_eq!(
         app.home.collection.value, "hello ",
@@ -294,10 +295,12 @@ fn enter_on_collection_field_does_not_start_download() {
 
 #[test]
 fn enter_on_config_login_triggers_login_attempt() {
-    use osu_collect::app::ConfigField;
+    use osu_collect::app::{ConfigField, HomeField};
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
     let mut app = make_app();
+    // Focus a non-text field so Right switches tabs rather than moving the caret.
+    app.home.focus = HomeField::NoVideo;
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
@@ -316,10 +319,12 @@ fn enter_on_config_login_triggers_login_attempt() {
 
 #[test]
 fn space_on_auth_chip_does_nothing() {
-    use osu_collect::app::ConfigField;
+    use osu_collect::app::{ConfigField, HomeField};
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
     let mut app = make_app();
+    // Focus a non-text field so Right switches tabs rather than moving the caret.
+    app.home.focus = HomeField::NoVideo;
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);

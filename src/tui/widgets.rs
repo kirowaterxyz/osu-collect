@@ -166,14 +166,14 @@ pub fn render_scrollable_panel(
 }
 
 /// Column offset (within a panel's inner area) of the text caret for a focused
-/// [`input_item`]: focus marker + `"label: "` + value width.
+/// [`input_item`]: focus marker + `"label: "` + the caret offset into the value.
 ///
-/// The editing model is append-only, so the caret always sits at the end of the
-/// value.
+/// The caret is a char index, so its column is the number of chars to its left
+/// (`field.caret()`), not the full value width.
 pub fn input_cursor_col(field: &InputField) -> u16 {
     let label_width = field.label.to_lowercase().chars().count();
-    // focus marker (2) + label + ": " (2) + value
-    (2 + label_width + 2 + field.value.chars().count()) as u16
+    // focus marker (2) + label + ": " (2) + caret offset within the value
+    (2 + label_width + 2 + field.caret()) as u16
 }
 
 /// Maps a focused row + caret column to an absolute terminal position, or `None`
