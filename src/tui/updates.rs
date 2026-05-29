@@ -57,10 +57,10 @@ const DIFF_PREFIX_REMOVED: &str = "-";
 const DIFF_SUFFIX_REMOVED: &str = "removed";
 const DIFF_SEPARATOR: &str = ", ";
 
-pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
+pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, u16)> {
     if area.height < COMPACT_HEIGHT {
         render_compact(frame, area, form);
-        return;
+        return None;
     }
 
     let block = widgets::panel_block(PANEL_TITLE);
@@ -76,6 +76,12 @@ pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
 
     let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
+
+    // Caret only when the osu! path field is the focused, editable row.
+    let cursor_col = form
+        .osu_path_editable()
+        .then(|| widgets::input_cursor_col(&form.path.osu_path));
+    widgets::panel_cursor(inner, focused_index, start, end, cursor_col)
 }
 
 /// Compact render: collection list with `[selected] name (+N -M)`.

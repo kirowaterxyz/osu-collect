@@ -646,10 +646,50 @@ impl App {
         })
     }
 
+    /// Whether the focused field on the active tab is an editable text input.
+    /// Drives keybind suppression (so `q`/`?`/`x` type instead of acting) and
+    /// caret rendering.
+    fn focused_text_input(&self) -> bool {
+        // While the help overlay is up, keys act on it, not the background field.
+        if self.help_open {
+            return false;
+        }
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.focus.is_text_input(),
+            UPDATES_TAB_INDEX => self.updates.osu_path_editable(),
+            CONFIG_TAB_INDEX => self.config.focus.is_text_input(),
+            _ => false,
+        }
+    }
+
+    /// Delete the previous word from the focused text field (alt/ctrl+backspace,
+    /// ctrl+w). No-op when focus is not on a text input. On the home collection
+    /// field this re-resolves, matching plain backspace.
+    fn backspace_word_focused(&mut self) -> Option<AppCommand> {
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.mutate_collection_then_resolve(HomeTab::backspace_word),
+            UPDATES_TAB_INDEX => {
+                self.updates.backspace_word();
+                None
+            }
+            CONFIG_TAB_INDEX => {
+                self.config.backspace_word();
+                None
+            }
+            _ => None,
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<AppCommand> {
         // ctrl+c always quits unconditionally
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(AppCommand::Quit);
+        }
+
+        // ctrl+w deletes the previous word in the focused text field (no-op
+        // elsewhere). Intercepted early so it never types a literal 'w'.
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('w') {
+            return self.backspace_word_focused();
         }
 
         // Pre-download retry prompt intercepts enter/n/esc.
@@ -711,7 +751,14 @@ impl App {
             }
         }
 
-        let is_quit_key = matches!(key.code, KeyCode::Char('q') | KeyCode::Esc);
+        // When a text field is focused, letter/`?`/`x` keybinds yield to typing
+        // so the character lands in the field instead of firing a global action.
+        let typing = self.focused_text_input();
+
+        // `q` only quits outside text fields; esc always does. Typing a key
+        // therefore counts as a non-quit action and dismisses the quit prompt.
+        let is_quit_key =
+            matches!(key.code, KeyCode::Esc) || (matches!(key.code, KeyCode::Char('q')) && !typing);
         if self.home.quit_prompt && !is_quit_key {
             self.home.quit_prompt = false;
         }
@@ -719,20 +766,21 @@ impl App {
         // Sticky error toasts swallow `x` before any per-tab handler sees it.
         // Mirrors the universal `esc`/`q` cascade: a visible error is more
         // attention-grabbing than the settled-tab close binding it would
-        // otherwise route to.
+        // otherwise route to. Skipped while typing so `x` reaches the field.
         if key.code == KeyCode::Char('x')
             && !key.modifiers.contains(KeyModifiers::CONTROL)
+            && !typing
             && self.dismiss_active_error_toast()
         {
             return None;
         }
 
         match key.code {
-            KeyCode::Char('?') => {
+            KeyCode::Char('?') if !typing => {
                 self.help_open = !self.help_open;
                 return None;
             }
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('q') if matches!(key.code, KeyCode::Esc) || !typing => {
                 if self.close_modal() {
                     return None;
                 }
@@ -1015,16 +1063,25 @@ impl App {
                     }
                 }
             },
-            KeyCode::Backspace => match self.active_tab() {
-                HOME_TAB_INDEX => {
-                    if let Some(cmd) = self.mutate_collection_then_resolve(HomeTab::backspace) {
-                        return Some(cmd);
-                    }
+            KeyCode::Backspace => {
+                // alt/ctrl+backspace deletes the previous word.
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
+                {
+                    return self.backspace_word_focused();
                 }
-                UPDATES_TAB_INDEX => self.updates.backspace(),
-                CONFIG_TAB_INDEX => self.config.backspace(),
-                _ => {}
-            },
+                match self.active_tab() {
+                    HOME_TAB_INDEX => {
+                        if let Some(cmd) = self.mutate_collection_then_resolve(HomeTab::backspace) {
+                            return Some(cmd);
+                        }
+                    }
+                    UPDATES_TAB_INDEX => self.updates.backspace(),
+                    CONFIG_TAB_INDEX => self.config.backspace(),
+                    _ => {}
+                }
+            }
             _ => {}
         }
 

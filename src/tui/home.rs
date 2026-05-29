@@ -34,26 +34,36 @@ const METRIC_MIRRORS: &str = "mirrors";
 
 const LABEL_START_DOWNLOAD: &str = "start download";
 
-pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, banners: &[Banner]) {
+/// Returns the terminal caret position when a text field is focused, for the
+/// caller to apply. `None` when no caret should show (non-text focus, or the
+/// history dropdown is overlaying the collection row).
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &HomeTab,
+    banners: &[Banner],
+) -> Option<(u16, u16)> {
     if area.height < COMPACT_HEIGHT {
-        render_compact(frame, area, form);
-        return;
+        return render_compact(frame, area, form);
     }
 
     let (banner_area, content_area) = split_banner_area(area, banners);
     render_banners(frame, banner_area, banners);
-    render_content(frame, content_area, form);
+    let cursor = render_content(frame, content_area, form);
 
     if form.dropdown_open && !form.url_history.entries.is_empty() {
         render_url_dropdown(frame, content_area, form);
+        // dropdown overlays the collection row — suppress the caret
+        return None;
     }
+    cursor
 }
 
 /// Compact render: all focusable fields without section headers, spacers, or help lines.
 ///
 /// Navigation is identical to normal mode — the full `HOME_FIELDS` cycle still applies.
 /// Only decorative chrome is stripped to reclaim vertical space.
-fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) {
+fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16, u16)> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -135,8 +145,9 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) {
         ),
     );
 
+    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
 }
 
 /// Whether the form has the minimum inputs a download needs: a collection
@@ -146,7 +157,7 @@ fn can_download(form: &HomeTab) -> bool {
     !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
-fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
+fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16, u16)> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -238,8 +249,9 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
         ),
     );
 
+    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
 }
 
 /// Mirror toggle row with an optional latency suffix.

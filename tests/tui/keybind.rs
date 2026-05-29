@@ -71,7 +71,10 @@ fn tab_wraps_back_to_zero() {
 
 #[test]
 fn q_on_home_tab_shows_toast_first() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
+    // q only quits off a text field; the default focus is the collection input
+    app.home.focus = HomeField::NoVideo;
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(cmd.is_none(), "first q must not quit immediately");
     assert!(app.home.quit_prompt, "first q must set the quit toast");
@@ -79,10 +82,24 @@ fn q_on_home_tab_shows_toast_first() {
 
 #[test]
 fn q_twice_on_home_tab_quits() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
+    app.home.focus = HomeField::NoVideo;
     app.handle_key(press(KeyCode::Char('q')));
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(matches!(cmd, Some(AppCommand::Quit)));
+}
+
+#[test]
+fn q_on_collection_field_types_instead_of_quitting() {
+    let mut app = make_app();
+    // collection field is focused by default
+    app.handle_key(press(KeyCode::Char('q')));
+    assert!(
+        !app.home.quit_prompt,
+        "q must not quit while typing in a field"
+    );
+    assert_eq!(app.home.collection.value, "q", "q must type into the field");
 }
 
 #[test]
@@ -300,10 +317,25 @@ fn space_on_auth_chip_does_nothing() {
 
 #[test]
 fn question_mark_opens_help_overlay() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
+    // ? types into a text field; move focus off the default collection input
+    app.home.focus = HomeField::NoVideo;
     assert!(!app.help_open);
     app.handle_key(press(KeyCode::Char('?')));
     assert!(app.help_open, "? must open the help overlay");
+}
+
+#[test]
+fn question_mark_on_text_field_types_instead_of_opening_help() {
+    let mut app = make_app();
+    // collection field is focused by default
+    app.handle_key(press(KeyCode::Char('?')));
+    assert!(
+        !app.help_open,
+        "? must not open help while typing in a field"
+    );
+    assert_eq!(app.home.collection.value, "?", "? must type into the field");
 }
 
 #[test]
@@ -334,7 +366,9 @@ fn q_closes_help_overlay_without_quitting() {
 
 #[test]
 fn question_mark_returns_no_command() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
+    app.home.focus = HomeField::NoVideo;
     let cmd = app.handle_key(press(KeyCode::Char('?')));
     assert!(cmd.is_none(), "? must not issue any AppCommand");
 }

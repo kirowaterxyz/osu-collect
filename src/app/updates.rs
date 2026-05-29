@@ -367,12 +367,24 @@ impl UpdatesTab {
     }
 
     pub fn backspace(&mut self) {
-        if self.selection.focus == UpdatesField::OsuPath
-            && !self.selection.in_collection_list
-            && !self.selection.in_beatmap_list
-        {
+        if self.osu_path_editable() {
             self.path.osu_path.value.pop();
         }
+    }
+
+    /// Delete the last word from the osu! path field (alt/ctrl+backspace).
+    pub fn backspace_word(&mut self) {
+        if self.osu_path_editable() {
+            crate::utils::delete_last_word(&mut self.path.osu_path.value);
+        }
+    }
+
+    /// Whether the osu! path text field currently accepts edits — focused and
+    /// no list panel is open.
+    pub fn osu_path_editable(&self) -> bool {
+        self.selection.focus == UpdatesField::OsuPath
+            && !self.selection.in_collection_list
+            && !self.selection.in_beatmap_list
     }
 
     pub fn toggle_current(&mut self) -> UpdatesAction {

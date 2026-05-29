@@ -33,6 +33,7 @@ const HINT_ENTER_OPEN: &str = "enter open";
 const HINT_ENTER_CONFIRM: &str = "enter confirm";
 const HINT_ENTER_DOWNLOAD: &str = "enter download";
 const HINT_ESC_BACK: &str = "esc back";
+const HINT_ESC_QUIT: &str = "esc quit";
 const HINT_PLUS_MINUS: &str = "+/- adjust";
 const HINT_ALL_NONE: &str = "a all / d none";
 const HINT_SAVE: &str = "s save";
@@ -106,7 +107,8 @@ fn home_hint(form: &HomeTab) -> String {
         _ => {}
     }
     if form.focus.is_text_input() {
-        segments.push(HINT_QUIT);
+        // `q` types into the field here; esc is the quit affordance.
+        segments.push(HINT_ESC_QUIT);
     }
     segments.push(HINT_HELP);
     join(&segments)
@@ -125,7 +127,12 @@ fn updates_hint(form: &UpdatesTab) -> String {
         UpdatesField::Download => segments.push(HINT_ENTER_DOWNLOAD),
         UpdatesField::OsuPath => {}
     }
-    segments.push(HINT_QUIT);
+    // `q` types into the osu! path field; esc is the quit affordance there.
+    if form.selection.focus == UpdatesField::OsuPath {
+        segments.push(HINT_ESC_QUIT);
+    } else {
+        segments.push(HINT_QUIT);
+    }
     segments.push(HINT_HELP);
     join(&segments)
 }

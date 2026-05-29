@@ -1,9 +1,14 @@
-use super::{message_style, scroll_indicator, scroll_window, truncate_to_width};
+use super::{
+    input_cursor_col, message_style, panel_cursor, scroll_indicator, scroll_window,
+    truncate_to_width,
+};
+use crate::app::InputField;
 use crate::download::BeatmapStage;
 use crate::tui::{
     FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
     GLYPH_SPACE, danger, glyph_fill, success, text_dim, text_faint, warning,
 };
+use ratatui::layout::Rect;
 
 #[test]
 fn scroll_window_keeps_focus_centered() {
@@ -25,6 +30,38 @@ fn scroll_window_clamps_to_end() {
 fn scroll_window_empty_visible() {
     let items: Vec<u8> = (0..10).collect();
     assert_eq!(scroll_window(&items, 3, 0), (0, 10));
+}
+
+#[test]
+fn input_cursor_col_counts_prefix_label_and_value() {
+    let field = InputField {
+        label: "Threads", // lowercased to "threads" (7 chars)
+        value: "ab".to_string(),
+        placeholder: String::new(),
+    };
+    // focus marker (2) + "threads" (7) + ": " (2) + "ab" (2) = 13
+    assert_eq!(input_cursor_col(&field), 13);
+}
+
+#[test]
+fn panel_cursor_none_when_no_column() {
+    let inner = Rect::new(2, 3, 40, 10);
+    assert_eq!(panel_cursor(inner, 5, 0, 10, None), None);
+}
+
+#[test]
+fn panel_cursor_none_when_row_scrolled_out() {
+    let inner = Rect::new(2, 3, 40, 10);
+    assert_eq!(panel_cursor(inner, 12, 0, 10, Some(4)), None);
+}
+
+#[test]
+fn panel_cursor_maps_row_and_clamps_column() {
+    let inner = Rect::new(2, 3, 10, 10); // x=2, width=10 → last col 11
+    // focused row 4, window starts at 2 → visible row 2 → y = 3 + 2 = 5
+    assert_eq!(panel_cursor(inner, 4, 2, 10, Some(5)), Some((7, 5)));
+    // column past the edge clamps to inner.x + width - 1 = 11
+    assert_eq!(panel_cursor(inner, 4, 2, 10, Some(99)), Some((11, 5)));
 }
 
 #[test]

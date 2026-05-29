@@ -62,10 +62,9 @@ const HELP_VERIFY_INTEGRITY: &str =
 const HELP_RETRY_FAILED: &str =
     "ask: prompt before each download · yes: always retry · no: never retry";
 
-pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
+pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
     if area.height < COMPACT_HEIGHT {
-        render_compact(frame, area, form);
-        return;
+        return render_compact(frame, area, form);
     }
 
     let focus = form.focus;
@@ -194,14 +193,15 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
     );
 
+    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
 }
 
 /// Compact render: auth chip + flat field list, no section headers, no help lines.
 ///
 /// All fields remain focusable and navigable; only the decorative chrome is stripped.
-fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) {
+fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -299,8 +299,9 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) {
         widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
     );
 
+    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
 }
 
 /// Renders the auth state chip: a single styled row at the top of the config tab.

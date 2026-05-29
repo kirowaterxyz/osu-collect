@@ -134,13 +134,20 @@ pub(crate) fn scroll_indicator(start: usize, end: usize, total: usize) -> Option
     Some(Span::styled(text, Style::default().fg(text_faint())))
 }
 
+/// Renders a scrollable form panel and returns the absolute caret position when
+/// `cursor_col` is `Some` and the focused row is currently visible.
+///
+/// `cursor_col` is the column offset (within `inner`) of the caret on the
+/// focused row — see [`input_cursor_col`]. The caller sets the terminal cursor
+/// to the returned position; `None` means no caret should be shown.
 pub fn render_scrollable_panel(
     frame: &mut Frame,
     area: Rect,
     title: &'static str,
     items: &[ListItem<'static>],
     focused_index: usize,
-) {
+    cursor_col: Option<u16>,
+) -> Option<(u16, u16)> {
     let block = panel_block(title);
     let inner = block.inner(area);
     let (start, end) = scroll_window(items, focused_index, inner.height as usize);
@@ -154,6 +161,40 @@ pub fn render_scrollable_panel(
         List::new(items[start..end].to_vec()).highlight_symbol(""),
         inner,
     );
+
+    panel_cursor(inner, focused_index, start, end, cursor_col)
+}
+
+/// Column offset (within a panel's inner area) of the text caret for a focused
+/// [`input_item`]: focus marker + `"label: "` + value width.
+///
+/// The editing model is append-only, so the caret always sits at the end of the
+/// value.
+pub fn input_cursor_col(field: &InputField) -> u16 {
+    let label_width = field.label.to_lowercase().chars().count();
+    // focus marker (2) + label + ": " (2) + value
+    (2 + label_width + 2 + field.value.chars().count()) as u16
+}
+
+/// Maps a focused row + caret column to an absolute terminal position, or `None`
+/// when no caret is requested or the row is scrolled out of view. The column is
+/// clamped to the last cell of `inner` so a long value never parks the cursor
+/// past the panel edge.
+pub fn panel_cursor(
+    inner: Rect,
+    focused_index: usize,
+    start: usize,
+    end: usize,
+    cursor_col: Option<u16>,
+) -> Option<(u16, u16)> {
+    let col = cursor_col?;
+    if inner.width == 0 || inner.height == 0 || focused_index < start || focused_index >= end {
+        return None;
+    }
+    let y = inner.y + (focused_index - start) as u16;
+    let max_x = inner.x + inner.width - 1;
+    let x = (inner.x + col).min(max_x);
+    Some((x, y))
 }
 
 /// Callers must pass an already-uppercased, space-padded title constant

@@ -195,6 +195,30 @@ impl ConfigTab {
         }
     }
 
+    /// Delete the last word from the focused text field (alt/ctrl+backspace).
+    pub fn backspace_word(&mut self) {
+        clear_app_message(&mut self.message);
+        match self.focus {
+            ConfigField::MirrorCustomUrl => {
+                crate::utils::delete_last_word(&mut self.custom_mirror.value);
+            }
+            ConfigField::LoggingDirectory => {
+                crate::utils::delete_last_word(&mut self.logging_dir.value);
+            }
+            _ => {}
+        }
+    }
+
+    /// The focused text input, or `None` for non-text fields. Used by the
+    /// renderer to place the caret.
+    pub fn focused_input(&self) -> Option<&InputField> {
+        match self.focus {
+            ConfigField::MirrorCustomUrl => Some(&self.custom_mirror),
+            ConfigField::LoggingDirectory => Some(&self.logging_dir),
+            _ => None,
+        }
+    }
+
     pub fn toggle_current(&mut self) {
         clear_app_message(&mut self.message);
         match self.focus {

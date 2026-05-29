@@ -210,17 +210,29 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     let home_banners = home_banners(app.disk_free_bytes());
 
-    match app.active_tab() {
+    let cursor = match app.active_tab() {
         HOME_TAB_INDEX => home::render(frame, content_area, &app.home, &home_banners),
         UPDATES_TAB_INDEX => updates::render(frame, content_area, &app.updates),
         CONFIG_TAB_INDEX => config::render(frame, content_area, &app.config),
         tab => match app.download_for_tab(tab) {
-            Some(page) => download::render(frame, content_area, page, app.tick_count),
+            Some(page) => {
+                download::render(frame, content_area, page, app.tick_count);
+                None
+            }
             None => home::render(frame, content_area, &app.home, &home_banners),
         },
-    }
+    };
 
     footer::render(frame, footer_area, app);
+
+    // A focused text field shows the terminal caret — but never under an overlay.
+    let overlay_open = app.confirm_retry_on_start.is_some()
+        || app.confirm_retry.is_some()
+        || app.config_save_modal
+        || app.help_open;
+    if let (false, Some((x, y))) = (overlay_open, cursor) {
+        frame.set_cursor_position((x, y));
+    }
 
     if let Some(modal) = &app.confirm_retry_on_start {
         modal::render_retry_on_start_modal(frame, area, modal.failed_count);

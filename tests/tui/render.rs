@@ -24,6 +24,61 @@ fn render_content(app: &App, width: u16, height: u16) -> String {
         .collect()
 }
 
+/// Terminal caret position after a draw. `(0, 0)` means no caret was set this
+/// frame (a focused text field always parks the caret inside the panel, y > 0).
+fn cursor_pos(app: &App, width: u16, height: u16) -> (u16, u16) {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|frame| draw(frame, app)).unwrap();
+    let pos = terminal.get_cursor_position().unwrap();
+    (pos.x, pos.y)
+}
+
+#[test]
+fn caret_advances_as_collection_field_is_typed() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::Collection;
+
+    app.home.collection.value.clear();
+    let empty = cursor_pos(&app, 120, 24);
+
+    app.home.collection.value = "abcde".to_string();
+    let typed = cursor_pos(&app, 120, 24);
+
+    assert_eq!(typed.1, empty.1, "caret stays on the same row");
+    assert_eq!(
+        typed.0,
+        empty.0 + 5,
+        "caret advances one column per typed char"
+    );
+}
+
+#[test]
+fn no_caret_on_toggle_field() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::NoVideo;
+    assert_eq!(
+        cursor_pos(&app, 120, 24),
+        (0, 0),
+        "no caret is shown when a non-text field is focused"
+    );
+}
+
+#[test]
+fn no_caret_while_help_overlay_open() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::Collection;
+    app.help_open = true;
+    assert_eq!(
+        cursor_pos(&app, 120, 24),
+        (0, 0),
+        "the help overlay suppresses the text caret"
+    );
+}
+
 // ── home view ────────────────────────────────────────────────────────────────
 
 #[test]

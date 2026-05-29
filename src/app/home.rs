@@ -8,7 +8,7 @@ use crate::{
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
-    utils::{CompletionResult, complete_dir, expand_tilde, pretty_path},
+    utils::{CompletionResult, complete_dir, delete_last_word, expand_tilde, pretty_path},
 };
 use std::{collections::HashMap, env, str::FromStr};
 
@@ -362,6 +362,33 @@ impl HomeTab {
             | HomeField::AutoOverwrite
             | HomeField::NoVideo
             | HomeField::Download => {}
+        }
+    }
+
+    /// Delete the last word from the focused text field (alt/ctrl+backspace).
+    pub fn backspace_word(&mut self) {
+        if let Some(value) = self.focused_input_value_mut() {
+            delete_last_word(value);
+        }
+    }
+
+    /// The focused text input, or `None` when focus is on a non-text field.
+    /// Used by the renderer to place the caret.
+    pub fn focused_input(&self) -> Option<&InputField> {
+        match self.focus {
+            HomeField::Collection => Some(&self.collection),
+            HomeField::Directory => Some(&self.directory),
+            HomeField::CustomMirror => Some(&self.custom_mirror),
+            _ => None,
+        }
+    }
+
+    fn focused_input_value_mut(&mut self) -> Option<&mut String> {
+        match self.focus {
+            HomeField::Collection => Some(&mut self.collection.value),
+            HomeField::Directory => Some(&mut self.directory.value),
+            HomeField::CustomMirror => Some(&mut self.custom_mirror.value),
+            _ => None,
         }
     }
 

@@ -5,12 +5,20 @@
 /// Any other key while the toast is visible dismisses it and falls through.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use osu_collect::{
-    app::{App, AppCommand},
+    app::{App, AppCommand, HomeField},
     config::Config,
 };
 
 fn make_app() -> App {
     App::new(Config::default())
+}
+
+/// App focused on a non-text home field, where `q` triggers the quit toast
+/// (on a text field `q` types instead).
+fn make_app_quittable() -> App {
+    let mut app = make_app();
+    app.home.focus = HomeField::NoVideo;
+    app
 }
 
 fn press(code: KeyCode) -> KeyEvent {
@@ -26,7 +34,7 @@ fn press(code: KeyCode) -> KeyEvent {
 
 #[test]
 fn first_q_sets_quit_prompt_no_downloads() {
-    let mut app = make_app();
+    let mut app = make_app_quittable();
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(cmd.is_none(), "first q must not quit");
     assert!(app.home.quit_prompt, "first q must raise the quit toast");
@@ -44,7 +52,7 @@ fn first_esc_sets_quit_prompt_no_downloads() {
 
 #[test]
 fn second_q_quits() {
-    let mut app = make_app();
+    let mut app = make_app_quittable();
     app.handle_key(press(KeyCode::Char('q')));
     assert!(app.home.quit_prompt);
     let cmd = app.handle_key(press(KeyCode::Char('q')));
@@ -66,7 +74,7 @@ fn second_esc_quits() {
 
 #[test]
 fn tab_clears_toast_and_switches_tab() {
-    let mut app = make_app();
+    let mut app = make_app_quittable();
     app.handle_key(press(KeyCode::Char('q')));
     assert!(app.home.quit_prompt);
     let tab_before = app.active_tab();
@@ -81,7 +89,7 @@ fn tab_clears_toast_and_switches_tab() {
 
 #[test]
 fn any_char_key_clears_toast_without_quitting() {
-    let mut app = make_app();
+    let mut app = make_app_quittable();
     app.handle_key(press(KeyCode::Char('q')));
     assert!(app.home.quit_prompt);
     // pressing a letter key (not q) should clear the toast
@@ -110,7 +118,7 @@ fn q_with_help_open_closes_modal_not_toast() {
 
 #[test]
 fn q_after_modal_closed_then_shows_toast() {
-    let mut app = make_app();
+    let mut app = make_app_quittable();
     // open and close modal, then press q again
     app.help_open = true;
     app.handle_key(press(KeyCode::Char('q'))); // closes modal
