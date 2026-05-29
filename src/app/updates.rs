@@ -15,6 +15,8 @@ pub enum UpdatesField {
     OsuPath,
     Collections,
     BeatmapList,
+    /// The "download selected" button; activated with `enter`.
+    Download,
 }
 
 const UPDATE_FIELDS: &[UpdatesField] = &[
@@ -22,6 +24,7 @@ const UPDATE_FIELDS: &[UpdatesField] = &[
     UpdatesField::OsuPath,
     UpdatesField::Collections,
     UpdatesField::BeatmapList,
+    UpdatesField::Download,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,6 +415,16 @@ impl UpdatesTab {
                 UpdatesAction::None
             }
             _ => UpdatesAction::None,
+        }
+    }
+
+    /// Toggle the item under the scroll cursor in whichever list is currently
+    /// open, independent of `selection.focus`. No-op when neither list is active.
+    pub fn toggle_list_item(&mut self) {
+        if self.selection.in_collection_list {
+            self.toggle_collection_at_scroll();
+        } else if self.selection.in_beatmap_list {
+            self.toggle_beatmap_at_scroll();
         }
     }
 

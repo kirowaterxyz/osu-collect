@@ -32,6 +32,8 @@ const LABEL_NO_VIDEO: &str = "no video";
 const METRIC_THREADS: &str = "threads";
 const METRIC_MIRRORS: &str = "mirrors";
 
+const LABEL_START_DOWNLOAD: &str = "start download";
+
 pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, banners: &[Banner]) {
     if area.height < COMPACT_HEIGHT {
         render_compact(frame, area, form);
@@ -124,9 +126,24 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) {
         Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
         Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
     ]));
+    items.push_focusable(
+        HomeField::Download,
+        widgets::button_item(
+            LABEL_START_DOWNLOAD,
+            focus == HomeField::Download,
+            can_download(form),
+        ),
+    );
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);
+}
+
+/// Whether the form has the minimum inputs a download needs: a collection
+/// reference and at least one enabled mirror. Drives the button's enabled state;
+/// final validation still happens in `HomeTab::build_request` on activation.
+fn can_download(form: &HomeTab) -> bool {
+    !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
 fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
@@ -211,6 +228,15 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) {
         Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
         Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
     ]));
+    items.push(widgets::spacer());
+    items.push_focusable(
+        HomeField::Download,
+        widgets::button_item(
+            LABEL_START_DOWNLOAD,
+            focus == HomeField::Download,
+            can_download(form),
+        ),
+    );
 
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index);

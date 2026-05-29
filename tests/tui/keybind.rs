@@ -110,8 +110,8 @@ fn up_from_first_field_wraps_to_last() {
     let mut app = make_app();
     assert_eq!(app.home.focus, HomeField::Collection);
     app.handle_key(press(KeyCode::Up));
-    // should wrap to last field (NoVideo)
-    assert_eq!(app.home.focus, HomeField::NoVideo);
+    // should wrap to last field (the download button)
+    assert_eq!(app.home.focus, HomeField::Download);
 }
 
 // ── character input ───────────────────────────────────────────────────────────
@@ -135,10 +135,10 @@ fn backspace_removes_last_char() {
     assert_eq!(app.home.collection.value, "a");
 }
 
-// ── space toggle on mirrors ───────────────────────────────────────────────────
+// ── enter toggle on mirrors ───────────────────────────────────────────────────
 
 #[test]
-fn space_on_mirror_field_toggles_state() {
+fn enter_on_mirror_field_toggles_state() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     // navigate to nerinyan mirror field
@@ -150,8 +150,58 @@ fn space_on_mirror_field_toggles_state() {
     assert_eq!(app.home.focus, HomeField::MirrorNerinyan);
 
     let before = app.home.nerinyan;
-    app.handle_key(press(KeyCode::Char(' ')));
+    app.handle_key(press(KeyCode::Enter));
     assert_eq!(app.home.nerinyan, !before);
+}
+
+#[test]
+fn space_on_mirror_field_also_toggles_state() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::MirrorNerinyan;
+
+    let before = app.home.nerinyan;
+    app.handle_key(press(KeyCode::Char(' ')));
+    assert_eq!(
+        app.home.nerinyan, !before,
+        "space toggles checkboxes as an alias for enter"
+    );
+}
+
+#[test]
+fn space_on_download_button_does_not_start_download() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.collection.value = "123".to_string();
+    app.home.focus = HomeField::Download;
+
+    // space is a toggle alias only; it must not activate the download button
+    let cmd = app.handle_key(press(KeyCode::Char(' ')));
+    assert!(
+        cmd.is_none(),
+        "space on the download button must not start a download"
+    );
+}
+
+#[test]
+fn space_inside_collection_list_toggles_focused_item() {
+    let mut app = make_app();
+    app.next_tab();
+    // seed one collection and drop into the list
+    app.updates
+        .set_collections(vec![osu_collect::osu_db::LocalCollection {
+            name: "test - 1234".to_string(),
+            beatmap_checksums: Vec::new().into(),
+        }]);
+    app.updates.selection.in_collection_list = true;
+    app.updates.selection.collections_state = Some(0);
+
+    let before = app.updates.selection.local_collections[0].selected;
+    app.handle_key(press(KeyCode::Char(' ')));
+    assert_eq!(
+        app.updates.selection.local_collections[0].selected, !before,
+        "space toggles the focused list selection"
+    );
 }
 
 // ── enter on home tab ─────────────────────────────────────────────────────────
@@ -178,14 +228,29 @@ fn recheck_failed_key_ignored_without_failed_maps() {
 }
 
 #[test]
-fn enter_without_collection_input_produces_error() {
+fn enter_on_download_button_without_collection_input_produces_error() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
     // clear any default value
     app.home.collection.value.clear();
-    // enter should fail to download and set an error message
+    // focus the download button; enter there should fail to download
+    app.home.focus = HomeField::Download;
     app.handle_key(press(KeyCode::Enter));
     // no command issued (error path), message should be set
     assert!(app.home.message.is_some());
+}
+
+#[test]
+fn enter_on_collection_field_does_not_start_download() {
+    let mut app = make_app();
+    app.home.collection.value.clear();
+    // collection field is focused by default; enter here only acts on the field,
+    // it must not attempt a download (that lives on the button now)
+    app.handle_key(press(KeyCode::Enter));
+    assert!(
+        app.home.message.is_none(),
+        "enter on the collection field must not trigger the download error path"
+    );
 }
 
 // ── config tab key bindings ───────────────────────────────────────────────────

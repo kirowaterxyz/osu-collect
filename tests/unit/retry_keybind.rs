@@ -356,8 +356,8 @@ fn failed_focus_clears_on_collapse() {
         Some(0)
     );
 
-    // space toggles the section (collapses it)
-    app.handle_key(press(KeyCode::Char(' ')));
+    // enter toggles the section (collapses it)
+    app.handle_key(press(KeyCode::Enter));
     assert!(
         app.active_download_page_mut()
             .unwrap()

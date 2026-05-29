@@ -39,6 +39,8 @@ pub enum HomeField {
     Threads,
     AutoOverwrite,
     NoVideo,
+    /// The "start download" button; activated with `enter`.
+    Download,
 }
 
 const HOME_FIELDS: &[HomeField] = &[
@@ -52,6 +54,7 @@ const HOME_FIELDS: &[HomeField] = &[
     HomeField::Threads,
     HomeField::AutoOverwrite,
     HomeField::NoVideo,
+    HomeField::Download,
 ];
 
 impl HomeField {
@@ -64,6 +67,19 @@ impl HomeField {
 
     pub fn is_stepper(self) -> bool {
         self == HomeField::Threads
+    }
+
+    /// Whether `enter` toggles this field (mirror/option checkboxes).
+    pub fn is_toggle(self) -> bool {
+        matches!(
+            self,
+            HomeField::MirrorNerinyan
+                | HomeField::MirrorOsuDirect
+                | HomeField::MirrorSayobot
+                | HomeField::MirrorNekoha
+                | HomeField::AutoOverwrite
+                | HomeField::NoVideo
+        )
     }
 }
 
@@ -321,7 +337,8 @@ impl HomeTab {
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
             | HomeField::AutoOverwrite
-            | HomeField::NoVideo => {}
+            | HomeField::NoVideo
+            | HomeField::Download => {}
         }
     }
 
@@ -343,7 +360,8 @@ impl HomeTab {
             | HomeField::MirrorSayobot
             | HomeField::MirrorNekoha
             | HomeField::AutoOverwrite
-            | HomeField::NoVideo => {}
+            | HomeField::NoVideo
+            | HomeField::Download => {}
         }
     }
 

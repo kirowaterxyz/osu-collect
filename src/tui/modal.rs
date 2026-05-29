@@ -47,11 +47,11 @@ const GLOBAL: &[HelpRow] = &[
 
 const NAVIGATION: &[HelpRow] = &[
     HelpRow::new("↑ / ↓", "move / scroll"),
-    HelpRow::new("enter", "confirm / activate"),
-    HelpRow::new("space", "toggle"),
+    HelpRow::new("enter", "toggle / activate / confirm"),
+    HelpRow::new("space", "toggle selection"),
 ];
 
-const HOME_TAB: &[HelpRow] = &[HelpRow::new("enter", "start download")];
+const HOME_TAB: &[HelpRow] = &[HelpRow::new("enter", "toggle option / start download")];
 
 const UPDATES_TAB: &[HelpRow] = &[
     HelpRow::new("enter", "download selected"),
@@ -66,7 +66,7 @@ const CONFIG_TAB: &[HelpRow] = &[
 ];
 
 const DOWNLOAD_TAB: &[HelpRow] = &[
-    HelpRow::new("space", "expand / collapse failed"),
+    HelpRow::new("enter", "expand / collapse failed"),
     HelpRow::new("↑ / ↓", "navigate failed rows"),
     HelpRow::new("r", "retry focused failed map"),
     HelpRow::new("R", "retry all failed maps"),

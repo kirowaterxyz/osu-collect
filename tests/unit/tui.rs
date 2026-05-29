@@ -48,7 +48,7 @@ fn home_render_shows_cloudy_sections_and_footer() {
     use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
-    // focus a mirror toggle so the footer hint exposes the space shortcut
+    // focus a mirror toggle so the footer hint exposes the enter-toggle shortcut
     app.home.focus = HomeField::MirrorNerinyan;
 
     let output = render_app(&app, 80, 24);
@@ -61,7 +61,6 @@ fn home_render_shows_cloudy_sections_and_footer() {
     assert!(output.contains("COLLECTION"));
     assert!(output.contains("MIRRORS"));
     assert!(output.contains("DOWNLOAD"));
-    assert!(output.contains("space"));
     assert!(output.contains("enter"));
 }
 

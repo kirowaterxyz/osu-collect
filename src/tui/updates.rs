@@ -32,6 +32,7 @@ const CLIENT_OPTIONS: &[&str] = &["lazer", "stable"];
 
 const LABEL_COLLECTIONS: &str = "collections";
 const LABEL_AVAILABLE: &str = "available";
+const LABEL_DOWNLOAD_SELECTED: &str = "download selected";
 
 const DETAIL_LOADED_SUFFIX: &str = "loaded";
 const DETAIL_MISSING_SUFFIX: &str = "missing";
@@ -178,6 +179,20 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     items.push(widgets::spacer());
 
     items.push(summary_metrics(form));
+    items.push(widgets::spacer());
+
+    let selected = form.selected_beatmap_count();
+    let download_label = format!("{LABEL_DOWNLOAD_SELECTED} ({selected})");
+    let download_focused = focus == UpdatesField::Download && !in_list;
+    if download_focused {
+        focused_index = items.len();
+    }
+    items.push(widgets::button_item(
+        &download_label,
+        download_focused,
+        selected > 0,
+    ));
+
     (items, focused_index)
 }
 

@@ -104,26 +104,36 @@ fn footer_shows_hint_line() {
 }
 
 #[test]
-fn home_footer_hides_space_on_text_input_focus() {
+fn home_footer_hides_toggle_hint_on_text_input_focus() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
     let content = render_content(&app, 120, 24);
     assert!(
-        !content.contains("space toggle"),
-        "space toggle hint must be hidden while a text field is focused"
+        !content.contains("enter toggle"),
+        "toggle hint must be hidden while a text field is focused"
     );
 }
 
 #[test]
-fn home_footer_shows_space_on_toggle_focus() {
+fn home_footer_shows_enter_toggle_on_toggle_focus() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
     app.home.focus = HomeField::AutoOverwrite;
     let content = render_content(&app, 120, 24);
-    assert!(content.contains("space toggle"));
+    assert!(content.contains("enter toggle"));
+}
+
+#[test]
+fn home_footer_shows_enter_download_on_button_focus() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::Download;
+    let content = render_content(&app, 120, 24);
+    assert!(content.contains("enter download"));
 }
 
 #[test]
@@ -145,8 +155,8 @@ fn updates_footer_in_list_shows_scroll_and_select_hints() {
         "in-list footer must show scroll hint"
     );
     assert!(
-        content.contains("space toggle"),
-        "in-list footer must show space toggle hint"
+        content.contains("enter toggle"),
+        "in-list footer must show enter toggle hint"
     );
     assert!(
         content.contains("all") && content.contains("none"),
@@ -200,38 +210,56 @@ fn hint_count(footer: &str) -> usize {
 }
 
 #[test]
-fn home_footer_toggle_focus_has_four_hints_ending_with_help() {
+fn home_footer_toggle_focus_has_three_hints_ending_with_help() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
     app.home.focus = HomeField::AutoOverwrite;
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
-    assert!(footer.contains("space toggle"), "must show space toggle");
-    assert!(footer.contains("enter"), "must show enter download");
+    assert!(footer.contains("enter toggle"), "must show enter toggle");
     assert!(footer.contains('?'), "must end with ? help");
     assert_eq!(
         hint_count(&footer),
-        4,
-        "toggle focus must show exactly 4 hints"
+        3,
+        "toggle focus must show exactly 3 hints"
     );
 }
 
 #[test]
-fn home_footer_text_input_focus_has_four_hints_with_quit() {
+fn home_footer_button_focus_shows_enter_download() {
+    use osu_collect::app::HomeField;
+
+    let mut app = make_app();
+    app.home.focus = HomeField::Download;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(footer.contains("↑↓"), "must show move hint");
+    assert!(
+        footer.contains("enter download"),
+        "must show enter download"
+    );
+    assert!(footer.contains('?'), "must end with ? help");
+    assert_eq!(
+        hint_count(&footer),
+        3,
+        "button focus must show exactly 3 hints"
+    );
+}
+
+#[test]
+fn home_footer_text_input_focus_has_three_hints_with_quit() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
-    assert!(footer.contains("enter"), "must show enter download");
     assert!(footer.contains('q'), "must show q quit");
     assert!(footer.contains('?'), "must show ? help");
     assert_eq!(
         hint_count(&footer),
-        4,
-        "text input focus must show exactly 4 hints"
+        3,
+        "text input focus must show exactly 3 hints"
     );
 }
 
@@ -271,7 +299,7 @@ fn config_footer_non_text_has_four_hints_with_help() {
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::DownloadNoVideo;
     let footer = render_footer_row(&app, 200, 24);
-    assert!(footer.contains("space toggle"), "must show space toggle");
+    assert!(footer.contains("enter toggle"), "must show enter toggle");
     assert!(footer.contains('s'), "must show s save");
     assert!(footer.contains('?'), "must show ? help");
     assert_eq!(
@@ -293,8 +321,8 @@ fn config_footer_text_input_shows_esc_back_not_space_toggle() {
     assert!(footer.contains("esc"), "text field must show esc back");
     assert!(footer.contains('?'), "text field must show ? help");
     assert!(
-        !footer.contains("space toggle"),
-        "text field must not show space toggle"
+        !footer.contains("enter toggle"),
+        "text field must not show enter toggle"
     );
     assert_eq!(
         hint_count(&footer),

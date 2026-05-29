@@ -7,7 +7,7 @@ use super::{
     home::{HomeField, HomeTab},
     messages::{clear_expired_message, dismiss_error_message, set_error_message, set_info_message},
     snapshots,
-    updates::{UpdatesAction, UpdatesTab, extract_collection_id},
+    updates::{UpdatesAction, UpdatesField, UpdatesTab, extract_collection_id},
 };
 use crate::{
     config::{
@@ -825,84 +825,118 @@ impl App {
                     self.focus_next_field();
                 }
             }
-            KeyCode::Enter => {
-                if self.active_tab() == HOME_TAB_INDEX
-                    && self.home.focus == HomeField::Collection
-                    && self.home.dropdown_open
-                {
-                    if let Some(url) = self.home.dropdown_accept() {
-                        return Some(AppCommand::ResolveCollectionUrl { value: url });
+            // `enter` is the universal activate/toggle key: it confirms the
+            // focused button, toggles the focused checkbox/option, opens a list,
+            // or accepts a dropdown — replacing the old `space`-to-toggle binding.
+            KeyCode::Enter => match self.active_tab() {
+                HOME_TAB_INDEX => {
+                    if self.home.focus == HomeField::Collection && self.home.dropdown_open {
+                        if let Some(url) = self.home.dropdown_accept() {
+                            return Some(AppCommand::ResolveCollectionUrl { value: url });
+                        }
+                        return None;
                     }
-                    return None;
+                    match self.home.focus {
+                        HomeField::Download => {
+                            if let Some((id, request)) = self.request_download() {
+                                return Some(AppCommand::StartDownload { id, request });
+                            }
+                        }
+                        field if field.is_toggle() => self.home.toggle_current(),
+                        // Text inputs and the threads stepper have nothing to activate.
+                        _ => {}
+                    }
                 }
-                if self.active_tab() == HOME_TAB_INDEX
-                    && let Some((id, request)) = self.request_download()
-                {
-                    return Some(AppCommand::StartDownload { id, request });
-                }
-                if self.active_tab() == UPDATES_TAB_INDEX {
+                UPDATES_TAB_INDEX => {
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
                     if in_list {
+                        // enter / space toggle the focused list item
+                        self.updates.toggle_list_item();
                         return None;
                     }
-                    // enter opens list panels; only attempt a download when no panel was opened
-                    if self.updates.enter_opens_list() {
-                        return None;
-                    }
-                    if !self.updates.is_scan_ready() {
-                        return None;
-                    }
-                    match self.updates.handle_enter() {
-                        UpdatesAction::Download => {
-                            if let Some((id, request)) = self.request_selective_download() {
-                                return Some(AppCommand::StartSelectiveDownload { id, request });
+                    match self.updates.selection.focus {
+                        UpdatesField::ClientType => {
+                            if self.updates.toggle_current() == UpdatesAction::RefreshAll {
+                                return Some(AppCommand::ScanLocalDatabase);
                             }
                         }
-                        UpdatesAction::RecheckFailedMaps => {
-                            return Some(AppCommand::RecheckFailedMaps);
+                        UpdatesField::Collections | UpdatesField::BeatmapList => {
+                            self.updates.enter_opens_list();
                         }
-                        UpdatesAction::None | UpdatesAction::RefreshAll => {}
+                        UpdatesField::Download => {
+                            if !self.updates.is_scan_ready() {
+                                return None;
+                            }
+                            match self.updates.handle_enter() {
+                                UpdatesAction::Download => {
+                                    if let Some((id, request)) = self.request_selective_download() {
+                                        return Some(AppCommand::StartSelectiveDownload {
+                                            id,
+                                            request,
+                                        });
+                                    }
+                                }
+                                UpdatesAction::RecheckFailedMaps => {
+                                    return Some(AppCommand::RecheckFailedMaps);
+                                }
+                                UpdatesAction::None | UpdatesAction::RefreshAll => {}
+                            }
+                        }
+                        UpdatesField::OsuPath => {}
                     }
                 }
-                if self.active_tab() == CONFIG_TAB_INDEX
-                    && self.config.focus == ConfigField::AuthChip
-                {
-                    return match self.config.chip_action() {
-                        // Cancel routes through request_login, which detects InProgress and cancels.
-                        ChipAction::Login | ChipAction::Cancel => self.request_login(),
-                        ChipAction::Logout => self.request_logout(),
-                    };
+                CONFIG_TAB_INDEX => match self.config.focus {
+                    ConfigField::AuthChip => {
+                        return match self.config.chip_action() {
+                            // Cancel routes through request_login, which detects InProgress and cancels.
+                            ChipAction::Login | ChipAction::Cancel => self.request_login(),
+                            ChipAction::Logout => self.request_logout(),
+                        };
+                    }
+                    field if field.is_text_input() || field.is_stepper() => {}
+                    // toggle / cycle fields (space also works)
+                    _ => self.config.toggle_current(),
+                },
+                _ => {
+                    // download page: enter expands/collapses the failed section
+                    if let Some(page) = self.active_download_page_mut() {
+                        page.toggle_failed_section();
+                    }
                 }
-            }
+            },
+            // `space` is a toggle alias for `enter`: it flips the focused
+            // checkbox / list selection but never activates buttons, opens lists,
+            // accepts the dropdown, or confirms the auth chip. In a text input it
+            // types a literal space instead.
             KeyCode::Char(' ') => match self.active_tab() {
                 HOME_TAB_INDEX => {
-                    if matches!(
-                        self.home.focus,
-                        HomeField::AutoOverwrite
-                            | HomeField::MirrorNerinyan
-                            | HomeField::MirrorOsuDirect
-                            | HomeField::MirrorSayobot
-                            | HomeField::MirrorNekoha
-                            | HomeField::NoVideo
-                    ) {
+                    if self.home.focus.is_toggle() {
                         self.home.toggle_current();
-                    } else if let Some(cmd) =
-                        self.mutate_collection_then_resolve(|h| h.handle_char(' '))
+                    } else if self.home.focus.is_text_input()
+                        && let Some(cmd) =
+                            self.mutate_collection_then_resolve(|h| h.handle_char(' '))
                     {
                         return Some(cmd);
                     }
                 }
-                UPDATES_TAB_INDEX => match self.updates.toggle_current() {
-                    UpdatesAction::RefreshAll => return Some(AppCommand::ScanLocalDatabase),
-                    UpdatesAction::RecheckFailedMaps => {
-                        return Some(AppCommand::RecheckFailedMaps);
+                UPDATES_TAB_INDEX => {
+                    let in_list = self.updates.selection.in_collection_list
+                        || self.updates.selection.in_beatmap_list;
+                    if in_list {
+                        self.updates.toggle_list_item();
+                    } else if self.updates.selection.focus == UpdatesField::ClientType {
+                        if self.updates.toggle_current() == UpdatesAction::RefreshAll {
+                            return Some(AppCommand::ScanLocalDatabase);
+                        }
+                    } else if self.updates.is_typing() {
+                        self.updates.handle_char(' ');
                     }
-                    UpdatesAction::None | UpdatesAction::Download => {}
-                },
+                }
                 CONFIG_TAB_INDEX => match self.config.focus {
                     ConfigField::AuthChip => {}
                     field if field.is_text_input() => self.config.handle_char(' '),
+                    field if field.is_stepper() => {}
                     _ => self.config.toggle_current(),
                 },
                 _ => {

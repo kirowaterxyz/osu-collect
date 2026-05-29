@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use super::{
     FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
-    GLYPH_SPACE, accent, accent_alt, danger, eyebrow, focused_label, glyph_fill, info, line,
+    GLYPH_SPACE, accent, accent_alt, bg, danger, eyebrow, focused_label, glyph_fill, info, line,
     line_soft, success, text_dim, text_faint, text_muted, warning,
 };
 
@@ -332,6 +332,33 @@ pub fn row_item(
         ));
     }
     ListItem::new(Line::from(spans))
+}
+
+/// A button row rendered as a filled pill, activated with `enter`.
+///
+/// `enabled` greys the label when the action is currently unavailable (e.g. no
+/// maps selected). The button is still rendered so its position stays stable.
+pub fn button_item(label: &str, focused: bool, enabled: bool) -> ListItem<'static> {
+    let mut pill = String::with_capacity(label.len() + 4);
+    pill.push_str("  ");
+    pill.push_str(label);
+    pill.push_str("  ");
+
+    let style = if !enabled {
+        Style::default().fg(text_faint())
+    } else if focused {
+        Style::default()
+            .fg(bg())
+            .bg(accent())
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(accent()).add_modifier(Modifier::BOLD)
+    };
+
+    ListItem::new(Line::from(vec![
+        focus_span(focused),
+        Span::styled(pill, style),
+    ]))
 }
 
 pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {

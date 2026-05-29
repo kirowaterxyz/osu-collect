@@ -1,5 +1,6 @@
 use crate::app::{
-    App, ConfigField, HomeTab, MessageKind, UpdatesField, UpdatesTab, messages::AppMessage,
+    App, ConfigField, HomeField, HomeTab, MessageKind, UpdatesField, UpdatesTab,
+    messages::AppMessage,
 };
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use crate::download::DownloadStage;
@@ -27,7 +28,7 @@ const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? hel
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
-const HINT_SPACE_TOGGLE: &str = "space toggle";
+const HINT_ENTER_TOGGLE: &str = "enter toggle";
 const HINT_ENTER_OPEN: &str = "enter open";
 const HINT_ENTER_CONFIRM: &str = "enter confirm";
 const HINT_ENTER_DOWNLOAD: &str = "enter download";
@@ -97,12 +98,13 @@ fn join(segments: &[&str]) -> String {
 
 fn home_hint(form: &HomeTab) -> String {
     let mut segments = vec![HINT_MOVE];
-    if form.focus.is_stepper() {
-        segments.push(HINT_PLUS_MINUS);
-    } else if !form.focus.is_text_input() {
-        segments.push(HINT_SPACE_TOGGLE);
+    match form.focus {
+        HomeField::Download => segments.push(HINT_ENTER_DOWNLOAD),
+        f if f.is_stepper() => segments.push(HINT_PLUS_MINUS),
+        f if f.is_toggle() => segments.push(HINT_ENTER_TOGGLE),
+        // text inputs: nothing to activate on this row
+        _ => {}
     }
-    segments.push(HINT_ENTER_DOWNLOAD);
     if form.focus.is_text_input() {
         segments.push(HINT_QUIT);
     }
@@ -113,13 +115,14 @@ fn home_hint(form: &HomeTab) -> String {
 fn updates_hint(form: &UpdatesTab) -> String {
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
     if in_list {
-        return join(&[HINT_SCROLL, HINT_SPACE_TOGGLE, HINT_ALL_NONE, HINT_HELP]);
+        return join(&[HINT_SCROLL, HINT_ENTER_TOGGLE, HINT_ALL_NONE, HINT_HELP]);
     }
 
     let mut segments = vec![HINT_MOVE];
     match form.selection.focus {
-        UpdatesField::ClientType => segments.push(HINT_SPACE_TOGGLE),
+        UpdatesField::ClientType => segments.push(HINT_ENTER_TOGGLE),
         UpdatesField::Collections | UpdatesField::BeatmapList => segments.push(HINT_ENTER_OPEN),
+        UpdatesField::Download => segments.push(HINT_ENTER_DOWNLOAD),
         UpdatesField::OsuPath => {}
     }
     segments.push(HINT_QUIT);
@@ -133,7 +136,7 @@ fn config_hint(focus: ConfigField) -> String {
         ConfigField::AuthChip => segments.push(HINT_ENTER_CONFIRM),
         field if field.is_stepper() => segments.push(HINT_PLUS_MINUS),
         field if field.is_text_input() => segments.push(HINT_ESC_BACK),
-        _ => segments.push(HINT_SPACE_TOGGLE),
+        _ => segments.push(HINT_ENTER_TOGGLE),
     }
     segments.push(HINT_SAVE);
     segments.push(HINT_HELP);
