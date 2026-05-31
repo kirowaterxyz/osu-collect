@@ -2,7 +2,6 @@ use super::{
     collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
-    download_history::{self, DownloadHistoryEntry},
     failed_maps,
     home::{HomeField, HomeTab},
     messages::{clear_expired_message, dismiss_error_message, set_error_message, set_info_message},
@@ -55,9 +54,6 @@ pub struct App {
     /// Override for the on-disk failed-maps file, set by tests. Production
     /// callers always pass `None` and the path is resolved at use-site.
     pub(crate) failed_maps_path_override: Option<PathBuf>,
-    /// Completed download runs, loaded from `download-history.json` at startup.
-    /// No UI surface yet — persisted for future queries.
-    pub download_history: Vec<DownloadHistoryEntry>,
     next_download_id: DownloadId,
     /// Cached disk free-space result: `(checked_at, free_bytes)`. Interior
     /// mutability because `draw()` borrows `App` immutably but must refresh
@@ -135,10 +131,6 @@ impl App {
             .as_deref()
             .map(collection_state::load)
             .unwrap_or_default();
-        let download_history = download_history::history_path()
-            .as_deref()
-            .map(download_history::load)
-            .unwrap_or_default();
         Self {
             home: HomeTab::new(&config),
             updates: UpdatesTab::new(),
@@ -154,7 +146,6 @@ impl App {
             confirm_retry: None,
             confirm_retry_on_start: None,
             failed_maps_path_override: None,
-            download_history,
             next_download_id: 1,
             disk_cache: Cell::new(None),
         }
