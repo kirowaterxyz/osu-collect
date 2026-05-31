@@ -6,11 +6,8 @@ pub const KB: f64 = 1024.0;
 pub const MB: f64 = KB * 1024.0;
 pub const GB: f64 = MB * 1024.0;
 
-pub const MAX_TRUNCATED_CHARS: usize = 80;
-
 pub mod status {
     pub const RATE_LIMITED: &str = "rate limited";
-    pub const RECHECKING_PREFIX: &str = "rechecking";
     pub const DOWNLOADING: &str = "downloading";
     pub const CHECKING_PREFIX: &str = "checking ";
     pub const FROM_SUFFIX: &str = " from ";
@@ -23,9 +20,7 @@ pub mod status {
 }
 
 pub const CONCURRENT_REQUESTS: usize = 50;
-pub const DOWNLOAD_TIMEOUT_SECS: u64 = 60;
 pub const DEFAULT_PROGRESS_WATCHDOG_SECS: u64 = 120;
-pub const COLLECTION_FETCH_TIMEOUT_SECS: u64 = 30;
 
 pub fn default_threads() -> u8 {
     std::thread::available_parallelism()
@@ -84,10 +79,6 @@ pub const HOME_TAB_INDEX: usize = 0;
 pub const UPDATES_TAB_INDEX: usize = 1;
 pub const CONFIG_TAB_INDEX: usize = 2;
 pub const STATIC_TABS: usize = 3;
-
-pub const TAB_HOME: &str = "Home";
-pub const TAB_UPDATES: &str = "Updates";
-pub const TAB_CONFIG: &str = "Config";
 
 pub const TAB_HOME_LOWER: &str = "home";
 pub const TAB_UPDATES_LOWER: &str = "updates";
