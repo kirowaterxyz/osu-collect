@@ -22,7 +22,7 @@ use osu_downloader::size::SizeFetcher;
 use std::path::Path;
 use std::time::Instant;
 use tokio::{sync::watch, task::JoinHandle};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::utils::is_low_disk_space;
 
@@ -155,10 +155,6 @@ pub enum DownloadEvent {
         failed: u32,
         unverified: u32,
     },
-    Log {
-        id: DownloadId,
-        message: String,
-    },
     StageChanged {
         id: DownloadId,
         stage: DownloadStage,
@@ -237,10 +233,6 @@ pub(crate) fn warn_low_disk_space(id: DownloadId, output_dir: &Path, emit: Emit<
 }
 
 pub(crate) async fn fetch_collection_sizes(id: DownloadId, beatmapset_ids: &[u32], emit: Emit<'_>) {
-    emit(DownloadEvent::Log {
-        id,
-        message: "fetching collection size from nekoha".into(),
-    });
     let fetcher = SizeFetcher::new();
     let result = fetcher.fetch_sizes(beatmapset_ids).await;
     emit(DownloadEvent::CollectionSizeResolved {
@@ -248,12 +240,9 @@ pub(crate) async fn fetch_collection_sizes(id: DownloadId, beatmapset_ids: &[u32
         total_bytes: result.total_bytes,
     });
     if result.missing_count > 0 {
-        emit(DownloadEvent::Log {
-            id,
-            message: format!(
-                "size info unavailable for {} beatmapsets",
-                result.missing_count
-            ),
-        });
+        debug!(
+            missing = result.missing_count,
+            "size info unavailable for some beatmapsets"
+        );
     }
 }

@@ -182,12 +182,6 @@ pub(crate) async fn verify_existing_beatmapsets(
             orphan_temp = orphan_temp_count,
             "existing file verification complete"
         );
-        if orphan_temp_count > 0 {
-            emit(DownloadEvent::Log {
-                id,
-                message: format!("removed {orphan_temp_count} orphaned temp download file(s)"),
-            });
-        }
     }
 
     Ok(PrecheckReport {

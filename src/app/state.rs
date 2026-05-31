@@ -1195,7 +1195,6 @@ impl App {
                     if page.session_start.is_none() {
                         page.session_start = Some(std::time::Instant::now());
                     }
-                    page.push_log("Collection fetched");
                 }
             }
             DownloadEvent::ResolveProgress { id, current, total } => {
@@ -1275,11 +1274,6 @@ impl App {
                     page.stats.unverified = unverified;
                 }
             }
-            DownloadEvent::Log { id, message } => {
-                if let Some(page) = self.page_mut(id) {
-                    page.push_log(&message);
-                }
-            }
             DownloadEvent::StageChanged { id, stage } => {
                 if let Some(page) = self.page_mut(id) {
                     if page.stage != stage {
@@ -1314,13 +1308,11 @@ impl App {
                 if let Some(page) = self.page_mut(id) {
                     page.stage = DownloadStage::Completed;
                     page.summary = Some(summary);
-                    page.push_log("Download finished");
                 }
             }
-            DownloadEvent::Failed { id, message } => {
+            DownloadEvent::Failed { id, message: _ } => {
                 if let Some(page) = self.page_mut(id) {
                     page.stage = DownloadStage::Failed;
-                    page.push_log(&format!("Error: {message}"));
                     page.summary = None;
                     page.clear_active_downloads();
                 }

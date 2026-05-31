@@ -60,11 +60,7 @@ impl Tally {
 
 pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit: Emit<'_>) {
     match event {
-        LibEvent::SessionStarted { total } => emit(DownloadEvent::Log {
-            id,
-            message: format!("downloading {total} beatmapsets"),
-        }),
-        LibEvent::SessionCompleted { .. } => {}
+        LibEvent::SessionStarted { .. } | LibEvent::SessionCompleted { .. } => {}
         LibEvent::BeatmapsetStatus {
             beatmapset_id,
             status,

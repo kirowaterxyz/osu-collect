@@ -140,12 +140,10 @@ async fn empty_output_dir_is_removed_after_cancel() {
     std::fs::create_dir_all(&occupied).unwrap();
     std::fs::write(occupied.join("123.osz"), b"hi").unwrap();
 
-    let noop = |_event: DownloadEvent| {};
-
-    try_remove_empty_output_dir(7, &empty, &noop).await;
+    try_remove_empty_output_dir(&empty).await;
     assert!(!empty.exists(), "empty output dir must be removed");
 
-    try_remove_empty_output_dir(7, &occupied, &noop).await;
+    try_remove_empty_output_dir(&occupied).await;
     assert!(occupied.exists(), "non-empty output dir must remain");
 }
 
@@ -228,15 +226,12 @@ async fn write_selective_collection_db_skips_empty_set() {
 
     let dir = tempdir().unwrap();
     let collection = test_collection(1, vec![test_beatmapset(10, &["hash"])]);
-    let noop = |_event: DownloadEvent| {};
 
     write_selective_collection_db(
-        1,
         collection,
         Vec::new(),
         HashSet::new(),
         dir.path().to_path_buf(),
-        &noop,
     )
     .await
     .expect("empty verified set must succeed without writing a db");

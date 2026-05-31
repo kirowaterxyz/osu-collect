@@ -61,10 +61,6 @@ impl SessionTarget {
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
                 });
-                emit(DownloadEvent::Log {
-                    id,
-                    message: format!("downloading to {}", output.display),
-                });
             }
             SessionTarget::Selective {
                 collection,
@@ -77,10 +73,6 @@ impl SessionTarget {
                     uploader: collection.uploader.username.to_string(),
                     total_maps: collection.beatmapsets.len(),
                     output_dir: output.display.clone(),
-                });
-                emit(DownloadEvent::Log {
-                    id,
-                    message: format!("downloading updates to {}", output.display),
                 });
             }
         }
@@ -216,10 +208,6 @@ impl DownloadSession {
         emit: super::Emit<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let expectations = target.expectation_index(&beatmapset_ids);
-        emit(DownloadEvent::Log {
-            id,
-            message: "verifying existing beatmapsets on disk".into(),
-        });
         emit(DownloadEvent::StageChanged {
             id,
             stage: DownloadStage::Rechecking,
@@ -245,10 +233,6 @@ impl DownloadSession {
         });
 
         if report.aborted {
-            emit(DownloadEvent::Log {
-                id,
-                message: "download aborted during precheck".into(),
-            });
             emit(DownloadEvent::Failed {
                 id,
                 message: "Download aborted by user".into(),
@@ -283,13 +267,6 @@ impl DownloadSession {
             id,
             remaining: pending_ids.len(),
         });
-
-        if skipped > 0 {
-            emit(DownloadEvent::Log {
-                id,
-                message: format!("{skipped} beatmapsets already verified locally"),
-            });
-        }
 
         Ok(Some(Self {
             id,

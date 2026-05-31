@@ -26,7 +26,6 @@ use tracing::{Instrument, error, info, info_span, warn};
 static DOWNLOAD_REGISTRY: LazyLock<ActiveDownloadRegistry> =
     LazyLock::new(ActiveDownloadRegistry::new);
 
-const ABORTED_LOG: &str = "download aborted before completion";
 const ABORTED_FAIL: &str = "Download aborted by user";
 
 pub fn spawn_download(
@@ -156,21 +155,14 @@ async fn run_collection(
     .await?
     else {
         drop(session);
-        try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
+        try_remove_empty_output_dir(&output_dir).await;
         return Ok(());
     };
 
     // collection.db reflects the full collection regardless of partial failures so that
     // saved state matches the user's intent even when some maps couldn't be downloaded.
     let db_collection_name = format!("{}-{}", collection.name, collection.id);
-    write_collection_db(
-        id,
-        collection,
-        db_collection_name,
-        output_dir,
-        emit.as_ref(),
-    )
-    .await?;
+    write_collection_db(collection, db_collection_name, output_dir).await?;
 
     if pending_count > 0 && !tally.successful.is_empty() {
         append_history(history_id, history_name, tally.successful.len());
@@ -235,7 +227,7 @@ async fn run_selective(
         run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?
     else {
         drop(session);
-        try_remove_empty_output_dir(id, &output_dir, emit.as_ref()).await;
+        try_remove_empty_output_dir(&output_dir).await;
         return Ok(());
     };
 
@@ -248,12 +240,10 @@ async fn run_selective(
 
     if !verified_now.is_empty() {
         write_selective_collection_db(
-            id,
             collection,
             selective_collections,
             verified_now.clone(),
             output_dir.clone(),
-            emit.as_ref(),
         )
         .await?;
     }
@@ -353,10 +343,6 @@ async fn run_pipeline_core(
     let _ = session_handle.wait().await;
 
     if cancelled {
-        emit(DownloadEvent::Log {
-            id,
-            message: ABORTED_LOG.into(),
-        });
         emit(DownloadEvent::Failed {
             id,
             message: ABORTED_FAIL.into(),
@@ -414,7 +400,7 @@ fn append_history(collection_id: u32, name: String, count: usize) {
     download_history::append(&path, entry);
 }
 
-pub async fn try_remove_empty_output_dir(id: DownloadId, output_dir: &Path, emit: Emit<'_>) {
+pub async fn try_remove_empty_output_dir(output_dir: &Path) {
     let Ok(mut entries) = tokio::fs::read_dir(output_dir).await else {
         return;
     };
@@ -423,12 +409,7 @@ pub async fn try_remove_empty_output_dir(id: DownloadId, output_dir: &Path, emit
     }
     if let Err(err) = tokio::fs::remove_dir(output_dir).await {
         warn!(error = %err, path = %output_dir.display(), "failed to remove empty output directory");
-        return;
     }
-    emit(DownloadEvent::Log {
-        id,
-        message: format!("removed empty directory {}", output_dir.display()),
-    });
 }
 
 #[cfg(test)]

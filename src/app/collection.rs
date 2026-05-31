@@ -4,13 +4,11 @@ use crate::download::{
 use ratatui::style::Color;
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     time::{Duration, Instant},
 };
 
-use crate::config::constants::{
-    COMPLETION_PREFIXES, MAX_LOG_LINES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL,
-};
+use crate::config::constants::{COMPLETION_PREFIXES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL};
 
 /// minimum time between text updates on a single active-download slot.
 const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
@@ -246,7 +244,6 @@ pub struct CollectionPage {
     pub active_downloads: Vec<Option<ActiveDownloadLine>>,
     pub concurrent: usize,
     index: HashMap<u32, usize>,
-    pub logs: VecDeque<String>,
     pub summary: Option<DownloadSummary>,
     pub failed_maps: Vec<FailedMap>,
     /// Whether the FAILED collapsible section is currently expanded.
@@ -287,7 +284,6 @@ impl CollectionPage {
             active_downloads: (0..slot_count).map(|_| None).collect(),
             concurrent,
             index: HashMap::new(),
-            logs: VecDeque::new(),
             summary: None,
             failed_maps: Vec::new(),
             failed_section_expanded: false,
@@ -366,13 +362,6 @@ impl CollectionPage {
             if stage.is_terminal() {
                 row.progress = None;
             }
-        }
-    }
-
-    pub fn push_log(&mut self, message: &str) {
-        self.logs.push_front(message.to_string());
-        while self.logs.len() > MAX_LOG_LINES {
-            self.logs.pop_back();
         }
     }
 

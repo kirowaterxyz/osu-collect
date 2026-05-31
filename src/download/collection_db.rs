@@ -1,9 +1,9 @@
-use super::{DownloadError, DownloadEvent, DownloadId, Emit, SelectiveDownloadCollection};
+use super::{DownloadError, SelectiveDownloadCollection};
 use crate::core::collection::Collection;
 use crate::utils::AppError;
 use osu_db::collection::{Collection as DbCollection, CollectionList};
 use std::{collections::HashSet, io, path::Path, path::PathBuf};
-use tracing::error;
+use tracing::{debug, error};
 
 const COLLECTION_DB_CREATED: &str = "collection.db created successfully";
 const COLLECTION_DB_FILENAME: &str = "collection.db";
@@ -45,55 +45,38 @@ pub fn write_collections_db(entries: &[CollectionEntry], output_path: &Path) -> 
 }
 
 pub async fn write_collection_db(
-    id: DownloadId,
     collection: Collection,
     db_collection_name: String,
     output_dir: PathBuf,
-    emit: Emit<'_>,
 ) -> Result<(), DownloadError> {
     run_blocking(move || create_collection_db(&collection, &db_collection_name, &output_dir))
         .await
         .map(|()| {
-            emit(DownloadEvent::Log {
-                id,
-                message: COLLECTION_DB_CREATED.into(),
-            })
+            debug!(COLLECTION_DB_CREATED);
         })
         .map_err(|err| {
             let message = format!("failed to create collection.db: {err}");
-            emit(DownloadEvent::Log {
-                id,
-                message: message.clone(),
-            });
             error!(error = %err, "failed to create collection.db");
             DownloadError::internal(message)
         })
 }
 
 pub async fn write_selective_collection_db(
-    id: DownloadId,
     collection: Collection,
     collections: Vec<SelectiveDownloadCollection>,
     verified: HashSet<u32>,
     output_dir: PathBuf,
-    emit: Emit<'_>,
 ) -> Result<(), DownloadError> {
     run_blocking(move || {
         create_selective_collection_db(&collection, &collections, &verified, &output_dir)
     })
     .await
     .map(|()| {
-        emit(DownloadEvent::Log {
-            id,
-            message: COLLECTION_DB_CREATED.into(),
-        })
+        debug!(COLLECTION_DB_CREATED);
     })
     .map_err(|err| {
         let message = format!("failed to create collection.db: {err}");
-        emit(DownloadEvent::Log {
-            id,
-            message: message.clone(),
-        });
+        error!(error = %err, "failed to create selective collection.db");
         DownloadError::internal(message)
     })
 }

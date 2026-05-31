@@ -50,8 +50,6 @@ pub const SPEED_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 pub const SPEED_STALE_AFTER: Duration = Duration::from_secs(1);
 pub const DISK_CACHE_TTL: Duration = Duration::from_secs(10);
 pub const COMPLETION_PREFIXES: [&str; 4] = ["Done", "Skipped", "Failed", "Accepted"];
-pub const MAX_LOG_LINES: usize = 5;
-
 pub const VALIDATION_CACHE_LIMIT: usize = 4096;
 
 pub const THEME_MODES: [ThemeMode; 4] = [
