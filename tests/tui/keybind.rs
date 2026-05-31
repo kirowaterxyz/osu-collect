@@ -298,6 +298,8 @@ fn enter_on_config_login_triggers_login_attempt() {
     use osu_collect::app::{ConfigField, HomeField};
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
+    use osu_collect::app::AuthLoginState;
+
     let mut app = make_app();
     // Focus a non-text field so Right switches tabs rather than moving the caret.
     app.home.focus = HomeField::NoVideo;
@@ -305,6 +307,9 @@ fn enter_on_config_login_triggers_login_attempt() {
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
     app.config.focus = ConfigField::AuthChip;
+    // Force logged-out state so chip_action() returns Login regardless of any
+    // on-disk auth.json that may exist in the test environment.
+    app.config.login_state = AuthLoginState::LoggedOut;
 
     // enter must reach the login request path (command depends on bundled creds)
     let cmd = app.handle_key(press(KeyCode::Enter));
