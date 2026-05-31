@@ -5,14 +5,12 @@ use crate::download::ArchiveValidation;
 
 fn tab_logged_out() -> ConfigTab {
     let mut tab = ConfigTab::new(&Config::default());
-    tab.auth_loaded = false;
     tab.login_state = AuthLoginState::LoggedOut;
     tab
 }
 
 fn tab_logged_in() -> ConfigTab {
     let mut tab = ConfigTab::new(&Config::default());
-    tab.auth_loaded = true;
     tab.login_state = AuthLoginState::LoggedIn;
     tab
 }
@@ -23,7 +21,6 @@ fn login_flow_marks_in_progress_without_message() {
     tab.set_login_in_progress();
     assert_eq!(tab.login_state, AuthLoginState::InProgress(String::new()));
     assert!(tab.message.is_none());
-    assert!(!tab.auth_loaded);
 }
 
 #[test]
@@ -32,7 +29,6 @@ fn login_flow_success() {
     tab.set_login_in_progress();
     tab.set_login_complete();
     assert_eq!(tab.login_state, AuthLoginState::LoggedIn);
-    assert!(tab.auth_loaded);
 }
 
 #[test]
@@ -41,7 +37,6 @@ fn login_flow_error_returns_to_logged_out() {
     tab.set_login_in_progress();
     tab.set_login_failed();
     assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
-    assert!(!tab.auth_loaded);
 }
 
 #[test]
@@ -64,7 +59,6 @@ fn logout_clears_state() {
     let mut tab = tab_logged_in();
     tab.set_logged_out();
     assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
-    assert!(!tab.auth_loaded);
 }
 
 #[test]

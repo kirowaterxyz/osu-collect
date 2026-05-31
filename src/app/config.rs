@@ -98,7 +98,6 @@ pub struct ConfigTab {
     pub sayobot: bool,
     pub nekoha: bool,
     pub custom_mirror: InputField,
-    pub auth_loaded: bool,
     pub login_state: AuthLoginState,
     pub threads: InputField,
     pub no_video: bool,
@@ -126,7 +125,6 @@ impl ConfigTab {
             sayobot: config.mirror.sayobot,
             nekoha: config.mirror.nekoha,
             custom_mirror: custom_mirror_field(&config.mirror),
-            auth_loaded,
             login_state: login_state(auth_loaded),
             threads: threads_field(&config.download),
             no_video: config.download.no_video,
@@ -441,17 +439,14 @@ impl ConfigTab {
     }
 
     pub fn set_login_complete(&mut self) {
-        self.auth_loaded = true;
         self.login_state = AuthLoginState::LoggedIn;
     }
 
     pub fn set_login_failed(&mut self) {
-        self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
     }
 
     pub fn set_logged_out(&mut self) {
-        self.auth_loaded = false;
         self.login_state = AuthLoginState::LoggedOut;
     }
 
