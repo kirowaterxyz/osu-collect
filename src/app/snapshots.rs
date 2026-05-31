@@ -1,7 +1,4 @@
-use crate::{
-    core::collection::Beatmapset,
-    osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient, checksum},
-};
+use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient, checksum};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -209,25 +206,6 @@ pub fn current_snapshots<'a>(
             ))
         })
         .collect()
-}
-
-pub fn in_deleted_snapshot(
-    client: OsuClient,
-    beatmapset: &Beatmapset,
-    deleted: &CollectionSnapshot,
-) -> bool {
-    match client {
-        OsuClient::Stable => {
-            let deleted_hashes: HashSet<&str> =
-                deleted.stable_hashes.iter().map(String::as_str).collect();
-            beatmapset
-                .beatmaps
-                .iter()
-                .map(|beatmap| beatmap.checksum.as_str())
-                .any(|checksum| !checksum.is_empty() && deleted_hashes.contains(checksum))
-        }
-        OsuClient::Lazer => deleted.lazer_ids.contains(&u64::from(beatmapset.id)),
-    }
 }
 
 fn checksum_beatmapset_index<'a>(

@@ -32,7 +32,6 @@ pub struct Metric<'a> {
     pub style: Style,
 }
 
-#[allow(dead_code)]
 impl<'a> Metric<'a> {
     pub fn muted(label: &'a str, value: impl Into<String>) -> Self {
         Self::colored(label, value, text_muted())
@@ -40,14 +39,6 @@ impl<'a> Metric<'a> {
 
     pub fn accent(label: &'a str, value: impl Into<String>) -> Self {
         Self::colored(label, value, accent())
-    }
-
-    pub fn success(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, success())
-    }
-
-    pub fn danger(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, danger())
     }
 
     fn colored(label: &'a str, value: impl Into<String>, color: Color) -> Self {

@@ -1,9 +1,5 @@
 use crate::app::{
-    collection_state::CollectionStateFile,
-    runtime::{
-        FetchCompareSettings, collection_ids_for_scan, deleted_maps_for_scan,
-        should_hide_failed_beatmapset,
-    },
+    runtime::{FetchCompareSettings, collection_ids_for_scan, should_hide_failed_beatmapset},
     updates::{MissingBeatmapset, MissingStatus, UpdatesTab},
 };
 use crate::osu_db::{LocalBeatmap, LocalBeatmapset, LocalCollection, Md5};
@@ -86,21 +82,6 @@ fn collection_ids_for_scan_skips_ids_outside_u32() {
         collection_ids_for_scan(vec![42, u64::from(u32::MAX) + 1]),
         vec![42]
     );
-}
-
-#[test]
-fn deleted_maps_for_scan_only_uses_selected_collections() {
-    let mut state = CollectionStateFile::default();
-    state.update(10, vec![1, 2, 3], vec![1, 3, 999], vec![]);
-    state.update(20, vec![4, 5], vec![4, 5], vec![]);
-
-    let deleted = deleted_maps_for_scan(&state, &[10]);
-
-    assert_eq!(deleted.len(), 1);
-    assert!(deleted[&10].contains(&1));
-    assert!(deleted[&10].contains(&3));
-    assert!(!deleted[&10].contains(&999));
-    assert!(!deleted.contains_key(&20));
 }
 
 #[test]

@@ -291,54 +291,6 @@ pub fn collection_ids_for_scan(selected_ids: Vec<u64>) -> Vec<u32> {
         .collect()
 }
 
-/// Compute `installed ∩ last_seen_remote` per collection — the set of beatmapsets the user
-/// is expected to have but may have manually deleted since the last scan.
-pub fn deleted_maps_for_scan(
-    collection_state: &collection_state::CollectionStateFile,
-    selected_collection_ids: &[u32],
-) -> HashMap<u32, HashSet<u32>> {
-    selected_collection_ids
-        .iter()
-        .map(|&id| {
-            let installed: HashSet<u32> = collection_state
-                .last_installed_at_scan(id)
-                .iter()
-                .copied()
-                .collect();
-            let last_seen_remote: HashSet<u32> = collection_state
-                .last_seen_remote(id)
-                .iter()
-                .copied()
-                .collect();
-            (
-                id,
-                installed.intersection(&last_seen_remote).copied().collect(),
-            )
-        })
-        .collect()
-}
-
-/// Compute total manually-added beatmapsets: `current_local − snapshot`.
-/// Returns 0 when there is no prior snapshot for a collection (first run).
-pub fn manually_added_count(
-    collection_state: &collection_state::CollectionStateFile,
-    selected_collection_ids: &[u32],
-    local_beatmapsets: &HashMap<u32, LocalBeatmapset>,
-) -> usize {
-    let local_ids: HashSet<u32> = local_beatmapsets.keys().copied().collect();
-    selected_collection_ids
-        .iter()
-        .map(|&id| {
-            let snapshot = collection_state.snapshot_local_at_scan(id);
-            if snapshot.is_empty() {
-                return 0;
-            }
-            let snapshot_set: HashSet<u32> = snapshot.iter().copied().collect();
-            local_ids.difference(&snapshot_set).count()
-        })
-        .sum()
-}
-
 pub fn snapshot_diffs_for_scan(
     snapshot_dir: &std::path::Path,
     selected_collection_ids: &[u32],

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::config::constants::{COMPLETION_PREFIXES, SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL};
+use crate::config::constants::{SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL};
 
 /// minimum time between text updates on a single active-download slot.
 const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
@@ -122,10 +122,6 @@ impl ActiveDownloadLine {
         self.last_update
             .filter(|last| last.elapsed() <= SPEED_STALE_AFTER)
             .map_or(0.0, |_| self.speed_bytes_per_sec)
-    }
-
-    pub fn is_completion_message(message: &str) -> bool {
-        COMPLETION_PREFIXES.iter().any(|p| message.starts_with(p))
     }
 
     /// bar fill color for the current stage. rate_limited overrides downloading color.

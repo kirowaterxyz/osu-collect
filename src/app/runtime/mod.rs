@@ -6,8 +6,8 @@ mod scan;
 pub use mirror_probe::{MirrorProbeEvent, ProbeResult, probe_url};
 pub use scan::{
     FetchCompareSettings, FetchMissingResult, UpdatesEvent, collection_ids_for_scan,
-    deleted_maps_for_scan, fetch_missing_beatmapsets, manually_added_count, read_local_database,
-    should_hide_failed_beatmapset, snapshot_diffs_for_scan,
+    fetch_missing_beatmapsets, read_local_database, should_hide_failed_beatmapset,
+    snapshot_diffs_for_scan,
 };
 
 pub use resolve::{HomeResolveEvent, handle_home_resolve_event};

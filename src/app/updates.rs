@@ -671,14 +671,6 @@ impl UpdatesTab {
         self.path.osu_path.value == self.path.osu_path.placeholder
     }
 
-    pub fn selected_collection_count(&self) -> usize {
-        self.selection
-            .local_collections
-            .iter()
-            .filter(|c| c.selected)
-            .count()
-    }
-
     pub fn selected_beatmap_count(&self) -> usize {
         self.selection
             .visible_missing
