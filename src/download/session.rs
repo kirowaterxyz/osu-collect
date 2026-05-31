@@ -50,7 +50,7 @@ impl SessionTarget {
         emit: &impl Fn(DownloadEvent),
         id: DownloadId,
         output: &OutputPreparation,
-        beatmapset_ids: &[u32],
+        _beatmapset_ids: &[u32],
     ) {
         match self {
             SessionTarget::Collection(collection) => {
@@ -76,11 +76,6 @@ impl SessionTarget {
                 });
             }
         }
-
-        emit(DownloadEvent::BeatmapsRegistered {
-            id,
-            beatmap_ids: beatmapset_ids.to_vec(),
-        });
     }
 
     pub(crate) fn collection(&self) -> &Collection {

@@ -124,10 +124,6 @@ pub enum DownloadEvent {
         id: DownloadId,
         total_bytes: u64,
     },
-    BeatmapsRegistered {
-        id: DownloadId,
-        beatmap_ids: Vec<u32>,
-    },
     BeatmapProgress {
         id: DownloadId,
         beatmapset_id: u32,

@@ -1220,11 +1220,6 @@ impl App {
                     page.stats.verified_bytes += total_bytes;
                 }
             }
-            DownloadEvent::BeatmapsRegistered { id, beatmap_ids } => {
-                if let Some(page) = self.page_mut(id) {
-                    page.register_beatmaps(&beatmap_ids);
-                }
-            }
             DownloadEvent::BeatmapProgress {
                 id,
                 beatmapset_id,
@@ -1245,7 +1240,6 @@ impl App {
                 cooldown_until,
             } => {
                 if let Some(page) = self.page_mut(id) {
-                    page.update_status(beatmapset_id, stage, &message);
                     page.update_active_status(
                         beatmapset_id,
                         stage,

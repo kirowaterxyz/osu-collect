@@ -332,7 +332,6 @@ fn active_view_renders_progress_bar_when_downloading() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
-    page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
         crate::download::BeatmapStage::Downloading,
@@ -362,7 +361,6 @@ fn active_view_requires_percentage_for_discovered_download_size() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
-    page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
         crate::download::BeatmapStage::Downloading,
@@ -392,7 +390,6 @@ fn active_view_renders_bouncing_bar_when_total_is_unknown() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
-    page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
         crate::download::BeatmapStage::Downloading,
@@ -426,7 +423,6 @@ fn active_panel_height_is_constant_across_completion_and_start() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 10;
     page.download_target = 10;
-    page.register_beatmaps(&[10, 11, 12, 13]);
     for id in [10u32, 11, 12] {
         page.update_active_status(
             id,
@@ -497,7 +493,6 @@ fn long_message_does_not_drop_the_progress_bar() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 1;
     page.download_target = 1;
-    page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
         BeatmapStage::Downloading,
@@ -531,7 +526,6 @@ fn active_view_shows_bar_for_active_download_regardless_of_message() {
     page.stage = DownloadStage::Downloading;
     page.total_maps = 5;
     page.download_target = 5;
-    page.register_beatmaps(&[42]);
     page.update_active_status(
         42,
         crate::download::BeatmapStage::Downloading,

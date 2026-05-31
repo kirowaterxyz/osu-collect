@@ -48,12 +48,6 @@ pub struct DownloadStats {
     pub verify_total_us: u64,
 }
 
-pub struct BeatmapRow {
-    pub stage: BeatmapStage,
-    pub message: String,
-    pub progress: Option<(u64, u64)>,
-}
-
 /// Why a beatmapset failed. Categorized from the library's `Error` at the app boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureReason {
@@ -237,13 +231,14 @@ pub struct CollectionPage {
     pub uploader: Option<String>,
     /// Config snapshot taken at download start, used to build retry requests.
     pub download_config: Option<DownloadConfig>,
-    pub beatmaps: Vec<BeatmapRow>,
     /// Fixed-size slot list — one slot per worker thread. Free slots are `None`.
     /// Slot positions are stable for the lifetime of the page so completing
     /// downloads don't shift their neighbours up in the UI.
     pub active_downloads: Vec<Option<ActiveDownloadLine>>,
     pub concurrent: usize,
-    index: HashMap<u32, usize>,
+    /// Last-seen downloaded bytes per beatmapset id; used by `update_progress`
+    /// to compute the delta added to `stats.bytes_downloaded` each call.
+    prev_bytes: HashMap<u32, u64>,
     pub summary: Option<DownloadSummary>,
     pub failed_maps: Vec<FailedMap>,
     /// Whether the FAILED collapsible section is currently expanded.
@@ -280,10 +275,9 @@ impl CollectionPage {
             output_dir: None,
             uploader: None,
             download_config: None,
-            beatmaps: Vec::new(),
             active_downloads: (0..slot_count).map(|_| None).collect(),
             concurrent,
-            index: HashMap::new(),
+            prev_bytes: HashMap::new(),
             summary: None,
             failed_maps: Vec::new(),
             failed_section_expanded: false,
@@ -325,44 +319,12 @@ impl CollectionPage {
         lines.peek().is_some() && lines.all(|l| l.displayed_rate_limited())
     }
 
-    pub fn register_beatmaps(&mut self, ids: &[u32]) {
-        self.beatmaps.clear();
-        self.index.clear();
-        self.failed_maps.clear();
-        for (idx, beatmapset_id) in ids.iter().copied().enumerate() {
-            self.index.insert(beatmapset_id, idx);
-            self.beatmaps.push(BeatmapRow {
-                stage: BeatmapStage::Pending,
-                message: String::from("waiting"),
-                progress: None,
-            });
-        }
-    }
-
     pub fn update_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
-        if let Some(idx) = self.index.get(&beatmapset_id).copied()
-            && let Some(row) = self.beatmaps.get_mut(idx)
-        {
-            if let Some((prev_downloaded, _)) = row.progress {
-                self.stats.bytes_downloaded =
-                    self.stats.bytes_downloaded.saturating_sub(prev_downloaded) + downloaded;
-            } else {
-                self.stats.bytes_downloaded += downloaded;
-            }
-            row.progress = Some((downloaded, total));
-        }
-    }
-
-    pub fn update_status(&mut self, beatmapset_id: u32, stage: BeatmapStage, message: &str) {
-        if let Some(idx) = self.index.get(&beatmapset_id).copied()
-            && let Some(row) = self.beatmaps.get_mut(idx)
-        {
-            row.stage = stage;
-            row.message = message.to_string();
-            if stage.is_terminal() {
-                row.progress = None;
-            }
-        }
+        let prev = self.prev_bytes.get(&beatmapset_id).copied().unwrap_or(0);
+        self.stats.bytes_downloaded = self.stats.bytes_downloaded.saturating_sub(prev) + downloaded;
+        self.prev_bytes.insert(beatmapset_id, downloaded);
+        // `total` is unused here; the active-download slot tracks it for the progress bar.
+        let _ = total;
     }
 
     pub fn update_active_status(
