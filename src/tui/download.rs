@@ -25,6 +25,12 @@ const GAUGE_H_MARGIN: u16 = 1;
 const PANEL_OVERVIEW: &str = " OVERVIEW ";
 const PANEL_ACTIVE: &str = " ACTIVE ";
 const PANEL_RESULTS: &str = " RESULTS ";
+const PANEL_FAILED: &str = " FAILED ";
+
+/// Fixed height of the results-summary panel when it shares the completed view
+/// with the failed-maps disclosure. Fits the counts line, both outro lines, and
+/// the panel borders; the failed list takes the remaining space below.
+const RESULTS_SUMMARY_HEIGHT: u16 = 8;
 
 const KEY_COLLECTION: &str = "collection: ";
 const KEY_UPLOADER: &str = "uploader: ";
@@ -32,6 +38,7 @@ const KEY_OUTPUT: &str = "output: ";
 const KEY_SETTINGS: &str = "settings: ";
 const KEY_STATUS: &str = "status: ";
 const KEY_SPEED: &str = "  speed ";
+const KEY_ETA: &str = "  eta ";
 const KEY_SIZE: &str = "  size ";
 
 const VALUE_UNKNOWN: &str = "unknown";
@@ -203,13 +210,19 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if let Some(speed) = speed {
         status_spans.push(Span::styled(KEY_SPEED, key_style));
         status_spans.push(Span::styled(speed, Style::default().fg(success())));
+        // ETA sits next to speed (both derived from cumulative_speed) so the
+        // gauge can drop the duplicate — every figure lives in exactly one place.
+        if let Some(eta) = session_eta(page) {
+            status_spans.push(Span::styled(KEY_ETA, key_style));
+            status_spans.push(Span::styled(eta, Style::default().fg(accent())));
+        }
     }
     if let Some(bytes) = bytes {
         status_spans.push(Span::styled(KEY_SIZE, key_style));
         status_spans.push(Span::styled(bytes, Style::default().fg(warning())));
     }
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled(KEY_COLLECTION, key_style),
             Span::styled(page.title.as_str(), Style::default().fg(accent())),
@@ -231,7 +244,12 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
                 value_style,
             ),
         ]),
-        Line::from(vec![
+    ];
+    // `settings: N threads` is static config noise once the run is live — speed
+    // and ETA in the status line carry the actionable signal. Drop it while
+    // Downloading; keep it for other stages where nothing else fills the row.
+    if !matches!(page.stage, DownloadStage::Downloading) {
+        lines.push(Line::from(vec![
             Span::styled(KEY_SETTINGS, key_style),
             Span::styled(
                 {
@@ -242,10 +260,10 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
                 },
                 Style::default().fg(accent()),
             ),
-        ]),
-        Line::from(status_spans),
-        Line::from(summary_spans(page)),
-    ];
+        ]));
+    }
+    lines.push(Line::from(status_spans));
+    lines.push(Line::from(summary_spans(page)));
 
     frame.render_widget(
         Paragraph::new(lines)
@@ -364,11 +382,11 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     spans
 }
 
-/// Returns `(speed_str, eta_str)` for the session gauge label, or `None`
-/// if there is not yet enough data (speed < 1 B/s or no total size known).
-/// Speed comes from `cumulative_speed()` — the same rolling average shown in
-/// the OVERVIEW panel — so both displays always agree.
-fn session_eta(page: &CollectionPage) -> Option<(String, String)> {
+/// Returns the session ETA label, or `None` if there is not yet enough data
+/// (speed < 1 B/s or no total size known). Speed comes from `cumulative_speed()`
+/// — the same rolling average shown in the OVERVIEW panel — so the ETA derived
+/// here always agrees with the displayed speed.
+fn session_eta(page: &CollectionPage) -> Option<String> {
     let speed = page.cumulative_speed();
     if speed < 1.0 {
         return None;
@@ -377,9 +395,7 @@ fn session_eta(page: &CollectionPage) -> Option<(String, String)> {
     let bytes_done = page.stats.bytes_downloaded;
     let remaining = total.saturating_sub(bytes_done);
     let eta_secs = (remaining as f64 / speed) as u64;
-    let speed_str = format_bytes(speed as u64, "B/s");
-    let eta_str = format_eta(eta_secs);
-    Some((speed_str, eta_str))
+    Some(format_eta(eta_secs))
 }
 
 /// Format a duration in seconds as a compact human label: `45s`, `2m 30s`, `1h 12m`.
@@ -396,18 +412,6 @@ pub(crate) fn format_eta(secs: u64) -> String {
         let h = secs / 3600;
         let m = (secs % 3600) / 60;
         format!("{h}h {m:02}m")
-    }
-}
-
-fn format_avg_verify(avg_us: u64) -> String {
-    if avg_us < 1_000 {
-        format!("{avg_us}us")
-    } else if avg_us < 1_000_000 {
-        format!("{:.1}ms", avg_us as f64 / 1_000.0)
-    } else if avg_us < 60_000_000 {
-        format!("{:.1}s", avg_us as f64 / 1_000_000.0)
-    } else {
-        format!("{:.1}m", avg_us as f64 / 60_000_000.0)
     }
 }
 
@@ -455,19 +459,9 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let top_title = if is_rechecking {
         format!(" rechecking {verified_display}/{total_collection} ")
     } else {
-        let eta_suffix = session_eta(page)
-            .map(|(_, eta)| format!("  ETA {eta}"))
-            .unwrap_or_default();
-        format!(" {downloaded} downloaded  {queue_remaining} queued{eta_suffix} ")
+        format!(" {downloaded} downloaded  {queue_remaining} queued ")
     };
-    let verified_title = if let Some(avg_us) = page.avg_verify_us() {
-        format!(
-            " {verified_display}/{total_collection} verified ({} avg) ",
-            format_avg_verify(avg_us)
-        )
-    } else {
-        format!(" {verified_display}/{total_collection} verified ")
-    };
+    let verified_title = format!(" {verified_display}/{total_collection} verified ");
 
     let block = Block::default()
         .title(Line::from(Span::styled(top_title, top_style)).left_aligned())
@@ -644,7 +638,21 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if matches!(page.stage, DownloadStage::Completed)
         && let Some(summary) = &page.summary
     {
-        render_results_block(frame, area, summary);
+        // No failures: the results block owns the whole panel area as before.
+        // With failures, keep the failed-maps disclosure visible and navigable
+        // (r/R retry, enter expand, ↑↓) by splitting the area — results summary
+        // on top, the scrollable failed list below.
+        if page.failed_maps.is_empty() {
+            render_results_block(frame, area, summary);
+        } else {
+            let [summary_area, failed_area] = Layout::vertical([
+                Constraint::Length(RESULTS_SUMMARY_HEIGHT),
+                Constraint::Min(0),
+            ])
+            .areas(area);
+            render_results_block(frame, summary_area, summary);
+            render_failed_section(frame, failed_area, page);
+        }
         return;
     }
 
@@ -687,34 +695,37 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     }
 
     if !page.failed_maps.is_empty() {
-        let count = page.failed_maps.len();
-        let detail = format!("({count})");
-        items.push(widgets::disclosure_row(
-            FAILED_SECTION_LABEL,
-            detail,
-            page.failed_section_expanded,
-            false,
-        ));
-        if page.failed_section_expanded {
-            for failure in &page.failed_maps {
-                let (reason_label, reason_color) = failure_display(failure.reason);
-                let id_str = format!("#{}", failure.beatmapset_id);
-                let title_part = failure
-                    .title
-                    .as_deref()
-                    .map(|t| format!(" · {t}"))
-                    .unwrap_or_default();
-                items.push(ListItem::new(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(id_str, Style::default().fg(text_faint())),
-                    Span::styled(title_part, Style::default().fg(text_faint())),
-                    Span::raw("  "),
-                    Span::styled(reason_label, Style::default().fg(reason_color)),
-                ])));
-            }
-        }
+        push_failed_rows(&mut items, page);
     }
 
+    render_scrollable_panel(frame, area, block, inner, items, page);
+}
+
+/// Render the `FAILED (n)` disclosure as a standalone scrollable panel.
+///
+/// Used in the completed view (alongside the results summary) so the failed
+/// list stays expandable and navigable post-completion. Shares the same
+/// `thread_scroll` / `thread_total_items` / `thread_visible_items` bookkeeping
+/// as the ACTIVE panel, so ↑↓ navigation and `r`/`R` retry keep working.
+fn render_failed_section(frame: &mut Frame, area: Rect, page: &CollectionPage) {
+    let block = widgets::panel_block(PANEL_FAILED);
+    let inner = block.inner(area);
+    let mut items: Vec<ListItem> = Vec::new();
+    push_failed_rows(&mut items, page);
+    render_scrollable_panel(frame, area, block, inner, items, page);
+}
+
+/// Clamp `thread_scroll` to the item count, attach a scroll indicator, and draw
+/// the visible window. Records `thread_total_items` / `thread_visible_items` so
+/// the app-side scroll/nav keybinds operate on the same bounds.
+fn render_scrollable_panel(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block<'static>,
+    inner: Rect,
+    items: Vec<ListItem<'static>>,
+    page: &CollectionPage,
+) {
     let visible_height = inner.height as usize;
     let total = items.len();
     page.thread_total_items.set(total);
@@ -734,6 +745,38 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         List::new(items[start..end].to_vec()).highlight_symbol(""),
         inner,
     );
+}
+
+/// Append the `FAILED (n)` disclosure header and, when expanded, one row per
+/// failed beatmapset. Shared by the ACTIVE panel and the completed-view panel
+/// so both render identical rows.
+fn push_failed_rows(items: &mut Vec<ListItem<'static>>, page: &CollectionPage) {
+    let count = page.failed_maps.len();
+    let detail = format!("({count})");
+    items.push(widgets::disclosure_row(
+        FAILED_SECTION_LABEL,
+        detail,
+        page.failed_section_expanded,
+        false,
+    ));
+    if page.failed_section_expanded {
+        for failure in &page.failed_maps {
+            let (reason_label, reason_color) = failure_display(failure.reason);
+            let id_str = format!("#{}", failure.beatmapset_id);
+            let title_part = failure
+                .title
+                .as_deref()
+                .map(|t| format!(" · {t}"))
+                .unwrap_or_default();
+            items.push(ListItem::new(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(id_str, Style::default().fg(text_faint())),
+                Span::styled(title_part, Style::default().fg(text_faint())),
+                Span::raw("  "),
+                Span::styled(reason_label, Style::default().fg(reason_color)),
+            ])));
+        }
+    }
 }
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {

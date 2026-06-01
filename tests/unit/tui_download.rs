@@ -1,17 +1,5 @@
-use super::{format_avg_verify, format_eta, session_eta};
+use super::{format_eta, session_eta};
 use crate::utils::format_bytes;
-
-#[test]
-fn format_avg_verify_us_boundary() {
-    assert_eq!(format_avg_verify(0), "0us");
-    assert_eq!(format_avg_verify(999), "999us");
-    assert_eq!(format_avg_verify(1_000), "1.0ms");
-    assert_eq!(format_avg_verify(999_999), "1000.0ms");
-    assert_eq!(format_avg_verify(1_000_000), "1.0s");
-    assert_eq!(format_avg_verify(59_999_999), "60.0s");
-    assert_eq!(format_avg_verify(60_000_000), "1.0m");
-    assert_eq!(format_avg_verify(120_000_000), "2.0m");
-}
 
 #[test]
 fn format_bytes_units() {
@@ -86,24 +74,28 @@ fn session_eta_none_when_no_total() {
 fn session_eta_zero_remaining_when_done() {
     let total = 5 * 1024 * 1024u64;
     let page = page_with_speed(5.0 * 1024.0 * 1024.0, total + 1024, Some(total));
-    let (_, eta) = session_eta(&page).expect("should compute ETA");
+    let eta = session_eta(&page).expect("should compute ETA");
     assert_eq!(eta, "0s");
 }
 
-/// Happy path: reasonable speed and ETA strings are returned.
+/// Happy path: a reasonable ETA string is returned, and speed (read separately
+/// from `cumulative_speed`) carries the rolling-average value.
 #[test]
-fn session_eta_returns_speed_and_eta() {
+fn session_eta_returns_eta() {
     // 5 MB/s rolling speed; 450 MB remaining → 90 s ETA.
     let mb = 1024 * 1024u64;
     let speed = 5.0 * mb as f64;
     let page = page_with_speed(speed, 50 * mb, Some(500 * mb));
-    let (speed_str, eta) = session_eta(&page).expect("should compute ETA");
-    assert!(
-        speed_str.contains("MB/s"),
-        "expected MB/s in speed: {speed_str:?}"
-    );
+    let eta = session_eta(&page).expect("should compute ETA");
     assert!(
         eta.contains('m') || eta.contains('s'),
         "expected time unit in eta: {eta:?}"
+    );
+    // Speed still comes from cumulative_speed(), the same source the OVERVIEW
+    // panel renders — assert that invariant rather than reading it off session_eta.
+    let speed_str = format_bytes(page.cumulative_speed() as u64, "B/s");
+    assert!(
+        speed_str.contains("MB/s"),
+        "expected MB/s in speed: {speed_str:?}"
     );
 }
