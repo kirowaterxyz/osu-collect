@@ -25,6 +25,7 @@ const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downl
 
 const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q abort  ·  ? help";
 const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? help";
+const HINT_RETRY: &str = "r retry  ·  R retry all";
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
@@ -76,20 +77,27 @@ fn hint_for(app: &App) -> String {
         HOME_TAB_INDEX => home_hint(&app.home),
         UPDATES_TAB_INDEX => updates_hint(&app.updates),
         CONFIG_TAB_INDEX => config_hint(app.config.focus),
-        _ => download_tab_hint(app).to_string(),
+        _ => download_tab_hint(app),
     }
 }
 
 /// `x close` appears only when the active download page is settled
 /// (`Completed` or `Failed`). In-progress pages keep the `q abort` hint.
-fn download_tab_hint(app: &App) -> &'static str {
-    let settled = app
-        .download_for_tab(app.active_tab())
+/// A retry segment is appended whenever the active page has failed maps.
+fn download_tab_hint(app: &App) -> String {
+    let page = app.download_for_tab(app.active_tab());
+    let settled = page
         .is_some_and(|page| matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed));
-    if settled {
+    let base = if settled {
         DOWNLOAD_TAB_HINT_SETTLED
     } else {
         DOWNLOAD_TAB_HINT_RUNNING
+    };
+    let has_failed = page.is_some_and(|page| !page.failed_maps.is_empty());
+    if has_failed {
+        join(&[base, HINT_RETRY])
+    } else {
+        base.to_string()
     }
 }
 
@@ -109,6 +117,8 @@ fn home_hint(form: &HomeTab) -> String {
     if form.focus.is_text_input() {
         // `q` types into the field here; esc is the quit affordance.
         segments.push(HINT_ESC_QUIT);
+    } else {
+        segments.push(HINT_QUIT);
     }
     segments.push(HINT_HELP);
     join(&segments)

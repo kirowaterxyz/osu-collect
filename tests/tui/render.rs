@@ -308,7 +308,7 @@ fn hint_count(footer: &str) -> usize {
 }
 
 #[test]
-fn home_footer_toggle_focus_has_three_hints_ending_with_help() {
+fn home_footer_toggle_focus_has_quit_hint_ending_with_help() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
@@ -316,11 +316,12 @@ fn home_footer_toggle_focus_has_three_hints_ending_with_help() {
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
     assert!(footer.contains("enter toggle"), "must show enter toggle");
+    assert!(footer.contains("q quit"), "must show q quit");
     assert!(footer.contains('?'), "must end with ? help");
     assert_eq!(
         hint_count(&footer),
-        3,
-        "toggle focus must show exactly 3 hints"
+        4,
+        "toggle focus must show move, toggle, quit, help"
     );
 }
 
@@ -336,11 +337,12 @@ fn home_footer_button_focus_shows_enter_download() {
         footer.contains("enter download"),
         "must show enter download"
     );
+    assert!(footer.contains("q quit"), "must show q quit");
     assert!(footer.contains('?'), "must end with ? help");
     assert_eq!(
         hint_count(&footer),
-        3,
-        "button focus must show exactly 3 hints"
+        4,
+        "button focus must show move, download, quit, help"
     );
 }
 
