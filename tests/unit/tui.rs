@@ -1443,9 +1443,11 @@ fn pill_shows_downloading_count_when_at_least_one_page_is_downloading() {
 fn pill_omits_downloading_segment_when_count_is_zero() {
     use super::header::StatusPill;
 
-    // disk_free is large enough to not be None
-    let pill = StatusPill::compute(0, Some(10 * 1024 * 1024 * 1024));
-    let pill = pill.expect("disk segment keeps pill visible");
+    // Healthy disk (above warn threshold) + no downloads → pill is hidden entirely.
+    // Use a low-disk value so the disk segment IS present but the downloading segment is not.
+    let free = 500u64 * 1024 * 1024; // 500 MiB — below 1 GiB warn threshold
+    let pill = StatusPill::compute(0, Some(free));
+    let pill = pill.expect("low-disk segment keeps pill visible");
     let segs = pill.segments();
     let all_text: String = segs.iter().map(|(t, _)| t.as_str()).collect();
     assert!(
@@ -1465,22 +1467,14 @@ fn pill_is_none_when_no_downloads_and_no_disk_path() {
 }
 
 #[test]
-fn pill_disk_color_is_dim_above_warn_threshold() {
+fn pill_is_none_when_no_downloads_and_disk_above_warn_threshold() {
     use super::header::StatusPill;
-    use super::text_dim;
 
-    // 2 GiB — well above 1 GiB warn threshold
+    // 2 GiB — well above 1 GiB warn threshold: disk segment omitted, pill hidden.
     let free = 2u64 * 1024 * 1024 * 1024;
-    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
-    let segs = pill.segments();
-    let disk_seg = segs
-        .iter()
-        .find(|(t, _)| t.contains("free"))
-        .expect("disk segment");
-    assert_eq!(
-        disk_seg.1,
-        text_dim(),
-        "disk segment must use text_dim when free space is healthy"
+    assert!(
+        StatusPill::compute(0, Some(free)).is_none(),
+        "pill must be None when disk is healthy and nothing is downloading"
     );
 }
 

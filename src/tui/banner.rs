@@ -71,7 +71,7 @@ fn banner_style_and_text(
 ) -> (ratatui::style::Color, ratatui::style::Color, String) {
     match banner {
         Banner::DiskFull { free_bytes } => {
-            let label = disk_label("disk full", *free_bytes);
+            let label = disk_label("disk critical", *free_bytes);
             (danger(), bg(), label)
         }
         Banner::DiskLow { free_bytes } => {

@@ -28,8 +28,12 @@ pub struct StatusPill {
 }
 
 impl StatusPill {
-    /// Returns `None` when both segments would be empty (no downloads, no disk path).
+    /// Returns `None` when both segments would be empty (no downloads, no low-disk condition).
+    ///
+    /// The disk-free segment is only included when free space is below [`DISK_WARN_BYTES`];
+    /// above that threshold the segment is omitted so the pill stays quiet during normal use.
     pub fn compute(downloading: usize, disk_free: Option<u64>) -> Option<Self> {
+        let disk_free = disk_free.filter(|&b| b < DISK_WARN_BYTES);
         if downloading == 0 && disk_free.is_none() {
             return None;
         }
