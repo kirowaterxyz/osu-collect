@@ -81,7 +81,13 @@ fn truncate_to_width_one_returns_ellipsis() {
 
 #[test]
 fn truncate_to_width_unicode_safe() {
-    assert_eq!(truncate_to_width("こんにちは世界", 4).0, "こんに…");
+    // Each CJK char is display-width 2. Budget 4 → reserve 1 for "…" → 3 cols for chars.
+    // "こ" = 2 cols fits; "こん" = 4 cols exceeds 3 → result is "こ…" (3 cols total).
+    assert_eq!(truncate_to_width("こんにちは世界", 4).0, "こ…");
+    // Budget 7 → 6 cols for chars → "こんに" (6 cols) fits → "こんに…" (7 cols total).
+    assert_eq!(truncate_to_width("こんにちは世界", 7).0, "こんに…");
+    // ASCII still works: budget 5 → "hell…"
+    assert_eq!(truncate_to_width("hello world", 5).0, "hell…");
 }
 
 #[test]

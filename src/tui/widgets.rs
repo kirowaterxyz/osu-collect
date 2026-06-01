@@ -376,8 +376,11 @@ pub fn button_item(label: &str, focused: bool, enabled: bool) -> ListItem<'stati
     pill.push_str(label);
     pill.push_str("  ");
 
-    let style = if !enabled {
+    let style = if !enabled && !focused {
         Style::default().fg(text_faint())
+    } else if !enabled {
+        // focused but disabled: show dim accent so the row is visibly selected
+        Style::default().fg(accent()).add_modifier(Modifier::DIM)
     } else if focused {
         Style::default()
             .fg(bg())
@@ -555,18 +558,32 @@ fn animation_start() -> Instant {
 }
 
 pub fn truncate_to_width(message: &str, budget: u16) -> (String, u16) {
+    use unicode_width::UnicodeWidthChar as _;
+    use unicode_width::UnicodeWidthStr as _;
+
     let budget = budget as usize;
     if budget == 0 {
         return (String::new(), 0);
     }
-    let char_count = message.chars().count();
-    if char_count <= budget {
-        return (message.to_string(), char_count as u16);
+    let display_width = message.width();
+    if display_width <= budget {
+        return (message.to_string(), display_width as u16);
     }
     if budget == 1 {
         return ("…".to_string(), 1);
     }
-    let mut out: String = message.chars().take(budget.saturating_sub(1)).collect();
+    // Reserve 1 column for the ellipsis; accumulate chars until we'd overflow.
+    let target = budget.saturating_sub(1);
+    let mut out = String::with_capacity(message.len());
+    let mut used = 0usize;
+    for ch in message.chars() {
+        let w = ch.width().unwrap_or(0);
+        if used + w > target {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
     out.push('…');
     (out, budget as u16)
 }
