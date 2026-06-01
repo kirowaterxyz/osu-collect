@@ -23,7 +23,7 @@ const QUIT_PROMPT_WARN: &str = " ⚠ ";
 const QUIT_PROMPT_TEXT: &str = "press q again to quit";
 const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downloads will stop";
 
-const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q cancel  ·  ? help";
+const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q abort  ·  ? help";
 const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? help";
 
 const HINT_MOVE: &str = "↑↓ move";
@@ -81,7 +81,7 @@ fn hint_for(app: &App) -> String {
 }
 
 /// `x close` appears only when the active download page is settled
-/// (`Completed` or `Failed`). In-progress pages keep the `q cancel` hint.
+/// (`Completed` or `Failed`). In-progress pages keep the `q abort` hint.
 fn download_tab_hint(app: &App) -> &'static str {
     let settled = app
         .download_for_tab(app.active_tab())

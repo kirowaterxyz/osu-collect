@@ -64,8 +64,8 @@ fn footer_hint_omits_close_on_downloading_tab() {
         "in-progress hint must not advertise close: {hint}"
     );
     assert!(
-        hint.contains("q cancel"),
-        "in-progress hint must keep cancel: {hint}"
+        hint.contains("q abort"),
+        "in-progress hint must keep abort: {hint}"
     );
 }
 

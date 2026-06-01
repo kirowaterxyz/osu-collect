@@ -51,10 +51,10 @@ const NAVIGATION: &[HelpRow] = &[
     HelpRow::new("space", "toggle selection"),
 ];
 
-const HOME_TAB: &[HelpRow] = &[HelpRow::new("enter", "toggle option / start download")];
+const HOME_TAB: &[HelpRow] = &[HelpRow::new("enter", "activate focused row")];
 
 const UPDATES_TAB: &[HelpRow] = &[
-    HelpRow::new("enter", "download selected"),
+    HelpRow::new("enter", "expand list / download"),
     HelpRow::new("a", "select all"),
     HelpRow::new("d", "select none"),
     HelpRow::new("r", "recheck failed"),
@@ -62,7 +62,7 @@ const UPDATES_TAB: &[HelpRow] = &[
 
 const CONFIG_TAB: &[HelpRow] = &[
     HelpRow::new("s", "save config"),
-    HelpRow::new("enter", "log in / log out"),
+    HelpRow::new("enter (auth chip)", "log in / log out"),
 ];
 
 const DOWNLOAD_TAB: &[HelpRow] = &[
@@ -215,7 +215,7 @@ pub(crate) fn render_confirm_retry_modal(frame: &mut Frame, area: Rect, count: u
         ])),
         ListItem::new(Line::from("")),
         ListItem::new(Line::from(vec![Span::styled(
-            "  enter to confirm · esc to cancel",
+            "  [enter] confirm  ·  [esc] cancel",
             Style::default().fg(text_faint()),
         )])),
     ];
@@ -286,7 +286,7 @@ fn build_diff_items(diff: &[ConfigDiffEntry]) -> Vec<ListItem<'static>> {
     let mut items = Vec::with_capacity(diff.len() + 4);
 
     items.push(ListItem::new(Line::from(Span::styled(
-        "changes about to save:",
+        "pending changes:",
         Style::default().fg(text_dim()),
     ))));
     items.push(ListItem::new(Line::from("")));
