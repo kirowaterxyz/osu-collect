@@ -285,22 +285,16 @@ fn mirror_row_item(
         }
         Some(Some(ProbeResult::Ms(ms))) => {
             let mut s = String::with_capacity(10);
-            s.push_str("  \u{2713} ");
+            s.push_str("  ✓ ");
             s.push_str(&ms.to_string());
             s.push_str("ms");
             spans.push(Span::styled(s, Style::default().fg(success())));
         }
         Some(Some(ProbeResult::Timeout)) => {
-            spans.push(Span::styled(
-                "  \u{2717} timeout",
-                Style::default().fg(danger()),
-            ));
+            spans.push(Span::styled("  ✗timeout", Style::default().fg(danger())));
         }
         Some(Some(ProbeResult::Error)) => {
-            spans.push(Span::styled(
-                "  \u{2717} N/A",
-                Style::default().fg(danger()),
-            ));
+            spans.push(Span::styled("  ✗N/A", Style::default().fg(danger())));
         }
     }
 
@@ -337,13 +331,7 @@ fn render_url_dropdown(frame: &mut Frame, area: Rect, form: &HomeTab) {
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(line()))
         .style(Style::default().bg(bg_raised()))
-        .title(Span::styled(
-            " HISTORY ",
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
+        .title(Span::styled(" history ", Style::default().fg(accent_alt())))
         .padding(Padding::new(1, 1, 0, 0));
 
     let inner = block.inner(popup_area);
@@ -379,7 +367,7 @@ fn dropdown_entry_item(entry: &UrlHistoryEntry, selected: bool) -> ListItem<'sta
     let url_style = Style::default().fg(text_faint());
 
     let mut name_part = entry.name.clone();
-    name_part.push_str("  (");
+    name_part.push_str(" (");
     name_part.push_str(&entry.count.to_string());
     name_part.push(')');
 
