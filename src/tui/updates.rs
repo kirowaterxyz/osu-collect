@@ -2,7 +2,7 @@ use crate::app::{
     UpdatesField, UpdatesTab,
     updates::{
         BeatmapDisplayItem, BeatmapSort, CollectionEntry, CollectionSort, MissingBeatmapset,
-        MissingStatus, ScanStatus,
+        ScanStatus,
     },
 };
 use crate::osu_db::OsuClient;
@@ -31,7 +31,7 @@ const LABEL_CLIENT: &str = "client";
 const CLIENT_OPTIONS: &[&str] = &["lazer", "stable"];
 
 const LABEL_COLLECTIONS: &str = "collections";
-const LABEL_AVAILABLE: &str = "available";
+const LABEL_AVAILABLE: &str = "missing";
 const LABEL_DOWNLOAD_SELECTED: &str = "download selected";
 
 const DETAIL_LOADED_SUFFIX: &str = "loaded";
@@ -40,7 +40,7 @@ const DETAIL_LOADING: &str = "loading";
 const DETAIL_LOCAL: &str = "local";
 
 const METRIC_SELECTED: &str = "selected";
-const METRIC_MISSING: &str = "missing";
+const METRIC_MISSING: &str = "total missing";
 const METRIC_FAILED: &str = "failed";
 
 const HELP_OSU_PATH: &str = "your osu! install dir; must contain osu!.db or client.realm";
@@ -188,7 +188,11 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     items.push(widgets::spacer());
 
     let selected = form.selected_beatmap_count();
-    let download_label = format!("{LABEL_DOWNLOAD_SELECTED} ({selected})");
+    let download_label = if selected > 0 {
+        format!("{LABEL_DOWNLOAD_SELECTED} ({selected})")
+    } else {
+        LABEL_DOWNLOAD_SELECTED.to_string()
+    };
     let download_focused = focus == UpdatesField::Download && !in_list;
     if download_focused {
         focused_index = items.len();
@@ -456,9 +460,7 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
 
 fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'static> {
     let (marker, marker_style) = widgets::check_marker(beatmap.selected);
-    let status_text = match beatmap.status {
-        MissingStatus::NotInstalled => STATUS_NOT_INSTALLED,
-    };
+    let status_text = STATUS_NOT_INSTALLED;
 
     let mut spans = vec![
         indent_marker(is_scroll_pos),
