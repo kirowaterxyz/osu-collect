@@ -112,7 +112,7 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
         ConfigField::DownloadNoVideo,
         widgets::row_item(
             LABEL_SKIP_VIDEOS,
-            Some(bool_label(form.no_video)),
+            Some(widgets::bool_label(form.no_video)),
             form.no_video,
             focus == ConfigField::DownloadNoVideo,
         ),
@@ -179,7 +179,7 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
         ConfigField::LoggingEnabled,
         widgets::row_item(
             LABEL_LOGGING_ENABLED,
-            Some(bool_label(form.logging_enabled)),
+            Some(widgets::bool_label(form.logging_enabled)),
             form.logging_enabled,
             focus == ConfigField::LoggingEnabled,
         ),
@@ -262,10 +262,6 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
     };
 
     ListItem::new(Line::from(spans))
-}
-
-fn bool_label(value: bool) -> &'static str {
-    if value { "on" } else { "off" }
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {

@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{List, ListItem},
 };
 
-use super::widgets::{self, FOCUS_MARK, FOCUS_PAD, Metric};
+use super::widgets::{self, Metric};
 use super::{accent, accent_alt, focused_label, text, text_dim, text_faint, text_muted};
 
 const PANEL_TITLE: &str = " UPDATES ";
@@ -260,7 +260,7 @@ fn display_item(
             let (marker, marker_style) = widgets::check_marker(all_selected);
 
             ListItem::new(Line::from(vec![
-                indent_marker(is_scroll_pos),
+                widgets::focus_span(is_scroll_pos),
                 Span::styled(marker, marker_style),
                 Span::styled(
                     format!(" #{collection_id}"),
@@ -280,14 +280,6 @@ fn display_item(
             .get(*cache_index)
             .map(|beatmap| beatmap_item(beatmap, is_scroll_pos))
             .unwrap_or_else(|| ListItem::new(Line::from(""))),
-    }
-}
-
-fn indent_marker(is_scroll_pos: bool) -> Span<'static> {
-    if is_scroll_pos {
-        Span::styled(FOCUS_MARK, Style::default().fg(accent()))
-    } else {
-        Span::raw(FOCUS_PAD)
     }
 }
 
@@ -375,7 +367,7 @@ fn collection_item(
     };
 
     let mut spans = vec![
-        indent_marker(is_scroll_pos),
+        widgets::focus_span(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::styled(format!(" {id}"), Style::default().fg(text_faint())),
         Span::styled(format!("  {}", collection.name), name_style),
@@ -463,7 +455,7 @@ fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'s
     let status_text = STATUS_NOT_INSTALLED;
 
     let mut spans = vec![
-        indent_marker(is_scroll_pos),
+        widgets::focus_span(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::styled(format!(" #{}", beatmap.id), Style::default().fg(text_dim())),
         Span::styled(

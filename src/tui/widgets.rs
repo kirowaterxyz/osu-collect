@@ -226,6 +226,11 @@ pub fn focus_span(focused: bool) -> Span<'static> {
     }
 }
 
+/// The on/off text shown beside a boolean toggle's check glyph.
+pub(crate) fn bool_label(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
 pub fn check_marker(state: bool) -> (&'static str, Style) {
     if state {
         (CHECK_ON, Style::default().fg(accent()))
@@ -319,17 +324,19 @@ pub fn help_item(text: impl Into<String>) -> ListItem<'static> {
     ]))
 }
 
-/// Builds a `[focus_span] [icon] [ label] [  detail]` row.
+/// Builds a `[focus_span] [icon] [ label] [  detail] [suffix]` row.
 ///
 /// Shared by [`row_item`] and [`disclosure_row`]; each caller supplies its own
 /// focus span, icon, label style, and optional detail. The detail (when present)
-/// is always rendered in `text_faint`.
+/// is always rendered in `text_faint`. An optional pre-styled `suffix` span is
+/// appended verbatim after the detail (the caller owns its leading spacing).
 fn icon_label_row(
     focus: Span<'static>,
     icon: Span<'static>,
     label: &str,
     label_style: Style,
     detail: Option<String>,
+    suffix: Option<Span<'static>>,
 ) -> ListItem<'static> {
     let mut spans = vec![focus, icon, Span::styled(format!(" {label}"), label_style)];
     if let Some(detail) = detail {
@@ -337,6 +344,9 @@ fn icon_label_row(
             format!("  {detail}"),
             Style::default().fg(text_faint()),
         ));
+    }
+    if let Some(suffix) = suffix {
+        spans.push(suffix);
     }
     ListItem::new(Line::from(spans))
 }
@@ -362,6 +372,7 @@ pub fn disclosure_row(
         label,
         label_style,
         Some(detail.into()),
+        None,
     )
 }
 
@@ -371,6 +382,19 @@ pub fn row_item(
     state: bool,
     focused: bool,
 ) -> ListItem<'static> {
+    row_item_with_suffix(label, detail, state, focused, None)
+}
+
+/// Like [`row_item`] but appends a pre-styled trailing `suffix` span after the
+/// detail (e.g. the home tab's per-mirror latency readout). The base row —
+/// focus marker, check glyph, label, and detail — is identical to [`row_item`].
+pub fn row_item_with_suffix(
+    label: &str,
+    detail: Option<&str>,
+    state: bool,
+    focused: bool,
+    suffix: Option<Span<'static>>,
+) -> ListItem<'static> {
     let (marker, marker_style) = check_marker(state);
     icon_label_row(
         focus_span(focused),
@@ -378,6 +402,7 @@ pub fn row_item(
         label,
         focused_label(focused),
         detail.map(str::to_string),
+        suffix,
     )
 }
 

@@ -99,7 +99,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         HomeField::AutoOverwrite,
         widgets::row_item(
             LABEL_OVERWRITE,
-            None,
+            Some(widgets::bool_label(form.auto_overwrite)),
             form.auto_overwrite,
             focus == HomeField::AutoOverwrite,
         ),
@@ -108,7 +108,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         HomeField::NoVideo,
         widgets::row_item(
             LABEL_NO_VIDEO,
-            None,
+            Some(widgets::bool_label(form.no_video)),
             form.no_video,
             focus == HomeField::NoVideo,
         ),
@@ -180,7 +180,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         HomeField::AutoOverwrite,
         widgets::row_item(
             LABEL_OVERWRITE,
-            None,
+            Some(widgets::bool_label(form.auto_overwrite)),
             form.auto_overwrite,
             focus == HomeField::AutoOverwrite,
         ),
@@ -189,7 +189,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         HomeField::NoVideo,
         widgets::row_item(
             LABEL_NO_VIDEO,
-            None,
+            Some(widgets::bool_label(form.no_video)),
             form.no_video,
             focus == HomeField::NoVideo,
         ),
@@ -246,12 +246,8 @@ fn summary_item(form: &HomeTab) -> ListItem<'static> {
     ])
 }
 
-/// Mirror toggle row with an optional latency suffix.
-///
-/// `latency` mirrors `HomeTab::mirror_latency` semantics:
-/// - `None`         → not yet probed (no suffix)
-/// - `Some(None)`   → probe in flight (`…`)
-/// - `Some(Some(_))` → result received
+/// Mirror toggle row: the shared [`widgets::row_item`] base plus a trailing
+/// latency readout (see [`latency_span`]).
 fn mirror_row_item(
     label: &str,
     host: &str,
@@ -259,38 +255,31 @@ fn mirror_row_item(
     focused: bool,
     latency: Option<Option<ProbeResult>>,
 ) -> ListItem<'static> {
-    use super::focused_label;
-    use widgets::{check_marker, focus_span};
+    widgets::row_item_with_suffix(label, Some(host), on, focused, latency_span(latency))
+}
 
-    let (marker, marker_style) = check_marker(on);
-    let mut spans = vec![
-        focus_span(focused),
-        Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}"), focused_label(focused)),
-        Span::styled(format!("  {host}"), Style::default().fg(text_faint())),
-    ];
-
-    match latency {
-        None => {}
-        Some(None) => {
-            spans.push(Span::styled("  …", Style::default().fg(text_dim())));
-        }
-        Some(Some(ProbeResult::Ms(ms))) => {
+/// The trailing latency readout appended to a mirror row, or `None` before the
+/// first probe.
+///
+/// `latency` mirrors `HomeTab::mirror_latency` semantics:
+/// - `None`          → not yet probed (no suffix)
+/// - `Some(None)`    → probe in flight (`…`)
+/// - `Some(Some(_))` → result received
+fn latency_span(latency: Option<Option<ProbeResult>>) -> Option<Span<'static>> {
+    match latency? {
+        None => Some(Span::styled("  …", Style::default().fg(text_dim()))),
+        Some(ProbeResult::Ms(ms)) => {
             let mut s = String::with_capacity(10);
             s.push_str("  ✓ ");
             s.push_str(&ms.to_string());
             s.push_str("ms");
-            spans.push(Span::styled(s, Style::default().fg(success())));
+            Some(Span::styled(s, Style::default().fg(success())))
         }
-        Some(Some(ProbeResult::Timeout)) => {
-            spans.push(Span::styled("  ✗timeout", Style::default().fg(danger())));
+        Some(ProbeResult::Timeout) => {
+            Some(Span::styled("  ✗timeout", Style::default().fg(danger())))
         }
-        Some(Some(ProbeResult::Error)) => {
-            spans.push(Span::styled("  ✗N/A", Style::default().fg(danger())));
-        }
+        Some(ProbeResult::Error) => Some(Span::styled("  ✗N/A", Style::default().fg(danger()))),
     }
-
-    ListItem::new(Line::from(spans))
 }
 
 /// Max visible rows in the dropdown before scroll indicator kicks in.
