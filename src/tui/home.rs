@@ -92,24 +92,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
             focus == HomeField::Threads,
         ),
     );
-    items.push_focusable(
-        HomeField::AutoOverwrite,
-        widgets::row_item(
-            LABEL_OVERWRITE,
-            Some(widgets::bool_label(form.auto_overwrite)),
-            form.auto_overwrite,
-            focus == HomeField::AutoOverwrite,
-        ),
-    );
-    items.push_focusable(
-        HomeField::NoVideo,
-        widgets::row_item(
-            LABEL_NO_VIDEO,
-            Some(widgets::bool_label(form.no_video)),
-            form.no_video,
-            focus == HomeField::NoVideo,
-        ),
-    );
+    push_toggle_rows(&mut items, form, focus);
 
     items.push(summary_item(form));
     items.push_focusable(
@@ -173,24 +156,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
             focus == HomeField::Threads,
         ),
     );
-    items.push_focusable(
-        HomeField::AutoOverwrite,
-        widgets::row_item(
-            LABEL_OVERWRITE,
-            Some(widgets::bool_label(form.auto_overwrite)),
-            form.auto_overwrite,
-            focus == HomeField::AutoOverwrite,
-        ),
-    );
-    items.push_focusable(
-        HomeField::NoVideo,
-        widgets::row_item(
-            LABEL_NO_VIDEO,
-            Some(widgets::bool_label(form.no_video)),
-            form.no_video,
-            focus == HomeField::NoVideo,
-        ),
-    );
+    push_toggle_rows(&mut items, form, focus);
     items.push(widgets::spacer());
 
     items.push(summary_item(form));
@@ -207,6 +173,43 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+}
+
+/// Pushes the two boolean override toggles (`overwrite existing`, `no video`),
+/// shared by `render_compact` and `render_content`.
+///
+/// The check glyph already encodes each toggle's state, so neither row repeats
+/// it as text. `no_video` overrides the saved `download.no_video` default, so it
+/// carries a dim `(default: on/off)` hint sourced from `HomeTab::default_no_video`.
+/// `auto_overwrite` has no config default, so it gets no detail.
+fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, focus: HomeField) {
+    items.push_focusable(
+        HomeField::AutoOverwrite,
+        widgets::row_item(
+            LABEL_OVERWRITE,
+            None,
+            form.auto_overwrite,
+            focus == HomeField::AutoOverwrite,
+        ),
+    );
+    items.push_focusable(
+        HomeField::NoVideo,
+        widgets::row_item(
+            LABEL_NO_VIDEO,
+            Some(&default_hint(form.default_no_video)),
+            form.no_video,
+            focus == HomeField::NoVideo,
+        ),
+    );
+}
+
+/// A `(default: on)` / `(default: off)` hint string for a home override toggle.
+fn default_hint(value: bool) -> String {
+    if value {
+        "(default: on)".to_string()
+    } else {
+        "(default: off)".to_string()
+    }
 }
 
 /// Pushes the four built-in mirror toggle rows, each with its latency suffix.

@@ -89,8 +89,8 @@ fn diff_contains_no_video_entry() {
 
     let entry = diff
         .iter()
-        .find(|e| e.label == "skip videos")
-        .expect("skip videos entry must be present");
+        .find(|e| e.label == "no video")
+        .expect("no video entry must be present");
 
     assert_ne!(entry.old_value, entry.new_value);
 }
@@ -138,7 +138,7 @@ fn diff_skips_unchanged_fields() {
     let diff = tab2.diff_entries(&pending);
 
     assert!(
-        diff.iter().all(|e| e.label != "skip videos"),
+        diff.iter().all(|e| e.label != "no video"),
         "unchanged field must be absent"
     );
     assert!(
@@ -156,7 +156,7 @@ fn diff_contains_multiple_changed_fields() {
     let pending = tab.build_config().expect("valid config");
     let diff = tab.diff_entries(&pending);
 
-    assert!(diff.iter().any(|e| e.label == "skip videos"));
+    assert!(diff.iter().any(|e| e.label == "no video"));
     assert!(diff.iter().any(|e| e.label == "theme"));
     assert!(diff.iter().any(|e| e.label == "logging"));
 }

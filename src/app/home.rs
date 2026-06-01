@@ -219,6 +219,9 @@ pub struct HomeTab {
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
     pub quit_prompt: bool,
     pub default_threads: u8,
+    /// The saved `download.no_video` default, shown as a `(default: …)` hint on
+    /// the home `no_video` override row so per-run precedence is legible.
+    pub default_no_video: bool,
     /// Previously resolved URLs, loaded from disk on startup.
     pub url_history: UrlHistoryFile,
     /// Whether the history dropdown is currently visible.
@@ -281,6 +284,7 @@ impl HomeTab {
             mirror_latency: HashMap::with_capacity(4),
             quit_prompt: false,
             default_threads,
+            default_no_video: config.download.no_video,
             url_history: super::url_history::load(),
             dropdown_open: false,
             dropdown_selected: None,

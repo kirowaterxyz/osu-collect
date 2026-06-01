@@ -226,11 +226,6 @@ pub fn focus_span(focused: bool) -> Span<'static> {
     }
 }
 
-/// The on/off text shown beside a boolean toggle's check glyph.
-pub(crate) fn bool_label(value: bool) -> &'static str {
-    if value { "on" } else { "off" }
-}
-
 pub fn check_marker(state: bool) -> (&'static str, Style) {
     if state {
         (CHECK_ON, Style::default().fg(accent()))

@@ -329,7 +329,7 @@ impl ConfigTab {
                 .unwrap_or_else(|| self.default_threads.to_string())
         );
         diff!(
-            "skip videos",
+            "no video",
             bool_label(loaded.download.no_video),
             bool_label(pending.download.no_video)
         );

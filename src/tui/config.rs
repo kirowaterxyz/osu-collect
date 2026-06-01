@@ -29,7 +29,7 @@ const SECTION_LOGGING: &str = "logging";
 
 const LABEL_THEME: &str = "theme";
 
-const LABEL_SKIP_VIDEOS: &str = "skip videos";
+const LABEL_NO_VIDEO: &str = "no video";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
 const LABEL_RETRY_FAILED: &str = "retry failed on download";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
@@ -108,8 +108,8 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
     items.push_focusable(
         ConfigField::DownloadNoVideo,
         widgets::row_item(
-            LABEL_SKIP_VIDEOS,
-            Some(widgets::bool_label(form.no_video)),
+            LABEL_NO_VIDEO,
+            None,
             form.no_video,
             focus == ConfigField::DownloadNoVideo,
         ),
@@ -176,7 +176,7 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
         ConfigField::LoggingEnabled,
         widgets::row_item(
             LABEL_LOGGING_ENABLED,
-            Some(widgets::bool_label(form.logging_enabled)),
+            None,
             form.logging_enabled,
             focus == ConfigField::LoggingEnabled,
         ),
