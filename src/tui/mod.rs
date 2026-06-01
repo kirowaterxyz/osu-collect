@@ -38,6 +38,13 @@ pub fn mirror_label(kind: MirrorKind) -> &'static str {
     }
 }
 
+/// Minimum per-tab content-area height before a view switches to its compact layout.
+pub(crate) const COMPACT_HEIGHT: u16 = 12;
+/// Minimum total terminal height before the outer chrome (header + separators +
+/// footer) collapses to its compact layout. Larger than `COMPACT_HEIGHT` since it
+/// budgets for the chrome rows the per-tab threshold does not.
+pub(crate) const COMPACT_LAYOUT_HEIGHT: u16 = 14;
+
 pub(crate) const GLYPH_H_LINE: &str = "─";
 pub(crate) const GLYPH_BLOCK: &str = "█";
 pub(crate) const GLYPH_SHADE: &str = "░";
@@ -187,7 +194,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
-    let compact = area.height < 14;
+    let compact = area.height < COMPACT_LAYOUT_HEIGHT;
     let chunks: Rc<[_]> = if compact {
         Layout::vertical([
             Constraint::Length(1),

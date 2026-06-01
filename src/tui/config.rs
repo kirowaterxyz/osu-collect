@@ -22,9 +22,6 @@ use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " CONFIG ";
 
-/// Minimum content-area height before switching to compact layout.
-const COMPACT_HEIGHT: u16 = 12;
-
 const SECTION_DISPLAY: &str = "display";
 const SECTION_DOWNLOAD: &str = "download";
 const SECTION_MIRRORS: &str = "mirrors";
@@ -61,7 +58,7 @@ const HELP_RETRY_FAILED: &str =
     "ask: prompt before each download · yes: always retry · no: never retry";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
-    let show_chrome = area.height >= COMPACT_HEIGHT;
+    let show_chrome = area.height >= super::COMPACT_HEIGHT;
     let items = build_config_items(form, show_chrome);
 
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);

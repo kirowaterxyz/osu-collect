@@ -74,14 +74,11 @@ const RESULTS_OUTRO_2: &str = "and leave a star while you're at it :3";
 const LOW_DISK_PREFIX: &str = " low disk space: ";
 const LOW_DISK_SUFFIX: &str = " available";
 
-/// Minimum content-area height before switching to compact layout.
-const COMPACT_HEIGHT: u16 = 12;
-
 const COMPACT_ACTIVE: &str = "active: ";
 const COMPACT_FAILED: &str = " failed: ";
 
 pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
-    if area.height < COMPACT_HEIGHT {
+    if area.height < super::COMPACT_HEIGHT {
         render_compact(frame, area, page, tick);
         return;
     }

@@ -20,9 +20,6 @@ use super::{accent, accent_alt, focused_label, text, text_dim, text_faint, text_
 
 const PANEL_TITLE: &str = " UPDATES ";
 
-/// Minimum content-area height before switching to compact layout.
-const COMPACT_HEIGHT: u16 = 12;
-
 const SECTION_SOURCE: &str = "source";
 const SECTION_COLLECTIONS: &str = "collections";
 const SECTION_MISSING: &str = "missing beatmaps";
@@ -54,7 +51,7 @@ const DIFF_PREFIX_REMOVED: &str = "-";
 const DIFF_SUFFIX_REMOVED: &str = "removed";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, u16)> {
-    if area.height < COMPACT_HEIGHT {
+    if area.height < super::COMPACT_HEIGHT {
         render_compact(frame, area, form);
         return None;
     }

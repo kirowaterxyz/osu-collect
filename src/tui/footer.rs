@@ -211,7 +211,7 @@ fn hint_line(hint: &str) -> Line<'static> {
             continue;
         }
         if index > 0 {
-            spans.push(Span::styled("  │  ", separator_style));
+            spans.push(Span::styled(widgets::SEPARATOR, separator_style));
         } else {
             spans.push(Span::raw(" "));
         }

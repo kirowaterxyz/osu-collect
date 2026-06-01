@@ -23,9 +23,6 @@ const SECTION_COLLECTION: &str = "collection";
 const SECTION_MIRRORS: &str = "mirrors";
 const SECTION_DOWNLOAD: &str = "download";
 
-/// Minimum content-area height before switching to compact layout.
-const COMPACT_HEIGHT: u16 = 12;
-
 const LABEL_OVERWRITE: &str = "overwrite existing";
 const LABEL_NO_VIDEO: &str = "no video";
 
@@ -43,7 +40,7 @@ pub fn render(
     form: &HomeTab,
     banners: &[Banner],
 ) -> Option<(u16, u16)> {
-    if area.height < COMPACT_HEIGHT {
+    if area.height < super::COMPACT_HEIGHT {
         return render_compact(frame, area, form);
     }
 

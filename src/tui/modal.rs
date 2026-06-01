@@ -98,12 +98,6 @@ const DOWNLOAD_TAB: &[HelpRow] = &[
     HelpRow::new("x", "close completed tab"),
 ];
 
-const RETRY_ON_START_MODAL: &[HelpRow] = &[
-    HelpRow::new("enter", "retry previously failed"),
-    HelpRow::new("n", "skip previously failed"),
-    HelpRow::new("esc", "cancel download"),
-];
-
 /// Renders a centred keybindings overlay.
 ///
 /// Call this after all other tab content and the footer have been drawn —
@@ -312,8 +306,6 @@ fn build_help_items() -> Vec<ListItem<'static>> {
     push_section(&mut items, "config", CONFIG_TAB);
     items.push(spacer());
     push_section(&mut items, "download", DOWNLOAD_TAB);
-    items.push(spacer());
-    push_section(&mut items, "retry-failed prompt", RETRY_ON_START_MODAL);
     items.push(spacer());
     items.push(dismiss_hint());
     items
