@@ -1,6 +1,5 @@
 use crate::{
     app::{CollectionPage, collection::FailureReason},
-    config::constants::status::RATE_LIMITED,
     download::{DownloadStage, DownloadSummary},
     utils::{format_bytes, pretty_path},
 };
@@ -109,7 +108,18 @@ pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
 /// Per-row breakdown, failed-maps collapsible, and session ETA are hidden.
 /// The gauge alone tells the user "is it making progress."
 fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
-    let sections = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area);
+    let show_disk_warning = should_render_disk_warning(page);
+
+    let sections = if show_disk_warning {
+        Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(area)
+    } else {
+        Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area)
+    };
     render_gauge(frame, sections[0], page, tick);
 
     let active_count = page
@@ -134,12 +144,17 @@ fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u6
             },
         ),
     ]);
-    frame.render_widget(Paragraph::new(line), sections[1]);
+
+    if show_disk_warning {
+        render_disk_warning(frame, sections[1], page);
+        frame.render_widget(Paragraph::new(line), sections[2]);
+    } else {
+        frame.render_widget(Paragraph::new(line), sections[1]);
+    }
 }
 
 fn should_render_disk_warning(page: &CollectionPage) -> bool {
     page.low_disk_space.is_some()
-        && page.stats.downloaded == 0
         && matches!(
             page.stage,
             DownloadStage::Pending
@@ -165,12 +180,13 @@ fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 }
 
 fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
-    let status =
-        if matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited() {
-            RATE_LIMITED
-        } else {
-            stage_label(page.stage)
-        };
+    let rate_limited =
+        matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited();
+    let status = if rate_limited {
+        crate::config::constants::status::RATE_LIMITED
+    } else {
+        stage_label(page.stage)
+    };
 
     let speed = current_speed(page);
     let bytes = bytes_display(page);
@@ -180,7 +196,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     let mut status_spans = vec![
         Span::styled(KEY_STATUS, key_style),
-        widgets::status_pill(status, status_color(page.stage, status)),
+        widgets::status_pill(status, status_color(page.stage, rate_limited)),
     ];
     if let Some(speed) = speed {
         status_spans.push(Span::styled(KEY_SPEED, key_style));
@@ -272,8 +288,8 @@ fn bytes_display(page: &CollectionPage) -> Option<String> {
     })
 }
 
-fn status_color(stage: DownloadStage, status: &str) -> Color {
-    if status == RATE_LIMITED {
+fn status_color(stage: DownloadStage, rate_limited: bool) -> Color {
+    if rate_limited {
         warning()
     } else {
         widgets::status_style(stage).fg.unwrap_or(text_dim())
