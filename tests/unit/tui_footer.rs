@@ -1,4 +1,4 @@
-use super::super::{SPINNER_FRAMES, spinner_char};
+use super::super::{SPINNER_FRAMES_PADDED, spinner_str};
 use super::{hint_for, hint_line};
 use crate::app::{App, collection::CollectionPage};
 use crate::config::{Config, constants::STATIC_TABS};
@@ -7,8 +7,8 @@ use crate::download::{DownloadId, DownloadStage};
 #[test]
 fn spinner_wraps_correctly() {
     for tick in 0u64..30 {
-        let frame = spinner_char(tick);
-        assert!(SPINNER_FRAMES.contains(&frame));
+        let frame = spinner_str(tick);
+        assert!(SPINNER_FRAMES_PADDED.contains(&frame));
     }
 }
 

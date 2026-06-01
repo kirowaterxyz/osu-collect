@@ -7,7 +7,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::{bg, danger, text_dim, text_faint, warning};
+use super::{bg, danger, format_free_space, text_dim, text_faint, warning};
 
 const ACTION_DISK: &str = "[d] change output dir";
 
@@ -87,23 +87,4 @@ fn disk_label(kind: &str, free_bytes: u64) -> String {
     s.push_str(": ");
     s.push_str(&format_free_space(free_bytes));
     s
-}
-
-fn format_free_space(bytes: u64) -> String {
-    const TB: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
-    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MB: f64 = 1024.0 * 1024.0;
-    const KB: f64 = 1024.0;
-    let f = bytes as f64;
-    if f >= TB {
-        format!("{:.1} TB free", f / TB)
-    } else if f >= GB {
-        format!("{:.1} GB free", f / GB)
-    } else if f >= MB {
-        format!("{:.1} MB free", f / MB)
-    } else if f >= KB {
-        format!("{:.0} KB free", f / KB)
-    } else {
-        format!("{bytes} B free")
-    }
 }

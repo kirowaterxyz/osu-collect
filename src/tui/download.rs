@@ -14,7 +14,7 @@ use ratatui::{
 use super::widgets::{self, SEPARATOR};
 use super::{
     FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, eyebrow,
-    glyph_fill, info, line_soft, spinner_char, success, text_dim, text_faint, text_muted, warning,
+    glyph_fill, info, line_soft, spinner_str, success, text_dim, text_faint, text_muted, warning,
 };
 
 const INFO_HEIGHT: u16 = 8;
@@ -518,7 +518,7 @@ fn render_indeterminate_gauge(
     stage: DownloadStage,
     tick: u64,
 ) {
-    let spinner = spinner_char(tick);
+    let spinner = spinner_str(tick).trim();
     let label = match stage {
         DownloadStage::Pending => PLACEHOLDER_PREPARING,
         _ => PLACEHOLDER_RESOLVING,
@@ -534,7 +534,7 @@ fn render_resolve_progress_gauge(
     total: u32,
     tick: u64,
 ) {
-    let spinner = spinner_char(tick);
+    let spinner = spinner_str(tick).trim();
     let title = format!(" {spinner} resolving {current}/{total} collections ");
     let title_style = Style::default().fg(info()).add_modifier(Modifier::BOLD);
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());

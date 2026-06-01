@@ -126,26 +126,41 @@ pub(crate) fn bg_raised() -> Color {
     theme().bg_raised
 }
 
-pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
 /// Spinner frames pre-padded with a leading and trailing space.
 ///
 /// Use `spinner_str` when the frame is the only content in a span — no
-/// `format!` needed, zero allocation.
+/// `format!` needed, zero allocation.  When embedding in a larger `format!`
+/// string, use `spinner_str(tick).trim()` to strip the padding.
 pub const SPINNER_FRAMES_PADDED: [&str; 10] = [
     " ⠋ ", " ⠙ ", " ⠹ ", " ⠸ ", " ⠼ ", " ⠴ ", " ⠦ ", " ⠧ ", " ⠇ ", " ⠏ ",
 ];
 
-pub fn spinner_char(tick: u64) -> char {
-    SPINNER_FRAMES[tick as usize % SPINNER_FRAMES.len()]
-}
-
 /// Returns the current spinner frame pre-padded as `&'static str`.
 ///
 /// Use this when the frame is the only content in a span to avoid allocating.
-/// When embedding in a larger `format!` string, use `spinner_char` instead.
+/// When embedding in a larger `format!` string, call `.trim()` on the result.
 pub fn spinner_str(tick: u64) -> &'static str {
     SPINNER_FRAMES_PADDED[tick as usize % SPINNER_FRAMES_PADDED.len()]
+}
+
+/// Format free bytes as `"1.5 TB free"`, `"45.1 GB free"`, `"234.5 MB free"`, etc.
+pub(crate) fn format_free_space(bytes: u64) -> String {
+    const TB: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const KB: f64 = 1024.0;
+    let f = bytes as f64;
+    if f >= TB {
+        format!("{:.1} TB free", f / TB)
+    } else if f >= GB {
+        format!("{:.1} GB free", f / GB)
+    } else if f >= MB {
+        format!("{:.1} MB free", f / MB)
+    } else if f >= KB {
+        format!("{:.0} KB free", f / KB)
+    } else {
+        format!("{bytes} B free")
+    }
 }
 
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";

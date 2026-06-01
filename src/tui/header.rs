@@ -10,7 +10,9 @@ use ratatui::{
 
 use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
 
-use super::{accent, accent_alt, danger, line, line_soft, text_dim, text_faint, warning};
+use super::{
+    accent, accent_alt, danger, format_free_space, line, line_soft, text_dim, text_faint, warning,
+};
 
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
@@ -88,26 +90,6 @@ impl StatusPill {
         // 1 leading space + char count of all segments (ASCII, so byte len == char count)
         let chars: usize = segs.iter().map(|(s, _)| s.len()).sum();
         (1 + chars) as u16
-    }
-}
-
-/// Format free bytes as `"1.5 TB free"`, `"45.1 GB free"`, `"234.5 MB free"`, etc.
-fn format_free_space(bytes: u64) -> String {
-    const TB: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
-    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MB: f64 = 1024.0 * 1024.0;
-    const KB: f64 = 1024.0;
-    let f = bytes as f64;
-    if f >= TB {
-        format!("{:.1} TB free", f / TB)
-    } else if f >= GB {
-        format!("{:.1} GB free", f / GB)
-    } else if f >= MB {
-        format!("{:.1} MB free", f / MB)
-    } else if f >= KB {
-        format!("{:.0} KB free", f / KB)
-    } else {
-        format!("{bytes} B free")
     }
 }
 
