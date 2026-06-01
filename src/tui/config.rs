@@ -61,17 +61,30 @@ const HELP_RETRY_FAILED: &str =
     "ask: prompt before each download · yes: always retry · no: never retry";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
-    if area.height < COMPACT_HEIGHT {
-        return render_compact(frame, area, form);
-    }
+    let show_chrome = area.height >= COMPACT_HEIGHT;
+    let items = build_config_items(form, show_chrome);
 
+    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
+    let (items, focused_index) = items.into_parts();
+    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+}
+
+/// Builds the config form item list. `show_chrome` gates the decorative section
+/// headers, spacers, and focus-conditional help lines; the focusable field rows
+/// are identical in both modes so the field list lives here once.
+///
+/// Compact mode (`show_chrome == false`) strips only that chrome — every field
+/// stays focusable and navigable.
+fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems<ConfigField> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
     items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
-    items.push(widgets::spacer());
+    if show_chrome {
+        items.push(widgets::spacer());
+        items.push(widgets::section_header(SECTION_DISPLAY));
+    }
 
-    items.push(widgets::section_header(SECTION_DISPLAY));
     items.push_focusable(
         ConfigField::Theme,
         widgets::cycle_item(
@@ -81,9 +94,11 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
             focus == ConfigField::Theme,
         ),
     );
-    items.push(widgets::spacer());
+    if show_chrome {
+        items.push(widgets::spacer());
+        items.push(widgets::section_header(SECTION_DOWNLOAD));
+    }
 
-    items.push(widgets::section_header(SECTION_DOWNLOAD));
     items.push_focusable(
         ConfigField::DownloadThreads,
         widgets::stepper_item(
@@ -111,7 +126,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
             focus == ConfigField::DownloadArchiveValidation,
         ),
     );
-    if focus == ConfigField::DownloadArchiveValidation {
+    if show_chrome && focus == ConfigField::DownloadArchiveValidation {
         let help = if form.archive_validation == ArchiveValidation::Eocd {
             HELP_VERIFY_STRICT
         } else {
@@ -128,12 +143,14 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
             focus == ConfigField::RetryFailedOnDownload,
         ),
     );
-    if focus == ConfigField::RetryFailedOnDownload {
+    if show_chrome && focus == ConfigField::RetryFailedOnDownload {
         items.push(widgets::help_item(HELP_RETRY_FAILED));
     }
-    items.push(widgets::spacer());
+    if show_chrome {
+        items.push(widgets::spacer());
+        items.push(widgets::section_header(SECTION_MIRRORS));
+    }
 
-    items.push(widgets::section_header(SECTION_MIRRORS));
     let mirror_states = [
         (ConfigField::MirrorOsuDirect, form.osu_direct),
         (ConfigField::MirrorNerinyan, form.nerinyan),
@@ -150,118 +167,14 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
         ConfigField::MirrorCustomUrl,
         widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
     );
-    if focus == ConfigField::MirrorCustomUrl {
+    if show_chrome && focus == ConfigField::MirrorCustomUrl {
         items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
     }
-    items.push(widgets::spacer());
-
-    items.push(widgets::section_header(SECTION_LOGGING));
-    items.push_focusable(
-        ConfigField::LoggingEnabled,
-        widgets::row_item(
-            LABEL_LOGGING_ENABLED,
-            Some(bool_label(form.logging_enabled)),
-            form.logging_enabled,
-            focus == ConfigField::LoggingEnabled,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::LoggingLevel,
-        widgets::cycle_item(
-            LABEL_LOGGING_LEVEL,
-            LOG_LEVELS,
-            log_level_label(form.logging_level),
-            focus == ConfigField::LoggingLevel,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::LoggingFormat,
-        widgets::cycle_item(
-            LABEL_LOGGING_FORMAT,
-            LOG_FORMATS,
-            log_format_label(form.logging_format),
-            focus == ConfigField::LoggingFormat,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::LoggingDirectory,
-        widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
-    );
-
-    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
-    let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
-}
-
-/// Compact render: auth chip + flat field list, no section headers, no help lines.
-///
-/// All fields remain focusable and navigable; only the decorative chrome is stripped.
-fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
-    let focus = form.focus;
-    let mut items = widgets::FormItems::new(focus);
-
-    items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
-
-    items.push_focusable(
-        ConfigField::Theme,
-        widgets::cycle_item(
-            LABEL_THEME,
-            THEME_MODE_LABELS,
-            theme_mode_label(form.theme),
-            focus == ConfigField::Theme,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::DownloadThreads,
-        widgets::stepper_item(
-            form.threads.label,
-            form.resolved_threads(),
-            form.default_threads,
-            focus == ConfigField::DownloadThreads,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::DownloadNoVideo,
-        widgets::row_item(
-            LABEL_SKIP_VIDEOS,
-            Some(bool_label(form.no_video)),
-            form.no_video,
-            focus == ConfigField::DownloadNoVideo,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::DownloadArchiveValidation,
-        widgets::cycle_item(
-            LABEL_VERIFY_INTEGRITY,
-            ARCHIVE_VALIDATION_LABELS,
-            archive_validation_label(form.archive_validation),
-            focus == ConfigField::DownloadArchiveValidation,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::RetryFailedOnDownload,
-        widgets::cycle_item(
-            LABEL_RETRY_FAILED,
-            RETRY_FAILED_LABELS,
-            retry_failed_label(form.retry_failed_on_download),
-            focus == ConfigField::RetryFailedOnDownload,
-        ),
-    );
-    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip([
-        (ConfigField::MirrorOsuDirect, form.osu_direct),
-        (ConfigField::MirrorNerinyan, form.nerinyan),
-        (ConfigField::MirrorSayobot, form.sayobot),
-        (ConfigField::MirrorNekoha, form.nekoha),
-    ]) {
-        items.push_focusable(
-            field,
-            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
-        );
+    if show_chrome {
+        items.push(widgets::spacer());
+        items.push(widgets::section_header(SECTION_LOGGING));
     }
-    items.push_focusable(
-        ConfigField::MirrorCustomUrl,
-        widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
-    );
+
     items.push_focusable(
         ConfigField::LoggingEnabled,
         widgets::row_item(
@@ -294,9 +207,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u1
         widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
     );
 
-    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
-    let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+    items
 }
 
 /// Renders the auth state chip: a single styled row at the top of the config tab.

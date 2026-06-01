@@ -27,6 +27,31 @@ const MODAL_TITLE_SAVE: &str = " SAVE CONFIG ";
 const SAVE_HINT: &str = "  [enter] save  ·  [esc] cancel";
 const NO_CHANGES_HINT: &str = "  [esc] dismiss";
 
+/// Standard inner padding for every modal popup (1 col each side, no rows).
+fn modal_padding() -> Padding {
+    Padding::new(1, 1, 0, 0)
+}
+
+/// Builds the standard bordered modal block: plain border in `line`, raised
+/// background, a bold-italic `accent_alt` title, and [`modal_padding`].
+///
+/// Callers add a scroll indicator via `title_top` afterwards when needed.
+fn modal_block(title: &'static str) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(line()))
+        .style(Style::default().bg(bg_raised()))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::ITALIC),
+        ))
+        .padding(modal_padding())
+}
+
 /// Key/action pair for the help overlay.
 struct HelpRow {
     key: &'static str,
@@ -97,19 +122,7 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
         .areas(popup_area);
     frame.render_widget(Clear, popup_area);
 
-    let outer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(line()))
-        .style(Style::default().bg(bg_raised()))
-        .title(Span::styled(
-            " KEYBINDINGS ",
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
-        .padding(Padding::new(1, 1, 0, 0));
+    let outer_block = modal_block(" KEYBINDINGS ");
 
     let inner = outer_block.inner(popup_area);
     let total = items.len();
@@ -129,31 +142,6 @@ pub(crate) fn render_help_overlay(frame: &mut Frame, area: Rect) {
 /// `enter` proceeds with retry, `n` proceeds without, `esc` cancels the
 /// download. The caller (`handle_key`) intercepts all other keys.
 pub(crate) fn render_retry_on_start_modal(frame: &mut Frame, area: Rect, count: usize) {
-    let [popup_area] = Layout::vertical([Constraint::Length(5)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [popup_area] = Layout::horizontal([Constraint::Percentage(60)])
-        .flex(Flex::Center)
-        .areas(popup_area);
-    frame.render_widget(Clear, popup_area);
-
-    let outer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(line()))
-        .style(Style::default().bg(bg_raised()))
-        .title(Span::styled(
-            " RETRY FAILED? ",
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
-        .padding(Padding::new(1, 1, 0, 0));
-
-    let inner = outer_block.inner(popup_area);
-    frame.render_widget(outer_block, popup_area);
-
     let items = vec![
         ListItem::new(Line::from(vec![
             Span::styled(
@@ -171,6 +159,33 @@ pub(crate) fn render_retry_on_start_modal(frame: &mut Frame, area: Rect, count: 
             Style::default().fg(text_faint()),
         )])),
     ];
+    render_fixed_popup(frame, area, 60, " RETRY FAILED? ", items);
+}
+
+/// Renders a fixed-height (5-row) centred popup with the standard modal block.
+///
+/// Shared by the retry-on-start and confirm-retry modals; they differ only in
+/// `width_pct`, `title`, and `items`. The 5-row height (2 border + 3 content)
+/// matches both modals' original layouts exactly.
+fn render_fixed_popup(
+    frame: &mut Frame,
+    area: Rect,
+    width_pct: u16,
+    title: &'static str,
+    items: Vec<ListItem<'static>>,
+) {
+    let [popup_area] = Layout::vertical([Constraint::Length(5)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [popup_area] = Layout::horizontal([Constraint::Percentage(width_pct)])
+        .flex(Flex::Center)
+        .areas(popup_area);
+    frame.render_widget(Clear, popup_area);
+
+    let outer_block = modal_block(title);
+    let inner = outer_block.inner(popup_area);
+    frame.render_widget(outer_block, popup_area);
+
     frame.render_widget(List::new(items), inner);
 }
 
@@ -179,31 +194,6 @@ pub(crate) fn render_retry_on_start_modal(frame: &mut Frame, area: Rect, count: 
 /// `enter` confirms; `esc` or `q` cancels. The modal intercepts all other keys
 /// while open — the caller (`handle_key`) enforces this via early return.
 pub(crate) fn render_confirm_retry_modal(frame: &mut Frame, area: Rect, count: usize) {
-    let [popup_area] = Layout::vertical([Constraint::Length(5)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [popup_area] = Layout::horizontal([Constraint::Percentage(54)])
-        .flex(Flex::Center)
-        .areas(popup_area);
-    frame.render_widget(Clear, popup_area);
-
-    let outer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(line()))
-        .style(Style::default().bg(bg_raised()))
-        .title(Span::styled(
-            " CONFIRM RETRY ",
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
-        .padding(Padding::new(1, 1, 0, 0));
-
-    let inner = outer_block.inner(popup_area);
-    frame.render_widget(outer_block, popup_area);
-
     let items = vec![
         ListItem::new(Line::from(vec![
             Span::styled("retry ", Style::default().fg(text_dim())),
@@ -219,7 +209,7 @@ pub(crate) fn render_confirm_retry_modal(frame: &mut Frame, area: Rect, count: u
             Style::default().fg(text_faint()),
         )])),
     ];
-    frame.render_widget(List::new(items), inner);
+    render_fixed_popup(frame, area, 54, " CONFIRM RETRY ", items);
 }
 
 /// Renders the config save-diff modal.
@@ -244,19 +234,7 @@ pub(crate) fn render_config_save_modal(frame: &mut Frame, area: Rect, diff: &[Co
         .areas(popup_area);
     frame.render_widget(Clear, popup_area);
 
-    let outer_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .border_style(Style::default().fg(line()))
-        .style(Style::default().bg(bg_raised()))
-        .title(Span::styled(
-            MODAL_TITLE_SAVE,
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
-        .padding(Padding::new(1, 1, 0, 0));
+    let outer_block = modal_block(MODAL_TITLE_SAVE);
 
     let inner = outer_block.inner(popup_area);
     frame.render_widget(outer_block, popup_area);

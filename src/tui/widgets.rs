@@ -319,6 +319,28 @@ pub fn help_item(text: impl Into<String>) -> ListItem<'static> {
     ]))
 }
 
+/// Builds a `[focus_span] [icon] [ label] [  detail]` row.
+///
+/// Shared by [`row_item`] and [`disclosure_row`]; each caller supplies its own
+/// focus span, icon, label style, and optional detail. The detail (when present)
+/// is always rendered in `text_faint`.
+fn icon_label_row(
+    focus: Span<'static>,
+    icon: Span<'static>,
+    label: &str,
+    label_style: Style,
+    detail: Option<String>,
+) -> ListItem<'static> {
+    let mut spans = vec![focus, icon, Span::styled(format!(" {label}"), label_style)];
+    if let Some(detail) = detail {
+        spans.push(Span::styled(
+            format!("  {detail}"),
+            Style::default().fg(text_faint()),
+        ));
+    }
+    ListItem::new(Line::from(spans))
+}
+
 pub fn disclosure_row(
     label: &str,
     detail: impl Into<String>,
@@ -331,18 +353,16 @@ pub fn disclosure_row(
     } else {
         focused_label(focused)
     };
-    ListItem::new(Line::from(vec![
+    icon_label_row(
         focus_span(focused && !expanded),
         Span::styled(
             marker,
             Style::default().fg(if expanded { accent() } else { text_faint() }),
         ),
-        Span::styled(format!(" {label}"), label_style),
-        Span::styled(
-            format!("  {}", detail.into()),
-            Style::default().fg(text_faint()),
-        ),
-    ]))
+        label,
+        label_style,
+        Some(detail.into()),
+    )
 }
 
 pub fn row_item(
@@ -352,18 +372,13 @@ pub fn row_item(
     focused: bool,
 ) -> ListItem<'static> {
     let (marker, marker_style) = check_marker(state);
-    let mut spans = vec![
+    icon_label_row(
         focus_span(focused),
         Span::styled(marker, marker_style),
-        Span::styled(format!(" {label}"), focused_label(focused)),
-    ];
-    if let Some(detail) = detail {
-        spans.push(Span::styled(
-            format!("  {detail}"),
-            Style::default().fg(text_faint()),
-        ));
-    }
-    ListItem::new(Line::from(spans))
+        label,
+        focused_label(focused),
+        detail.map(str::to_string),
+    )
 }
 
 /// A button row rendered as a filled pill, activated with `enter`.

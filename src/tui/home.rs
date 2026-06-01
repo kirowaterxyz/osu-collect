@@ -84,25 +84,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
     );
 
-    let mirror_states = [
-        (HomeField::MirrorOsuDirect, form.osu_direct),
-        (HomeField::MirrorNerinyan, form.nerinyan),
-        (HomeField::MirrorSayobot, form.sayobot),
-        (HomeField::MirrorNekoha, form.nekoha),
-    ];
-    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
-        let latency = form.mirror_latency.get(kind).copied();
-        items.push_focusable(
-            field,
-            mirror_row_item(
-                mirror_label(*kind),
-                kind.host(),
-                on,
-                focus == field,
-                latency,
-            ),
-        );
-    }
+    push_mirror_rows(&mut items, form, focus);
 
     items.push_focusable(
         HomeField::Threads,
@@ -132,10 +114,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         ),
     );
 
-    items.push(widgets::summary_item(&[
-        Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
-        Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
-    ]));
+    items.push(summary_item(form));
     items.push_focusable(
         HomeField::Download,
         widgets::button_item(
@@ -184,25 +163,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
     }
 
-    let mirror_states = [
-        (HomeField::MirrorOsuDirect, form.osu_direct),
-        (HomeField::MirrorNerinyan, form.nerinyan),
-        (HomeField::MirrorSayobot, form.sayobot),
-        (HomeField::MirrorNekoha, form.nekoha),
-    ];
-    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
-        let latency = form.mirror_latency.get(kind).copied();
-        items.push_focusable(
-            field,
-            mirror_row_item(
-                mirror_label(*kind),
-                kind.host(),
-                on,
-                focus == field,
-                latency,
-            ),
-        );
-    }
+    push_mirror_rows(&mut items, form, focus);
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(SECTION_DOWNLOAD));
@@ -235,10 +196,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     );
     items.push(widgets::spacer());
 
-    items.push(widgets::summary_item(&[
-        Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
-        Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
-    ]));
+    items.push(summary_item(form));
     items.push(widgets::spacer());
     items.push_focusable(
         HomeField::Download,
@@ -252,6 +210,40 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+}
+
+/// Pushes the four built-in mirror toggle rows, each with its latency suffix.
+///
+/// Shared by `render_compact` and `render_content` — the row content is
+/// identical in both paths; only the surrounding chrome differs.
+fn push_mirror_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, focus: HomeField) {
+    let mirror_states = [
+        (HomeField::MirrorOsuDirect, form.osu_direct),
+        (HomeField::MirrorNerinyan, form.nerinyan),
+        (HomeField::MirrorSayobot, form.sayobot),
+        (HomeField::MirrorNekoha, form.nekoha),
+    ];
+    for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
+        let latency = form.mirror_latency.get(kind).copied();
+        items.push_focusable(
+            field,
+            mirror_row_item(
+                mirror_label(*kind),
+                kind.host(),
+                on,
+                focus == field,
+                latency,
+            ),
+        );
+    }
+}
+
+/// The threads / mirrors summary row, shared by both render paths.
+fn summary_item(form: &HomeTab) -> ListItem<'static> {
+    widgets::summary_item(&[
+        Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
+        Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
+    ])
 }
 
 /// Mirror toggle row with an optional latency suffix.
