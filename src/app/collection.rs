@@ -410,6 +410,13 @@ impl CollectionPage {
         self.cached_cumulative_speed.get()
     }
 
+    /// Override the cached cumulative speed for testing purposes.
+    #[cfg(test)]
+    pub fn set_cached_speed_for_test(&self, speed: f64) {
+        self.cached_cumulative_speed.set(speed);
+        self.last_speed_update.set(Some(Instant::now()));
+    }
+
     /// Store the failure list shown in the FAILED collapsible section,
     /// sorted ascending by `beatmapset_id` so the order is stable across runs.
     pub fn set_failed_maps(&mut self, failures: Vec<FailedMap>) {

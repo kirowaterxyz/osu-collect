@@ -101,46 +101,35 @@ fn format_eta_hours() {
 }
 
 // ── session_eta ───────────────────────────────────────────────────────────────
+//
+// session_eta now reads speed from cumulative_speed() (the rolling average the
+// OVERVIEW panel also uses) rather than recomputing bytes_done / elapsed.
+// Tests that need a non-zero speed inject it via set_cached_speed_for_test.
 
 use crate::app::collection::CollectionPage;
-use std::time::{Duration, Instant};
 
-fn page_for_eta(bytes_done: u64, total_bytes: Option<u64>, elapsed: Duration) -> CollectionPage {
+fn page_with_speed(speed: f64, bytes_done: u64, total_bytes: Option<u64>) -> CollectionPage {
     let mut page = CollectionPage::new(1, "test".to_string(), 1);
     page.stats.bytes_downloaded = bytes_done;
     page.stats.total_collection_bytes = total_bytes;
-    // Back-date the session start so elapsed matches what we intend.
-    page.session_start = Some(Instant::now() - elapsed);
+    page.set_cached_speed_for_test(speed);
     page
 }
 
-/// No ETA when session start is not set.
+/// No ETA when speed is zero (no active downloads yet).
 #[test]
-fn session_eta_none_when_no_start() {
+fn session_eta_none_when_no_speed() {
     let mut page = CollectionPage::new(1, "test".to_string(), 1);
     page.stats.bytes_downloaded = 1024 * 1024;
     page.stats.total_collection_bytes = Some(10 * 1024 * 1024);
-    assert!(session_eta(&page).is_none());
-}
-
-/// No ETA when elapsed < 1 s (too early to trust the average).
-#[test]
-fn session_eta_none_when_elapsed_under_1s() {
-    let page = page_for_eta(1024, Some(10 * 1024), Duration::from_millis(200));
-    assert!(session_eta(&page).is_none());
-}
-
-/// No ETA when no bytes have been downloaded yet.
-#[test]
-fn session_eta_none_when_zero_bytes() {
-    let page = page_for_eta(0, Some(10 * 1024 * 1024), Duration::from_secs(5));
+    // cached speed defaults to 0.0 — no active lines
     assert!(session_eta(&page).is_none());
 }
 
 /// No ETA when total collection size is unknown.
 #[test]
 fn session_eta_none_when_no_total() {
-    let page = page_for_eta(1024 * 1024, None, Duration::from_secs(5));
+    let page = page_with_speed(5.0 * 1024.0 * 1024.0, 1024 * 1024, None);
     assert!(session_eta(&page).is_none());
 }
 
@@ -148,7 +137,7 @@ fn session_eta_none_when_no_total() {
 #[test]
 fn session_eta_zero_remaining_when_done() {
     let total = 5 * 1024 * 1024u64;
-    let page = page_for_eta(total + 1024, Some(total), Duration::from_secs(10));
+    let page = page_with_speed(5.0 * 1024.0 * 1024.0, total + 1024, Some(total));
     let (_, eta) = session_eta(&page).expect("should compute ETA");
     assert_eq!(eta, "0s");
 }
@@ -156,12 +145,15 @@ fn session_eta_zero_remaining_when_done() {
 /// Happy path: reasonable speed and ETA strings are returned.
 #[test]
 fn session_eta_returns_speed_and_eta() {
-    // 50 MB downloaded in 10 s → 5 MB/s; 450 MB remaining → 90 s ETA.
-    // Use 50× to stay well above the KB/MB boundary regardless of timing jitter.
+    // 5 MB/s rolling speed; 450 MB remaining → 90 s ETA.
     let mb = 1024 * 1024u64;
-    let page = page_for_eta(50 * mb, Some(500 * mb), Duration::from_secs(10));
-    let (speed, eta) = session_eta(&page).expect("should compute ETA");
-    assert!(speed.contains("MB/s"), "expected MB/s in speed: {speed:?}");
+    let speed = 5.0 * mb as f64;
+    let page = page_with_speed(speed, 50 * mb, Some(500 * mb));
+    let (speed_str, eta) = session_eta(&page).expect("should compute ETA");
+    assert!(
+        speed_str.contains("MB/s"),
+        "expected MB/s in speed: {speed_str:?}"
+    );
     assert!(
         eta.contains('m') || eta.contains('s'),
         "expected time unit in eta: {eta:?}"

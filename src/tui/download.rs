@@ -46,6 +46,7 @@ const STATUS_FAILED: &str = "failed";
 
 const SUMMARY_DONE: &str = "done";
 const SUMMARY_PROGRESS: &str = "progress";
+const SUMMARY_UNVERIFIED: &str = " unverified";
 
 const ACTIVE_VERIFYING: &str = "verifying existing archives...";
 const ACTIVE_FETCHING: &str = "fetching collection metadata...";
@@ -300,7 +301,6 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         )
     };
 
-    let displayed_skipped = skipped.saturating_add(unverified);
     let mut spans = vec![
         Span::styled(format!("{label}: "), Style::default().fg(text_faint())),
         Span::styled(
@@ -314,7 +314,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         Span::styled(SEPARATOR, Style::default().fg(line_soft())),
         Span::styled(
             {
-                let mut s = displayed_skipped.to_string();
+                let mut s = skipped.to_string();
                 s.push_str(" skipped");
                 s
             },
@@ -339,7 +339,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         spans.push(Span::styled(
             {
                 let mut s = unverified.to_string();
-                s.push_str(" unverified");
+                s.push_str(SUMMARY_UNVERIFIED);
                 s
             },
             Style::default().fg(warning()),
@@ -348,21 +348,17 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
     spans
 }
 
-/// Returns `(avg_speed_str, eta_str)` for the session gauge label, or `None`
-/// if there is not yet enough data (elapsed < 1s, no bytes downloaded, or no
-/// total size known).
+/// Returns `(speed_str, eta_str)` for the session gauge label, or `None`
+/// if there is not yet enough data (speed < 1 B/s or no total size known).
+/// Speed comes from `cumulative_speed()` — the same rolling average shown in
+/// the OVERVIEW panel — so both displays always agree.
 fn session_eta(page: &CollectionPage) -> Option<(String, String)> {
-    let start = page.session_start?;
-    let elapsed = start.elapsed();
-    if elapsed.as_secs_f64() < 1.0 {
-        return None;
-    }
-    let bytes_done = page.stats.bytes_downloaded;
-    if bytes_done == 0 {
+    let speed = page.cumulative_speed();
+    if speed < 1.0 {
         return None;
     }
     let total = page.stats.total_collection_bytes?;
-    let speed = bytes_done as f64 / elapsed.as_secs_f64();
+    let bytes_done = page.stats.bytes_downloaded;
     let remaining = total.saturating_sub(bytes_done);
     let eta_secs = (remaining as f64 / speed) as u64;
     let speed_str = format_bytes(speed as u64, "B/s");
@@ -745,7 +741,6 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
 fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
     let eyebrow_style = eyebrow().add_modifier(Modifier::DIM);
-    let displayed_skipped = summary.skipped.saturating_add(summary.unverified);
     let failed_style = if summary.failed > 0 {
         Style::default().fg(danger())
     } else {
@@ -763,7 +758,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Span::styled(RESULTS_SKIPPED, eyebrow_style),
         Span::raw(" "),
         Span::styled(
-            displayed_skipped.to_string(),
+            summary.skipped.to_string(),
             Style::default().fg(text_muted()),
         ),
         Span::styled(SEPARATOR, Style::default().fg(line_soft())),
