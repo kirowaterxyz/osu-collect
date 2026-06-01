@@ -19,6 +19,8 @@ use super::{
 
 const INFO_HEIGHT: u16 = 8;
 const GAUGE_HEIGHT: u16 = 3;
+/// Horizontal margin (columns) applied to each side of the progress bar.
+const GAUGE_H_MARGIN: u16 = 1;
 
 const PANEL_OVERVIEW: &str = " OVERVIEW ";
 const PANEL_ACTIVE: &str = " ACTIVE ";
@@ -410,6 +412,14 @@ fn format_avg_verify(avg_us: u64) -> String {
 }
 
 fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
+    // Inset the bar by GAUGE_H_MARGIN on each side; titles stay at the outer edge.
+    let bar_area = Rect {
+        x: area.x.saturating_add(GAUGE_H_MARGIN),
+        y: area.y,
+        width: area.width.saturating_sub(GAUGE_H_MARGIN * 2),
+        height: area.height,
+    };
+
     if matches!(
         page.stage,
         DownloadStage::Pending | DownloadStage::Resolving
@@ -417,9 +427,9 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         if let Some((current, total)) = page.resolve_progress
             && total > 0
         {
-            render_resolve_progress_gauge(frame, area, current, total, tick);
+            render_resolve_progress_gauge(frame, bar_area, current, total, tick);
         } else {
-            render_indeterminate_gauge(frame, area, page, page.stage, tick);
+            render_indeterminate_gauge(frame, bar_area, page, page.stage, tick);
         }
         return;
     }
@@ -446,7 +456,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         format!(" rechecking {verified_display}/{total_collection} ")
     } else {
         let eta_suffix = session_eta(page)
-            .map(|(speed, eta)| format!("  {speed}  ETA {eta}"))
+            .map(|(_, eta)| format!("  ETA {eta}"))
             .unwrap_or_default();
         format!(" {downloaded} downloaded  {queue_remaining} queued{eta_suffix} ")
     };
@@ -478,13 +488,13 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
                 .ratio(verified_ratio)
                 .label(Span::raw(""))
                 .gauge_style(Style::default().fg(fill_color).bg(bg_raised())),
-            area,
+            bar_area,
         );
         return;
     }
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = block.inner(bar_area);
+    frame.render_widget(block, bar_area);
     if inner.width == 0 || inner.height == 0 {
         return;
     }
