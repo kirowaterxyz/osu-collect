@@ -113,7 +113,7 @@ fn diff_contains_theme_entry_with_correct_labels() {
         .find(|e| e.label == "theme")
         .expect("theme entry must be present");
 
-    assert_eq!(entry.old_value, "default");
+    assert_eq!(entry.old_value, "truecolor");
     assert_eq!(entry.new_value, "colorblind-safe");
 }
 

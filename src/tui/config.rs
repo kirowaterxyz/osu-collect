@@ -25,8 +25,6 @@ const PANEL_TITLE: &str = " CONFIG ";
 /// Minimum content-area height before switching to compact layout.
 const COMPACT_HEIGHT: u16 = 12;
 
-const TOP_BANNER: &str = "default settings and config options";
-
 const SECTION_DISPLAY: &str = "display";
 const SECTION_DOWNLOAD: &str = "download";
 const SECTION_MIRRORS: &str = "mirrors";
@@ -38,8 +36,8 @@ const LABEL_SKIP_VIDEOS: &str = "skip videos";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
 const LABEL_RETRY_FAILED: &str = "retry failed on download";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
-const LABEL_LOGGING_LEVEL: &str = "level";
-const LABEL_LOGGING_FORMAT: &str = "format";
+const LABEL_LOGGING_LEVEL: &str = "log level";
+const LABEL_LOGGING_FORMAT: &str = "log format";
 
 const CHIP_UNAVAILABLE: &str = " login unavailable · no credentials in build ";
 const CHIP_LOGGED_OUT: &str = " signed out";
@@ -49,7 +47,7 @@ const CHIP_ACTION_LOGOUT: &str = " · log out ";
 const CHIP_ACTION_CANCEL: &str = " · cancel";
 const CHIP_LOGGING_IN: &str = " logging in… ";
 
-const THEME_MODE_LABELS: &[&str] = &["auto", "default", "16-color", "colorblind-safe"];
+const THEME_MODE_LABELS: &[&str] = &["auto", "truecolor", "16-color", "colorblind-safe"];
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
@@ -69,9 +67,6 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
 
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
-
-    items.push(widgets::disclosure_row(TOP_BANNER, "", false, false));
-    items.push(widgets::spacer());
 
     items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
     items.push(widgets::spacer());
@@ -359,7 +354,7 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
 }
 
 fn bool_label(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
+    if value { "on" } else { "off" }
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {
@@ -398,7 +393,7 @@ fn retry_failed_label(mode: RetryFailedOnDownload) -> &'static str {
 fn theme_mode_label(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Auto => "auto",
-        ThemeMode::Default => "default",
+        ThemeMode::Default => "truecolor",
         ThemeMode::Sixteen => "16-color",
         ThemeMode::ColorblindSafe => "colorblind-safe",
     }

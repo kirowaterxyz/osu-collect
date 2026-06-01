@@ -543,13 +543,13 @@ fn logging_dir_field(logging: &LoggingConfig) -> InputField {
 }
 
 fn bool_label(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
+    if value { "on" } else { "off" }
 }
 
 fn theme_label(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Auto => "auto",
-        ThemeMode::Default => "default",
+        ThemeMode::Default => "truecolor",
         ThemeMode::Sixteen => "16-color",
         ThemeMode::ColorblindSafe => "colorblind-safe",
     }
