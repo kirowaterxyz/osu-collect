@@ -55,8 +55,6 @@ const PLACEHOLDER_PREPARING: &str = "preparing";
 const PLACEHOLDER_RESOLVING: &str = "resolving collection";
 
 const FAILED_SECTION_LABEL: &str = "FAILED";
-const RATE_LIMITED_SECTION_LABEL: &str = "─── rate-limited ───";
-const DONE_LABEL: &str = "done";
 
 const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
 const RESULTS_SKIPPED: &str = "SKIPPED";
@@ -631,52 +629,25 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let mut items: Vec<ListItem> = Vec::new();
 
     if matches!(page.stage, DownloadStage::Downloading) {
-        // Render non-rate-limited slots first (preserving slot order), then a separator when
-        // both groups are non-empty, then the rate-limited rows with countdown.
-        let mut non_rate_limited_count = 0usize;
-        let mut rate_limited_count = 0usize;
-        for line in page.active_downloads.iter().flatten() {
-            if line.stage.is_terminal() {
-                continue;
-            }
-            if line.displayed_rate_limited() {
-                rate_limited_count += 1;
-            } else {
-                non_rate_limited_count += 1;
-            }
-        }
+        // Single pass: collect non-rate-limited and rate-limited rows separately,
+        // then emit non-rate-limited first and rate-limited last with no separator.
+        // Each rate-limited row already carries warning() bar color + a per-row
+        // countdown, so no divider is needed as a third signal.
+        let mut normal: Vec<ListItem> = Vec::new();
+        let mut throttled: Vec<ListItem> = Vec::new();
 
         for slot in &page.active_downloads {
             match slot {
                 Some(line) if !line.stage.is_terminal() && line.displayed_rate_limited() => {
-                    // rendered in second pass below
+                    throttled.push(rate_limited_item(line, row_width));
                 }
-                Some(line) => items.push(widgets::active_download_item(line, row_width)),
-                None => items.push(ListItem::new("")),
+                Some(line) => normal.push(widgets::active_download_item(line, row_width)),
+                None => normal.push(ListItem::new("")),
             }
         }
 
-        if rate_limited_count > 0 && non_rate_limited_count > 0 {
-            items.push(ListItem::new(Line::from(vec![Span::styled(
-                RATE_LIMITED_SECTION_LABEL,
-                Style::default().fg(text_faint()),
-            )])));
-        }
-
-        for slot in &page.active_downloads {
-            if let Some(line) = slot
-                && !line.stage.is_terminal()
-                && line.displayed_rate_limited()
-            {
-                items.push(rate_limited_item(line, row_width));
-            }
-        }
-
-        // Footer: show cumulative completed count below active/rate-limited rows.
-        let done = page.stats.downloaded;
-        if done > 0 {
-            items.push(done_footer_item(done, page.stats.skipped));
-        }
+        items.extend(normal);
+        items.extend(throttled);
     } else if items.is_empty() && page.failed_maps.is_empty() {
         let (text, color) = match page.stage {
             DownloadStage::Rechecking => (ACTIVE_VERIFYING, warning()),
@@ -796,40 +767,6 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             .wrap(Wrap { trim: true }),
         area,
     );
-}
-
-/// Builds the spans for the `done (N) [· skipped (M)]` footer row.
-///
-/// Split from the `ListItem` constructor so tests can inspect content and colors
-/// without depending on ratatui internals.
-pub(crate) fn done_footer_spans(done: u32, skipped: u32) -> Vec<Span<'static>> {
-    let mut spans = vec![
-        Span::raw("  "),
-        Span::styled(DONE_LABEL, Style::default().fg(success())),
-        Span::styled(" (", Style::default().fg(text_dim())),
-        Span::styled(done.to_string(), Style::default().fg(text_dim())),
-        Span::styled(")", Style::default().fg(text_dim())),
-    ];
-    if skipped > 0 {
-        spans.push(Span::styled(
-            " · skipped (",
-            Style::default().fg(text_dim()),
-        ));
-        spans.push(Span::styled(
-            skipped.to_string(),
-            Style::default().fg(text_dim()),
-        ));
-        spans.push(Span::styled(")", Style::default().fg(text_dim())));
-    }
-    spans
-}
-
-/// Builds the `done (N) [· skipped (M)]` footer row shown below active threads.
-///
-/// Renders whenever at least one beatmapset has completed successfully.
-/// The skipped segment is appended only when `skipped > 0`.
-fn done_footer_item(done: u32, skipped: u32) -> ListItem<'static> {
-    ListItem::new(Line::from(done_footer_spans(done, skipped)))
 }
 
 /// Builds a list row for a rate-limited download slot.
