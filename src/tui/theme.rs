@@ -111,25 +111,33 @@ impl Theme {
     /// 16-color ANSI fallback.  Every slot maps to a semantically close basic
     /// ANSI color so the UI remains readable on `TERM=linux` or similar.
     ///
-    /// `warning` → Yellow, `text_dim` → Gray (Light Gray / DarkGray) — the two
-    /// colors used together on the quit toast remain visually distinct on all
-    /// 16-color terminals.
+    /// `warning` → Yellow, `text_dim` → Gray — the two colors used together on
+    /// the quit toast remain visually distinct on all 16-color terminals.
+    ///
+    /// `bg` and `bg_raised` both map to Black: 16-color terminals have no
+    /// "slightly lighter black", so raised panels intentionally collapse to the
+    /// base background and rely on their borders for visual separation.  This is
+    /// not a bug — do not introduce a DarkGray fill here; solid gray blocks
+    /// regress the look on capable terminals and look heavy on basic ones.
     pub fn sixteen() -> Self {
         Self {
             accent: Color::Blue,
             accent_alt: Color::Yellow,
             info: Color::Cyan,
             success: Color::Green,
-            // Yellow for WARNING — distinct from text_dim (DarkGray) on BG (Black)
+            // Yellow for WARNING — distinct from text_dim (Gray) on BG (Black)
             warning: Color::Yellow,
             danger: Color::Red,
             text: Color::White,
             text_muted: Color::Gray,
-            // DarkGray — visually distinct from Yellow (warning) on a black BG
-            text_dim: Color::DarkGray,
+            // Gray — "slightly muted" level; brighter than text_faint (DarkGray)
+            text_dim: Color::Gray,
+            // DarkGray — dimmest text level; visually subordinate to text_dim
             text_faint: Color::DarkGray,
             line: Color::DarkGray,
             line_soft: Color::Black,
+            // Both collapse to Black — panels rely on borders for separation; see
+            // the constructor doc above for the rationale.
             bg: Color::Black,
             bg_raised: Color::Black,
         }
