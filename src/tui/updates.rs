@@ -45,17 +45,13 @@ const METRIC_FAILED: &str = "failed";
 
 const HELP_OSU_PATH: &str = "your osu! install dir; must contain osu!.db or client.realm";
 
-const STATUS_NOT_INSTALLED: &str = "not installed";
 const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
 
 const COUNT_SUFFIX_MAPS: &str = "maps";
 const SUFFIX_SELECTED: &str = "selected";
 
-const DIFF_PREFIX_NEW: &str = "+";
-const DIFF_SUFFIX_NEW: &str = "new";
 const DIFF_PREFIX_REMOVED: &str = "-";
 const DIFF_SUFFIX_REMOVED: &str = "removed";
-const DIFF_SEPARATOR: &str = ", ";
 
 pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, u16)> {
     if area.height < COMPACT_HEIGHT {
@@ -384,27 +380,12 @@ fn collection_item(
         ));
     }
 
-    let new_count = missing_counts.map(|(_, total)| total).unwrap_or(0);
     let removed_count = collection.removed_count;
-    if new_count > 0 || removed_count > 0 {
-        spans.push(Span::raw("  "));
-        let mut diff_parts = Vec::with_capacity(2);
-        if new_count > 0 {
-            diff_parts.push(Span::styled(
-                format!("{DIFF_PREFIX_NEW}{new_count} {DIFF_SUFFIX_NEW}"),
-                Style::default().fg(accent()),
-            ));
-        }
-        if removed_count > 0 {
-            if new_count > 0 {
-                diff_parts.push(Span::raw(DIFF_SEPARATOR));
-            }
-            diff_parts.push(Span::styled(
-                format!("{DIFF_PREFIX_REMOVED}{removed_count} {DIFF_SUFFIX_REMOVED}"),
-                Style::default().fg(text_muted()),
-            ));
-        }
-        spans.extend(diff_parts);
+    if removed_count > 0 {
+        spans.push(Span::styled(
+            format!("  {DIFF_PREFIX_REMOVED}{removed_count} {DIFF_SUFFIX_REMOVED}"),
+            Style::default().fg(text_muted()),
+        ));
     }
 
     ListItem::new(Line::from(spans))
@@ -452,16 +433,11 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
 
 fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'static> {
     let (marker, marker_style) = widgets::check_marker(beatmap.selected);
-    let status_text = STATUS_NOT_INSTALLED;
 
     let mut spans = vec![
         widgets::focus_span(is_scroll_pos),
         Span::styled(marker, marker_style),
         Span::styled(format!(" #{}", beatmap.id), Style::default().fg(text_dim())),
-        Span::styled(
-            format!("  {status_text}"),
-            Style::default().fg(text_faint()),
-        ),
     ];
 
     if beatmap.previously_deleted {
