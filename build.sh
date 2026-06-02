@@ -13,6 +13,7 @@ NC='\033[0m'
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
+TARGET_DIR="/home/uwuclxdy/repos/rs/target"
 WINDOWS_TOOLCHAIN_FILE="${BUILD_DIR}/x86_64-w64-mingw32.cmake"
 WINDOWS_INCLUDE_DIR="${BUILD_DIR}/windows-include"
 
@@ -30,8 +31,8 @@ START_TIME=$(date +%s)
 echo -e "${GREEN}Building for Linux (x86_64-unknown-linux-gnu)...${NC}"
 cargo build --release --target x86_64-unknown-linux-gnu
 
-if [[ -f "target/x86_64-unknown-linux-gnu/release/osu-collect" ]]; then
-    cp "target/x86_64-unknown-linux-gnu/release/osu-collect" "${BUILD_DIR}/osu-collect-linux-x64"
+if [[ -f "${TARGET_DIR}/x86_64-unknown-linux-gnu/release/osu-collect" ]]; then
+    cp "${TARGET_DIR}/x86_64-unknown-linux-gnu/release/osu-collect" "${BUILD_DIR}/osu-collect-linux-x64"
     chmod +x "${BUILD_DIR}/osu-collect-linux-x64"
     echo -e "${GREEN}Linux build complete: build/osu-collect-linux-x64${NC}"
 else
@@ -77,15 +78,15 @@ set(CMAKE_C_FLAGS_INIT "-I${WINDOWS_INCLUDE_DIR}")
 set(CMAKE_CXX_FLAGS_INIT "-I${WINDOWS_INCLUDE_DIR}")
 EOF
 
-rm -rf target/x86_64-pc-windows-gnu/release/build/osu-collect-*
-rm -rf target/x86_64-pc-windows-gnu/release/.fingerprint/osu-collect-*
+rm -rf "${TARGET_DIR}/x86_64-pc-windows-gnu/release/build/osu-collect-*"
+rm -rf "${TARGET_DIR}/x86_64-pc-windows-gnu/release/.fingerprint/osu-collect-*"
 CFLAGS_x86_64_pc_windows_gnu="-I${WINDOWS_INCLUDE_DIR}" \
     CXXFLAGS_x86_64_pc_windows_gnu="-I${WINDOWS_INCLUDE_DIR} -D_USE_MATH_DEFINES -Wno-narrowing -mxsave" \
     CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_gnu="${WINDOWS_TOOLCHAIN_FILE}" \
     cargo build --release --target x86_64-pc-windows-gnu
 
-if [[ -f "target/x86_64-pc-windows-gnu/release/osu-collect.exe" ]]; then
-   cp "target/x86_64-pc-windows-gnu/release/osu-collect.exe" "${BUILD_DIR}/osu-collect-windows-x64.exe"
+if [[ -f "${TARGET_DIR}/x86_64-pc-windows-gnu/release/osu-collect.exe" ]]; then
+   cp "${TARGET_DIR}/x86_64-pc-windows-gnu/release/osu-collect.exe" "${BUILD_DIR}/osu-collect-windows-x64.exe"
    echo -e "${GREEN}Windows build complete: build/osu-collect-windows-x64.exe${NC}"
 else
    echo -e "${YELLOW}Windows binary not found at expected location${NC}"
