@@ -39,7 +39,7 @@ fn modal_padding() -> Padding {
 fn modal_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(line()))
         .style(Style::default().bg(bg_raised()))
         .title(Span::styled(

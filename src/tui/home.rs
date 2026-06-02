@@ -309,7 +309,7 @@ fn render_url_dropdown(frame: &mut Frame, area: Rect, form: &HomeTab) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(line()))
         .style(Style::default().bg(bg_raised()))
         .title(Span::styled(" history ", Style::default().fg(accent_alt())))

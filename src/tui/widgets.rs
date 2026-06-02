@@ -194,7 +194,7 @@ pub fn panel_cursor(
 pub fn panel_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(line_soft()))
         .title(Span::styled(
             title,
