@@ -1,7 +1,6 @@
 use super::{
     messages::{AppMessage, set_info_message},
     next_field, prev_field,
-    url_history::UrlHistoryFile,
 };
 use crate::{
     app::runtime::ProbeResult,
@@ -60,8 +59,8 @@ impl InputField {
     }
 
     /// Replace the value and park the caret at its end. Every programmatic
-    /// write (dropdown accept, tab-completion, stepper, client-path detection)
-    /// routes through here so the caret never lands mid-char or past the end.
+    /// write (tab-completion, stepper, client-path detection) routes through
+    /// here so the caret never lands mid-char or past the end.
     pub fn set_value(&mut self, value: impl Into<String>) {
         self.value = value.into();
         self.caret = self.value.chars().count();
@@ -222,12 +221,6 @@ pub struct HomeTab {
     /// The saved `download.no_video` default, shown as a `(default: …)` hint on
     /// the home `no_video` override row so per-run precedence is legible.
     pub default_no_video: bool,
-    /// Previously resolved URLs, loaded from disk on startup.
-    pub url_history: UrlHistoryFile,
-    /// Whether the history dropdown is currently visible.
-    pub dropdown_open: bool,
-    /// Index of the highlighted entry in the dropdown (0 = first).
-    pub dropdown_selected: Option<usize>,
     default_directory: String,
 }
 
@@ -258,13 +251,18 @@ impl HomeTab {
             .map(|value| value.to_string())
             .unwrap_or_default();
 
+        // Pre-fill the collection field and download directory with the last
+        // values the user downloaded, so a repeat run is a single keypress.
+        let last_collection = config.recent.collection.clone().unwrap_or_default();
+        let last_directory = config.recent.directory.clone().unwrap_or_default();
+
         Self {
             collection: InputField::new(
                 "Collection URL or ID",
-                "",
+                last_collection,
                 "https://osucollector.com/collections/...",
             ),
-            directory: InputField::new("Download directory", "", placeholder_directory),
+            directory: InputField::new("Download directory", last_directory, placeholder_directory),
             custom_mirror: InputField::new(
                 "Custom mirror URL (optional)",
                 custom_template,
@@ -285,9 +283,6 @@ impl HomeTab {
             quit_prompt: false,
             default_threads,
             default_no_video: config.download.no_video,
-            url_history: super::url_history::load(),
-            dropdown_open: false,
-            dropdown_selected: None,
             default_directory,
         }
     }
@@ -317,57 +312,6 @@ impl HomeTab {
     /// by `App::request_download` to intersect with persisted failures.
     pub fn set_resolved_collection(&mut self, collection_id: u32, beatmapset_ids: Vec<u32>) {
         self.resolved_collection = Some((collection_id, beatmapset_ids));
-    }
-
-    /// Open the history dropdown if there are entries.
-    /// Does nothing when the collection field already has text.
-    pub fn open_dropdown(&mut self) {
-        if self.url_history.entries.is_empty() || !self.collection.value.is_empty() {
-            return;
-        }
-        self.dropdown_open = true;
-        self.dropdown_selected = Some(0);
-    }
-
-    /// Close the history dropdown and clear the selection.
-    pub fn close_dropdown(&mut self) {
-        self.dropdown_open = false;
-        self.dropdown_selected = None;
-    }
-
-    /// Move the dropdown selection up (wraps).
-    pub fn dropdown_prev(&mut self) {
-        let len = self.url_history.entries.len();
-        if len == 0 {
-            return;
-        }
-        self.dropdown_selected = Some(match self.dropdown_selected {
-            None | Some(0) => len - 1,
-            Some(i) => i - 1,
-        });
-    }
-
-    /// Move the dropdown selection down (wraps).
-    pub fn dropdown_next(&mut self) {
-        let len = self.url_history.entries.len();
-        if len == 0 {
-            return;
-        }
-        self.dropdown_selected = Some(match self.dropdown_selected {
-            None => 0,
-            Some(i) => (i + 1) % len,
-        });
-    }
-
-    /// Accept the highlighted dropdown entry: fill the collection field and close.
-    /// Returns the selected URL (to trigger resolve), or `None` if nothing is selected.
-    pub fn dropdown_accept(&mut self) -> Option<String> {
-        let idx = self.dropdown_selected?;
-        let entry = self.url_history.entries.get(idx)?;
-        let url = entry.url.clone();
-        self.collection.set_value(url.clone());
-        self.close_dropdown();
-        Some(url)
     }
 
     pub fn next_field(&mut self) {
@@ -429,10 +373,6 @@ impl HomeTab {
     }
 
     pub fn handle_char(&mut self, ch: char) {
-        // Any character typed while the dropdown is open dismisses it first.
-        if self.dropdown_open {
-            self.close_dropdown();
-        }
         if let Some(field) = self.focused_input_mut() {
             field.insert_char(ch);
         }

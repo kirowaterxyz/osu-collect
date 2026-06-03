@@ -9,7 +9,7 @@ use super::{
     warn_low_disk_space,
 };
 use crate::{
-    app::{download_history, download_history::DownloadHistoryEntry, snapshots},
+    app::snapshots,
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
@@ -140,9 +140,6 @@ async fn run_collection(
 
     let collection = session.target.collection().clone();
     let output_dir = session.output.output_dir.clone();
-    let pending_count = session.pending_ids.len();
-    let history_id = collection.id;
-    let history_name = collection.name.clone();
 
     let Some(tally) = run_pipeline_core(
         id,
@@ -163,10 +160,6 @@ async fn run_collection(
     // saved state matches the user's intent even when some maps couldn't be downloaded.
     let db_collection_name = format!("{}-{}", collection.name, collection.id);
     write_collection_db(collection, db_collection_name, output_dir).await?;
-
-    if pending_count > 0 && !tally.successful.is_empty() {
-        append_history(history_id, history_name, tally.successful.len());
-    }
 
     emit_finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
@@ -219,9 +212,6 @@ async fn run_selective(
     let output_dir = session.output.output_dir.clone();
     let initial_satisfied = session.initial_satisfied.clone();
     let target_ids = session.beatmapset_ids.clone();
-    let pending_count = session.pending_ids.len();
-    let history_id = collection.id;
-    let history_name = collection.name.clone();
 
     let Some(tally) =
         run_pipeline_core(id, &session, &config, false, cancel_rx, emit.as_ref()).await?
@@ -251,10 +241,6 @@ async fn run_selective(
     let all_targets_satisfied = target_ids.iter().all(|id| verified_now.contains(id));
     if all_targets_satisfied && let Some(snapshot_dir) = snapshot_dir {
         persist_snapshots(snapshot_dir, snapshot_files).await?;
-    }
-
-    if pending_count > 0 && !tally.successful.is_empty() {
-        append_history(history_id, history_name, tally.successful.len());
     }
 
     emit_finish(id, emit.as_ref(), tally.to_summary());
@@ -390,14 +376,6 @@ where
             },
         }
     }
-}
-
-fn append_history(collection_id: u32, name: String, count: usize) {
-    let Some(path) = download_history::history_path() else {
-        return;
-    };
-    let entry = DownloadHistoryEntry::new(collection_id, name, count);
-    download_history::append(&path, entry);
 }
 
 pub async fn try_remove_empty_output_dir(output_dir: &Path) {

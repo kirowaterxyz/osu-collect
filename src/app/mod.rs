@@ -4,7 +4,6 @@ pub mod banner;
 pub mod collection;
 pub mod collection_state;
 pub mod config;
-pub mod download_history;
 pub mod failed_maps;
 pub mod home;
 pub mod messages;
@@ -12,7 +11,6 @@ pub mod runtime;
 pub mod snapshots;
 pub mod state;
 pub mod updates;
-pub mod url_history;
 
 pub use banner::{Banner, home_banners};
 pub use collection::{ActiveDownloadLine, CollectionPage};

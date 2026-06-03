@@ -16,6 +16,19 @@ pub struct Config {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub display: DisplayConfig,
+    #[serde(default)]
+    pub recent: RecentConfig,
+}
+
+/// Last-used home-tab inputs, persisted across runs so the collection field and
+/// download directory pre-fill with whatever the user downloaded last.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct RecentConfig {
+    /// Last collection URL or ID typed into the home form.
+    pub collection: Option<String>,
+    /// Last download directory typed into the home form.
+    pub directory: Option<String>,
 }
 
 /// Theme selection for the TUI.

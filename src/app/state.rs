@@ -277,13 +277,7 @@ impl App {
 
     fn focus_next_field(&mut self) {
         match self.active_tab() {
-            HOME_TAB_INDEX => {
-                self.home.close_dropdown();
-                self.home.next_field();
-                if self.home.focus == HomeField::Collection {
-                    self.home.open_dropdown();
-                }
-            }
+            HOME_TAB_INDEX => self.home.next_field(),
             UPDATES_TAB_INDEX => self.updates.next_field(),
             CONFIG_TAB_INDEX => self.config.next_field(),
             _ => {}
@@ -292,13 +286,7 @@ impl App {
 
     fn focus_prev_field(&mut self) {
         match self.active_tab() {
-            HOME_TAB_INDEX => {
-                self.home.close_dropdown();
-                self.home.prev_field();
-                if self.home.focus == HomeField::Collection {
-                    self.home.open_dropdown();
-                }
-            }
+            HOME_TAB_INDEX => self.home.prev_field(),
             UPDATES_TAB_INDEX => self.updates.prev_field(),
             CONFIG_TAB_INDEX => self.config.prev_field(),
             _ => {}
@@ -386,6 +374,19 @@ impl App {
         STATIC_TABS + self.downloads.len()
     }
 
+    /// Persist the current collection and download-directory inputs to the
+    /// config so the next launch pre-fills them. Reads the on-disk config first
+    /// so unsaved config-tab edits are never clobbered; failures are silent —
+    /// a missed prefill must not block a download.
+    fn persist_recent_inputs(&self) {
+        let mut config = crate::config::load_config_or_default();
+        let collection = self.home.collection.value.trim();
+        config.recent.collection = (!collection.is_empty()).then(|| collection.to_string());
+        let directory = self.home.directory.value.trim();
+        config.recent.directory = (!directory.is_empty()).then(|| directory.to_string());
+        let _ = save_config(&config);
+    }
+
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
         let mut request = match self.home.build_request(self.config.archive_validation) {
             Ok(request) => request,
@@ -399,6 +400,8 @@ impl App {
             set_error_message(&mut self.home.message, "Too many downloads queued");
             return None;
         }
+
+        self.persist_recent_inputs();
 
         let collection_id = utils::parse_collection_id(request.collection_input.trim()).ok();
         let failed_count = collection_id
@@ -834,13 +837,6 @@ impl App {
                 if self.close_modal() {
                     return None;
                 }
-                if self.active_tab() == HOME_TAB_INDEX
-                    && self.home.focus == HomeField::Collection
-                    && self.home.dropdown_open
-                {
-                    self.home.close_dropdown();
-                    return None;
-                }
                 if self.active_tab() == UPDATES_TAB_INDEX && self.updates.handle_escape().is_some()
                 {
                     return None;
@@ -895,12 +891,7 @@ impl App {
                 }
             }
             KeyCode::Up => {
-                if self.active_tab() == HOME_TAB_INDEX
-                    && self.home.focus == HomeField::Collection
-                    && self.home.dropdown_open
-                {
-                    self.home.dropdown_prev();
-                } else if self.active_tab() == UPDATES_TAB_INDEX
+                if self.active_tab() == UPDATES_TAB_INDEX
                     && (self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list)
                 {
@@ -916,12 +907,7 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                if self.active_tab() == HOME_TAB_INDEX
-                    && self.home.focus == HomeField::Collection
-                    && self.home.dropdown_open
-                {
-                    self.home.dropdown_next();
-                } else if self.active_tab() == UPDATES_TAB_INDEX
+                if self.active_tab() == UPDATES_TAB_INDEX
                     && (self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list)
                 {
@@ -937,16 +923,10 @@ impl App {
                 }
             }
             // `enter` is the universal activate/toggle key: it confirms the
-            // focused button, toggles the focused checkbox/option, opens a list,
-            // or accepts a dropdown — replacing the old `space`-to-toggle binding.
+            // focused button, toggles the focused checkbox/option, or opens a
+            // list — replacing the old `space`-to-toggle binding.
             KeyCode::Enter => match self.active_tab() {
                 HOME_TAB_INDEX => {
-                    if self.home.focus == HomeField::Collection && self.home.dropdown_open {
-                        if let Some(url) = self.home.dropdown_accept() {
-                            return Some(AppCommand::ResolveCollectionUrl { value: url });
-                        }
-                        return None;
-                    }
                     match self.home.focus {
                         HomeField::Download => {
                             if let Some((id, request)) = self.request_download() {
@@ -1018,8 +998,8 @@ impl App {
             },
             // `space` is a toggle alias for `enter`: it flips the focused
             // checkbox / list selection but never activates buttons, opens lists,
-            // accepts the dropdown, or confirms the auth chip. In a text input it
-            // types a literal space instead.
+            // or confirms the auth chip. In a text input it types a literal
+            // space instead.
             KeyCode::Char(' ') => match self.active_tab() {
                 HOME_TAB_INDEX => {
                     if self.home.focus.is_toggle() {

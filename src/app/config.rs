@@ -425,6 +425,9 @@ impl ConfigTab {
             download,
             logging,
             display: DisplayConfig { theme: self.theme },
+            // The config tab does not edit last-used inputs; preserve whatever
+            // was loaded so saving the form never wipes the prefill state.
+            recent: self.loaded_config.recent.clone(),
         })
     }
 

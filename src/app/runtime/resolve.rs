@@ -1,6 +1,4 @@
-use crate::{
-    app::home::ResolveState, app::url_history, core::collection::CollectionService, utils,
-};
+use crate::{app::home::ResolveState, core::collection::CollectionService, utils};
 use osu_downloader::collection::CollectionClient;
 use tokio::{sync::mpsc, sync::watch, time};
 
@@ -12,9 +10,7 @@ pub enum HomeResolveEvent {
     /// Resolve started; show a loading indicator.
     Loading,
     /// Metadata fetched successfully.
-    /// `url` is the literal value that was in the collection field when the task was spawned.
     Resolved {
-        url: String,
         name: String,
         map_count: usize,
         collection_id: u32,
@@ -55,16 +51,14 @@ pub fn schedule_resolve(
     let (cancel_tx, cancel_rx) = watch::channel(false);
     *resolve_cancel_tx = Some(cancel_tx);
 
-    let url = trimmed.to_string();
     let tx = home_resolve_tx.clone();
     let handle = tokio::spawn(async move {
-        run_resolve(url, collection_id, cancel_rx, tx).await;
+        run_resolve(collection_id, cancel_rx, tx).await;
     });
     *resolve_handle = Some(handle);
 }
 
 async fn run_resolve(
-    url: String,
     collection_id: u32,
     mut cancel_rx: watch::Receiver<bool>,
     tx: mpsc::UnboundedSender<HomeResolveEvent>,
@@ -87,7 +81,6 @@ async fn run_resolve(
                     let beatmapset_ids: Vec<u32> =
                         collection.beatmapsets.iter().map(|set| set.id).collect();
                     HomeResolveEvent::Resolved {
-                        url,
                         name: collection.name,
                         map_count: collection.beatmapsets.len(),
                         collection_id,
@@ -123,7 +116,6 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
             home.set_collection_resolve(ResolveState::Loading, "resolving…");
         }
         HomeResolveEvent::Resolved {
-            url,
             name,
             map_count,
             collection_id,
@@ -135,15 +127,6 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
                 format!("\"{}\" · {} {}", name, map_count, maps_word),
             );
             home.set_resolved_collection(collection_id, beatmapset_ids);
-            // Persist to history and save to disk.
-            let entry = url_history::UrlHistoryEntry {
-                url,
-                name,
-                count: map_count,
-                last_used: current_timestamp(),
-            };
-            url_history::push(&mut home.url_history, entry);
-            url_history::save(&home.url_history);
         }
         HomeResolveEvent::Failed { reason } => {
             home.set_collection_resolve(ResolveState::Error, reason);
@@ -152,32 +135,6 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
             home.clear_collection_resolve();
         }
     }
-}
-
-fn current_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    // RFC3339-ish timestamp using only std — the `time` crate formatting
-    // feature is not guaranteed available here. Format: 2006-01-02T15:04:05Z.
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let s = secs % 60;
-    let m = (secs / 60) % 60;
-    let h = (secs / 3600) % 24;
-    let days = secs / 86400;
-    // Gregorian calendar calculation (Tomohiko Sakamoto / Zeller variant).
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if mo <= 2 { y + 1 } else { y };
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
 #[cfg(test)]

@@ -77,13 +77,24 @@ pub async fn run(
         mirror_probe_tx: mirror_probe_tx.clone(),
     };
 
-    // Start the initial mirror probe if the app opens on the home tab.
+    // Home-tab startup work: probe mirror latency, and resolve the pre-filled
+    // collection value (restored from the last run) so its status shows without
+    // the user touching the field. `schedule_resolve` parses + debounces, so a
+    // non-parseable prefill just clears.
     if app.active_tab == HOME_TAB_INDEX {
         schedule_probe(
             &mut tasks.mirror_probe,
             &mut tasks.mirror_probe_cancel,
             &tasks.mirror_probe_tx,
         );
+        if !app.home.collection.value.trim().is_empty() {
+            schedule_resolve(
+                &app.home.collection.value,
+                &mut tasks.resolve,
+                &mut tasks.resolve_cancel,
+                &tasks.home_resolve_tx,
+            );
+        }
     }
 
     while !should_quit {
