@@ -4,7 +4,7 @@ A vibecoded Rust library for downloading osu! beatmapsets in bulk from multiple 
 
 ```toml
 [dependencies]
-osu-downloader = "0.7"
+osu-downloader = "0.9"
 ```
 
 ## Features
@@ -13,7 +13,7 @@ osu-downloader = "0.7"
 - Per-mirror rate-limit backoff with a shared penalty pool — a throttled mirror sits out while the others keep working
 - Real-time progress, status, and completion events over a `Stream`, plus a one-shot summary on `.wait()`
 - Streaming downloads with MD5 hashing and ZIP/EOCD validation, written through a temp file and hard-linked into place
-- Optional osucollector.com client + `collection.db` writer (`collection` feature)
+- Optional osucollector.com collection fetcher (`collection` feature) — writing `collection.db` stays in the caller, the library never touches osu! database files
 - Optional Nekoha-backed size and availability probes (`size-fetch` feature)
 
 ## Quick start
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`download_many` accepts anything iterable over `u32`. `session.cancel()` aborts running downloads at the next checkpoint. `Downloader::with_builtins()` is a one-call shortcut for "every built-in mirror at defaults". `.builtins()` on the builder adds them all in one call. `.on_exists(OnExists::Overwrite)` controls what happens when a beatmapset's archive is already on disk (default: skip).
+`download_many` accepts anything iterable over `u32`. `session.cancel()` aborts running downloads at the next checkpoint. `.builtins()` on the builder adds every built-in mirror in one call. `.on_exists(OnExists::Overwrite)` controls what happens when a beatmapset's archive is already on disk (default: skip).
 
 ## Mirrors
 
@@ -67,20 +67,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Collections
 
 ```rust
-use osu_downloader::{collection::CollectionClient, Downloader};
+use osu_downloader::{collection::CollectionClient, parse_collection_id, Downloader};
 
-let collection = CollectionClient::new().fetch_with_retries(12345, 3).await?;
-let downloader = Downloader::with_builtins()?;
+let id = parse_collection_id("https://osucollector.com/collections/12345")?;
+let collection = CollectionClient::new().fetch_retrying(id, 3).await?;
+let downloader = Downloader::builder().builtins().build()?;
 let mut session = downloader.download_many(collection.beatmapset_ids(), "./downloads");
-// consume events, then:
-collection.write_db("./downloads/collection.db".as_ref())?;
+// consume events, then session.wait()
 ```
 
 - `CollectionClient::fetch(id)` does a single request and surfaces errors verbatim.
-- `CollectionClient::fetch_with_retries(id, attempts)` adds the library's built-in retry policy (rate-limit-aware sleeps + exponential backoff for transient network errors).
-- `CollectionClient::fetch_input(input)` accepts either a numeric ID or a `https://osucollector.com/collections/<id>` URL.
-- For multi-collection bundles use `collection::write_collections_db(&[CollectionEntry { … }], path)`.
+- `CollectionClient::fetch_retrying(id, attempts)` adds the library's built-in retry policy (rate-limit-aware sleeps + exponential backoff for transient network errors).
 - `parse_collection_id(input)` is at the crate root and handles ID-or-URL parsing with strict `osucollector.com` HTTPS validation.
+- `Collection` exposes `beatmapset_ids()`, `beatmap_count()`, and `folder_name()`; the raw `Beatmapset` / `Beatmap` / `Uploader` data is public too.
+- Writing `collection.db` is deliberately **not** part of this library — pair it with the [osu-db](https://crates.io/crates/osu-db) crate in your app.
 
 ## Events and summary
 
@@ -152,7 +152,7 @@ println!("available: {:?}, unavailable: {:?}", result.available, result.unavaila
 
 ## Feature flags
 
-- `collection` (default) — `CollectionClient`, `Collection`, `CollectionEntry`, `write_collections_db`
+- `collection` (default) — `CollectionClient`, `Collection`, `Beatmapset`, `Beatmap`, `Uploader`
 - `size-fetch` (default) — `SizeFetcher` for beatmapset size estimates and mirror availability probes
 
 ## License
