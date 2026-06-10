@@ -63,7 +63,16 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
 
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+    widgets::render_scrollable_panel(
+        frame,
+        area,
+        PANEL_TITLE,
+        &items,
+        focused_index,
+        cursor_col,
+        true,
+        true,
+    )
 }
 
 /// Builds the config form item list. `show_chrome` gates the decorative section

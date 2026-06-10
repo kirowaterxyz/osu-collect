@@ -4,7 +4,7 @@ use crate::{
 };
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, Padding, Paragraph},
@@ -12,19 +12,27 @@ use ratatui::{
 use std::sync::OnceLock;
 use std::time::Instant;
 
+use super::theme::{Tier, theme};
 use super::{
     FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
-    GLYPH_SPACE, accent, accent_alt, bg, danger, eyebrow, focused_label, glyph_fill, info, line,
-    success, text_dim, text_faint, text_muted, warning,
+    GLYPH_SPACE, accent, accent_alt, bg, bg_hover, danger, eyebrow, focused_label, glyph_fill,
+    info, line, line_strong, success, text_dim, text_faint, text_muted, warning,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
 pub const FOCUS_PAD: &str = "  ";
+/// Checkbox marker — ON. Used for multi-select checkbox rows.
 pub const CHECK_ON: &str = "◉";
+/// Checkbox marker — OFF. Used for multi-select checkbox rows.
 pub const CHECK_OFF: &str = "○";
-pub const EXPANDED: &str = "▾";
-pub const COLLAPSED: &str = "▸";
+pub const EXPANDED: &str = "▼";
+pub const COLLAPSED: &str = "▶";
 pub const SEPARATOR: &str = "  │  ";
+
+/// Number of trailing filler spaces appended to selected rows to carry the
+/// `bg_hover` tint across the full panel width.  Ratatui clips to the rendered
+/// area, so this never overflows; it just needs to exceed any real panel width.
+const ROW_TINT_FILL: usize = 200;
 
 pub struct Metric<'a> {
     pub label: &'a str,
@@ -131,6 +139,11 @@ pub(crate) fn scroll_indicator(start: usize, end: usize, total: usize) -> Option
 /// `cursor_col` is the column offset (within `inner`) of the caret on the
 /// focused row — see [`input_cursor_col`]. The caller sets the terminal cursor
 /// to the returned position; `None` means no caret should be shown.
+///
+/// `focused`: this panel currently owns the keyboard cursor.
+/// `first_panel`: this is the first bordered panel rendered on the screen body
+/// (its title draws in `ACCENT_2`; subsequent panels use `TEXT_DIM`).
+#[allow(clippy::too_many_arguments)]
 pub fn render_scrollable_panel(
     frame: &mut Frame,
     area: Rect,
@@ -138,8 +151,10 @@ pub fn render_scrollable_panel(
     items: &[ListItem<'static>],
     focused_index: usize,
     cursor_col: Option<u16>,
+    focused: bool,
+    first_panel: bool,
 ) -> Option<(u16, u16)> {
-    let block = panel_block(title);
+    let block = panel_block(title, focused, first_panel);
     let inner = block.inner(area);
     let (start, end) = scroll_window(items, focused_index, inner.height as usize);
     let block = match scroll_indicator(start, end, items.len()) {
@@ -188,22 +203,40 @@ pub fn panel_cursor(
     Some((x, y))
 }
 
+/// Builds a bordered panel block.
+///
+/// `focused`: this panel currently owns the keyboard cursor — border renders
+/// `LINE_STRONG`; a blurred or read-only panel uses `LINE`.
+/// `first_panel`: the first bordered panel on the screen body gets its title in
+/// `ACCENT_2` (orange); subsequent panels use `TEXT_DIM`.  Both always italic;
+/// title is bold only while the panel is focused.
+///
 /// Callers must pass an already-uppercased, space-padded title constant
 /// (e.g. `" OVERVIEW "`). This avoids per-call allocation; use the module-level
 /// `PANEL_*` constants defined in each view module.
-pub fn panel_block(title: &'static str) -> Block<'static> {
+pub fn panel_block(title: &'static str, focused: bool, first_panel: bool) -> Block<'static> {
+    let border_color = if focused { line_strong() } else { line() };
+    let title_color = if first_panel {
+        accent_alt()
+    } else {
+        text_dim()
+    };
+    let title_style = Style::default()
+        .fg(title_color)
+        .add_modifier(Modifier::ITALIC)
+        .add_modifier(if focused {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(line()))
-        .title(Span::styled(
-            title,
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC),
-        ))
-        .title_alignment(Alignment::Left)
+        .border_style(Style::default().fg(border_color))
+        .title(Line::from(vec![
+            Span::styled("─", Style::default().fg(border_color)),
+            Span::styled(title, title_style),
+        ]))
         .padding(Padding::new(1, 1, 0, 0))
 }
 
@@ -226,11 +259,73 @@ pub fn focus_span(focused: bool) -> Span<'static> {
     }
 }
 
+/// Checkbox marker for multi-select rows (`[x]` / `[ ]` style).
+///
+/// Used by checkbox rows in the updates panel. For boolean toggle rows
+/// (`row_item` / `row_item_with_suffix`) use [`toggle_spans`] instead.
 pub fn check_marker(state: bool) -> (&'static str, Style) {
     if state {
         (CHECK_ON, Style::default().fg(accent()))
     } else {
         (CHECK_OFF, Style::default().fg(text_faint()))
+    }
+}
+
+/// Tier-aware slide-toggle spans for a boolean `row_item`.
+///
+/// Full tier: `─●` (on) / `○─` (off).
+/// Compatible tier: `[on]` / `[off]`.
+///
+/// This is the glyph set for **toggle rows only** (boolean on/off).  Checkbox
+/// rows (multi-select) continue to use [`check_marker`].
+fn toggle_spans(on: bool) -> Vec<Span<'static>> {
+    match theme().tier() {
+        Tier::Full => {
+            if on {
+                vec![
+                    Span::styled("─", Style::default().fg(line())),
+                    Span::styled("●", Style::default().fg(accent())),
+                ]
+            } else {
+                vec![
+                    Span::styled("○", Style::default().fg(text_dim())),
+                    Span::styled("─", Style::default().fg(line())),
+                ]
+            }
+        }
+        Tier::Compatible => {
+            if on {
+                vec![
+                    Span::styled("[", Style::default().fg(text_dim())),
+                    Span::styled("on", Style::default().fg(accent())),
+                    Span::styled("]", Style::default().fg(text_dim())),
+                ]
+            } else {
+                vec![
+                    Span::styled("[", Style::default().fg(text_dim())),
+                    Span::styled("off", Style::default().fg(text_dim())),
+                    Span::styled("]", Style::default().fg(text_dim())),
+                ]
+            }
+        }
+    }
+}
+
+/// Appends a filler span carrying `bg_hover` to tint the full row width.
+///
+/// Ratatui clips the span to the rendered area, so the fixed length is safe
+/// on any terminal width.
+fn push_hover_filler(spans: &mut Vec<Span<'static>>) {
+    spans.push(Span::styled(
+        " ".repeat(ROW_TINT_FILL),
+        Style::default().bg(bg_hover()),
+    ));
+}
+
+/// Applies `bg_hover` background to all spans in-place (for selected rows).
+fn tint_spans(spans: &mut Vec<Span<'static>>) {
+    for span in spans.iter_mut() {
+        span.style = span.style.bg(bg_hover());
     }
 }
 
@@ -241,14 +336,19 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
         Span::styled(field.value.clone(), Style::default().fg(accent()))
     };
 
-    ListItem::new(Line::from(vec![
+    let mut spans = vec![
         focus_span(focused),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
             focused_label(focused),
         ),
         value,
-    ]))
+    ];
+    if focused {
+        tint_spans(&mut spans);
+        push_hover_filler(&mut spans);
+    }
+    ListItem::new(Line::from(spans))
 }
 
 /// A stepper row showing a numeric value with an optional "recommended: N" chip.
@@ -273,6 +373,10 @@ pub fn stepper_item(label: &str, value: u8, recommended: u8, focused: bool) -> L
         spans.push(Span::styled(chip, Style::default().fg(text_faint())));
     }
 
+    if focused {
+        tint_spans(&mut spans);
+        push_hover_filler(&mut spans);
+    }
     ListItem::new(Line::from(spans))
 }
 
@@ -288,27 +392,40 @@ pub fn cycle_item(
     ];
     for (index, &option) in options.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  ", Style::default().fg(line())));
+            spans.push(Span::raw("  "));
         }
-        let style = if option == selected {
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD)
+        if option == selected {
+            // [brackets] only while the row is focused; ACCENT, no bold.
+            if focused {
+                spans.push(Span::styled(
+                    format!("[{option}]"),
+                    Style::default().fg(accent()),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    option.to_string(),
+                    Style::default().fg(accent()),
+                ));
+            }
         } else {
-            Style::default().fg(text_faint())
-        };
-        spans.push(Span::styled(option.to_string(), style));
+            spans.push(Span::styled(
+                option.to_string(),
+                Style::default().fg(text_faint()),
+            ));
+        }
+    }
+    if focused {
+        tint_spans(&mut spans);
+        push_hover_filler(&mut spans);
     }
     ListItem::new(Line::from(spans))
 }
 
+/// Eyebrow section header — `TEXT_DIM`, no bold.  Renders the label uppercased.
 pub fn section_header(label: &str) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled(
-            label.to_uppercase(),
-            Style::default()
-                .fg(accent_alt())
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(label.to_uppercase(), Style::default().fg(text_dim())),
     ]))
 }
 
@@ -325,6 +442,9 @@ pub fn help_item(text: impl Into<String>) -> ListItem<'static> {
 /// focus span, icon, label style, and optional detail. The detail (when present)
 /// is always rendered in `text_faint`. An optional pre-styled `suffix` span is
 /// appended verbatim after the detail (the caller owns its leading spacing).
+///
+/// When `focused` is true every span (including the filler) carries `bg_hover`
+/// to produce a full-content-width selection tint with no `Color::Reset` holes.
 fn icon_label_row(
     focus: Span<'static>,
     icon: Span<'static>,
@@ -332,6 +452,7 @@ fn icon_label_row(
     label_style: Style,
     detail: Option<String>,
     suffix: Option<Span<'static>>,
+    focused: bool,
 ) -> ListItem<'static> {
     let mut spans = vec![focus, icon, Span::styled(format!(" {label}"), label_style)];
     if let Some(detail) = detail {
@@ -343,6 +464,10 @@ fn icon_label_row(
     if let Some(suffix) = suffix {
         spans.push(suffix);
     }
+    if focused {
+        tint_spans(&mut spans);
+        push_hover_filler(&mut spans);
+    }
     ListItem::new(Line::from(spans))
 }
 
@@ -353,6 +478,8 @@ pub fn disclosure_row(
     focused: bool,
 ) -> ListItem<'static> {
     let marker = if expanded { EXPANDED } else { COLLAPSED };
+    // Glyph: TEXT_DIM collapsed, ACCENT expanded (per cloudy-tui contract).
+    let glyph_color = if expanded { accent() } else { text_dim() };
     let label_style = if expanded {
         Style::default().fg(accent()).add_modifier(Modifier::BOLD)
     } else {
@@ -360,14 +487,12 @@ pub fn disclosure_row(
     };
     icon_label_row(
         focus_span(focused && !expanded),
-        Span::styled(
-            marker,
-            Style::default().fg(if expanded { accent() } else { text_faint() }),
-        ),
+        Span::styled(marker, Style::default().fg(glyph_color)),
         label,
         label_style,
         Some(detail.into()),
         None,
+        focused,
     )
 }
 
@@ -382,7 +507,7 @@ pub fn row_item(
 
 /// Like [`row_item`] but appends a pre-styled trailing `suffix` span after the
 /// detail (e.g. the home tab's per-mirror latency readout). The base row —
-/// focus marker, check glyph, label, and detail — is identical to [`row_item`].
+/// focus marker, toggle glyph, label, and detail — is identical to [`row_item`].
 pub fn row_item_with_suffix(
     label: &str,
     detail: Option<&str>,
@@ -390,15 +515,29 @@ pub fn row_item_with_suffix(
     focused: bool,
     suffix: Option<Span<'static>>,
 ) -> ListItem<'static> {
-    let (marker, marker_style) = check_marker(state);
-    icon_label_row(
-        focus_span(focused),
-        Span::styled(marker, marker_style),
-        label,
-        focused_label(focused),
-        detail.map(str::to_string),
-        suffix,
-    )
+    let toggle = toggle_spans(state);
+    // A toggle has multiple spans for its glyph; flatten into a single item via
+    // icon_label_row by using the first span as the icon and inserting the rest
+    // before the label through a manual build.
+    let caret = focus_span(focused);
+    let label_style = focused_label(focused);
+    let mut spans = vec![caret];
+    spans.extend(toggle);
+    spans.push(Span::styled(format!(" {label}"), label_style));
+    if let Some(d) = detail {
+        spans.push(Span::styled(
+            format!("  {d}"),
+            Style::default().fg(text_faint()),
+        ));
+    }
+    if let Some(s) = suffix {
+        spans.push(s);
+    }
+    if focused {
+        tint_spans(&mut spans);
+        push_hover_filler(&mut spans);
+    }
+    ListItem::new(Line::from(spans))
 }
 
 /// A button row rendered as a filled pill, activated with `enter`.
@@ -411,7 +550,7 @@ pub fn button_item(label: &str, focused: bool, enabled: bool) -> ListItem<'stati
     pill.push_str(label);
     pill.push_str("  ");
 
-    let style = if !enabled && !focused {
+    let pill_style = if !enabled && !focused {
         Style::default().fg(text_faint())
     } else if !enabled {
         // focused but disabled: show dim accent so the row is visibly selected
@@ -425,10 +564,8 @@ pub fn button_item(label: &str, focused: bool, enabled: bool) -> ListItem<'stati
         Style::default().fg(accent()).add_modifier(Modifier::BOLD)
     };
 
-    ListItem::new(Line::from(vec![
-        focus_span(focused),
-        Span::styled(pill, style),
-    ]))
+    let spans = vec![focus_span(focused), Span::styled(pill, pill_style)];
+    ListItem::new(Line::from(spans))
 }
 
 pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
@@ -444,13 +581,20 @@ pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
     ListItem::new(Line::from(spans))
 }
 
-pub fn status_pill(label: impl Into<String>, color: Color) -> Span<'static> {
-    let label = label.into();
-    let mut out = String::with_capacity(label.len() + 2);
-    out.push(' ');
-    out.push_str(&label);
-    out.push(' ');
-    Span::styled(out, Style::default().fg(color).add_modifier(Modifier::BOLD))
+/// Builds a `[ label ]` status pill as a `Line`.
+///
+/// Brackets are always `TEXT_DIM`.  Label color: semantic (`SUCCESS` / `WARNING`
+/// / `DANGER`) for charged states, `TEXT_DIM` for neutral steady states.
+/// Label is always bold.
+pub fn status_pill(label: impl Into<String>, color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("[ ", Style::default().fg(text_dim())),
+        Span::styled(
+            label.into(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" ]", Style::default().fg(text_dim())),
+    ])
 }
 
 pub fn spacer() -> ListItem<'static> {

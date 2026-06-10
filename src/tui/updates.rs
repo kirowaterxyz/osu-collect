@@ -56,7 +56,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, 
         return None;
     }
 
-    let block = widgets::panel_block(PANEL_TITLE);
+    let block = widgets::panel_block(PANEL_TITLE, true, true);
     let inner = block.inner(area);
 
     let (items, focused_index) = build_items(form);
@@ -81,7 +81,7 @@ pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, 
 ///
 /// Inline beatmap list, sort label, and help text are hidden.
 fn render_compact(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
-    let block = widgets::panel_block(PANEL_TITLE);
+    let block = widgets::panel_block(PANEL_TITLE, true, true);
     let inner = block.inner(area);
 
     let selected_idx = form.selection.collections_state.unwrap_or(0);
@@ -320,8 +320,9 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
 }
 
 fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
-    let focused =
-        form.selection.focus == UpdatesField::Collections && !form.selection.in_beatmap_list;
+    let focused = form.selection.focus == UpdatesField::Collections
+        && !form.selection.in_collection_list
+        && !form.selection.in_beatmap_list;
     let sort = form.selection.collection_sort;
     let detail = if sort == CollectionSort::Default {
         format!(

@@ -181,19 +181,24 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
             ),
             Span::styled(text, muted),
         ]),
-        MessageKind::Info => Line::from(vec![
-            Span::raw(" "),
-            widgets::status_pill(PILL_INFO, info()),
-            Span::raw(" "),
-            Span::styled(text, muted),
-        ]),
-        MessageKind::Error => Line::from(vec![
-            Span::raw(" "),
-            widgets::status_pill(PILL_ERROR, danger()),
-            Span::raw(" "),
-            Span::styled(text, Style::default().fg(danger())),
-            Span::styled(ERROR_DISMISS_HINT, Style::default().fg(text_faint())),
-        ]),
+        MessageKind::Info => {
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(widgets::status_pill(PILL_INFO, info()).spans);
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(text, muted));
+            Line::from(spans)
+        }
+        MessageKind::Error => {
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(widgets::status_pill(PILL_ERROR, danger()).spans);
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(text, Style::default().fg(danger())));
+            spans.push(Span::styled(
+                ERROR_DISMISS_HINT,
+                Style::default().fg(text_faint()),
+            ));
+            Line::from(spans)
+        }
     }
 }
 

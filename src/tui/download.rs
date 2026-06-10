@@ -200,10 +200,8 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     let key_style = Style::default().fg(text_faint());
     let value_style = Style::default().fg(text_muted());
 
-    let mut status_spans = vec![
-        Span::styled(KEY_STATUS, key_style),
-        widgets::status_pill(status, status_color(page.stage, rate_limited)),
-    ];
+    let mut status_spans = vec![Span::styled(KEY_STATUS, key_style)];
+    status_spans.extend(widgets::status_pill(status, status_color(page.stage, rate_limited)).spans);
     if let Some(speed) = speed {
         status_spans.push(Span::styled(KEY_SPEED, key_style));
         status_spans.push(Span::styled(speed, Style::default().fg(success())));
@@ -264,7 +262,7 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(widgets::panel_block(PANEL_OVERVIEW))
+            .block(widgets::panel_block(PANEL_OVERVIEW, false, true))
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -653,7 +651,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         return;
     }
 
-    let block = widgets::panel_block(PANEL_ACTIVE);
+    let block = widgets::panel_block(PANEL_ACTIVE, true, false);
     let inner = block.inner(area);
 
     let row_width = inner.width;
@@ -705,7 +703,7 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 /// `thread_scroll` / `thread_total_items` / `thread_visible_items` bookkeeping
 /// as the ACTIVE panel, so ↑↓ navigation and `r`/`R` retry keep working.
 fn render_failed_section(frame: &mut Frame, area: Rect, page: &CollectionPage) {
-    let block = widgets::panel_block(PANEL_FAILED);
+    let block = widgets::panel_block(PANEL_FAILED, false, false);
     let inner = block.inner(area);
     let mut items: Vec<ListItem> = Vec::new();
     push_failed_rows(&mut items, page);
@@ -829,7 +827,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(widgets::panel_block(PANEL_RESULTS))
+            .block(widgets::panel_block(PANEL_RESULTS, true, false))
             .wrap(Wrap { trim: true }),
         area,
     );

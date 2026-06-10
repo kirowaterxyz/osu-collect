@@ -94,7 +94,16 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
 
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+    widgets::render_scrollable_panel(
+        frame,
+        area,
+        PANEL_TITLE,
+        &items,
+        focused_index,
+        cursor_col,
+        true,
+        true,
+    )
 }
 
 /// Whether the form has the minimum inputs a download needs: a collection
@@ -160,7 +169,16 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
 
     let cursor_col = form.focused_input().map(widgets::input_cursor_col);
     let (items, focused_index) = items.into_parts();
-    widgets::render_scrollable_panel(frame, area, PANEL_TITLE, &items, focused_index, cursor_col)
+    widgets::render_scrollable_panel(
+        frame,
+        area,
+        PANEL_TITLE,
+        &items,
+        focused_index,
+        cursor_col,
+        true,
+        true,
+    )
 }
 
 /// Pushes the two boolean override toggles (`overwrite existing`, `no video`),

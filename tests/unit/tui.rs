@@ -199,29 +199,30 @@ fn active_tab_has_orange_color_no_brackets_and_plain_bg() {
 }
 
 #[test]
-fn section_titles_use_orange_accent() {
-    let orange = Color::Rgb(217, 119, 87);
+fn section_titles_use_text_dim() {
+    // section_header eyebrow rows render in TEXT_DIM (no bold, no orange accent).
+    let text_dim = Color::Rgb(166, 173, 200);
 
-    // home tab: COLLECTION and MIRRORS
+    // home tab: COLLECTION section header
     let app = App::new(Config::default());
     let buf = render_buffer(&app, 120, 30);
-    let has_orange_c = buf
+    let has_dim_c = buf
         .content
         .iter()
-        .any(|cell| cell.symbol() == "C" && cell.style().fg == Some(orange));
-    assert!(has_orange_c, "COLLECTION section header must be orange");
+        .any(|cell| cell.symbol() == "C" && cell.style().fg == Some(text_dim));
+    assert!(has_dim_c, "COLLECTION section header must be text_dim");
 
-    // config tab: MIRRORS section
+    // config tab: MIRRORS section header
     let mut app2 = App::new(Config::default());
     app2.active_tab = CONFIG_TAB_INDEX;
     let buf2 = render_buffer(&app2, 120, 30);
-    let has_orange_m = buf2
+    let has_dim_m = buf2
         .content
         .iter()
-        .any(|cell| cell.symbol() == "M" && cell.style().fg == Some(orange));
+        .any(|cell| cell.symbol() == "M" && cell.style().fg == Some(text_dim));
     assert!(
-        has_orange_m,
-        "MIRRORS section header must be orange in config tab"
+        has_dim_m,
+        "MIRRORS section header must be text_dim in config tab"
     );
 }
 

@@ -132,7 +132,6 @@ pub(crate) fn bg() -> Color {
 pub(crate) fn bg_raised() -> Color {
     theme().bg_raised
 }
-#[allow(dead_code)] // wired by pass 2a (selected-row tint)
 pub(crate) fn bg_hover() -> Color {
     theme().bg_hover
 }
