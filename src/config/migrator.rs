@@ -3,6 +3,14 @@ use tracing::{info, warn};
 
 const OBSOLETE_DOWNLOAD_FIELDS: &[&str] = &["verify_zip_eocd"];
 
+/// Old theme values → new values.
+/// `default` → `full`, `sixteen` → `compatible`, `colorblind-safe` → `auto`.
+const THEME_RENAMES: &[(&str, &str)] = &[
+    ("default", "full"),
+    ("sixteen", "compatible"),
+    ("colorblind-safe", "auto"),
+];
+
 pub fn migrate_in_place(path: &Path) {
     let Ok(contents) = fs::read_to_string(path) else {
         return;
@@ -11,7 +19,11 @@ pub fn migrate_in_place(path: &Path) {
         return;
     };
 
-    if !strip_obsolete_fields(&mut table) {
+    let mut dirty = false;
+    dirty |= strip_obsolete_fields(&mut table);
+    dirty |= migrate_theme_mode(&mut table);
+
+    if !dirty {
         return;
     }
 
@@ -38,6 +50,24 @@ fn strip_obsolete_fields(table: &mut toml::Table) -> bool {
         }
     }
     dirty
+}
+
+/// Remap old `display.theme` string values to the new palette names.
+fn migrate_theme_mode(table: &mut toml::Table) -> bool {
+    let Some(toml::Value::Table(display)) = table.get_mut("display") else {
+        return false;
+    };
+    let Some(toml::Value::String(current)) = display.get_mut("theme") else {
+        return false;
+    };
+    for (old, new) in THEME_RENAMES {
+        if current.as_str() == *old {
+            info!(old = old, new = new, "migrated display.theme value");
+            *current = (*new).to_owned();
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

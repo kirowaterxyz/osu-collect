@@ -49,7 +49,7 @@ fn detects_no_video_change() {
 #[test]
 fn detects_theme_change() {
     let mut tab = default_tab();
-    tab.theme = ThemeMode::ColorblindSafe;
+    tab.theme = ThemeMode::Compatible;
     let pending = tab.build_config().expect("valid config");
     assert!(tab.has_pending_changes(&pending));
 }
@@ -99,12 +99,12 @@ fn diff_contains_no_video_entry() {
 fn diff_contains_theme_entry_with_correct_labels() {
     let config = Config {
         display: DisplayConfig {
-            theme: ThemeMode::Default,
+            theme: ThemeMode::Full,
         },
         ..Config::default()
     };
     let mut tab = ConfigTab::new(&config);
-    tab.theme = ThemeMode::ColorblindSafe;
+    tab.theme = ThemeMode::Compatible;
     let pending = tab.build_config().expect("valid config");
     let diff = tab.diff_entries(&pending);
 
@@ -113,8 +113,8 @@ fn diff_contains_theme_entry_with_correct_labels() {
         .find(|e| e.label == "theme")
         .expect("theme entry must be present");
 
-    assert_eq!(entry.old_value, "truecolor");
-    assert_eq!(entry.new_value, "colorblind-safe");
+    assert_eq!(entry.old_value, "full");
+    assert_eq!(entry.new_value, "compatible");
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn diff_skips_unchanged_fields() {
 
     // Now toggle something else — no_video should NOT appear in the diff.
     let mut tab2 = ConfigTab::new(&synced);
-    tab2.theme = ThemeMode::Sixteen;
+    tab2.theme = ThemeMode::Compatible;
     let pending = tab2.build_config().expect("valid config");
     let diff = tab2.diff_entries(&pending);
 
@@ -151,7 +151,7 @@ fn diff_skips_unchanged_fields() {
 fn diff_contains_multiple_changed_fields() {
     let mut tab = default_tab();
     tab.no_video = true;
-    tab.theme = ThemeMode::Sixteen;
+    tab.theme = ThemeMode::Compatible;
     tab.logging_enabled = true;
     let pending = tab.build_config().expect("valid config");
     let diff = tab.diff_entries(&pending);

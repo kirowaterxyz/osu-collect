@@ -552,9 +552,8 @@ fn bool_label(value: bool) -> &'static str {
 fn theme_label(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Auto => "auto",
-        ThemeMode::Default => "truecolor",
-        ThemeMode::Sixteen => "16-color",
-        ThemeMode::ColorblindSafe => "colorblind-safe",
+        ThemeMode::Full => "full",
+        ThemeMode::Compatible => "compatible",
     }
 }
 

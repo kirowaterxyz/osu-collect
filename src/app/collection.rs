@@ -126,7 +126,7 @@ impl ActiveDownloadLine {
 
     /// bar fill color for the current stage. rate_limited overrides downloading color.
     pub fn bar_color(&self) -> Color {
-        use crate::tui::{accent, danger, info, line_soft, success, text_dim, text_faint, warning};
+        use crate::tui::{accent, danger, info, line, success, text_dim, text_faint, warning};
         if matches!(self.stage, BeatmapStage::Downloading) && self.displayed_rate_limited() {
             return warning();
         }
@@ -135,7 +135,7 @@ impl ActiveDownloadLine {
             BeatmapStage::Downloading => accent(),
             BeatmapStage::Verifying => info(),
             BeatmapStage::Success => success(),
-            BeatmapStage::Skipped => line_soft(),
+            BeatmapStage::Skipped => line(),
             BeatmapStage::Failed => danger(),
             BeatmapStage::Aborted => text_dim(),
         }

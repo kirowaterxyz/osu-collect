@@ -13,9 +13,7 @@ use ratatui::{
 };
 
 use super::widgets;
-use super::{
-    accent, danger, info, line_soft, spinner_str, text_dim, text_faint, text_muted, warning,
-};
+use super::{accent, danger, info, line, spinner_str, text_dim, text_faint, text_muted, warning};
 
 const HINT_SEPARATOR: &str = "  ·  ";
 
@@ -203,7 +201,7 @@ fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(text_faint());
     let key_style = Style::default().fg(accent()).add_modifier(Modifier::BOLD);
-    let separator_style = Style::default().fg(line_soft());
+    let separator_style = Style::default().fg(line());
 
     for (index, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();

@@ -11,9 +11,7 @@ use ratatui::{
 use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
 
 use super::widgets::SEPARATOR;
-use super::{
-    accent, accent_alt, danger, format_free_space, line, line_soft, text_dim, text_faint, warning,
-};
+use super::{accent, accent_alt, danger, format_free_space, line, text_dim, text_faint, warning};
 
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
@@ -129,7 +127,7 @@ pub fn render<'t>(
     spans.push(Span::styled("  ", Style::default().fg(line())));
     for (index, title) in tabs.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
+            spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
         }
         let style = if index == active {
             Style::default()

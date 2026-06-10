@@ -21,7 +21,7 @@ use ratatui::{
 };
 
 use super::widgets;
-use super::{accent, accent_alt, bg_raised, line, text_dim, text_faint};
+use super::{accent, accent_alt, bg_raised, line_strong, text_dim, text_faint};
 
 const MODAL_TITLE_SAVE: &str = " SAVE CONFIG ";
 const SAVE_HINT: &str = "  [enter] save  ·  [esc] cancel";
@@ -32,7 +32,7 @@ fn modal_padding() -> Padding {
     Padding::new(1, 1, 0, 0)
 }
 
-/// Builds the standard bordered modal block: plain border in `line`, raised
+/// Builds the standard bordered modal block: plain border in `line_strong`, raised
 /// background, a bold-italic `accent_alt` title, and [`modal_padding`].
 ///
 /// Callers add a scroll indicator via `title_top` afterwards when needed.
@@ -40,7 +40,7 @@ fn modal_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(line()))
+        .border_style(Style::default().fg(line_strong()))
         .style(Style::default().bg(bg_raised()))
         .title(Span::styled(
             title,

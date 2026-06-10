@@ -88,7 +88,7 @@ pub(crate) fn glyph_fill<'a>(
 }
 
 // Palette accessors — always go through the process-wide theme so that the
-// selected variant (truecolor / 16-color / colorblind-safe) is respected.
+// selected variant (full / compatible) is respected.
 // Internal modules import these functions; external callers use `theme()`.
 pub(crate) fn accent() -> Color {
     theme().accent
@@ -123,14 +123,22 @@ pub(crate) fn text_faint() -> Color {
 pub(crate) fn line() -> Color {
     theme().line
 }
-pub(crate) fn line_soft() -> Color {
-    theme().line_soft
+pub(crate) fn line_strong() -> Color {
+    theme().line_strong
 }
 pub(crate) fn bg() -> Color {
     theme().bg
 }
 pub(crate) fn bg_raised() -> Color {
     theme().bg_raised
+}
+#[allow(dead_code)] // wired by pass 2a (selected-row tint)
+pub(crate) fn bg_hover() -> Color {
+    theme().bg_hover
+}
+#[allow(dead_code)] // wired by pass 2a (selected-row tint)
+pub(crate) fn bg_sunken() -> Color {
+    theme().bg_sunken
 }
 
 /// Spinner frames pre-padded with a leading and trailing space.

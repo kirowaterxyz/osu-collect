@@ -33,20 +33,19 @@ pub struct RecentConfig {
 
 /// Theme selection for the TUI.
 ///
-/// `Auto` detects the terminal's color depth at startup and falls back to the
-/// 16-color palette when only basic ANSI colors are available.
+/// `Auto` detects the terminal's color depth at startup: `COLORTERM=truecolor`
+/// selects the full RGB palette; anything else falls back to the xterm-256
+/// compatible palette.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeMode {
-    /// Auto-detect: truecolor → default palette; 16-color terminal → sixteen palette.
+    /// Auto-detect: `COLORTERM=truecolor` → full palette; else → compatible palette.
     #[default]
     Auto,
-    /// Force the default Catppuccin-style truecolor palette.
-    Default,
-    /// Force the 16-color ANSI fallback palette.
-    Sixteen,
-    /// Force the colorblind-safe (Wong/IBM) palette.
-    ColorblindSafe,
+    /// Force the full Catppuccin Mocha truecolor (RGB) palette.
+    Full,
+    /// Force the xterm-256 compatible palette.
+    Compatible,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

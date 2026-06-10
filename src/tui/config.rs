@@ -44,7 +44,7 @@ const CHIP_ACTION_LOGOUT: &str = " · log out ";
 const CHIP_ACTION_CANCEL: &str = " · cancel";
 const CHIP_LOGGING_IN: &str = " logging in… ";
 
-const THEME_MODE_LABELS: &[&str] = &["auto", "truecolor", "16-color", "colorblind-safe"];
+const THEME_MODE_LABELS: &[&str] = &["auto", "full", "compatible"];
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
@@ -297,8 +297,7 @@ fn retry_failed_label(mode: RetryFailedOnDownload) -> &'static str {
 fn theme_mode_label(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Auto => "auto",
-        ThemeMode::Default => "truecolor",
-        ThemeMode::Sixteen => "16-color",
-        ThemeMode::ColorblindSafe => "colorblind-safe",
+        ThemeMode::Full => "full",
+        ThemeMode::Compatible => "compatible",
     }
 }

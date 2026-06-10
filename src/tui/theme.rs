@@ -2,6 +2,19 @@ use crate::config::ThemeMode;
 use ratatui::style::Color;
 use std::sync::OnceLock;
 
+/// Capability tier reported by a resolved [`Theme`].
+///
+/// Widgets that need tier-dependent rendering (sub-cell progress glyphs
+/// `▏▎▍▌▋▊▉` vs full blocks, slide-switch vs `[on]`/`[off]` toggle) can
+/// branch on this value — all other glyphs are shared across tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    /// 24-bit RGB truecolor.
+    Full,
+    /// xterm-256 compatible colors.
+    Compatible,
+}
+
 /// All semantic color slots used by the TUI.
 ///
 /// Obtain the active instance via [`theme()`].
@@ -17,10 +30,24 @@ pub struct Theme {
     pub text_muted: Color,
     pub text_dim: Color,
     pub text_faint: Color,
+    /// Blurred panel borders, soft rules, scrollbar track (LINE: 49,50,68 / 238).
     pub line: Color,
-    pub line_soft: Color,
+    /// Focused panel borders (LINE_STRONG: 69,71,90 / 240).
+    pub line_strong: Color,
     pub bg: Color,
     pub bg_raised: Color,
+    /// Selected row tint (BG_HOVER: 40,40,56 / 236).
+    pub bg_hover: Color,
+    /// Toast / sunken surface (BG_SUNKEN: 17,17,27 / 233).
+    pub bg_sunken: Color,
+    tier: Tier,
+}
+
+impl Theme {
+    /// Returns the capability tier this theme was built for.
+    pub fn tier(&self) -> Tier {
+        self.tier
+    }
 }
 
 static THEME: OnceLock<Theme> = OnceLock::new();
@@ -40,54 +67,37 @@ pub fn init_theme(mode: ThemeMode) {
     let resolved = match mode {
         ThemeMode::Auto => {
             if terminal_supports_truecolor() {
-                Theme::default()
+                Theme::full()
             } else {
-                Theme::sixteen()
+                Theme::compatible()
             }
         }
-        ThemeMode::Default => Theme::default(),
-        ThemeMode::Sixteen => Theme::sixteen(),
-        ThemeMode::ColorblindSafe => Theme::colorblind_safe(),
+        ThemeMode::Full => Theme::full(),
+        ThemeMode::Compatible => Theme::compatible(),
     };
     let _ = THEME.set(resolved);
 }
 
 /// Detect whether the running terminal supports 24-bit ("truecolor") color.
 ///
-/// Checks `COLORTERM` first (most reliable), then falls back to inspecting
-/// `TERM` for known 16-color-only values.  When neither env var is set the
-/// function assumes truecolor is available, because ratatui will down-convert
-/// to 256-color nearest-match automatically — only the basic-16 case needs
-/// explicit switching.
+/// Returns `true` only when `$COLORTERM` (trimmed, lowercased) is exactly
+/// `"truecolor"`.  Any other value — unset, empty, `"24bit"`, or anything
+/// else — returns `false` and the compatible xterm-256 palette is used.
 fn terminal_supports_truecolor() -> bool {
-    // COLORTERM=truecolor or 24bit → explicit truecolor support
-    if let Ok(val) = std::env::var("COLORTERM") {
-        let v = val.trim().to_ascii_lowercase();
-        if v == "truecolor" || v == "24bit" {
-            return true;
-        }
-        // COLORTERM set to something else → not truecolor
-        return false;
-    }
-
-    // TERM values that are definitively 16-color only
-    if let Ok(term) = std::env::var("TERM") {
-        let t = term.trim().to_ascii_lowercase();
-        if matches!(
-            t.as_str(),
-            "linux" | "ansi" | "vt100" | "vt220" | "dumb" | "cons25"
-        ) {
-            return false;
-        }
-    }
-
-    // Default: assume capable (ratatui handles downconversion for 256c)
-    true
+    std::env::var("COLORTERM")
+        .map(|v| v.trim().eq_ignore_ascii_case("truecolor"))
+        .unwrap_or(false)
 }
 
 impl Default for Theme {
-    /// Default Catppuccin Mocha–style truecolor palette.
     fn default() -> Self {
+        Theme::full()
+    }
+}
+
+impl Theme {
+    /// Full Catppuccin Mocha truecolor (RGB) palette.
+    pub fn full() -> Self {
         Self {
             accent: Color::Rgb(67, 171, 229),
             accent_alt: Color::Rgb(217, 119, 87),
@@ -99,84 +109,39 @@ impl Default for Theme {
             text_muted: Color::Rgb(186, 194, 222),
             text_dim: Color::Rgb(166, 173, 200),
             text_faint: Color::Rgb(127, 132, 156),
-            line: Color::Rgb(69, 71, 90),
-            line_soft: Color::Rgb(49, 50, 68),
+            line: Color::Rgb(49, 50, 68),
+            line_strong: Color::Rgb(69, 71, 90),
             bg: Color::Rgb(30, 30, 46),
             bg_raised: Color::Rgb(24, 24, 37),
-        }
-    }
-}
-
-impl Theme {
-    /// 16-color ANSI fallback.  Every slot maps to a semantically close basic
-    /// ANSI color so the UI remains readable on `TERM=linux` or similar.
-    ///
-    /// `warning` → Yellow, `text_dim` → Gray — the two colors used together on
-    /// the quit toast remain visually distinct on all 16-color terminals.
-    ///
-    /// `bg` and `bg_raised` both map to Black: 16-color terminals have no
-    /// "slightly lighter black", so raised panels intentionally collapse to the
-    /// base background and rely on their borders for visual separation.  This is
-    /// not a bug — do not introduce a DarkGray fill here; solid gray blocks
-    /// regress the look on capable terminals and look heavy on basic ones.
-    pub fn sixteen() -> Self {
-        Self {
-            accent: Color::Blue,
-            accent_alt: Color::Yellow,
-            info: Color::Cyan,
-            success: Color::Green,
-            // Yellow for WARNING — distinct from text_dim (Gray) on BG (Black)
-            warning: Color::Yellow,
-            danger: Color::Red,
-            text: Color::White,
-            text_muted: Color::Gray,
-            // Gray — "slightly muted" level; brighter than text_faint (DarkGray)
-            text_dim: Color::Gray,
-            // DarkGray — dimmest text level; visually subordinate to text_dim
-            text_faint: Color::DarkGray,
-            line: Color::DarkGray,
-            line_soft: Color::Black,
-            // Both collapse to Black — panels rely on borders for separation; see
-            // the constructor doc above for the rationale.
-            bg: Color::Black,
-            bg_raised: Color::Black,
+            bg_hover: Color::Rgb(40, 40, 56),
+            bg_sunken: Color::Rgb(17, 17, 27),
+            tier: Tier::Full,
         }
     }
 
-    /// Colorblind-safe palette tuned for deuteranopia and protanopia.
+    /// xterm-256 compatible palette — maps every slot to the nearest indexed color.
     ///
-    /// Uses the Wong (2011) and IBM (2019) colorblind-safe palettes.
-    /// Blue/yellow semantics replace red/green to avoid confusion:
-    /// - `success` → blue (distinguishable from danger for CB users)
-    /// - `danger` → orange-red (distinguishable from success for CB users)
-    /// - `warning` → amber/yellow (remains distinct from success blue)
-    pub fn colorblind_safe() -> Self {
+    /// `bg` and `bg_raised` both collapse to xterm 235 / 234 which are close
+    /// enough; panels rely on borders (not fill) for visual separation.
+    pub fn compatible() -> Self {
         Self {
-            // Sapphire blue — Wong #0072B2
-            accent: Color::Rgb(0, 114, 178),
-            // Orange — Wong #E69F00 (distinct from blue for all CB types)
-            accent_alt: Color::Rgb(230, 159, 0),
-            // Sky blue — Wong #56B4E9
-            info: Color::Rgb(86, 180, 233),
-            // Blue (not green) so CB users can distinguish success from danger
-            // Wong #0072B2 shifted lighter: #009DE0
-            success: Color::Rgb(0, 157, 224),
-            // Amber/yellow — Wong #F0E442 (distinct from both blue and orange-red)
-            warning: Color::Rgb(240, 228, 66),
-            // Vermillion — Wong #D55E00 (orange-red, distinct from blue success)
-            danger: Color::Rgb(213, 94, 0),
-            // Neutral text — high contrast on dark BG
-            text: Color::Rgb(220, 220, 235),
-            text_muted: Color::Rgb(180, 185, 205),
-            // text_dim used alongside warning (amber) on the quit toast:
-            // #9CA3AF is a blue-gray — distinct from #F0E442 amber
-            text_dim: Color::Rgb(156, 163, 175),
-            text_faint: Color::Rgb(110, 115, 135),
-            line: Color::Rgb(60, 65, 85),
-            line_soft: Color::Rgb(42, 45, 62),
-            // Dark navy BG — IBM recommended dark background
-            bg: Color::Rgb(20, 22, 38),
-            bg_raised: Color::Rgb(14, 16, 28),
+            accent: Color::Indexed(75),
+            accent_alt: Color::Indexed(173),
+            info: Color::Indexed(117),
+            success: Color::Indexed(151),
+            warning: Color::Indexed(223),
+            danger: Color::Indexed(211),
+            text: Color::Indexed(189),
+            text_muted: Color::Indexed(189),
+            text_dim: Color::Indexed(145),
+            text_faint: Color::Indexed(102),
+            line: Color::Indexed(238),
+            line_strong: Color::Indexed(240),
+            bg: Color::Indexed(235),
+            bg_raised: Color::Indexed(234),
+            bg_hover: Color::Indexed(236),
+            bg_sunken: Color::Indexed(233),
+            tier: Tier::Compatible,
         }
     }
 }

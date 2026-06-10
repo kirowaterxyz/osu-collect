@@ -1,4 +1,4 @@
-use super::{migrate_in_place, strip_obsolete_fields};
+use super::{migrate_in_place, migrate_theme_mode, strip_obsolete_fields};
 use std::fs;
 
 fn parse(contents: &str) -> toml::Table {
@@ -86,4 +86,58 @@ fn migrate_in_place_tolerates_missing_and_malformed_files() {
     let before = fs::read_to_string(&bad).unwrap();
     migrate_in_place(&bad);
     assert_eq!(fs::read_to_string(&bad).unwrap(), before);
+}
+
+#[test]
+fn theme_mode_renames_default_to_full() {
+    let mut table = parse("[display]\ntheme = \"default\"\n");
+    assert!(migrate_theme_mode(&mut table));
+    assert_eq!(table["display"]["theme"].as_str(), Some("full"));
+}
+
+#[test]
+fn theme_mode_renames_sixteen_to_compatible() {
+    let mut table = parse("[display]\ntheme = \"sixteen\"\n");
+    assert!(migrate_theme_mode(&mut table));
+    assert_eq!(table["display"]["theme"].as_str(), Some("compatible"));
+}
+
+#[test]
+fn theme_mode_renames_colorblind_safe_to_auto() {
+    let mut table = parse("[display]\ntheme = \"colorblind-safe\"\n");
+    assert!(migrate_theme_mode(&mut table));
+    assert_eq!(table["display"]["theme"].as_str(), Some("auto"));
+}
+
+#[test]
+fn theme_mode_is_noop_for_already_new_value() {
+    let mut table = parse("[display]\ntheme = \"full\"\n");
+    assert!(!migrate_theme_mode(&mut table));
+    assert_eq!(table["display"]["theme"].as_str(), Some("full"));
+}
+
+#[test]
+fn theme_mode_is_noop_when_display_section_missing() {
+    let mut table = parse("[download]\nconcurrent = 4\n");
+    assert!(!migrate_theme_mode(&mut table));
+}
+
+#[test]
+fn theme_mode_is_noop_when_theme_key_missing() {
+    let mut table = parse("[display]\nsome_other = true\n");
+    assert!(!migrate_theme_mode(&mut table));
+}
+
+#[test]
+fn migrate_in_place_rewrites_theme_rename() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[display]\ntheme = \"sixteen\"\n").unwrap();
+    migrate_in_place(&path);
+    let contents = fs::read_to_string(&path).unwrap();
+    assert!(
+        contents.contains("compatible"),
+        "theme must be rewritten to compatible"
+    );
+    assert!(!contents.contains("sixteen"));
 }

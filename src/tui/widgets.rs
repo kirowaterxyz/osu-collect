@@ -15,7 +15,7 @@ use std::time::Instant;
 use super::{
     FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
     GLYPH_SPACE, accent, accent_alt, bg, danger, eyebrow, focused_label, glyph_fill, info, line,
-    line_soft, success, text_dim, text_faint, text_muted, warning,
+    success, text_dim, text_faint, text_muted, warning,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
@@ -195,7 +195,7 @@ pub fn panel_block(title: &'static str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(line_soft()))
+        .border_style(Style::default().fg(line()))
         .title(Span::styled(
             title,
             Style::default()
@@ -211,9 +211,9 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let line = glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, area.width as usize);
+    let fill = glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, area.width as usize);
     frame.render_widget(
-        Paragraph::new(line.into_owned()).style(Style::default().fg(line_soft())),
+        Paragraph::new(fill.into_owned()).style(Style::default().fg(line())),
         area,
     );
 }
@@ -435,7 +435,7 @@ pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
     let mut spans = vec![Span::raw("  ")];
     for (index, metric) in metrics.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
+            spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
         }
         spans.push(Span::styled(metric.label.to_uppercase(), eyebrow()));
         spans.push(Span::raw(" "));
@@ -468,8 +468,8 @@ pub fn status_style(stage: DownloadStage) -> Style {
     }
 }
 
-pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'static> {
-    active_download_item_msg(line, &line.displayed_message(), width)
+pub fn active_download_item(dl: &ActiveDownloadLine, width: u16) -> ListItem<'static> {
+    active_download_item_msg(dl, &dl.displayed_message(), width)
 }
 
 /// Like [`active_download_item`] but accepts an explicit message string.
@@ -477,7 +477,7 @@ pub fn active_download_item(line: &ActiveDownloadLine, width: u16) -> ListItem<'
 /// Used by the rate-limited renderer to splice a countdown suffix into the
 /// message before truncation without duplicating the progress-bar layout logic.
 pub fn active_download_item_msg(
-    line: &ActiveDownloadLine,
+    dl: &ActiveDownloadLine,
     message_text: &str,
     width: u16,
 ) -> ListItem<'static> {
@@ -487,7 +487,7 @@ pub fn active_download_item_msg(
     const RESERVED_RIGHT: u16 = BAR_WIDTH + GAP + LABEL_WIDTH;
 
     let prefix = {
-        let id_s = line.beatmapset_id.to_string();
+        let id_s = dl.beatmapset_id.to_string();
         let pad = 7usize.saturating_sub(id_s.len());
         let mut s = String::with_capacity(3 + 7 + 1);
         s.push_str("  #");
@@ -499,8 +499,8 @@ pub fn active_download_item_msg(
         s
     };
     let prefix_w = prefix.len() as u16;
-    let rate_limited = line.displayed_rate_limited();
-    let bar_color = line.bar_color();
+    let rate_limited = dl.displayed_rate_limited();
+    let bar_color = dl.bar_color();
 
     let message_budget = width
         .saturating_sub(prefix_w)
@@ -510,7 +510,7 @@ pub fn active_download_item_msg(
 
     let mut spans = vec![
         Span::styled(prefix, Style::default().fg(text_faint())),
-        Span::styled(message, message_style(line.stage, rate_limited)),
+        Span::styled(message, message_style(dl.stage, rate_limited)),
     ];
 
     let used = prefix_w.saturating_add(message_w);
@@ -519,7 +519,7 @@ pub fn active_download_item_msg(
         glyph_fill(&FILL_SPACE, GLYPH_SPACE, pad).into_owned(),
     ));
 
-    match line.progress_ratio() {
+    match dl.progress_ratio() {
         Some(ratio) => {
             let filled = ((ratio * BAR_WIDTH as f32).round() as u16).min(BAR_WIDTH);
             let empty = BAR_WIDTH - filled;
@@ -529,7 +529,7 @@ pub fn active_download_item_msg(
             ));
             spans.push(Span::styled(
                 glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty as usize).into_owned(),
-                Style::default().fg(line_soft()),
+                Style::default().fg(line()),
             ));
             let pct = (ratio * 100.0).round() as u16;
             spans.push(Span::styled(
@@ -537,14 +537,14 @@ pub fn active_download_item_msg(
                 Style::default().fg(text_faint()),
             ));
         }
-        None if matches!(line.stage, crate::download::BeatmapStage::Downloading) => {
+        None if matches!(dl.stage, crate::download::BeatmapStage::Downloading) => {
             spans.extend(indeterminate_bar_spans(BAR_WIDTH, bar_color));
             spans.push(Span::styled("  ...", Style::default().fg(text_faint())));
         }
         None => {
             spans.push(Span::styled(
                 glyph_fill(&FILL_SHADE, GLYPH_SHADE, BAR_WIDTH as usize).into_owned(),
-                Style::default().fg(line_soft()),
+                Style::default().fg(line()),
             ));
             spans.push(Span::styled("     ", Style::default().fg(text_faint())));
         }
@@ -570,7 +570,7 @@ fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
     if offset > 0 {
         spans.push(Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, offset).into_owned(),
-            Style::default().fg(line_soft()),
+            Style::default().fg(line()),
         ));
     }
     spans.push(Span::styled(
@@ -581,7 +581,7 @@ fn indeterminate_bar_spans(width: u16, bar_color: Color) -> Vec<Span<'static>> {
     if right > 0 {
         spans.push(Span::styled(
             glyph_fill(&FILL_SHADE, GLYPH_SHADE, right).into_owned(),
-            Style::default().fg(line_soft()),
+            Style::default().fg(line()),
         ));
     }
     spans

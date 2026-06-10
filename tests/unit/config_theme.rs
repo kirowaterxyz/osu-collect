@@ -13,7 +13,7 @@ fn theme_field_roundtrips_through_save_and_load() {
     let path = dir.path().join("config.toml");
 
     let mut config = Config::default();
-    config.display.theme = ThemeMode::ColorblindSafe;
+    config.display.theme = ThemeMode::Compatible;
 
     // Use the env-var override to point save_config at our temp dir
     unsafe { std::env::set_var("OSU_COLLECT_CONFIG", path.to_str().unwrap()) };
@@ -23,7 +23,7 @@ fn theme_field_roundtrips_through_save_and_load() {
 
     assert_eq!(
         loaded.display.theme,
-        ThemeMode::ColorblindSafe,
+        ThemeMode::Compatible,
         "theme variant must survive save+load"
     );
 }
@@ -44,9 +44,8 @@ fn theme_defaults_to_auto_when_absent_from_toml() {
 fn all_theme_variants_serialize_and_deserialize() {
     let cases = [
         (ThemeMode::Auto, "auto"),
-        (ThemeMode::Default, "default"),
-        (ThemeMode::Sixteen, "sixteen"),
-        (ThemeMode::ColorblindSafe, "colorblind-safe"),
+        (ThemeMode::Full, "full"),
+        (ThemeMode::Compatible, "compatible"),
     ];
     for (variant, toml_str) in cases {
         let toml = format!("[display]\ntheme = \"{toml_str}\"\n");

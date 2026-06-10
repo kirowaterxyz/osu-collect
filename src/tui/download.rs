@@ -14,7 +14,7 @@ use ratatui::{
 use super::widgets::{self, SEPARATOR};
 use super::{
     FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, eyebrow,
-    glyph_fill, info, line_soft, spinner_str, success, text_dim, text_faint, text_muted, warning,
+    glyph_fill, info, line, spinner_str, success, text_dim, text_faint, text_muted, warning,
 };
 
 const INFO_HEIGHT: u16 = 8;
@@ -342,7 +342,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
             },
             Style::default().fg(success()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
+        Span::styled(SEPARATOR, Style::default().fg(line())),
         Span::styled(
             {
                 let mut s = skipped.to_string();
@@ -351,7 +351,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
             },
             Style::default().fg(text_muted()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
+        Span::styled(SEPARATOR, Style::default().fg(line())),
         Span::styled(
             {
                 let mut s = failed.to_string();
@@ -366,7 +366,7 @@ fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
         ),
     ];
     if unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
         spans.push(Span::styled(
             {
                 let mut s = unverified.to_string();
@@ -791,20 +791,20 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
             summary.downloaded.to_string(),
             Style::default().fg(accent()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
+        Span::styled(SEPARATOR, Style::default().fg(line())),
         Span::styled(RESULTS_SKIPPED, eyebrow_style),
         Span::raw(" "),
         Span::styled(
             summary.skipped.to_string(),
             Style::default().fg(text_muted()),
         ),
-        Span::styled(SEPARATOR, Style::default().fg(line_soft())),
+        Span::styled(SEPARATOR, Style::default().fg(line())),
         Span::styled(RESULTS_FAILED, eyebrow_style),
         Span::raw(" "),
         Span::styled(summary.failed.to_string(), failed_style),
     ];
     if summary.unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(line_soft())));
+        spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
         spans.push(Span::styled(RESULTS_UNVERIFIED, eyebrow_style));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(

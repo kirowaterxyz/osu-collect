@@ -46,12 +46,7 @@ pub const SPEED_STALE_AFTER: Duration = Duration::from_secs(1);
 pub const DISK_CACHE_TTL: Duration = Duration::from_secs(10);
 pub const VALIDATION_CACHE_LIMIT: usize = 4096;
 
-pub const THEME_MODES: [ThemeMode; 4] = [
-    ThemeMode::Auto,
-    ThemeMode::Default,
-    ThemeMode::Sixteen,
-    ThemeMode::ColorblindSafe,
-];
+pub const THEME_MODES: [ThemeMode; 3] = [ThemeMode::Auto, ThemeMode::Full, ThemeMode::Compatible];
 
 pub const LOG_LEVELS: [LogLevel; 5] = [
     LogLevel::Error,
