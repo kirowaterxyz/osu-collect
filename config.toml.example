@@ -1,31 +1,38 @@
-# put this in ~/.config/osu-collect/config.toml to use it
+# put this in ~/.config/osu-collect/config.toml (Linux/macOS)
+# or %APPDATA%\osu-collect\config.toml (Windows)
+# every key is optional — missing keys fall back to the defaults shown here
 
 [mirror]
-# Select any combination of supported mirrors
+# built-in beatmap mirrors; enable any combination (all on by default)
 nerinyan = true
-osu_direct = false
-sayobot = false
+osu_direct = true
+sayobot = true
+nekoha = true
 
-# use the official osu! API v2 as a download source
-official = false
-
-# Optional custom mirror template (must contain {id})
+# optional custom mirror template (must contain {id})
 # url = "https://example.com/d/{id}"
 
-[official]
-# osu! oauth credentials for login or client-credentials downloads
-# client_id = ""
-# client_secret = ""
+# the official osu! mirror is enabled by logging in on the config tab
+# (credentials are stored in auth.json next to ts file, not here)
 
 [download]
-# concurrent downloads
-concurrent = 6
+# parallel downloads; defaults to your CPU core count when unset
+# values above 50 trigger a warning — 20 or less avoids rate limiting
+# concurrent = 8
 
-# download beatmapsets without video if the mirror supports it
+# download beatmapsets without video when the mirror supports it
 no_video = false
 
-# check the ZIP EOCD footer to verify .osz integrity
-verify_zip_eocd = false
+# .osz integrity check: "off", "magic" (ZIP header, default) or "eocd" (full footer scan)
+archive_validation = "magic"
+
+# when a new download overlaps previously failed maps:
+# "ask" (prompt, default), "yes" (always retry), "no" (skip silently)
+retry_failed_on_download = "ask"
+
+[display]
+# "auto" (detect terminal color depth, default), "full" (truecolor), "compatible" (256/16-color)
+theme = "auto"
 
 [logging]
 # structured logging is disabled by default, set to true to enable tracing output
@@ -39,3 +46,5 @@ format = "compact"
 
 # optional directory for rolled JSON log files
 # file_dir = "/home/user/.local/share/osu-collect/logs"
+
+# [recent] is managed automatically (last collection + download dir) — no need to edit it
