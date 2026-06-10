@@ -163,18 +163,18 @@ fn download_render_shows_status_metrics_and_results() {
 }
 
 #[test]
-fn active_tab_has_orange_color_no_brackets_and_plain_bg() {
+fn active_tab_has_accent_color_no_brackets_and_plain_bg() {
     let app = App::new(Config::default());
     let buf = render_buffer(&app, 80, 24);
-    let orange = Color::Rgb(217, 119, 87);
+    let accent = Color::Rgb(67, 171, 229);
     let bg = Color::Rgb(30, 30, 46);
 
-    // active tab text ("home") must be orange
-    let has_orange_h = buf
+    // active tab text ("home") must use accent (blue)
+    let has_accent_h = buf
         .content
         .iter()
-        .any(|cell| cell.symbol() == "h" && cell.style().fg == Some(orange));
-    assert!(has_orange_h, "active tab 'home' must render with orange fg");
+        .any(|cell| cell.symbol() == "h" && cell.style().fg == Some(accent));
+    assert!(has_accent_h, "active tab 'home' must render with accent fg");
 
     // no bracket characters should appear in the header row (row 0)
     let header_row: String = buf

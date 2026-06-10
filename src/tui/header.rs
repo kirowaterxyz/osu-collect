@@ -10,8 +10,7 @@ use ratatui::{
 
 use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
 
-use super::widgets::SEPARATOR;
-use super::{accent, accent_alt, danger, format_free_space, line, text_dim, text_faint, warning};
+use super::{accent, accent_alt, danger, format_free_space, text_dim, text_faint, warning};
 
 const BRAND: &str = " osu-collect ";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
@@ -118,23 +117,26 @@ pub fn render<'t>(
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             BRAND,
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(accent_alt())
+                .add_modifier(Modifier::BOLD),
         ))),
         layout[0],
     );
 
     let mut spans: Vec<Span<'t>> = Vec::with_capacity(tabs.len() * 3);
-    spans.push(Span::styled("  ", Style::default().fg(line())));
+    // bullet separator between brand and first tab
+    spans.push(Span::styled("  •  ", Style::default().fg(text_dim())));
     for (index, title) in tabs.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
+            spans.push(Span::raw("   "));
         }
         let style = if index == active {
             Style::default()
-                .fg(accent_alt())
+                .fg(accent())
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(text_faint())
+            Style::default().fg(text_dim())
         };
         spans.push(Span::styled(title.clone(), style));
     }
