@@ -14,6 +14,12 @@ fn main() {
     let is_windows_gnu = target == "x86_64-pc-windows-gnu";
     let is_msvc = target.contains("msvc");
 
+    // True when `-C target-feature=+crt-static` is in effect (see .cargo/config.toml).
+    // cc-rs reads the same env var to pick /MT, so realm-core must match or LNK2038.
+    let crt_static = env::var("CARGO_CFG_TARGET_FEATURE")
+        .map(|features| features.split(',').any(|f| f == "crt-static"))
+        .unwrap_or(false);
+
     // Build realm-core only (skip cpprealm SDK which has compiler issues)
     let mut cmake_config = cmake::Config::new(&realm_core_dir);
     cmake_config
@@ -25,9 +31,14 @@ fn main() {
         .define("CMAKE_CXX_STANDARD", "17");
 
     if is_msvc {
-        // Use dynamic CRT (/MD) to match Rust's default runtime linkage
-        // Without this, realm-core builds with static CRT (/MT) causing LNK2038 mismatch
-        cmake_config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL");
+        // Match realm-core's CRT to Rust's: static (/MT) when crt-static is set, otherwise
+        // dynamic (/MD). A mismatch between the two halves of the link is LNK2038.
+        let runtime = if crt_static {
+            "MultiThreaded"
+        } else {
+            "MultiThreadedDLL"
+        };
+        cmake_config.define("CMAKE_MSVC_RUNTIME_LIBRARY", runtime);
     } else {
         cmake_config.cxxflag("-Wno-error");
     }
