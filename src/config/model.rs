@@ -33,16 +33,15 @@ pub struct RecentConfig {
 
 /// Theme selection for the TUI.
 ///
-/// `Auto` detects the terminal's color depth at startup: `COLORTERM=truecolor`
-/// selects the full RGB palette; anything else falls back to the xterm-256
-/// compatible palette.
+/// The palette defaults to [`ThemeMode::Full`]. When `display.theme` is absent
+/// from config entirely (first run, or a config that failed to parse), the full
+/// truecolor palette is used — there is no terminal auto-detection. See
+/// `tui::theme::apply_theme`.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeMode {
-    /// Auto-detect: `COLORTERM=truecolor` → full palette; else → compatible palette.
-    #[default]
-    Auto,
     /// Force the full Catppuccin Mocha truecolor (RGB) palette.
+    #[default]
     Full,
     /// Force the xterm-256 compatible palette.
     Compatible,
@@ -51,7 +50,11 @@ pub enum ThemeMode {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct DisplayConfig {
-    pub theme: ThemeMode,
+    /// Explicit palette choice. `None` (key absent) selects the full truecolor
+    /// palette at startup. Any value the user picks in the config tab pins the
+    /// choice from then on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<ThemeMode>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -68,13 +71,26 @@ pub struct MirrorConfig {
     pub url: Option<Box<str>>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct DownloadConfig {
     pub concurrent: Option<u8>,
-    pub no_video: bool,
+    /// Whether beatmap videos are included in downloads. `true` (the default)
+    /// uses each mirror's full template; `false` switches to its no-video one.
+    pub video: bool,
     pub archive_validation: ArchiveValidation,
     pub retry_failed_on_download: RetryFailedOnDownload,
+}
+
+impl Default for DownloadConfig {
+    fn default() -> Self {
+        Self {
+            concurrent: None,
+            video: true,
+            archive_validation: ArchiveValidation::default(),
+            retry_failed_on_download: RetryFailedOnDownload::default(),
+        }
+    }
 }
 
 /// Policy for retrying beatmaps that failed in a previous run when the user
@@ -186,7 +202,7 @@ impl Config {
                 return Err(AppError::config("Thread count must be at least 1"));
             }
 
-            if concurrent > 50 {
+            if concurrent > 100 {
                 warn!(
                     concurrent,
                     "Thread count is unusually high; consider lowering to avoid rate limiting"

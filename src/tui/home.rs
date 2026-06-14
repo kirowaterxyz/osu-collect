@@ -1,5 +1,5 @@
 use crate::app::runtime::ProbeResult;
-use crate::app::{Banner, HomeField, HomeTab, ResolveState};
+use crate::app::{HomeField, HomeTab, ResolveState};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -8,8 +8,7 @@ use ratatui::{
     widgets::ListItem,
 };
 
-use super::banner::{banner_height, render_banners};
-use super::widgets::{self, Metric};
+use super::widgets;
 use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_dim, text_faint, text_muted};
 use osu_downloader::MirrorKind;
 
@@ -18,59 +17,63 @@ const PANEL_TITLE: &str = " HOME ";
 const SECTION_COLLECTION: &str = "collection";
 const SECTION_MIRRORS: &str = "mirrors";
 const SECTION_DOWNLOAD: &str = "download";
+/// Sentinel for a field that belongs to no section (the download button);
+/// never equals a rendered header label, so no title lights up.
+const SECTION_NONE: &str = "";
 
 const LABEL_OVERWRITE: &str = "overwrite existing";
-const LABEL_NO_VIDEO: &str = "no video";
-
-const METRIC_THREADS: &str = "threads";
-const METRIC_MIRRORS: &str = "mirrors";
+const LABEL_VIDEO: &str = "video";
 
 const LABEL_START_DOWNLOAD: &str = "start download";
 
 /// Returns the terminal caret position when a text field is focused, for the
 /// caller to apply. `None` when no caret should show (non-text focus).
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    form: &HomeTab,
-    banners: &[Banner],
-) -> Option<(u16, u16)> {
+///
+/// System-wide banners are rendered by [`super::draw`] above the body area, so
+/// this receives the already-reduced content area.
+pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) -> Option<(u16, u16)> {
     if area.height < super::COMPACT_HEIGHT {
-        return render_compact(frame, area, form);
+        return render_compact(frame, area, form, editing);
     }
-
-    let (banner_area, content_area) = split_banner_area(area, banners);
-    render_banners(frame, banner_area, banners);
-    render_content(frame, content_area, form)
+    render_content(frame, area, form, editing)
 }
 
 /// Compact render: all focusable fields without section headers, spacers, or help lines.
 ///
 /// Navigation is identical to normal mode — the full `HOME_FIELDS` cycle still applies.
 /// Only decorative chrome is stripped to reclaim vertical space.
-fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16, u16)> {
+fn render_compact(
+    frame: &mut Frame,
+    area: Rect,
+    form: &HomeTab,
+    editing: bool,
+) -> Option<(u16, u16)> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
     items.push_focusable(
         HomeField::Collection,
-        widgets::input_item(&form.collection, focus == HomeField::Collection),
+        widgets::input_item(&form.collection, focus == HomeField::Collection, editing),
     );
     if let Some((state, text)) = &form.collection_resolve {
         items.push(resolve_row(*state, text));
     }
-    items.push_focusable(
-        HomeField::Directory,
-        widgets::input_item(&form.directory, focus == HomeField::Directory),
-    );
 
     items.push_focusable(
         HomeField::CustomMirror,
-        widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
+        widgets::input_item(
+            &form.custom_mirror,
+            focus == HomeField::CustomMirror,
+            editing,
+        ),
     );
 
     push_mirror_rows(&mut items, form, focus);
 
+    items.push_focusable(
+        HomeField::Directory,
+        widgets::input_item(&form.directory, focus == HomeField::Directory, editing),
+    );
     items.push_focusable(
         HomeField::Threads,
         widgets::stepper_item(
@@ -82,7 +85,6 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     );
     push_toggle_rows(&mut items, form, focus);
 
-    items.push(summary_item(form));
     items.push_focusable(
         HomeField::Download,
         widgets::button_item(
@@ -92,7 +94,9 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         ),
     );
 
-    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
+    let cursor_col = editing
+        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
@@ -113,28 +117,40 @@ fn can_download(form: &HomeTab) -> bool {
     !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
-fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16, u16)> {
+fn render_content(
+    frame: &mut Frame,
+    area: Rect,
+    form: &HomeTab,
+    editing: bool,
+) -> Option<(u16, u16)> {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
-    items.push(widgets::section_header(SECTION_COLLECTION));
+    let active_section = home_section(focus);
+    items.push(widgets::section_header(
+        SECTION_COLLECTION,
+        active_section == SECTION_COLLECTION,
+    ));
     items.push_focusable(
         HomeField::Collection,
-        widgets::input_item(&form.collection, focus == HomeField::Collection),
+        widgets::input_item(&form.collection, focus == HomeField::Collection, editing),
     );
     if let Some((state, text)) = &form.collection_resolve {
         items.push(resolve_row(*state, text));
     }
-    items.push_focusable(
-        HomeField::Directory,
-        widgets::input_item(&form.directory, focus == HomeField::Directory),
-    );
     items.push(widgets::spacer());
 
-    items.push(widgets::section_header(SECTION_MIRRORS));
+    items.push(widgets::section_header(
+        SECTION_MIRRORS,
+        active_section == SECTION_MIRRORS,
+    ));
     items.push_focusable(
         HomeField::CustomMirror,
-        widgets::input_item(&form.custom_mirror, focus == HomeField::CustomMirror),
+        widgets::input_item(
+            &form.custom_mirror,
+            focus == HomeField::CustomMirror,
+            editing,
+        ),
     );
     if focus == HomeField::CustomMirror {
         items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
@@ -143,7 +159,14 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     push_mirror_rows(&mut items, form, focus);
     items.push(widgets::spacer());
 
-    items.push(widgets::section_header(SECTION_DOWNLOAD));
+    items.push(widgets::section_header(
+        SECTION_DOWNLOAD,
+        active_section == SECTION_DOWNLOAD,
+    ));
+    items.push_focusable(
+        HomeField::Directory,
+        widgets::input_item(&form.directory, focus == HomeField::Directory, editing),
+    );
     items.push_focusable(
         HomeField::Threads,
         widgets::stepper_item(
@@ -156,8 +179,6 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     push_toggle_rows(&mut items, form, focus);
     items.push(widgets::spacer());
 
-    items.push(summary_item(form));
-    items.push(widgets::spacer());
     items.push_focusable(
         HomeField::Download,
         widgets::button_item(
@@ -167,7 +188,9 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
         ),
     );
 
-    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
+    let cursor_col = editing
+        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
@@ -181,13 +204,11 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab) -> Option<(u16,
     )
 }
 
-/// Pushes the two boolean override toggles (`overwrite existing`, `no video`),
+/// Pushes the two boolean override toggles (`overwrite existing`, `video`),
 /// shared by `render_compact` and `render_content`.
 ///
-/// The check glyph already encodes each toggle's state, so neither row repeats
-/// it as text. `no_video` overrides the saved `download.no_video` default, so it
-/// carries a dim `(default: on/off)` hint sourced from `HomeTab::default_no_video`.
-/// `auto_overwrite` has no config default, so it gets no detail.
+/// The slide-toggle glyph already encodes each row's state, so neither row
+/// repeats it as text and neither carries a default hint.
 fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, focus: HomeField) {
     items.push_focusable(
         HomeField::AutoOverwrite,
@@ -199,23 +220,9 @@ fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
         ),
     );
     items.push_focusable(
-        HomeField::NoVideo,
-        widgets::row_item(
-            LABEL_NO_VIDEO,
-            Some(&default_hint(form.default_no_video)),
-            form.no_video,
-            focus == HomeField::NoVideo,
-        ),
+        HomeField::Video,
+        widgets::row_item(LABEL_VIDEO, None, form.video, focus == HomeField::Video),
     );
-}
-
-/// A `(default: on)` / `(default: off)` hint string for a home override toggle.
-fn default_hint(value: bool) -> String {
-    if value {
-        "(default: on)".to_string()
-    } else {
-        "(default: off)".to_string()
-    }
 }
 
 /// Pushes the four built-in mirror toggle rows, each with its latency suffix.
@@ -244,12 +251,20 @@ fn push_mirror_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
     }
 }
 
-/// The threads / mirrors summary row, shared by both render paths.
-fn summary_item(form: &HomeTab) -> ListItem<'static> {
-    widgets::summary_item(&[
-        Metric::accent(METRIC_THREADS, form.resolved_threads().to_string()),
-        Metric::accent(METRIC_MIRRORS, form.mirror_count().to_string()),
-    ])
+/// The section a focused field belongs to, driving the active-section header cue.
+///
+/// The download button sits below all sections, so it maps to no header
+/// (`SECTION_NONE`): focusing it leaves every section title un-underlined.
+fn home_section(field: HomeField) -> &'static str {
+    use HomeField::*;
+    match field {
+        Collection => SECTION_COLLECTION,
+        CustomMirror | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha => {
+            SECTION_MIRRORS
+        }
+        Threads | AutoOverwrite | Video | Directory => SECTION_DOWNLOAD,
+        Download => SECTION_NONE,
+    }
 }
 
 /// Mirror toggle row: the shared [`widgets::row_item`] base plus a trailing
@@ -276,15 +291,15 @@ fn latency_span(latency: Option<Option<ProbeResult>>) -> Option<Span<'static>> {
         None => Some(Span::styled("  …", Style::default().fg(text_dim()))),
         Some(ProbeResult::Ms(ms)) => {
             let mut s = String::with_capacity(10);
-            s.push_str("  ✓ ");
+            s.push_str("  ");
             s.push_str(&ms.to_string());
             s.push_str("ms");
             Some(Span::styled(s, Style::default().fg(success())))
         }
         Some(ProbeResult::Timeout) => {
-            Some(Span::styled("  ✗timeout", Style::default().fg(danger())))
+            Some(Span::styled("  timeout", Style::default().fg(danger())))
         }
-        Some(ProbeResult::Error) => Some(Span::styled("  ✗N/A", Style::default().fg(danger()))),
+        Some(ProbeResult::Error) => Some(Span::styled("  N/A", Style::default().fg(danger()))),
     }
 }
 
@@ -302,31 +317,4 @@ fn resolve_row(state: ResolveState, text: &str) -> ListItem<'static> {
         Span::styled(RESOLVE_ARROW, Style::default().fg(arrow_color)),
         Span::styled(text.to_string(), Style::default().fg(text_color)),
     ]))
-}
-
-/// Split `area` into a banner strip (top) and the main content area (rest).
-///
-/// When `banners` is empty the banner strip has height 0 and `content_area`
-/// is the full `area`. Only inserts rows for the actual number of banners so
-/// the content area is never unnecessarily shrunk.
-fn split_banner_area(area: Rect, banners: &[Banner]) -> (Rect, Rect) {
-    let n = banner_height(banners);
-    if n == 0 {
-        return (Rect { height: 0, ..area }, area);
-    }
-    let banner_height_clamped = n.min(area.height);
-    let content_height = area.height.saturating_sub(banner_height_clamped);
-    let banner_area = Rect {
-        x: area.x,
-        y: area.y,
-        width: area.width,
-        height: banner_height_clamped,
-    };
-    let content_area = Rect {
-        x: area.x,
-        y: area.y + banner_height_clamped,
-        width: area.width,
-        height: content_height,
-    };
-    (banner_area, content_area)
 }

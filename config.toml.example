@@ -20,8 +20,8 @@ nekoha = true
 # values above 50 trigger a warning — 20 or less avoids rate limiting
 # concurrent = 8
 
-# download beatmapsets without video when the mirror supports it
-no_video = false
+# include beatmap videos in downloads (uses each mirror's no-video template when false)
+video = true
 
 # .osz integrity check: "off", "magic" (ZIP header, default) or "eocd" (full footer scan)
 archive_validation = "magic"
@@ -31,8 +31,9 @@ archive_validation = "magic"
 retry_failed_on_download = "ask"
 
 [display]
-# "auto" (detect terminal color depth, default), "full" (truecolor), "compatible" (256/16-color)
-theme = "auto"
+# "full" (truecolor, default) or "compatible" (xterm-256/16-color).
+# Omit this key entirely to auto-detect from the terminal's color depth on first run.
+theme = "full"
 
 [logging]
 # structured logging is disabled by default, set to true to enable tracing output

@@ -95,6 +95,30 @@ fn build_request_passes_archive_validation_argument() {
 }
 
 #[test]
+fn build_request_accepts_thread_count_up_to_100() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    home.collection.value = "12345".to_string();
+    home.threads.value = "100".to_string();
+
+    let request = home.build_request(ArchiveValidation::Magic).unwrap();
+    assert_eq!(request.config.concurrent, 100);
+}
+
+#[test]
+fn build_request_rejects_thread_count_above_100() {
+    let config = Config::default();
+    let mut home = HomeTab::new(&config);
+    home.collection.value = "12345".to_string();
+    home.threads.value = "101".to_string();
+
+    let err = home
+        .build_request(ArchiveValidation::Magic)
+        .expect_err("101 threads must be rejected");
+    assert_eq!(err, "Thread count must be between 1 and 100");
+}
+
+#[test]
 fn threads_stepper_increments_by_one() {
     let config = Config::default();
     let mut home = HomeTab::new(&config);

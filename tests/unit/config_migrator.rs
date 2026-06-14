@@ -1,4 +1,4 @@
-use super::{migrate_in_place, migrate_theme_mode, strip_obsolete_fields};
+use super::{migrate_in_place, migrate_no_video, migrate_theme_mode, strip_obsolete_fields};
 use std::fs;
 
 fn parse(contents: &str) -> toml::Table {
@@ -89,6 +89,51 @@ fn migrate_in_place_tolerates_missing_and_malformed_files() {
 }
 
 #[test]
+fn no_video_true_becomes_video_false() {
+    let mut table = parse("[download]\nno_video = true\n");
+    assert!(migrate_no_video(&mut table));
+    let download = table["download"].as_table().unwrap();
+    assert!(
+        !download.contains_key("no_video"),
+        "no_video must be removed"
+    );
+    assert_eq!(
+        download["video"].as_bool(),
+        Some(false),
+        "no_video = true must invert to video = false"
+    );
+}
+
+#[test]
+fn no_video_false_becomes_video_true() {
+    let mut table = parse("[download]\nno_video = false\n");
+    assert!(migrate_no_video(&mut table));
+    let download = table["download"].as_table().unwrap();
+    assert!(!download.contains_key("no_video"));
+    assert_eq!(download["video"].as_bool(), Some(true));
+}
+
+#[test]
+fn no_video_migration_keeps_explicit_video_key() {
+    let mut table = parse("[download]\nno_video = true\nvideo = true\n");
+    assert!(migrate_no_video(&mut table));
+    let download = table["download"].as_table().unwrap();
+    assert!(!download.contains_key("no_video"));
+    assert_eq!(
+        download["video"].as_bool(),
+        Some(true),
+        "an explicit video key must win over the legacy no_video"
+    );
+}
+
+#[test]
+fn no_video_migration_is_noop_when_absent() {
+    let mut table = parse("[download]\nconcurrent = 4\n");
+    assert!(!migrate_no_video(&mut table));
+    assert!(!table["download"].as_table().unwrap().contains_key("video"));
+}
+
+#[test]
 fn theme_mode_renames_default_to_full() {
     let mut table = parse("[display]\ntheme = \"default\"\n");
     assert!(migrate_theme_mode(&mut table));
@@ -103,10 +148,23 @@ fn theme_mode_renames_sixteen_to_compatible() {
 }
 
 #[test]
-fn theme_mode_renames_colorblind_safe_to_auto() {
+fn theme_mode_removes_colorblind_safe() {
     let mut table = parse("[display]\ntheme = \"colorblind-safe\"\n");
     assert!(migrate_theme_mode(&mut table));
-    assert_eq!(table["display"]["theme"].as_str(), Some("auto"));
+    assert!(
+        !table["display"].as_table().unwrap().contains_key("theme"),
+        "colorblind-safe must be removed so the default full palette is used"
+    );
+}
+
+#[test]
+fn theme_mode_removes_auto() {
+    let mut table = parse("[display]\ntheme = \"auto\"\n");
+    assert!(migrate_theme_mode(&mut table));
+    assert!(
+        !table["display"].as_table().unwrap().contains_key("theme"),
+        "auto must be removed so the default full palette is used"
+    );
 }
 
 #[test]

@@ -21,6 +21,7 @@ fn char_key(ch: char) -> KeyEvent {
 fn typing_collection_url_emits_resolve_command() {
     let mut app = App::new(Config::default());
     app.home.focus = HomeField::Collection;
+    app.editing = true; // text inputs require edit mode before typing
 
     let cmd = app.handle_key(char_key('1'));
 
@@ -35,6 +36,7 @@ fn typing_collection_url_emits_resolve_command() {
 fn backspace_collection_field_emits_resolve_command() {
     let mut app = App::new(Config::default());
     app.home.focus = HomeField::Collection;
+    app.editing = true; // backspace edits only in edit mode
     // set_value parks the caret at the end so backspace deletes the last char.
     app.home.collection.set_value("12345");
 

@@ -16,15 +16,15 @@ pub mod status {
     pub const RETRYING_PREFIX: &str = "retrying ";
     pub const RETRYING_AFTER: &str = " after ";
     pub const RETRYING_ATTEMPT_PREFIX: &str = " (attempt ";
-    pub const RATE_LIMITED_SUFFIX: &str = " on all mirrors, waiting ";
+    pub const RATE_LIMITED_SUFFIX: &str = " on all mirrors, waiting";
 }
 
-pub const CONCURRENT_REQUESTS: usize = 50;
+pub const CONCURRENT_REQUESTS: usize = 100;
 pub const DEFAULT_PROGRESS_WATCHDOG_SECS: u64 = 120;
 
 pub fn default_threads() -> u8 {
     std::thread::available_parallelism()
-        .map(|n| (n.get() as u8).min(50))
+        .map(|n| (n.get() as u8).min(100))
         .unwrap_or(1)
 }
 
@@ -46,7 +46,7 @@ pub const SPEED_STALE_AFTER: Duration = Duration::from_secs(1);
 pub const DISK_CACHE_TTL: Duration = Duration::from_secs(10);
 pub const VALIDATION_CACHE_LIMIT: usize = 4096;
 
-pub const THEME_MODES: [ThemeMode; 3] = [ThemeMode::Auto, ThemeMode::Full, ThemeMode::Compatible];
+pub const THEME_MODES: [ThemeMode; 2] = [ThemeMode::Full, ThemeMode::Compatible];
 
 pub const LOG_LEVELS: [LogLevel; 5] = [
     LogLevel::Error,

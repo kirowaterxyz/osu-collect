@@ -16,17 +16,6 @@ use crate::{
     utils::expand_tilde,
 };
 
-/// A single changed field in the config diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConfigDiffEntry {
-    /// Display label for the field (matches what appears in the config tab).
-    pub label: &'static str,
-    /// Current on-disk value as a display string.
-    pub old_value: String,
-    /// Pending form value as a display string.
-    pub new_value: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthLoginState {
     LoggedOut,
@@ -52,7 +41,7 @@ pub enum ConfigField {
     MirrorNekoha,
     MirrorCustomUrl,
     DownloadThreads,
-    DownloadNoVideo,
+    DownloadVideo,
     DownloadArchiveValidation,
     RetryFailedOnDownload,
     LoggingEnabled,
@@ -61,18 +50,21 @@ pub enum ConfigField {
     LoggingDirectory,
 }
 
+// Navigation order — must mirror the render order in `tui::config`
+// (`build_config_items`): auth · display · mirrors · download · logging,
+// matching the home tab's mirrors-before-download flow.
 const ALL_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::AuthChip,
     ConfigField::Theme,
-    ConfigField::DownloadThreads,
-    ConfigField::DownloadNoVideo,
-    ConfigField::DownloadArchiveValidation,
-    ConfigField::RetryFailedOnDownload,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
     ConfigField::MirrorNekoha,
     ConfigField::MirrorCustomUrl,
+    ConfigField::DownloadVideo,
+    ConfigField::DownloadThreads,
+    ConfigField::DownloadArchiveValidation,
+    ConfigField::RetryFailedOnDownload,
     ConfigField::LoggingEnabled,
     ConfigField::LoggingLevel,
     ConfigField::LoggingFormat,
@@ -100,7 +92,7 @@ pub struct ConfigTab {
     pub custom_mirror: InputField,
     pub login_state: AuthLoginState,
     pub threads: InputField,
-    pub no_video: bool,
+    pub video: bool,
     pub archive_validation: ArchiveValidation,
     pub retry_failed_on_download: RetryFailedOnDownload,
     pub logging_enabled: bool,
@@ -111,8 +103,9 @@ pub struct ConfigTab {
     pub focus: ConfigField,
     pub message: Option<AppMessage>,
     pub default_threads: u8,
-    /// Snapshot of the config as it was when the tab was loaded. Used to
-    /// compute the pending-changes diff before saving.
+    /// Config as last persisted to disk. The config tab does not edit the
+    /// `recent` last-used inputs, so [`build_config`](Self::build_config) reads
+    /// them back from here to avoid wiping the prefill state on save.
     pub loaded_config: Config,
 }
 
@@ -127,15 +120,17 @@ impl ConfigTab {
             custom_mirror: custom_mirror_field(&config.mirror),
             login_state: login_state(auth_loaded),
             threads: threads_field(&config.download),
-            no_video: config.download.no_video,
+            video: config.download.video,
             archive_validation: config.download.archive_validation,
             retry_failed_on_download: config.download.retry_failed_on_download,
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
             logging_dir: logging_dir_field(&config.logging),
-            theme: config.display.theme,
-            focus: ConfigField::AuthChip,
+            // Absent config key → show the default (full) palette in the cycle.
+            theme: config.display.theme.unwrap_or_default(),
+            // Auth chip "log in" does nothing yet, so start focus one row below it.
+            focus: ConfigField::Theme,
             message: None,
             default_threads: default_threads(),
             loaded_config: config.clone(),
@@ -249,7 +244,7 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
-            ConfigField::DownloadNoVideo => self.no_video = !self.no_video,
+            ConfigField::DownloadVideo => self.video = !self.video,
             ConfigField::DownloadArchiveValidation => self.cycle_archive_validation(),
             ConfigField::RetryFailedOnDownload => self.cycle_retry_failed_on_download(),
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
@@ -285,113 +280,6 @@ impl ConfigTab {
         );
     }
 
-    /// Returns `true` if the pending form values differ from the loaded config.
-    pub fn has_pending_changes(&self, pending: &Config) -> bool {
-        !self.diff_entries(pending).is_empty()
-    }
-
-    /// Returns one [`ConfigDiffEntry`] per field that differs between the
-    /// loaded config and `pending`. Fields that are identical are omitted.
-    pub fn diff_entries(&self, pending: &Config) -> Vec<ConfigDiffEntry> {
-        let loaded = &self.loaded_config;
-        let mut entries = Vec::new();
-
-        macro_rules! diff {
-            ($label:expr, $old:expr, $new:expr) => {
-                let old_s = $old.to_string();
-                let new_s = $new.to_string();
-                if old_s != new_s {
-                    entries.push(ConfigDiffEntry {
-                        label: $label,
-                        old_value: old_s,
-                        new_value: new_s,
-                    });
-                }
-            };
-        }
-
-        diff!(
-            "theme",
-            theme_label(loaded.display.theme),
-            theme_label(pending.display.theme)
-        );
-        diff!(
-            "threads",
-            loaded
-                .download
-                .concurrent
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| self.default_threads.to_string()),
-            pending
-                .download
-                .concurrent
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| self.default_threads.to_string())
-        );
-        diff!(
-            "no video",
-            bool_label(loaded.download.no_video),
-            bool_label(pending.download.no_video)
-        );
-        diff!(
-            "verify integrity",
-            archive_label(loaded.download.archive_validation),
-            archive_label(pending.download.archive_validation)
-        );
-        diff!(
-            "retry failed",
-            retry_label(loaded.download.retry_failed_on_download),
-            retry_label(pending.download.retry_failed_on_download)
-        );
-        diff!(
-            "mirror: osu!direct",
-            bool_label(loaded.mirror.osu_direct),
-            bool_label(pending.mirror.osu_direct)
-        );
-        diff!(
-            "mirror: nerinyan",
-            bool_label(loaded.mirror.nerinyan),
-            bool_label(pending.mirror.nerinyan)
-        );
-        diff!(
-            "mirror: sayobot",
-            bool_label(loaded.mirror.sayobot),
-            bool_label(pending.mirror.sayobot)
-        );
-        diff!(
-            "mirror: nekoha",
-            bool_label(loaded.mirror.nekoha),
-            bool_label(pending.mirror.nekoha)
-        );
-        diff!(
-            "custom mirror",
-            loaded.mirror.url.as_deref().unwrap_or(""),
-            pending.mirror.url.as_deref().unwrap_or("")
-        );
-        diff!(
-            "logging",
-            bool_label(loaded.logging.enabled),
-            bool_label(pending.logging.enabled)
-        );
-        diff!(
-            "log level",
-            log_level_label(loaded.logging.level),
-            log_level_label(pending.logging.level)
-        );
-        diff!(
-            "log format",
-            log_format_label(loaded.logging.format),
-            log_format_label(pending.logging.format)
-        );
-        diff!(
-            "log directory",
-            loaded.logging.file_dir.as_deref().unwrap_or(""),
-            pending.logging.file_dir.as_deref().unwrap_or("")
-        );
-
-        entries
-    }
-
     pub fn build_config(&self) -> Result<Config, String> {
         let concurrent = self.parse_concurrent()?;
         let mirror = MirrorConfig {
@@ -406,7 +294,7 @@ impl ConfigTab {
 
         let download = DownloadConfig {
             concurrent,
-            no_video: self.no_video,
+            video: self.video,
             archive_validation: self.archive_validation,
             retry_failed_on_download: self.retry_failed_on_download,
         };
@@ -424,7 +312,9 @@ impl ConfigTab {
             mirror,
             download,
             logging,
-            display: DisplayConfig { theme: self.theme },
+            display: DisplayConfig {
+                theme: Some(self.theme),
+            },
             // The config tab does not edit last-used inputs; preserve whatever
             // was loaded so saving the form never wipes the prefill state.
             recent: self.loaded_config.recent.clone(),
@@ -443,14 +333,17 @@ impl ConfigTab {
 
     pub fn set_login_complete(&mut self) {
         self.login_state = AuthLoginState::LoggedIn;
+        clear_app_message(&mut self.message);
     }
 
     pub fn set_login_failed(&mut self) {
         self.login_state = AuthLoginState::LoggedOut;
+        clear_app_message(&mut self.message);
     }
 
     pub fn set_logged_out(&mut self) {
         self.login_state = AuthLoginState::LoggedOut;
+        clear_app_message(&mut self.message);
     }
 
     /// Returns the action the chip's enter key should trigger given the current `login_state`.
@@ -482,9 +375,9 @@ impl ConfigTab {
 
         let value = trimmed
             .parse::<u8>()
-            .map_err(|_| "Thread count must be a valid number between 1 and 50".to_string())?;
-        if value == 0 || value > 50 {
-            return Err("Thread count must be between 1 and 50".to_string());
+            .map_err(|_| "Thread count must be a valid number between 1 and 100".to_string())?;
+        if value == 0 || value > 100 {
+            return Err("Thread count must be between 1 and 100".to_string());
         }
 
         Ok(Some(value))
@@ -528,7 +421,7 @@ fn login_state(auth_loaded: bool) -> AuthLoginState {
 
 fn threads_field(download: &DownloadConfig) -> InputField {
     InputField::new(
-        "Default thread count",
+        "default thread count",
         download
             .concurrent
             .map(|value| value.to_string())
@@ -545,51 +438,6 @@ fn logging_dir_field(logging: &LoggingConfig) -> InputField {
     )
 }
 
-fn bool_label(value: bool) -> &'static str {
-    if value { "on" } else { "off" }
-}
-
-fn theme_label(mode: ThemeMode) -> &'static str {
-    match mode {
-        ThemeMode::Auto => "auto",
-        ThemeMode::Full => "full",
-        ThemeMode::Compatible => "compatible",
-    }
-}
-
-fn archive_label(mode: ArchiveValidation) -> &'static str {
-    match mode {
-        ArchiveValidation::Off => "off",
-        ArchiveValidation::Magic => "basic",
-        ArchiveValidation::Eocd => "strict",
-    }
-}
-
-fn retry_label(mode: RetryFailedOnDownload) -> &'static str {
-    match mode {
-        RetryFailedOnDownload::Ask => "ask",
-        RetryFailedOnDownload::Yes => "yes",
-        RetryFailedOnDownload::No => "no",
-    }
-}
-
-fn log_level_label(level: LogLevel) -> &'static str {
-    match level {
-        LogLevel::Error => "error",
-        LogLevel::Warn => "warn",
-        LogLevel::Info => "info",
-        LogLevel::Debug => "debug",
-        LogLevel::Trace => "trace",
-    }
-}
-
-fn log_format_label(format: LogFormat) -> &'static str {
-    match format {
-        LogFormat::Compact => "compact",
-        LogFormat::Pretty => "pretty",
-    }
-}
-
 fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -> T {
     values
         .iter()
@@ -601,7 +449,3 @@ fn next_value<T: Copy + PartialEq, const N: usize>(values: [T; N], current: T) -
 #[cfg(test)]
 #[path = "../../tests/unit/app_config.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "../../tests/unit/config_save_modal.rs"]
-mod tests_save_modal;

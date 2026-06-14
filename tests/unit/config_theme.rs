@@ -13,7 +13,7 @@ fn theme_field_roundtrips_through_save_and_load() {
     let path = dir.path().join("config.toml");
 
     let mut config = Config::default();
-    config.display.theme = ThemeMode::Compatible;
+    config.display.theme = Some(ThemeMode::Compatible);
 
     // Use the env-var override to point save_config at our temp dir
     unsafe { std::env::set_var("OSU_COLLECT_CONFIG", path.to_str().unwrap()) };
@@ -23,27 +23,62 @@ fn theme_field_roundtrips_through_save_and_load() {
 
     assert_eq!(
         loaded.display.theme,
-        ThemeMode::Compatible,
+        Some(ThemeMode::Compatible),
         "theme variant must survive save+load"
     );
 }
 
 #[test]
-fn theme_defaults_to_auto_when_absent_from_toml() {
+fn theme_defaults_to_none_when_absent_from_toml() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_toml(dir.path(), "[mirror]\nnerinyan = true\n");
     let loaded = load_config_from(&path).expect("load must succeed");
     assert_eq!(
-        loaded.display.theme,
-        ThemeMode::Auto,
-        "missing display.theme must default to Auto"
+        loaded.display.theme, None,
+        "missing display.theme must stay None so startup detection can decide"
+    );
+}
+
+#[test]
+fn legacy_no_video_migrates_and_unknown_keys_are_stripped_on_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_toml(
+        dir.path(),
+        "garbage_key = 1\n[download]\nno_video = true\nbogus_field = \"x\"\n",
+    );
+
+    let loaded = load_config_from(&path).expect("load must succeed");
+
+    // no_video = true inverts to video = false.
+    assert!(
+        !loaded.download.video,
+        "legacy no_video = true must load as video = false"
+    );
+
+    // Startup cleanup re-serialized the clean Config back to disk, so neither
+    // the migrated-away key nor the unknown keys remain.
+    let on_disk = fs::read_to_string(&path).unwrap();
+    assert!(
+        !on_disk.contains("no_video"),
+        "no_video must be gone from the file after load:\n{on_disk}"
+    );
+    assert!(
+        !on_disk.contains("garbage_key"),
+        "unknown top-level key must be stripped after load:\n{on_disk}"
+    );
+    assert!(
+        !on_disk.contains("bogus_field"),
+        "unknown download key must be stripped after load:\n{on_disk}"
+    );
+    assert!(
+        on_disk.contains("video"),
+        "the migrated video key must be present after load:\n{on_disk}"
     );
 }
 
 #[test]
 fn all_theme_variants_serialize_and_deserialize() {
     let cases = [
-        (ThemeMode::Auto, "auto"),
         (ThemeMode::Full, "full"),
         (ThemeMode::Compatible, "compatible"),
     ];
@@ -54,7 +89,8 @@ fn all_theme_variants_serialize_and_deserialize() {
         fs::write(&path, &toml).unwrap();
         let loaded = load_config_from(&path).expect("load must succeed");
         assert_eq!(
-            loaded.display.theme, variant,
+            loaded.display.theme,
+            Some(variant),
             "{toml_str} must deserialize to correct variant"
         );
     }

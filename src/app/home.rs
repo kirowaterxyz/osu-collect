@@ -1,7 +1,4 @@
-use super::{
-    messages::{AppMessage, set_info_message},
-    next_field, prev_field,
-};
+use super::{messages::AppMessage, next_field, prev_field};
 use crate::{
     app::runtime::ProbeResult,
     config::Config,
@@ -148,22 +145,25 @@ pub enum HomeField {
     MirrorNekoha,
     Threads,
     AutoOverwrite,
-    NoVideo,
+    Video,
     /// The "start download" button; activated with `enter`.
     Download,
 }
 
+// Navigation order — mirrors the render order in `tui::home`: collection ·
+// mirrors · download, with the download directory at the bottom of the download
+// section (just above the start button).
 const HOME_FIELDS: &[HomeField] = &[
     HomeField::Collection,
-    HomeField::Directory,
     HomeField::CustomMirror,
     HomeField::MirrorOsuDirect,
     HomeField::MirrorNerinyan,
     HomeField::MirrorSayobot,
     HomeField::MirrorNekoha,
+    HomeField::Directory,
     HomeField::Threads,
     HomeField::AutoOverwrite,
-    HomeField::NoVideo,
+    HomeField::Video,
     HomeField::Download,
 ];
 
@@ -188,7 +188,7 @@ impl HomeField {
                 | HomeField::MirrorSayobot
                 | HomeField::MirrorNekoha
                 | HomeField::AutoOverwrite
-                | HomeField::NoVideo
+                | HomeField::Video
         )
     }
 }
@@ -203,7 +203,7 @@ pub struct HomeTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
-    pub no_video: bool,
+    pub video: bool,
     pub focus: HomeField,
     pub message: Option<AppMessage>,
     /// Resolve status shown below the collection URL field.
@@ -218,9 +218,6 @@ pub struct HomeTab {
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
     pub quit_prompt: bool,
     pub default_threads: u8,
-    /// The saved `download.no_video` default, shown as a `(default: …)` hint on
-    /// the home `no_video` override row so per-run precedence is legible.
-    pub default_no_video: bool,
     default_directory: String,
 }
 
@@ -268,13 +265,13 @@ impl HomeTab {
                 custom_template,
                 "https://example.com/d/{id}",
             ),
-            threads: InputField::new("Threads", threads_value, default_threads.to_string()),
+            threads: InputField::new("threads", threads_value, default_threads.to_string()),
             auto_overwrite: false,
             nerinyan,
             osu_direct,
             sayobot,
             nekoha,
-            no_video: config.download.no_video,
+            video: config.download.video,
             focus: HomeField::Collection,
             message: None,
             collection_resolve: None,
@@ -282,7 +279,6 @@ impl HomeTab {
             mirror_latency: HashMap::with_capacity(4),
             quit_prompt: false,
             default_threads,
-            default_no_video: config.download.no_video,
             default_directory,
         }
     }
@@ -314,6 +310,19 @@ impl HomeTab {
         self.resolved_collection = Some((collection_id, beatmapset_ids));
     }
 
+    /// The download directory to persist as "last used" — the raw typed value,
+    /// or the default (cwd) when the field is left empty. Mirrors the fallback
+    /// in [`build_request`](Self::build_request) so the prefill matches where the
+    /// download actually went, even when the user never types a path.
+    pub fn persisted_directory(&self) -> &str {
+        let typed = self.directory.value.trim();
+        if typed.is_empty() {
+            self.default_directory.trim()
+        } else {
+            typed
+        }
+    }
+
     pub fn next_field(&mut self) {
         self.focus = next_field(HOME_FIELDS, self.focus);
     }
@@ -326,15 +335,16 @@ impl HomeTab {
     ///
     /// Only acts when focus is `HomeField::Directory`. On a single match the
     /// value is completed in-place. On multiple matches the value is completed
-    /// to the longest common prefix and the candidates are shown as an info
-    /// message. On no match nothing changes.
-    pub fn tab_complete_directory(&mut self) {
+    /// to the longest common prefix and the candidates are returned for the
+    /// caller to surface as an info toast. On no match nothing changes.
+    pub fn tab_complete_directory(&mut self) -> Option<String> {
         if self.focus != HomeField::Directory {
-            return;
+            return None;
         }
         match complete_dir(&self.directory.value) {
             CompletionResult::Single(completed) => {
                 self.directory.set_value(completed);
+                None
             }
             CompletionResult::Ambiguous {
                 completed,
@@ -349,9 +359,9 @@ impl HomeTab {
                     let shown = candidates[..MAX_SHOWN].join(", ");
                     format!("{shown}, … ({} more)", candidates.len() - MAX_SHOWN)
                 };
-                set_info_message(&mut self.message, display);
+                Some(display)
             }
-            CompletionResult::NoMatch => {}
+            CompletionResult::NoMatch => None,
         }
     }
 
@@ -462,8 +472,8 @@ impl HomeTab {
             HomeField::AutoOverwrite => {
                 self.auto_overwrite = !self.auto_overwrite;
             }
-            HomeField::NoVideo => {
-                self.no_video = !self.no_video;
+            HomeField::Video => {
+                self.video = !self.video;
             }
             _ => {}
         }
@@ -500,10 +510,10 @@ impl HomeTab {
                     return None;
                 }
                 let mirror = Mirror::builtin(kind)?;
-                Some(if self.no_video {
-                    mirror.no_video()
-                } else {
+                Some(if self.video {
                     mirror
+                } else {
+                    mirror.no_video()
                 })
             })
             .collect();
@@ -541,8 +551,8 @@ impl HomeTab {
             parse_thread_count(&self.threads.value)?
         };
 
-        if threads_value == 0 || threads_value > 50 {
-            return Err("Thread count must be between 1 and 50".to_string());
+        if threads_value == 0 || threads_value > 100 {
+            return Err("Thread count must be between 1 and 100".to_string());
         }
 
         let mirrors = self.build_mirror_list();
@@ -578,7 +588,7 @@ impl HomeTab {
 }
 
 fn parse_thread_count(value: &str) -> Result<u8, String> {
-    u8::from_str(value.trim()).map_err(|_| "Thread count must be between 1 and 50".to_string())
+    u8::from_str(value.trim()).map_err(|_| "Thread count must be between 1 and 100".to_string())
 }
 
 #[cfg(test)]

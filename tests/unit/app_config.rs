@@ -1,5 +1,4 @@
 use super::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
-use crate::app::messages::{MessageKind, set_info_message};
 use crate::config::Config;
 use crate::download::ArchiveValidation;
 
@@ -40,18 +39,20 @@ fn login_flow_error_returns_to_logged_out() {
 }
 
 #[test]
-fn cancel_login_returns_to_logged_out_with_info_message() {
+fn cancel_login_returns_to_logged_out_and_clears_loading() {
     let mut tab = tab_logged_out();
-    tab.set_login_in_progress();
+    tab.set_loading("logging in...");
     assert!(matches!(tab.login_state, AuthLoginState::InProgress(_)));
+    assert!(
+        tab.message.is_some(),
+        "loading message set while in progress"
+    );
 
+    // The cancel toast itself is pushed at the App level; the tab's job is to
+    // clear its in-progress loading status on the terminal transition.
     tab.set_login_failed();
-    set_info_message(&mut tab.message, "login cancelled");
-
     assert_eq!(tab.login_state, AuthLoginState::LoggedOut);
-    let msg = tab.message.as_ref().expect("info message preserved");
-    assert_eq!(msg.kind, MessageKind::Info);
-    assert_eq!(msg.text, "login cancelled");
+    assert!(tab.message.is_none(), "terminal transition clears loading");
 }
 
 #[test]
@@ -62,11 +63,11 @@ fn logout_clears_state() {
 }
 
 #[test]
-fn logout_loading_message_does_not_expire() {
+fn logout_sets_loading_message() {
     let mut tab = tab_logged_in();
     tab.set_loading("logging out...");
     let msg = tab.message.as_ref().unwrap();
-    assert!(!msg.is_expired());
+    assert_eq!(msg.text, "logging out...");
 }
 
 #[test]
@@ -78,13 +79,13 @@ fn next_field_cycles_through_auth_chip() {
     tab.next_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.next_field();
-    assert_eq!(tab.focus, ConfigField::DownloadThreads);
+    assert_eq!(tab.focus, ConfigField::MirrorOsuDirect);
 }
 
 #[test]
 fn prev_field_cycles_through_auth_chip() {
     let mut tab = tab_logged_in();
-    tab.focus = ConfigField::DownloadThreads;
+    tab.focus = ConfigField::MirrorOsuDirect;
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.prev_field();

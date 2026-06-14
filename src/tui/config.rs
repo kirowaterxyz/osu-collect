@@ -15,7 +15,7 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    HELP_CUSTOM_MIRROR, accent_alt, bg_raised, mirror_label, success, text_faint, text_muted,
+    HELP_CUSTOM_MIRROR, bg_hover, bg_raised, mirror_label, success, text, text_dim, text_faint,
     warning,
 };
 use osu_downloader::MirrorKind;
@@ -29,7 +29,7 @@ const SECTION_LOGGING: &str = "logging";
 
 const LABEL_THEME: &str = "theme";
 
-const LABEL_NO_VIDEO: &str = "no video";
+const LABEL_VIDEO: &str = "video";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
 const LABEL_RETRY_FAILED: &str = "retry failed on download";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
@@ -39,29 +39,53 @@ const LABEL_LOGGING_FORMAT: &str = "log format";
 const CHIP_UNAVAILABLE: &str = " login unavailable · no credentials in build ";
 const CHIP_LOGGED_OUT: &str = " signed out";
 const CHIP_LOGGED_IN: &str = " signed in";
-const CHIP_ACTION_LOGIN: &str = " · log in ";
-const CHIP_ACTION_LOGOUT: &str = " · log out ";
-const CHIP_ACTION_CANCEL: &str = " · cancel";
+const CHIP_ACTION_LOGIN: &str = "log in";
+const CHIP_ACTION_LOGOUT: &str = "log out";
+const CHIP_ACTION_CANCEL: &str = "cancel";
 const CHIP_LOGGING_IN: &str = " logging in… ";
+const CHIP_LOGIN_HINT: &str = "this does nothing (yet)";
 
-const THEME_MODE_LABELS: &[&str] = &["auto", "full", "compatible"];
+const THEME_MODE_LABELS: &[&str] = &["full", "compatible"];
 
 const LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 const LOG_FORMATS: &[&str] = &["compact", "pretty"];
 const ARCHIVE_VALIDATION_LABELS: &[&str] = &["off", "basic", "strict"];
 const RETRY_FAILED_LABELS: &[&str] = &["ask", "yes", "no"];
 
-const HELP_VERIFY_STRICT: &str = "strict mode may reject beatmaps that osu! would still accept";
-const HELP_VERIFY_INTEGRITY: &str =
-    "off skips checks; basic verifies headers; strict also checks eocd footer";
-const HELP_RETRY_FAILED: &str =
-    "ask: prompt before each download · yes: always retry · no: never retry";
+/// State-specific hint for the archive-validation cycle: each describes only
+/// what the currently selected mode does.
+fn archive_validation_help(mode: ArchiveValidation) -> &'static str {
+    match mode {
+        ArchiveValidation::Off => "checks only the file is not empty",
+        ArchiveValidation::Magic => "verifies archive headers",
+        ArchiveValidation::Eocd => {
+            "also verifies eocd footer; turn off if many maps fail validation"
+        }
+    }
+}
 
-pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u16)> {
+/// State-specific hint for the retry-failed cycle: each describes only what the
+/// currently selected mode does.
+fn retry_failed_help(mode: RetryFailedOnDownload) -> &'static str {
+    match mode {
+        RetryFailedOnDownload::Ask => "prompts before each download",
+        RetryFailedOnDownload::Yes => "always retries failed maps",
+        RetryFailedOnDownload::No => "never retries failed maps",
+    }
+}
+
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &ConfigTab,
+    editing: bool,
+) -> Option<(u16, u16)> {
     let show_chrome = area.height >= super::COMPACT_HEIGHT;
-    let items = build_config_items(form, show_chrome);
+    let items = build_config_items(form, show_chrome, editing);
 
-    let cursor_col = form.focused_input().map(widgets::input_cursor_col);
+    let cursor_col = editing
+        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
@@ -81,14 +105,26 @@ pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab) -> Option<(u16, u
 ///
 /// Compact mode (`show_chrome == false`) strips only that chrome — every field
 /// stays focusable and navigable.
-fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems<ConfigField> {
+fn build_config_items(
+    form: &ConfigTab,
+    show_chrome: bool,
+    editing: bool,
+) -> widgets::FormItems<ConfigField> {
     let focus = form.focus;
+    let active_section = focus_section(focus);
     let mut items = widgets::FormItems::new(focus);
 
     items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
+    if show_chrome && focus == ConfigField::AuthChip && crate::auth::bundled_credentials().is_some()
+    {
+        items.push(widgets::help_item(CHIP_LOGIN_HINT));
+    }
     if show_chrome {
         items.push(widgets::spacer());
-        items.push(widgets::section_header(SECTION_DISPLAY));
+        items.push(widgets::section_header(
+            SECTION_DISPLAY,
+            active_section == Some(SECTION_DISPLAY),
+        ));
     }
 
     items.push_focusable(
@@ -102,59 +138,10 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
     );
     if show_chrome {
         items.push(widgets::spacer());
-        items.push(widgets::section_header(SECTION_DOWNLOAD));
-    }
-
-    items.push_focusable(
-        ConfigField::DownloadThreads,
-        widgets::stepper_item(
-            form.threads.label,
-            form.resolved_threads(),
-            form.default_threads,
-            focus == ConfigField::DownloadThreads,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::DownloadNoVideo,
-        widgets::row_item(
-            LABEL_NO_VIDEO,
-            None,
-            form.no_video,
-            focus == ConfigField::DownloadNoVideo,
-        ),
-    );
-    items.push_focusable(
-        ConfigField::DownloadArchiveValidation,
-        widgets::cycle_item(
-            LABEL_VERIFY_INTEGRITY,
-            ARCHIVE_VALIDATION_LABELS,
-            archive_validation_label(form.archive_validation),
-            focus == ConfigField::DownloadArchiveValidation,
-        ),
-    );
-    if show_chrome && focus == ConfigField::DownloadArchiveValidation {
-        let help = if form.archive_validation == ArchiveValidation::Eocd {
-            HELP_VERIFY_STRICT
-        } else {
-            HELP_VERIFY_INTEGRITY
-        };
-        items.push(widgets::help_item(help));
-    }
-    items.push_focusable(
-        ConfigField::RetryFailedOnDownload,
-        widgets::cycle_item(
-            LABEL_RETRY_FAILED,
-            RETRY_FAILED_LABELS,
-            retry_failed_label(form.retry_failed_on_download),
-            focus == ConfigField::RetryFailedOnDownload,
-        ),
-    );
-    if show_chrome && focus == ConfigField::RetryFailedOnDownload {
-        items.push(widgets::help_item(HELP_RETRY_FAILED));
-    }
-    if show_chrome {
-        items.push(widgets::spacer());
-        items.push(widgets::section_header(SECTION_MIRRORS));
+        items.push(widgets::section_header(
+            SECTION_MIRRORS,
+            active_section == Some(SECTION_MIRRORS),
+        ));
     }
 
     let mirror_states = [
@@ -171,14 +158,75 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
     }
     items.push_focusable(
         ConfigField::MirrorCustomUrl,
-        widgets::input_item(&form.custom_mirror, focus == ConfigField::MirrorCustomUrl),
+        widgets::input_item(
+            &form.custom_mirror,
+            focus == ConfigField::MirrorCustomUrl,
+            editing,
+        ),
     );
     if show_chrome && focus == ConfigField::MirrorCustomUrl {
         items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
     }
     if show_chrome {
         items.push(widgets::spacer());
-        items.push(widgets::section_header(SECTION_LOGGING));
+        items.push(widgets::section_header(
+            SECTION_DOWNLOAD,
+            active_section == Some(SECTION_DOWNLOAD),
+        ));
+    }
+
+    items.push_focusable(
+        ConfigField::DownloadVideo,
+        widgets::row_item(
+            LABEL_VIDEO,
+            None,
+            form.video,
+            focus == ConfigField::DownloadVideo,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadThreads,
+        widgets::stepper_item(
+            form.threads.label,
+            form.resolved_threads(),
+            form.default_threads,
+            focus == ConfigField::DownloadThreads,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadArchiveValidation,
+        widgets::cycle_item(
+            LABEL_VERIFY_INTEGRITY,
+            ARCHIVE_VALIDATION_LABELS,
+            archive_validation_label(form.archive_validation),
+            focus == ConfigField::DownloadArchiveValidation,
+        ),
+    );
+    if show_chrome && focus == ConfigField::DownloadArchiveValidation {
+        items.push(widgets::help_item(archive_validation_help(
+            form.archive_validation,
+        )));
+    }
+    items.push_focusable(
+        ConfigField::RetryFailedOnDownload,
+        widgets::cycle_item(
+            LABEL_RETRY_FAILED,
+            RETRY_FAILED_LABELS,
+            retry_failed_label(form.retry_failed_on_download),
+            focus == ConfigField::RetryFailedOnDownload,
+        ),
+    );
+    if show_chrome && focus == ConfigField::RetryFailedOnDownload {
+        items.push(widgets::help_item(retry_failed_help(
+            form.retry_failed_on_download,
+        )));
+    }
+    if show_chrome {
+        items.push(widgets::spacer());
+        items.push(widgets::section_header(
+            SECTION_LOGGING,
+            active_section == Some(SECTION_LOGGING),
+        ));
     }
 
     items.push_focusable(
@@ -210,10 +258,31 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
     );
     items.push_focusable(
         ConfigField::LoggingDirectory,
-        widgets::input_item(&form.logging_dir, focus == ConfigField::LoggingDirectory),
+        widgets::input_item(
+            &form.logging_dir,
+            focus == ConfigField::LoggingDirectory,
+            editing,
+        ),
     );
 
     items
+}
+
+/// The section a focused field belongs to, driving the active-section header
+/// cue. `AuthChip` sits above every header, so it maps to no section.
+fn focus_section(field: ConfigField) -> Option<&'static str> {
+    use ConfigField::*;
+    Some(match field {
+        AuthChip => return None,
+        Theme => SECTION_DISPLAY,
+        MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorCustomUrl => {
+            SECTION_MIRRORS
+        }
+        DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {
+            SECTION_DOWNLOAD
+        }
+        LoggingEnabled | LoggingLevel | LoggingFormat | LoggingDirectory => SECTION_LOGGING,
+    })
 }
 
 /// Renders the auth state chip: a single styled row at the top of the config tab.
@@ -225,13 +294,6 @@ fn build_config_items(form: &ConfigTab, show_chrome: bool) -> widgets::FormItems
 fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
     let focused = form.focus == ConfigField::AuthChip;
     let chip_bg = Style::default().bg(bg_raised());
-    let action_style = chip_bg
-        .fg(if focused { accent_alt() } else { text_muted() })
-        .add_modifier(if focused {
-            Modifier::BOLD
-        } else {
-            Modifier::empty()
-        });
 
     let available = crate::auth::bundled_credentials().is_some();
     if !available {
@@ -241,33 +303,60 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
         )));
     }
 
-    let spans: Vec<Span<'static>> = match &form.login_state {
-        AuthLoginState::LoggedOut => vec![
-            Span::styled(CHIP_LOGGED_OUT, chip_bg.fg(text_faint())),
-            Span::styled(CHIP_ACTION_LOGIN, action_style),
-        ],
+    // State segment (semantic when charged, TEXT_DIM neutral) then a 2-space
+    // gap on the chip fill, then the action segment — no mid-dot separator.
+    let (state, action_label) = match &form.login_state {
+        AuthLoginState::LoggedOut => (
+            Span::styled(CHIP_LOGGED_OUT, chip_bg.fg(text_dim())),
+            CHIP_ACTION_LOGIN,
+        ),
         AuthLoginState::InProgress(step) => {
             let label: Cow<'static, str> = if step.is_empty() {
                 CHIP_LOGGING_IN.into()
             } else {
                 format!(" {step} ").into()
             };
-            vec![
-                Span::styled(label, chip_bg.fg(warning()).add_modifier(Modifier::ITALIC)),
-                Span::styled(CHIP_ACTION_CANCEL, action_style),
-                Span::styled(" ", chip_bg),
-            ]
+            // No italic — cloudy-tui reserves italic for panel/modal titles.
+            (
+                Span::styled(label, chip_bg.fg(warning())),
+                CHIP_ACTION_CANCEL,
+            )
         }
-        AuthLoginState::LoggedIn => vec![
+        AuthLoginState::LoggedIn => (
             Span::styled(
                 CHIP_LOGGED_IN,
                 chip_bg.fg(success()).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(CHIP_ACTION_LOGOUT, action_style),
-        ],
+            CHIP_ACTION_LOGOUT,
+        ),
     };
 
-    ListItem::new(Line::from(spans))
+    ListItem::new(Line::from(vec![
+        state,
+        Span::styled("  ", chip_bg),
+        chip_action_span(action_label, focused, chip_bg),
+    ]))
+}
+
+/// The chip's inline action segment.
+///
+/// Focused: highlighted like a selected row — `TEXT + bold` on `BG_HOVER` (the
+/// row-selection tint), 1-space inset. A deliberate departure from the
+/// cloudy-tui action-chip spec (an `ACCENT`-fill inverse block) so the auth
+/// action reads as the focused row, not a sapphire button. Blurred: `TEXT_DIM`
+/// on the chip's `BG_RAISED` fill with a trailing pad cell, no bold.
+fn chip_action_span(label: &'static str, focused: bool, chip_bg: Style) -> Span<'static> {
+    if focused {
+        Span::styled(
+            format!(" {label} "),
+            Style::default()
+                .fg(text())
+                .bg(bg_hover())
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(format!("{label} "), chip_bg.fg(text_dim()))
+    }
 }
 
 fn log_level_label(level: LogLevel) -> &'static str {
@@ -305,7 +394,6 @@ fn retry_failed_label(mode: RetryFailedOnDownload) -> &'static str {
 
 fn theme_mode_label(mode: ThemeMode) -> &'static str {
     match mode {
-        ThemeMode::Auto => "auto",
         ThemeMode::Full => "full",
         ThemeMode::Compatible => "compatible",
     }
