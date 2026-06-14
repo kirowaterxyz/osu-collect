@@ -13,7 +13,7 @@ pub mod state;
 pub mod toast;
 pub mod updates;
 
-pub use banner::{Banner, system_banners};
+pub use banner::{Banner, BannerRecency, system_banners};
 pub use collection::{ActiveDownloadLine, CollectionPage};
 pub use config::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField, ResolveState};
