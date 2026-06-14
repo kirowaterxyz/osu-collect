@@ -24,7 +24,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential zlib1g-dev
+          sudo apt-get install -y cmake build-essential zlib1g-dev libssl-dev
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build for Linux
         env:
@@ -43,6 +45,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-binary
+          if-no-files-found: error
           path: |
             release/osu-collect-linux-x64
             release/osu-collect-linux-x64.sha256
@@ -58,6 +61,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build for Windows
         env:
@@ -77,6 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-binary
+          if-no-files-found: error
           path: |
             release/osu-collect-windows-x64.exe
             release/osu-collect-windows-x64.exe.sha256
@@ -96,6 +102,8 @@ jobs:
       - name: Install dependencies
         run: brew install cmake
 
+      - uses: Swatinem/rust-cache@v2
+
       - name: Build for macOS (arm64)
         env:
           OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
@@ -113,6 +121,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-binary
+          if-no-files-found: error
           path: |
             release/osu-collect-macos-arm64
             release/osu-collect-macos-arm64.sha256
@@ -120,6 +129,8 @@ jobs:
   release:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
@@ -147,7 +158,7 @@ jobs:
             > release/SHA256SUMS
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             release/osu-collect-linux-x64
@@ -161,4 +172,4 @@ jobs:
           prerelease: false
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

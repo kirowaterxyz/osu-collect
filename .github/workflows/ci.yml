@@ -1,0 +1,109 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    env:
+      OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
+      OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential zlib1g-dev libssl-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --all-features --release --target x86_64-unknown-linux-gnu -- -D warnings
+
+      - name: test
+        run: cargo test --release --all-targets --all-features --target x86_64-unknown-linux-gnu
+
+      - name: Build for Linux
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+  build-windows:
+    runs-on: windows-latest
+    env:
+      OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
+      OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --all-features --release --target x86_64-pc-windows-msvc -- -D warnings
+
+      - name: test
+        run: cargo test --release --all-targets --all-features --target x86_64-pc-windows-msvc
+
+      - name: Build for Windows
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+  build-macos:
+    runs-on: macos-latest
+    env:
+      OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
+      OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: brew install cmake
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --all-features --release --target aarch64-apple-darwin -- -D warnings
+
+      - name: test
+        run: cargo test --release --all-targets --all-features --target aarch64-apple-darwin
+
+      - name: Build for macOS (arm64)
+        run: cargo build --release --target aarch64-apple-darwin
