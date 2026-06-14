@@ -20,7 +20,6 @@ fn header_buffer(active: usize, downloading: bool) -> ratatui::buffer::Buffer {
                     area: Rect::new(0, 0, 80, 1),
                     tabs: &tabs,
                     active,
-                    pill: None,
                     tick: 0,
                     downloading,
                     brand_ramp: if downloading { 1.0 } else { 0.0 },

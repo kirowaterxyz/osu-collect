@@ -3,62 +3,16 @@ use std::borrow::Cow;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::Paragraph,
 };
 
-use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
-
 use super::theme::blend;
-use super::{accent, accent_alt, danger, format_free_space, text_dim, text_faint, warning};
+use super::{accent, accent_alt, text_dim};
 
 const BRAND: &str = " osu!collect";
 const VERSION: &str = concat!(" v", env!("CARGO_PKG_VERSION"), " ");
-
-/// Aggregated state passed into the header renderer.
-///
-/// Build via [`StatusPill::compute`]; pass `None` when the pill should be hidden.
-pub struct StatusPill {
-    /// Free bytes on the output filesystem — always below [`DISK_WARN_BYTES`]
-    /// (above that the pill is hidden, so this is never a "healthy" value).
-    pub disk_free: u64,
-}
-
-impl StatusPill {
-    /// Returns `None` unless free space is below [`DISK_WARN_BYTES`].
-    ///
-    /// The pill exists only to warn about low disk; above the warn threshold (or
-    /// when free space is unknown) it stays hidden so the header is quiet during
-    /// normal use.
-    pub fn compute(disk_free: Option<u64>) -> Option<Self> {
-        let disk_free = disk_free.filter(|&b| b < DISK_WARN_BYTES)?;
-        Some(Self { disk_free })
-    }
-
-    /// Formatted pill text and the color each segment should use.
-    ///
-    /// Returns a list of `(text, color)` pairs — caller renders them as spans.
-    pub fn segments(&self) -> Vec<(String, Color)> {
-        let color = if self.disk_free < DISK_DANGER_BYTES {
-            danger()
-        } else {
-            warning()
-        };
-        vec![(format_free_space(self.disk_free), color)]
-    }
-
-    /// Total display width of the pill (sum of all segment char lengths) plus leading space.
-    pub fn display_width(&self) -> u16 {
-        let segs = self.segments();
-        if segs.is_empty() {
-            return 0;
-        }
-        // 1 leading space + char count of all segments (ASCII, so byte len == char count)
-        let chars: usize = segs.iter().map(|(s, _)| s.len()).sum();
-        (1 + chars) as u16
-    }
-}
 
 /// Header inputs other than the frame. Grouped into a struct so the brand
 /// animation inputs (`tick`, `downloading`) ride along without a long argument
@@ -67,7 +21,6 @@ pub struct RenderParams<'a, 't> {
     pub area: Rect,
     pub tabs: &'a [Cow<'t, str>],
     pub active: usize,
-    pub pill: Option<&'a StatusPill>,
     /// Global frame tick; drives the brand shimmer phase.
     pub tick: u64,
     /// True while any download is in a non-terminal stage; idle renders the
@@ -83,7 +36,6 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
         area,
         tabs,
         active,
-        pill,
         tick,
         downloading,
         brand_ramp,
@@ -95,12 +47,10 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
 
     let version_width = VERSION.len() as u16;
     let brand_width = BRAND.chars().count() as u16;
-    let pill_width = pill.map(|p| p.display_width()).unwrap_or(0);
 
     let layout = Layout::horizontal([
         Constraint::Length(brand_width),
         Constraint::Min(0),
-        Constraint::Length(pill_width),
         Constraint::Length(version_width),
     ])
     .split(area);
@@ -118,9 +68,7 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
             spans.push(Span::raw("   "));
         }
         let style = if index == active {
-            Style::default()
-                .fg(accent())
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            Style::default().fg(accent()).bold().underlined()
         } else {
             Style::default().fg(text_dim())
         };
@@ -131,27 +79,11 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
         layout[1],
     );
 
-    if let Some(pill) = pill {
-        let segs = pill.segments();
-        if !segs.is_empty() {
-            let mut pill_spans: Vec<Span<'static>> = Vec::with_capacity(segs.len() + 1);
-            // Leading space so the pill has breathing room before the version.
-            pill_spans.push(Span::styled(" ", Style::default().fg(text_faint())));
-            for (text, color) in segs {
-                pill_spans.push(Span::styled(text, Style::default().fg(color)));
-            }
-            frame.render_widget(
-                Paragraph::new(Line::from(pill_spans)).alignment(Alignment::Right),
-                layout[2],
-            );
-        }
-    }
-
     frame.render_widget(
         Paragraph::new(VERSION)
-            .style(Style::default().fg(text_faint()))
+            .style(Style::default().fg(text_dim()))
             .alignment(Alignment::Right),
-        layout[3],
+        layout[2],
     );
 }
 
@@ -165,21 +97,24 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
 fn brand_spans(tick: u64, downloading: bool, ramp: f32) -> Vec<Span<'static>> {
     let base = accent_alt();
     if !downloading {
-        return vec![Span::styled(
-            BRAND,
-            Style::default().fg(base).add_modifier(Modifier::BOLD),
-        )];
+        return vec![Span::styled(BRAND, Style::default().fg(base).bold())];
     }
 
-    // A cosine wave crest travels across the brand. `WAVE_SPAN` controls the
-    // sweep speed (smaller = faster); `MAX_MIX` caps how far each letter leans
-    // toward the accent so it pulses instead of strobing. `ramp` eases the depth
-    // up from 0 so the shimmer materializes gently rather than snapping on.
-    const WAVE_SPAN: f32 = 2.6;
+    // A cosine wave crest travels across the brand. `WAVE_PERIOD` is the tick
+    // count for one full left-to-right sweep; `MAX_MIX` caps how far each letter
+    // leans toward the accent so it pulses instead of strobing. `ramp` eases the
+    // depth up from 0 so the shimmer materializes gently rather than snapping on.
+    const WAVE_PERIOD: f32 = 16.0;
     const MAX_MIX: f32 = 0.65;
     let depth = MAX_MIX * ramp.clamp(0.0, 1.0);
     let highlight = accent();
-    let crest = tick as f32 / WAVE_SPAN;
+
+    // Normalize the sweep to a 0..1 cycle, then ease-out (`1 - (1 - t)²`) so the
+    // crest starts fast and decelerates toward the end of each pass before
+    // wrapping — the sweep settles instead of cutting off at a constant speed.
+    let raw = (tick as f32 / WAVE_PERIOD).fract();
+    let eased = 1.0 - (1.0 - raw) * (1.0 - raw);
+    let crest = eased * std::f32::consts::TAU;
     let chars: Vec<char> = BRAND.chars().collect();
     let len = chars.len().max(1) as f32;
 
@@ -193,10 +128,7 @@ fn brand_spans(tick: u64, downloading: bool, ramp: f32) -> Vec<Span<'static>> {
             // 0..1 brightness: 1 at the crest, easing to 0 between sweeps.
             let mix = ((phase - crest).cos() * 0.5 + 0.5) * depth;
             let fg = blend(highlight, base, mix);
-            Span::styled(
-                ch.to_string(),
-                Style::default().fg(fg).add_modifier(Modifier::BOLD),
-            )
+            Span::styled(ch.to_string(), Style::default().fg(fg).bold())
         })
         .collect()
 }
