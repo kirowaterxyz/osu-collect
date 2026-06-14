@@ -35,7 +35,7 @@ use update::{UpdateEvent, handle_update_event, spawn_update_check};
 /// Render one frame. A focused text field positions the terminal caret via
 /// [`ratatui::Frame::set_cursor_position`] inside the draw closure; ratatui 0.30
 /// applies it *after* the buffer flush, so there is no flash at the old spot. A
-/// frame that never calls it leaves the cursor hidden (cloudy-tui Motion).
+/// frame that never calls it leaves the cursor hidden.
 fn render_frame(terminal: &mut TuiTerminal, app: &App) -> std::io::Result<()> {
     terminal.draw(|f| draw(f, app))?;
     Ok(())

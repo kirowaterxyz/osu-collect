@@ -6,15 +6,15 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Gauge, List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use super::widgets::{self, Metric, SEPARATOR};
 use super::{
     FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, glyph_fill, info,
-    line, spinner_str, success, text_dim, text_faint, text_muted, warning,
+    line, spinner_str, success, text_dim, text_faint, warning,
 };
 
 /// Tallest the gauge section ever gets: a one-row bar plus the two title rows the
@@ -45,10 +45,10 @@ const PANEL_FAILED: &str = " FAILED ";
 /// the panel borders; the failed list takes the remaining space below.
 const RESULTS_SUMMARY_HEIGHT: u16 = 8;
 
-const KEY_COLLECTION: &str = "collection: ";
-const KEY_UPLOADER: &str = "uploader: ";
-const KEY_OUTPUT: &str = "output: ";
-const KEY_STATUS: &str = "status: ";
+const KEY_COLLECTION: &str = "collection";
+const KEY_UPLOADER: &str = "uploader";
+const KEY_OUTPUT: &str = "output";
+const KEY_STATUS: &str = "status";
 const KEY_SPEED: &str = "  speed ";
 const KEY_ETA: &str = "  eta ";
 const KEY_SIZE: &str = "  size ";
@@ -75,7 +75,7 @@ const RESULTS_DOWNLOADED: &str = "downloaded";
 const RESULTS_SKIPPED: &str = "skipped";
 const RESULTS_FAILED: &str = "failed";
 const RESULTS_UNVERIFIED: &str = "unverified";
-const RESULTS_OUTRO_1: &str = "done! check https://github.com/uwuclxdy/osu-collect#importing-into-osu for how to import downloaded beatmaps into osu correctly";
+const RESULTS_OUTRO_1: &str = "check https://github.com/uwuclxdy/osu-collect#importing-into-osu for how to import downloaded beatmaps into osu correctly";
 const RESULTS_OUTRO_2: &str = "and leave a star while you're at it :3";
 
 const COMPACT_ACTIVE: &str = "active: ";
@@ -135,14 +135,14 @@ fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u6
     let key_style = Style::default().fg(text_faint());
     let line = Line::from(vec![
         Span::styled(COMPACT_ACTIVE, key_style),
-        Span::styled(active_count.to_string(), Style::default().fg(text_muted())),
+        Span::styled(active_count.to_string(), Style::default().fg(text_dim())),
         Span::styled(COMPACT_FAILED, key_style),
         Span::styled(
             failed.to_string(),
             if failed > 0 {
                 Style::default().fg(danger())
             } else {
-                Style::default().fg(text_muted())
+                Style::default().fg(text_dim())
             },
         ),
     ]);
@@ -153,9 +153,9 @@ fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u6
 /// Build the OVERVIEW panel's content lines. The panel height is derived from
 /// the line count, so each stage shows only what it needs:
 /// - rows: `collection`, `uploader`, `output`, `status` (+ inline speed/eta/size).
-/// - the `downloaded │ queued │ skipped │ failed` tally is the last line for every
-///   stage EXCEPT Completed, where the RESULTS panel owns the final summary (no
-///   duplication). The tally lives only here now — the gauge dropped its top title.
+///
+/// The `downloaded · queued · skipped · failed` tally rides the gauge's bottom
+/// title row (see [`render_gauge`]), not here.
 fn overview_lines(page: &CollectionPage) -> Vec<Line<'_>> {
     let rate_limited =
         matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited();
@@ -169,9 +169,20 @@ fn overview_lines(page: &CollectionPage) -> Vec<Line<'_>> {
     let bytes = bytes_display(page);
 
     let key_style = Style::default().fg(text_faint());
-    let value_style = Style::default().fg(text_muted());
+    let value_style = Style::default().fg(text_dim());
 
-    let mut status_spans = vec![Span::styled(KEY_STATUS, key_style)];
+    // Column-align the four key-value rows: every value starts at the same
+    // column (widest label + ≥2 spaces, no colon).
+    let label_width = [KEY_COLLECTION, KEY_UPLOADER, KEY_OUTPUT, KEY_STATUS]
+        .iter()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let mut status_spans = vec![Span::styled(
+        widgets::label_cell(KEY_STATUS, label_width),
+        key_style,
+    )];
     status_spans.extend(widgets::status_pill(status, status_color(page.stage, rate_limited)).spans);
     if let Some(speed) = speed {
         status_spans.push(Span::styled(KEY_SPEED, key_style));
@@ -190,18 +201,18 @@ fn overview_lines(page: &CollectionPage) -> Vec<Line<'_>> {
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(KEY_COLLECTION, key_style),
+            Span::styled(widgets::label_cell(KEY_COLLECTION, label_width), key_style),
             Span::styled(page.title.as_str(), Style::default().fg(accent())),
         ]),
         Line::from(vec![
-            Span::styled(KEY_UPLOADER, key_style),
+            Span::styled(widgets::label_cell(KEY_UPLOADER, label_width), key_style),
             Span::styled(
                 page.uploader.as_deref().unwrap_or(VALUE_UNKNOWN),
                 value_style,
             ),
         ]),
         Line::from(vec![
-            Span::styled(KEY_OUTPUT, key_style),
+            Span::styled(widgets::label_cell(KEY_OUTPUT, label_width), key_style),
             Span::styled(
                 page.output_dir
                     .as_deref()
@@ -212,43 +223,31 @@ fn overview_lines(page: &CollectionPage) -> Vec<Line<'_>> {
         ]),
     ];
     lines.push(Line::from(status_spans));
-    // The downloaded │ queued │ skipped │ failed tally is the last overview line
-    // once the run is meaningfully under way. Suppressed before resolution
-    // (Pending/Resolving — all-zero noise) and at Completed, where the RESULTS
-    // panel is the single source of the final summary (see `render_threads`).
-    if matches!(
-        page.stage,
-        DownloadStage::Downloading | DownloadStage::Rechecking | DownloadStage::Failed
-    ) {
-        lines.push(tally_line(page));
-    }
     lines
 }
 
-/// The `downloaded │ queued │ skipped │ failed` tally rendered at the bottom of
-/// the OVERVIEW panel (pre-completion only). Separators recede in `line()`; each
-/// count sits in its semantic tier (cloudy-tui: color carries meaning).
+/// The `downloaded │ queued │ skipped │ failed` tally rendered left-aligned on
+/// the gauge's bottom title row, opposite the right-aligned `verified` count (see
+/// [`render_gauge`]). Separators recede in `line()`; each count sits in its
+/// semantic color tier.
 fn tally_line(page: &CollectionPage) -> Line<'static> {
     let downloaded = page.stats.downloaded as usize;
     let queued = page.download_target;
     let skipped = page.stats.skipped as usize;
     let failed = page.stats.failed as usize;
     let sep = || Span::styled(SEPARATOR, Style::default().fg(line()));
-    let failed_color = if failed > 0 { danger() } else { text_muted() };
+    let failed_color = if failed > 0 { danger() } else { text_dim() };
     Line::from(vec![
         Span::styled(
             format!("{downloaded} downloaded"),
             Style::default().fg(success()),
         ),
         sep(),
-        Span::styled(
-            format!("{queued} queued"),
-            Style::default().fg(text_muted()),
-        ),
+        Span::styled(format!("{queued} queued"), Style::default().fg(text_dim())),
         sep(),
         Span::styled(
             format!("{skipped} skipped"),
-            Style::default().fg(text_muted()),
+            Style::default().fg(text_dim()),
         ),
         sep(),
         Span::styled(
@@ -361,7 +360,7 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
         {
             render_resolve_progress_gauge(frame, bar_area, current, total, tick);
         } else {
-            render_indeterminate_gauge(frame, bar_area, page, page.stage, tick);
+            render_indeterminate_gauge(frame, bar_area, page.stage, tick);
         }
         return;
     }
@@ -376,20 +375,27 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let verified_ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
     let failed_ratio = (failed_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    // The downloaded │ queued │ skipped │ failed tally now lives in the OVERVIEW
-    // panel (one source). While downloading the gauge carries no top title; only
-    // the rechecking stage keeps its own progress title.
+    // The bottom title row carries the downloaded · queued · skipped · failed
+    // tally on the left and the verified count on the right. The tally wins the
+    // row: the verified count is dropped when the two would collide on a narrow
+    // terminal. While downloading the gauge carries no top title; only the
+    // rechecking stage keeps its own progress title.
+    let tally = tally_line(page);
     let verified_title = format!(" {verified_display}/{total_collection} verified ");
+    let fits_both = tally.width() + verified_title.chars().count() + 2 <= bar_area.width as usize;
 
-    let mut block = Block::default().title_bottom(
-        Line::from(Span::styled(
-            verified_title,
-            Style::default().fg(text_faint()),
-        ))
-        .right_aligned(),
-    );
+    let mut block = Block::default().title_bottom(tally.left_aligned());
+    if fits_both {
+        block = block.title_bottom(
+            Line::from(Span::styled(
+                verified_title,
+                Style::default().fg(text_faint()),
+            ))
+            .right_aligned(),
+        );
+    }
     if is_rechecking {
-        let style = Style::default().fg(warning()).add_modifier(Modifier::BOLD);
+        let style = Style::default().fg(warning()).bold();
         block = block.title(
             Line::from(Span::styled(
                 format!(" rechecking {verified_display}/{total_collection} "),
@@ -441,20 +447,14 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     frame.render_widget(Paragraph::new(bar), inner);
 }
 
-fn render_indeterminate_gauge(
-    frame: &mut Frame,
-    area: Rect,
-    page: &CollectionPage,
-    stage: DownloadStage,
-    tick: u64,
-) {
+fn render_indeterminate_gauge(frame: &mut Frame, area: Rect, stage: DownloadStage, tick: u64) {
     let spinner = spinner_str(tick).trim();
     let label = match stage {
         DownloadStage::Pending => PLACEHOLDER_PREPARING,
         _ => PLACEHOLDER_RESOLVING,
     };
     let title = format!(" {spinner} {label} ");
-    render_indeterminate_block(frame, area, &title, page, tick);
+    render_indeterminate_block(frame, area, &title);
 }
 
 fn render_resolve_progress_gauge(
@@ -466,97 +466,46 @@ fn render_resolve_progress_gauge(
 ) {
     let spinner = spinner_str(tick).trim();
     let title = format!(" {spinner} resolving {current}/{total} collections ");
-    let title_style = Style::default().fg(info()).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(info()).bold();
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
-    frame.render_widget(block, area);
-
     if inner.width == 0 || inner.height == 0 {
+        frame.render_widget(block, area);
         return;
     }
 
-    let bar_width = inner.width as usize;
     let ratio = if total == 0 {
         0.0
     } else {
         (current as f64 / total as f64).clamp(0.0, 1.0)
     };
-    let filled = ((ratio * bar_width as f64).round() as usize).min(bar_width);
-    let empty = bar_width.saturating_sub(filled);
-
-    let bar = Line::from(vec![
-        Span::styled(
-            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, filled).into_owned(),
-            Style::default().fg(info()),
-        ),
-        Span::styled(
-            glyph_fill(&FILL_SHADE, GLYPH_SHADE, empty).into_owned(),
-            Style::default().fg(bg_raised()),
-        ),
-    ]);
-    let bar_area = Rect {
-        x: inner.x,
-        y: inner.y,
-        width: inner.width,
-        height: 1,
-    };
-    frame.render_widget(Paragraph::new(bar), bar_area);
+    // Determinate progress: sub-cell unicode fill, no centered percent label.
+    frame.render_widget(
+        Gauge::default()
+            .block(block)
+            .use_unicode(true)
+            .ratio(ratio)
+            .label(Span::raw(""))
+            .gauge_style(Style::default().fg(info()).bg(bg_raised())),
+        area,
+    );
 }
 
-fn render_indeterminate_block(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    page: &CollectionPage,
-    tick: u64,
-) {
-    let title_style = Style::default().fg(info()).add_modifier(Modifier::BOLD);
+fn render_indeterminate_block(frame: &mut Frame, area: Rect, title: &str) {
+    let title_style = Style::default().fg(info()).bold();
     let block = Block::default().title(Line::from(Span::styled(title, title_style)).left_aligned());
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
-
     if inner.width == 0 || inner.height == 0 {
         return;
     }
 
-    let bar_width = inner.width as usize;
-    let chunk_width = (bar_width / 5).clamp(3, bar_width);
-    let span = bar_width.saturating_sub(chunk_width).max(1);
-    let start_tick = match page.indeterminate_anim_start.get() {
-        Some(start_tick) => start_tick,
-        None => {
-            page.indeterminate_anim_start.set(Some(tick));
-            tick
-        }
-    };
-    let elapsed = tick.saturating_sub(start_tick) as usize;
-    let start_offset = (bar_width / 3).min(span);
-    let phase = (start_offset + elapsed) % (2 * span);
-    let chunk_start = if phase <= span {
-        phase
-    } else {
-        2 * span - phase
-    };
-    let chunk_end = (chunk_start + chunk_width).min(bar_width);
-    let visible = chunk_end - chunk_start;
-    let trailing = bar_width - chunk_start - visible;
-
-    let bar = Line::from(vec![
-        Span::styled(
-            glyph_fill(&FILL_SHADE, GLYPH_SHADE, chunk_start).into_owned(),
-            Style::default().fg(bg_raised()),
-        ),
-        Span::styled(
-            glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, visible).into_owned(),
-            Style::default().fg(info()),
-        ),
-        Span::styled(
-            glyph_fill(&FILL_SHADE, GLYPH_SHADE, trailing).into_owned(),
-            Style::default().fg(bg_raised()),
-        ),
-    ]);
+    // No known total: the canonical bracketed bouncing-block bar ([ ████░░░░ ]),
+    // the same widget the per-row mini-bar uses, sized to the full panel width.
+    // It signals live work without claiming determinate progress.
+    let bar = Line::from(widgets::indeterminate_bar_spans(inner.width, info()));
     frame.render_widget(Paragraph::new(bar), inner);
 }
 
@@ -662,14 +611,13 @@ fn render_scrollable_panel(
 
     let max_scroll = total.saturating_sub(visible_height);
     let start = page.thread_scroll.min(max_scroll);
-    let end = (start + visible_height).min(total);
 
     frame.render_widget(block, area);
 
-    frame.render_widget(
-        List::new(items[start..end].to_vec()).highlight_symbol(""),
-        inner,
-    );
+    // Offset-driven scroll with no selection: the failed list scrolls by
+    // `thread_scroll`, it has no per-row cursor highlight.
+    let mut state = ListState::default().with_offset(start);
+    frame.render_stateful_widget(List::new(items).highlight_symbol(""), inner, &mut state);
     widgets::render_scrollbar(frame, inner, start, total);
 }
 
@@ -685,6 +633,8 @@ fn push_failed_rows(items: &mut Vec<ListItem<'static>>, page: &CollectionPage) {
         page.failed_section_expanded,
         false,
         count > 0,
+        // Standalone header — no form group to column-align with.
+        0,
     ));
     if page.failed_section_expanded {
         for failure in &page.failed_maps {
@@ -710,11 +660,11 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
     let failed_color = if summary.failed > 0 {
         danger()
     } else {
-        text_muted()
+        text_dim()
     };
     let mut metrics = vec![
         Metric::colored(RESULTS_DOWNLOADED, summary.downloaded.to_string(), accent()),
-        Metric::colored(RESULTS_SKIPPED, summary.skipped.to_string(), text_muted()),
+        Metric::colored(RESULTS_SKIPPED, summary.skipped.to_string(), text_dim()),
         Metric::colored(RESULTS_FAILED, summary.failed.to_string(), failed_color),
     ];
     if summary.unverified > 0 {
@@ -730,7 +680,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled(RESULTS_OUTRO_1, Style::default().fg(text_muted())),
+            Span::styled(RESULTS_OUTRO_1, Style::default().fg(text_dim())),
         ]),
         Line::from(""),
         Line::from(vec![

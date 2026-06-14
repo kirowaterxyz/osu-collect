@@ -6,7 +6,7 @@ use crate::download::DownloadStage;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -14,17 +14,19 @@ use ratatui::{
 use super::{accent, spinner_str, text_dim, text_faint, warning};
 
 const HINT_SEPARATOR: &str = "  ·  ";
-/// Rendered gap between hint groups: 3 spaces, no glyph (cloudy-tui hint bar).
+/// Rendered gap between hint groups: 3 spaces, no glyph.
 const HINT_GROUP_GAP: &str = "   ";
 
 /// Footer-alert prefix glyph (` ! `) for the quit prompt, in semantic color.
 const ALERT_WARN: &str = " ! ";
 
 const QUIT_PROMPT_TEXT: &str = "press q again to quit";
-const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downloads will stop";
+const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit · active downloads will stop";
 
 const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q abort  ·  ? help";
-const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? help";
+// `esc`/`q` both close a settled page. `x` is toast-only (a notification key,
+// not a download-page action) so it isn't advertised here.
+const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  esc/q close  ·  ? help";
 const HINT_RETRY: &str = "r retry failed";
 
 const HINT_MOVE: &str = "↑↓ move";
@@ -43,8 +45,8 @@ const HINT_RECHECK: &str = "r recheck";
 const HINT_QUIT: &str = "q quit";
 const HINT_HELP: &str = "? help";
 
-/// Footer hint shown while a modal is open (cloudy-tui: discoverability lives in
-/// the context-aware footer hint bar, not a per-modal hint row).
+/// Footer hint shown while a modal is open — discoverability lives in the
+/// context-aware footer hint bar, not a per-modal hint row.
 const HINT_MODAL_CLOSE: &str = "esc close";
 /// Footer hint for button-carrying confirm modals — the buttons show the
 /// choices, so only the universal cancel key is surfaced.
@@ -106,7 +108,7 @@ fn hint_for(app: &App) -> String {
     }
 }
 
-/// `x close` appears only when the active download page is settled
+/// `esc/q close` appears only when the active download page is settled
 /// (`Completed` or `Failed`). In-progress pages keep the `q abort` hint.
 /// A retry segment is appended whenever the active page has failed maps.
 fn download_tab_hint(app: &App) -> String {
@@ -215,10 +217,7 @@ fn quit_prompt_paragraph(has_downloads: bool) -> Paragraph<'static> {
 /// Results and errors no longer appear here — they surface as toasts.
 fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
     Line::from(vec![
-        Span::styled(
-            spinner_str(tick),
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(spinner_str(tick), Style::default().fg(accent()).bold()),
         Span::styled(
             msg.text.trim_start().to_string(),
             Style::default().fg(text_dim()),
@@ -229,7 +228,7 @@ fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
 fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(text_faint());
-    let key_style = Style::default().fg(accent()).add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(accent()).bold();
 
     for (index, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();
@@ -237,7 +236,7 @@ fn hint_line(hint: &str) -> Line<'static> {
             continue;
         }
         if index > 0 {
-            // cloudy-tui: hint groups are 3-space separated, no glyph.
+            // Hint groups are 3-space separated, no glyph.
             spans.push(Span::raw(HINT_GROUP_GAP));
         } else {
             spans.push(Span::raw(" "));

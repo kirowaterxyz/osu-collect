@@ -70,6 +70,28 @@ fn footer_hint_omits_close_on_downloading_tab() {
 }
 
 #[test]
+fn footer_hint_settled_tab_advertises_close_without_a_dismiss_token() {
+    let mut app = App::new(Config::default());
+    push_focused_page(&mut app, 1, DownloadStage::Completed);
+
+    let hint = hint_for(&app);
+    // Both esc and q close a settled page. `x` is toast-only (a notification
+    // key, not a download-page action) so it must not appear in the hint.
+    assert!(
+        hint.contains("esc/q close"),
+        "settled tab must advertise `esc/q close`, got: {hint}"
+    );
+    assert!(
+        !hint.contains("dismiss"),
+        "settled tab must not advertise a toast-only `x dismiss` token, got: {hint}"
+    );
+    assert!(
+        !hint.contains("x/q"),
+        "the `x/q` compound must be dropped, got: {hint}"
+    );
+}
+
+#[test]
 fn footer_hint_caps_at_four_segments_on_settled_tab() {
     let mut app = App::new(Config::default());
     push_focused_page(&mut app, 1, DownloadStage::Completed);

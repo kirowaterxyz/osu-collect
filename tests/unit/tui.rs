@@ -34,11 +34,14 @@ fn render_app(app: &App, width: u16, height: u16) -> String {
         .collect::<String>()
 }
 
-fn progress_fill_positions(buf: &ratatui::buffer::Buffer, color: Color) -> Vec<(u16, u16)> {
+/// Positions of cells matching `symbol` drawn in `color`. Used to locate the
+/// bracketed bouncing-block bar's filled chunk (`█` in the bar color) and frame
+/// (`[`/`]` in the recessed line color).
+fn cells_matching(buf: &ratatui::buffer::Buffer, symbol: &str, color: Color) -> Vec<(u16, u16)> {
     buf.content
         .iter()
         .enumerate()
-        .filter(|(_, cell)| cell.symbol() == "█" && cell.style().fg == Some(color))
+        .filter(|(_, cell)| cell.symbol() == symbol && cell.style().fg == Some(color))
         .map(|(i, _)| {
             let x = (i as u16) % buf.area.width;
             let y = (i as u16) / buf.area.width;
@@ -48,7 +51,7 @@ fn progress_fill_positions(buf: &ratatui::buffer::Buffer, color: Color) -> Vec<(
 }
 
 #[test]
-fn home_render_shows_cloudy_sections_and_footer() {
+fn home_render_shows_sections_and_footer() {
     use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
@@ -164,15 +167,15 @@ fn download_render_shows_status_metrics_and_results() {
     assert!(output.contains("completed"));
     // The OVERVIEW `settings: N threads` row and the `done:` tally are gone
     // post-completion; the RESULTS block carries the counts as lowercase
-    // `label value` metrics (cloudy-tui metric styling).
+    // `label value` metrics.
     assert!(output.contains("downloaded 8"));
     assert!(output.contains("skipped 2"));
 }
 
 #[test]
 fn confirm_retry_modal_renders_focused_button_block() {
-    // cloudy-tui: confirm modals carry right-aligned buttons; the focused one is
-    // a neutral inverse block (fg=BG, bg=TEXT), unfocused are bare TEXT_DIM.
+    // Confirm modals carry right-aligned buttons; the focused one is a neutral
+    // inverse block (fg=BG, bg=TEXT), unfocused are bare TEXT_DIM.
     // focus=1 is `retry`.
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
@@ -203,8 +206,8 @@ fn confirm_retry_modal_renders_focused_button_block() {
 
 #[test]
 fn confirm_retry_modal_is_content_sized_not_terminal_sized() {
-    // cloudy-tui: a modal shrinks to its content and never grows past 60% of the
-    // terminal. On a very wide terminal it must stay narrow, not balloon.
+    // A modal shrinks to its content and never grows past 60% of the terminal.
+    // On a very wide terminal it must stay narrow, not balloon.
     let width = 200u16;
     let backend = TestBackend::new(width, 24);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
@@ -713,12 +716,12 @@ fn rechecking_stage_replaces_top_title_with_recheck_progress() {
         output.contains("rechecking 3/10"),
         "gauge top title must show recheck progress during rechecking"
     );
-    // The downloaded/queued/skipped/failed tally moved into the OVERVIEW panel
-    // (the gauge dropped its top-title tally). During rechecking it renders at the
-    // bottom of OVERVIEW, with the recheck title still owned by the gauge.
+    // The downloaded/queued/skipped/failed tally rides the gauge's bottom title
+    // row (left-aligned, opposite the right-aligned verified count). During
+    // rechecking the gauge keeps its top recheck title and this bottom tally.
     assert!(
         output.contains("queued"),
-        "overview tally must render the queued count during rechecking"
+        "gauge tally must render the queued count during rechecking"
     );
 }
 
@@ -791,79 +794,74 @@ fn resolving_stage_with_progress_shows_count_in_title() {
 }
 
 #[test]
-fn resolving_stage_indeterminate_chunk_starts_at_one_third() {
+fn resolving_stage_indeterminate_bar_is_bracketed_block() {
     let mut app = App::new(Config::default());
     let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
     page.stage = DownloadStage::Resolving;
     app.downloads.push(page);
     app.active_tab = 3;
-    app.tick_count = 47;
 
     let buf = render_buffer(&app, 100, 24);
-    let cyan = Color::Rgb(116, 199, 236);
-    let positions = progress_fill_positions(&buf, cyan);
-    let start_x = positions
+    let frame_color = super::line();
+    let bar_color = super::info();
+
+    // The canonical bouncing-block bar draws a `[ … ]` frame in the recessed
+    // line color and a short `█` chunk in the bar (info) color inside it —
+    // the same widget the per-row mini-bar renders.
+    let open = cells_matching(&buf, "[", frame_color);
+    let close = cells_matching(&buf, "]", frame_color);
+    let block = cells_matching(&buf, "█", bar_color);
+
+    let (open_x, open_y) = *open.first().expect("bar must render a `[` frame cell");
+    assert!(
+        close.iter().any(|&(_, y)| y == open_y),
+        "bar must render a `]` frame cell on the same row as `[`"
+    );
+    // GAUGE_H_MARGIN insets the bar by one column, so the `[` sits at x=1.
+    assert_eq!(open_x, 1, "bracket frame must start at the bar's left edge");
+    assert!(
+        !block.is_empty(),
+        "bar must render a filled `█` chunk inside the frame"
+    );
+    let close_x = close
         .iter()
-        .map(|(x, _)| *x)
-        .min()
-        .expect("indeterminate chunk must render");
-
-    assert_eq!(start_x, 33, "indeterminate chunk must start at 1/3");
-}
-
-#[test]
-fn resolving_stage_indeterminate_chunk_advances_with_tick() {
-    let mut app = App::new(Config::default());
-    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
-    page.stage = DownloadStage::Resolving;
-    app.downloads.push(page);
-    app.active_tab = 3;
-
-    let buf0 = render_buffer(&app, 100, 24);
-    app.tick_count = 4;
-    let buf1 = render_buffer(&app, 100, 24);
-
-    let cyan = Color::Rgb(116, 199, 236);
-    let positions0 = progress_fill_positions(&buf0, cyan);
-    let positions1 = progress_fill_positions(&buf1, cyan);
-
-    assert!(!positions0.is_empty(), "indeterminate chunk must render");
-    assert_ne!(
-        positions0, positions1,
-        "indeterminate chunk must move with tick_count"
+        .filter(|&&(_, y)| y == open_y)
+        .map(|&(x, _)| x)
+        .max()
+        .expect("`]` on the bar row");
+    assert!(
+        block
+            .iter()
+            .all(|&(x, y)| y == open_y && x > open_x && x < close_x),
+        "the filled chunk must travel inside the `[ … ]` frame"
     );
 }
 
 #[test]
-fn stage_change_resets_indeterminate_chunk_start() {
+fn resolving_stage_indeterminate_block_stays_inside_frame() {
+    // The bouncing block is time-driven (one global clock); across renders the
+    // chunk stays inside the frame and the frame stays put — no claim of
+    // determinate progress.
     let mut app = App::new(Config::default());
-    let page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Resolving;
     app.downloads.push(page);
     app.active_tab = 3;
-    app.tick_count = 7;
-    app.handle_download_event(DownloadEvent::StageChanged {
-        id: 1,
-        stage: DownloadStage::Resolving,
-    });
-    let first = render_buffer(&app, 100, 24);
 
-    app.tick_count = 19;
-    app.handle_download_event(DownloadEvent::StageChanged {
-        id: 1,
-        stage: DownloadStage::Downloading,
-    });
-    app.handle_download_event(DownloadEvent::StageChanged {
-        id: 1,
-        stage: DownloadStage::Resolving,
-    });
-    let second = render_buffer(&app, 100, 24);
+    let buf = render_buffer(&app, 100, 24);
+    let frame_color = super::line();
+    let bar_color = super::info();
 
-    let cyan = Color::Rgb(116, 199, 236);
+    let open = cells_matching(&buf, "[", frame_color);
+    let close = cells_matching(&buf, "]", frame_color);
+    let block = cells_matching(&buf, "█", bar_color);
 
-    assert_eq!(
-        progress_fill_positions(&first, cyan),
-        progress_fill_positions(&second, cyan),
-        "resolving animation must restart after leaving the stage"
+    assert_eq!(open.len(), 1, "exactly one `[` frame cell");
+    assert_eq!(close.len(), 1, "exactly one `]` frame cell");
+    let span = block.len();
+    assert!(
+        (1..=4).contains(&span),
+        "the moving chunk is a short fixed-width block, got {span} cells"
     );
 }
 
@@ -1555,70 +1553,6 @@ fn compact_updates_renders_without_panic() {
     assert!(
         !output.contains("SOURCE"),
         "source section header must be hidden in compact updates"
-    );
-}
-
-// --- status pill tests ---
-
-#[test]
-fn pill_is_none_when_disk_path_is_unknown() {
-    use super::header::StatusPill;
-
-    assert!(
-        StatusPill::compute(None).is_none(),
-        "pill must be None when free space is unknown"
-    );
-}
-
-#[test]
-fn pill_is_none_when_disk_above_warn_threshold() {
-    use super::header::StatusPill;
-
-    // 2 GiB — well above 1 GiB warn threshold: disk segment omitted, pill hidden.
-    let free = 2u64 * 1024 * 1024 * 1024;
-    assert!(
-        StatusPill::compute(Some(free)).is_none(),
-        "pill must be None when disk is healthy"
-    );
-}
-
-#[test]
-fn pill_disk_color_is_warning_below_1_gib() {
-    use super::header::StatusPill;
-    use super::warning;
-
-    // 500 MiB — below 1 GiB warn threshold, above 100 MiB danger threshold
-    let free = 500u64 * 1024 * 1024;
-    let pill = StatusPill::compute(Some(free)).expect("disk segment present");
-    let segs = pill.segments();
-    let disk_seg = segs
-        .iter()
-        .find(|(t, _)| t.contains("free"))
-        .expect("disk segment");
-    assert_eq!(
-        disk_seg.1,
-        warning(),
-        "disk segment must use warning color when free space is below 1 GiB"
-    );
-}
-
-#[test]
-fn pill_disk_color_is_danger_below_100_mib() {
-    use super::danger;
-    use super::header::StatusPill;
-
-    // 50 MiB — below 100 MiB danger threshold
-    let free = 50u64 * 1024 * 1024;
-    let pill = StatusPill::compute(Some(free)).expect("disk segment present");
-    let segs = pill.segments();
-    let disk_seg = segs
-        .iter()
-        .find(|(t, _)| t.contains("free"))
-        .expect("disk segment");
-    assert_eq!(
-        disk_seg.1,
-        danger(),
-        "disk segment must use danger color when free space is below 100 MiB"
     );
 }
 

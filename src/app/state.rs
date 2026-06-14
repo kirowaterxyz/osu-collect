@@ -51,9 +51,9 @@ pub struct App {
     /// `draw()` borrows `App` immutably but clamps the offset to the viewport
     /// and writes the clamped value back (mirrors `disk_cache`).
     pub help_scroll: Cell<usize>,
-    /// Edit mode for the focused text-input row. cloudy-tui: edit is OFF by
-    /// default — a focused text field is selected-not-editing (`❯`, no cursor,
-    /// keys are global hotkeys) until `enter` descends into editing (`✎` +
+    /// Edit mode for the focused text-input row. Edit is OFF by default — a
+    /// focused text field is selected-not-editing (`❯`, no cursor, keys are
+    /// global hotkeys) until `enter` descends into editing (`✎` +
     /// native cursor, keys type). Reset whenever focus moves or tabs switch.
     pub editing: bool,
     /// Pending confirmation for "retry N failed maps?" when count > 50.
@@ -917,7 +917,7 @@ impl App {
 
         // We are "typing" only when a text field is focused AND in edit mode.
         // Outside edit mode a focused text field is selected-not-editing, so
-        // letter/`?`/`x` keybinds fire as global hotkeys (cloudy-tui).
+        // letter/`?`/`x` keybinds fire as global hotkeys.
         let typing = self.editing && self.focused_text_input();
 
         // `q` only quits outside text fields; esc always does. Typing a key
@@ -929,7 +929,7 @@ impl App {
         }
 
         // `x` dismisses the topmost toast before any per-tab handler sees it
-        // (cloudy-tui dismissal precedence: toast → footer alert → app binding).
+        // (dismissal precedence: toast → footer alert → app binding).
         // Skipped while typing so `x` reaches the field.
         if key.code == KeyCode::Char('x')
             && !key.modifiers.contains(KeyModifiers::CONTROL)
@@ -994,7 +994,7 @@ impl App {
             }
             KeyCode::Tab => {
                 // `tab` completes the home directory path while editing it — NOT
-                // a screen switch (cloudy-tui: screens switch with ←/→ only;
+                // a screen switch (screens switch with ←/→ only;
                 // `tab` / `shift+tab` stay free for app use).
                 if self.editing
                     && self.active_tab() == HOME_TAB_INDEX
@@ -1039,7 +1039,7 @@ impl App {
             // `enter` is the universal activate/toggle key: it confirms the
             // focused button, toggles the focused checkbox/option, or opens a
             // list — replacing the old `space`-to-toggle binding. On a text
-            // input it toggles edit mode instead (cloudy-tui).
+            // input it toggles edit mode instead.
             KeyCode::Enter => {
                 if self.focused_text_input() {
                     let was_editing = self.editing;
@@ -1581,7 +1581,7 @@ impl App {
 
     fn handle_download_tab_key(&mut self, ch: char) -> Option<AppCommand> {
         match ch {
-            // Case-insensitive retry (cloudy-tui: hotkeys are case-insensitive):
+            // Case-insensitive retry (hotkeys are case-insensitive):
             // `r`/`R` retry ALL retryable failed maps (NotFound skipped); >50
             // routes through the confirm modal.
             'r' | 'R' => {
@@ -1610,18 +1610,8 @@ impl App {
                     Some(AppCommand::RetryAllFailed { download_id })
                 }
             }
-            'x' => {
-                // Settled tabs (Completed/Failed) close on `x`. In-progress
-                // stages route cancellation through `q` to avoid silently
-                // killing a running download.
-                let page = self.active_download_page_mut()?;
-                if !matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed) {
-                    return None;
-                }
-                let download_id = page.id;
-                self.close_settled_download_tab(download_id);
-                None
-            }
+            // `x` is reserved for toast dismissal (handled globally in
+            // `handle_key`); settled download tabs close via `esc`/`q`.
             _ => None,
         }
     }
@@ -1673,8 +1663,8 @@ impl App {
             return None;
         };
 
-        // Settled tabs have nothing to cancel — `q` just closes them in
-        // place, matching the `x` binding and the `q close` footer hint.
+        // Settled tabs have nothing to cancel — `esc`/`q` just closes them
+        // in place, matching the `esc/q close` footer hint.
         if matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed) {
             let download_id = page.id;
             self.close_settled_download_tab(download_id);

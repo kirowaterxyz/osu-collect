@@ -187,7 +187,7 @@ fn r_while_editing_text_input_types_instead_of_probing() {
 }
 
 /// `r` on a text-input row that is selected-not-editing is a global hotkey and
-/// probes mirror latency (cloudy-tui: edit is off until `enter`).
+/// probes mirror latency (edit mode is off until `enter` is pressed).
 #[test]
 fn r_on_selected_not_editing_text_input_probes() {
     let mut app = App::new(Config::default());

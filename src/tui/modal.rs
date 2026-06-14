@@ -14,9 +14,9 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding, Paragraph, Wrap},
+    widgets::{Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap},
 };
 
 use unicode_width::UnicodeWidthStr;
@@ -26,7 +26,7 @@ use super::{accent, accent_alt, bg, text, text_dim};
 use crate::app::state::{CONFIRM_RETRY_BUTTONS, RETRY_ON_START_BUTTONS};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 
-/// cloudy-tui modal sizing cap: a modal never exceeds 60% of the terminal width.
+/// Modal sizing cap: a modal never exceeds 60% of the terminal width.
 /// Below that it shrinks to its content, so a big terminal doesn't inflate it.
 const MODAL_MAX_WIDTH_PCT: usize = 60;
 /// Horizontal chrome subtracted from the popup width to reach the content area:
@@ -39,7 +39,7 @@ const MODAL_CHROME_H: usize = 4;
 
 /// Centered popup width that fits `content_w` (the widest inner line) plus chrome,
 /// never below what the titled top border needs, and never past 60% of the
-/// terminal — cloudy-tui: shrink to content, grow only up to the cap.
+/// terminal — shrinks to content, grows only up to the cap.
 fn modal_width(area_width: u16, content_w: usize, title: &str) -> u16 {
     let cap = ((area_width as usize * MODAL_MAX_WIDTH_PCT) / 100).max(1);
     (content_w + MODAL_CHROME_W)
@@ -64,22 +64,19 @@ fn modal_padding() -> Padding {
     Padding::new(2, 2, 1, 1)
 }
 
-/// Builds the standard bordered modal block per cloudy-tui Modals: rounded
-/// `accent_alt` (orange) border — the sole modal anchor — base `BG` fill (no
-/// raised tone, no backdrop), and a `text_dim` italic-only title (no bold).
+/// Builds the standard bordered modal block: rounded `accent_alt` (orange)
+/// border — the sole modal anchor — base `BG` fill (no raised tone, no
+/// backdrop), and a `text_dim` italic-only title (no bold).
 ///
 /// Callers add a scroll indicator via `title_top` afterwards when needed.
 fn modal_block(title: &'static str) -> Block<'static> {
-    Block::default()
-        .borders(Borders::ALL)
+    Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(accent_alt()))
         .style(Style::default().bg(bg()))
         .title(Span::styled(
             title,
-            Style::default()
-                .fg(text_dim())
-                .add_modifier(Modifier::ITALIC),
+            Style::default().fg(text_dim()).italic(),
         ))
         .padding(modal_padding())
 }
@@ -121,7 +118,7 @@ const DOWNLOAD_TAB: &[HelpRow] = &[
     HelpRow::new("↵", "expand / collapse failed"),
     HelpRow::new("↑ ↓", "navigate failed rows"),
     HelpRow::new("r", "retry failed maps"),
-    HelpRow::new("x", "close completed tab"),
+    HelpRow::new("esc / q", "close completed tab"),
 ];
 
 /// Renders a centred keybindings overlay.
@@ -146,7 +143,7 @@ pub(crate) fn render_help_overlay(
     // Size the popup to fit all items exactly (+MODAL_CHROME_H for the border and
     // 1-row top/bottom padding), capped at the terminal height so it never
     // overflows on very small terminals. Width shrinks to the longest row, capped
-    // at 60% of the terminal (cloudy-tui modal sizing).
+    // at 60% of the terminal.
     let needed_height = (items.len() as u16)
         .saturating_add(MODAL_CHROME_H as u16)
         .min(area.height);
@@ -168,10 +165,12 @@ pub(crate) fn render_help_overlay(
     // the bottom edge.
     let max_start = total.saturating_sub(visible_height);
     let start = scroll.min(max_start);
-    let end = (start + visible_height).min(total);
     frame.render_widget(outer_block, popup_area);
 
-    frame.render_widget(List::new(items[start..end].to_vec()), inner);
+    // Reference sheet — no row cursor, so the list scrolls by offset with no
+    // selection highlight.
+    let mut state = ListState::default().with_offset(start);
+    frame.render_stateful_widget(List::new(items), inner, &mut state);
     widgets::render_scrollbar(frame, inner, start, total);
     start
 }
@@ -188,10 +187,7 @@ pub(crate) fn render_retry_on_start_modal(
     focus: usize,
 ) {
     let body = vec![Line::from(vec![
-        Span::styled(
-            count.to_string(),
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(count.to_string(), Style::default().fg(accent()).bold()),
         Span::styled(
             " failed maps from a previous run. retry them?",
             Style::default().fg(text_dim()),
@@ -219,10 +215,7 @@ pub(crate) fn render_confirm_retry_modal(
 ) {
     let body = vec![Line::from(vec![
         Span::styled("retry ", Style::default().fg(text_dim())),
-        Span::styled(
-            count.to_string(),
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(count.to_string(), Style::default().fg(accent()).bold()),
         Span::styled(" failed maps?", Style::default().fg(text_dim())),
     ])];
     render_button_modal(
@@ -236,7 +229,7 @@ pub(crate) fn render_confirm_retry_modal(
 }
 
 /// Renders a centred confirm/prompt modal: a wrapped body block on top and a
-/// right-aligned button group on the last inner row (cloudy-tui Confirm modal).
+/// right-aligned button group on the last inner row.
 ///
 /// The modal sizes to its content — width fits the longest body / button line
 /// (capped at 60% of the terminal), height fits the body (wrapped at that width)
@@ -293,8 +286,8 @@ fn render_button_modal(
     };
     frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: true }), body_area);
 
-    // Right-aligned button group on the last inner row (cloudy-tui: 3-space gap,
-    // no separator glyph; the focused button is the only inverse block).
+    // Right-aligned button group on the last inner row: 3-space gap,
+    // no separator glyph; the focused button is the only inverse block.
     let button_area = Rect {
         y: inner.y + inner.height - 1,
         height: 1,
@@ -392,12 +385,9 @@ fn help_row(key: &'static str, action: &'static str) -> Line<'static> {
         key_cell.push(' ');
     }
     Line::from(vec![
-        Span::styled(
-            key_cell,
-            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-        ),
-        // cloudy-tui Help modal: hotkey in ACCENT, action in TEXT (the reference
-        // sheet's action column is primary text, not the dim secondary tier).
+        Span::styled(key_cell, Style::default().fg(accent()).bold()),
+        // Help modal: hotkey in ACCENT, action in TEXT (the action column is
+        // primary text, not the dim secondary tier).
         Span::styled(action, Style::default().fg(text())),
     ])
 }

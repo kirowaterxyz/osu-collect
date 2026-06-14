@@ -8,7 +8,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::ListItem,
 };
@@ -36,7 +36,8 @@ const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "log level";
 const LABEL_LOGGING_FORMAT: &str = "log format";
 
-const CHIP_UNAVAILABLE: &str = " login unavailable · no credentials in build ";
+const CHIP_UNAVAILABLE: &str = " login unavailable ";
+const CHIP_UNAVAILABLE_REASON: &str = "no credentials in build";
 const CHIP_LOGGED_OUT: &str = " signed out";
 const CHIP_LOGGED_IN: &str = " signed in";
 const CHIP_ACTION_LOGIN: &str = "log in";
@@ -74,25 +75,24 @@ fn retry_failed_help(mode: RetryFailedOnDownload) -> &'static str {
     }
 }
 
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    form: &ConfigTab,
-    editing: bool,
-) -> Option<(u16, u16)> {
+pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab, editing: bool) {
     let show_chrome = area.height >= super::COMPACT_HEIGHT;
     let items = build_config_items(form, show_chrome, editing);
 
     let cursor_col = editing
-        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .then(|| {
+            form.focused_input()
+                .map(|f| widgets::input_cursor_col(f, 0))
+        })
         .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
         area,
         PANEL_TITLE,
-        &items,
+        items,
         focused_index,
+        form.focus != ConfigField::AuthChip,
         cursor_col,
         true,
         true,
@@ -115,9 +115,12 @@ fn build_config_items(
     let mut items = widgets::FormItems::new(focus);
 
     items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
-    if show_chrome && focus == ConfigField::AuthChip && crate::auth::bundled_credentials().is_some()
-    {
-        items.push(widgets::help_item(CHIP_LOGIN_HINT));
+    if show_chrome && focus == ConfigField::AuthChip {
+        if crate::auth::bundled_credentials().is_some() {
+            items.push(widgets::help_item(CHIP_LOGIN_HINT));
+        } else {
+            items.push(widgets::help_item(CHIP_UNAVAILABLE_REASON));
+        }
     }
     if show_chrome {
         items.push(widgets::spacer());
@@ -134,6 +137,7 @@ fn build_config_items(
             THEME_MODE_LABELS,
             theme_mode_label(form.theme),
             focus == ConfigField::Theme,
+            0,
         ),
     );
     if show_chrome {
@@ -153,7 +157,15 @@ fn build_config_items(
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
         items.push_focusable(
             field,
-            widgets::row_item(mirror_label(*kind), Some(kind.host()), on, focus == field),
+            // Host is an informational hint, not a configurable value, so it is
+            // NOT column-aligned (label_width 0) — it trails the mirror name.
+            widgets::row_item(
+                mirror_label(*kind),
+                Some(kind.host()),
+                on,
+                focus == field,
+                0,
+            ),
         );
     }
     items.push_focusable(
@@ -162,6 +174,7 @@ fn build_config_items(
             &form.custom_mirror,
             focus == ConfigField::MirrorCustomUrl,
             editing,
+            0,
         ),
     );
     if show_chrome && focus == ConfigField::MirrorCustomUrl {
@@ -182,6 +195,7 @@ fn build_config_items(
             None,
             form.video,
             focus == ConfigField::DownloadVideo,
+            0,
         ),
     );
     items.push_focusable(
@@ -191,6 +205,7 @@ fn build_config_items(
             form.resolved_threads(),
             form.default_threads,
             focus == ConfigField::DownloadThreads,
+            0,
         ),
     );
     items.push_focusable(
@@ -200,6 +215,7 @@ fn build_config_items(
             ARCHIVE_VALIDATION_LABELS,
             archive_validation_label(form.archive_validation),
             focus == ConfigField::DownloadArchiveValidation,
+            0,
         ),
     );
     if show_chrome && focus == ConfigField::DownloadArchiveValidation {
@@ -214,6 +230,7 @@ fn build_config_items(
             RETRY_FAILED_LABELS,
             retry_failed_label(form.retry_failed_on_download),
             focus == ConfigField::RetryFailedOnDownload,
+            0,
         ),
     );
     if show_chrome && focus == ConfigField::RetryFailedOnDownload {
@@ -236,6 +253,7 @@ fn build_config_items(
             None,
             form.logging_enabled,
             focus == ConfigField::LoggingEnabled,
+            0,
         ),
     );
     items.push_focusable(
@@ -245,6 +263,7 @@ fn build_config_items(
             LOG_LEVELS,
             log_level_label(form.logging_level),
             focus == ConfigField::LoggingLevel,
+            0,
         ),
     );
     items.push_focusable(
@@ -254,6 +273,7 @@ fn build_config_items(
             LOG_FORMATS,
             log_format_label(form.logging_format),
             focus == ConfigField::LoggingFormat,
+            0,
         ),
     );
     items.push_focusable(
@@ -262,6 +282,7 @@ fn build_config_items(
             &form.logging_dir,
             focus == ConfigField::LoggingDirectory,
             editing,
+            0,
         ),
     );
 
@@ -290,7 +311,7 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
 /// - Signed in:   ` signed in · log out `
 /// - Signed out:  ` signed out · log in `
 /// - In progress: ` logging in… · cancel`
-/// - Unavailable: ` login unavailable · no credentials in build `
+/// - Unavailable: ` login unavailable ` (reason shown as a focus-gated tooltip)
 fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
     let focused = form.focus == ConfigField::AuthChip;
     let chip_bg = Style::default().bg(bg_raised());
@@ -316,17 +337,14 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
             } else {
                 format!(" {step} ").into()
             };
-            // No italic — cloudy-tui reserves italic for panel/modal titles.
+            // No italic — italic is reserved for panel/modal titles.
             (
                 Span::styled(label, chip_bg.fg(warning())),
                 CHIP_ACTION_CANCEL,
             )
         }
         AuthLoginState::LoggedIn => (
-            Span::styled(
-                CHIP_LOGGED_IN,
-                chip_bg.fg(success()).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(CHIP_LOGGED_IN, chip_bg.fg(success())),
             CHIP_ACTION_LOGOUT,
         ),
     };
@@ -341,18 +359,14 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
 /// The chip's inline action segment.
 ///
 /// Focused: highlighted like a selected row — `TEXT + bold` on `BG_HOVER` (the
-/// row-selection tint), 1-space inset. A deliberate departure from the
-/// cloudy-tui action-chip spec (an `ACCENT`-fill inverse block) so the auth
-/// action reads as the focused row, not a sapphire button. Blurred: `TEXT_DIM`
-/// on the chip's `BG_RAISED` fill with a trailing pad cell, no bold.
+/// row-selection tint), 1-space inset. The auth action reads as the focused row,
+/// not an inverse accent block. Blurred: `TEXT_DIM` on the chip's `BG_RAISED`
+/// fill with a trailing pad cell, no bold.
 fn chip_action_span(label: &'static str, focused: bool, chip_bg: Style) -> Span<'static> {
     if focused {
         Span::styled(
             format!(" {label} "),
-            Style::default()
-                .fg(text())
-                .bg(bg_hover())
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(text()).bg(bg_hover()).bold(),
         )
     } else {
         Span::styled(format!("{label} "), chip_bg.fg(text_dim()))

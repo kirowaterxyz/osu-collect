@@ -1,48 +1,57 @@
-use super::{input_cursor_col, message_style, panel_cursor, scroll_window, truncate_to_width};
+use super::{
+    input_cursor_col, input_item, message_style, render_list, render_scrollbar, set_panel_cursor,
+    truncate_to_width,
+};
 use crate::app::InputField;
 use crate::download::BeatmapStage;
 use crate::tui::{
-    FILL_BLOCK, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_SHADE, GLYPH_SPACE, danger, glyph_fill,
-    success, text_dim, text_faint, warning,
+    FILL_BLOCK, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_SHADE, GLYPH_SPACE, accent, bg_hover,
+    danger, glyph_fill, success, text, text_dim, text_faint, warning,
 };
-use ratatui::layout::Rect;
+use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
-#[test]
-fn scroll_window_keeps_focus_centered() {
-    let items: Vec<u8> = (0..20).collect();
-    let (start, end) = scroll_window(&items, 10, 5);
-    assert!((start..end).contains(&10));
-    assert_eq!(end - start, 5);
-}
-
-#[test]
-fn scroll_window_clamps_to_end() {
-    let items: Vec<u8> = (0..10).collect();
-    let (start, end) = scroll_window(&items, 9, 4);
-    assert_eq!(end, 10);
-    assert_eq!(start, 6);
-}
-
-#[test]
-fn scroll_window_empty_visible() {
-    let items: Vec<u8> = (0..10).collect();
-    assert_eq!(scroll_window(&items, 3, 0), (0, 10));
+/// Drives [`set_panel_cursor`] through a real frame and reads back the terminal
+/// caret. Returns `None` when the frame left the cursor hidden, or `Some((x, y))`
+/// when it was positioned (ratatui applies the request after the buffer flush).
+fn panel_cursor(
+    inner: Rect,
+    focused_index: usize,
+    start: usize,
+    end: usize,
+    cursor_col: Option<u16>,
+) -> Option<(u16, u16)> {
+    let mut terminal = Terminal::new(TestBackend::new(64, 24)).expect("test backend");
+    terminal
+        .draw(|frame| set_panel_cursor(frame, inner, focused_index, start, end, cursor_col))
+        .expect("frame renders");
+    let backend = terminal.backend();
+    backend
+        .cursor_visible()
+        .then(|| (backend.cursor_position().x, backend.cursor_position().y))
 }
 
 #[test]
 fn input_cursor_col_counts_prefix_label_and_value() {
     // `new` parks the caret at the end, so the column lands past the full value.
     let field = InputField::new("Threads", "ab", ""); // label lowercases to "threads" (7)
-    // focus marker (2) + "threads" (7) + ": " (2) + caret offset (2) = 13
-    assert_eq!(input_cursor_col(&field), 13);
+    // focus marker (2) + label cell (7 + 2-space gap = 9) + caret offset (2) = 13
+    assert_eq!(input_cursor_col(&field, 0), 13);
+}
+
+#[test]
+fn input_cursor_col_pads_label_to_group_width() {
+    // A wider group column left-pads the label, pushing the value column right.
+    let field = InputField::new("Threads", "ab", ""); // "threads" (7)
+    // focus marker (2) + label cell (10 + 2-space gap = 12) + caret (2) = 16
+    assert_eq!(input_cursor_col(&field, 10), 16);
 }
 
 #[test]
 fn input_cursor_col_tracks_caret_offset_not_value_length() {
     let mut field = InputField::new("Threads", "ab", "");
     field.caret_home();
-    // caret at 0: focus marker (2) + "threads" (7) + ": " (2) + 0 = 11
-    assert_eq!(input_cursor_col(&field), 11);
+    // caret at 0: focus marker (2) + label cell (7 + 2 = 9) + 0 = 11
+    assert_eq!(input_cursor_col(&field, 0), 11);
 }
 
 #[test]
@@ -64,6 +73,86 @@ fn panel_cursor_maps_row_and_clamps_column() {
     assert_eq!(panel_cursor(inner, 4, 2, 10, Some(5)), Some((7, 5)));
     // column past the edge clamps to inner.x + width - 1 = 11
     assert_eq!(panel_cursor(inner, 4, 2, 10, Some(99)), Some((11, 5)));
+}
+
+#[test]
+fn render_scrollbar_draws_in_right_padding_column() {
+    // The bar lives in the panel's 1-cell right padding column at
+    // `inner.x + inner.width`, never further right. With overflow content
+    // (total > visible) a thumb glyph must appear in exactly that column.
+    let mut terminal = Terminal::new(TestBackend::new(20, 10)).expect("test backend");
+    let inner = Rect::new(2, 0, 10, 8); // padding column = x 12
+    terminal
+        .draw(|frame| render_scrollbar(frame, inner, 0, 40))
+        .expect("frame renders");
+    let buf = terminal.backend().buffer();
+    let bar_col = inner.x + inner.width; // 12
+    let drew_in_col =
+        (inner.y..inner.y + inner.height).any(|y| matches!(buf[(bar_col, y)].symbol(), "┃" | "┊"));
+    assert!(
+        drew_in_col,
+        "scrollbar must draw in the right padding column ({bar_col})"
+    );
+    // And nothing past it (the old `..inner` width pushed the bar off to the right).
+    let drew_past = (bar_col + 1..20).any(|x| {
+        (inner.y..inner.y + inner.height).any(|y| matches!(buf[(x, y)].symbol(), "┃" | "┊"))
+    });
+    assert!(
+        !drew_past,
+        "scrollbar must not draw past the padding column"
+    );
+}
+
+#[test]
+fn render_scrollbar_hidden_when_content_fits() {
+    let mut terminal = Terminal::new(TestBackend::new(20, 10)).expect("test backend");
+    let inner = Rect::new(2, 0, 10, 8);
+    terminal
+        .draw(|frame| render_scrollbar(frame, inner, 0, 8))
+        .expect("frame renders");
+    let buf = terminal.backend().buffer();
+    let any_bar = buf
+        .content()
+        .iter()
+        .any(|cell| matches!(cell.symbol(), "┃" | "┊"));
+    assert!(!any_bar, "no scrollbar when total <= visible");
+}
+
+#[test]
+fn render_scrollbar_thumb_sized_to_visible_ratio_and_reaches_bottom() {
+    // 17 items, 14 visible: the thumb must cover most of the track (~visible/total)
+    // and reach the bottom row at max scroll. Guards the `content_length =
+    // max_offset + 1` setup — passing `total` undersized the thumb (≈half) and
+    // parked it short of the end since our offset never reaches `total - 1`.
+    let bar_col = 12u16; // inner.x + inner.width
+    let inner = Rect::new(2, 0, 10, 14); // visible = 14
+    let thumb_rows = |start: usize| -> Vec<u16> {
+        let mut terminal = Terminal::new(TestBackend::new(20, 14)).expect("test backend");
+        terminal
+            .draw(|frame| render_scrollbar(frame, inner, start, 17))
+            .expect("frame renders");
+        let buf = terminal.backend().buffer();
+        (inner.y..inner.y + inner.height)
+            .filter(|&y| buf[(bar_col, y)].symbol() == "┃")
+            .collect()
+    };
+    let top = thumb_rows(0);
+    assert!(
+        top.len() >= 10,
+        "thumb should cover most of the track (~14/17), got {}",
+        top.len()
+    );
+    assert_eq!(
+        top.first().copied(),
+        Some(0),
+        "thumb anchored at top when scrolled to top"
+    );
+    let bottom = thumb_rows(3); // max offset = total - visible
+    assert_eq!(
+        bottom.last().copied(),
+        Some(inner.height - 1),
+        "thumb reaches the bottom row at max scroll"
+    );
 }
 
 #[test]
@@ -126,6 +215,79 @@ fn message_style_stage_classification() {
     assert_eq!(
         message_style(BeatmapStage::Verifying, false),
         Style::default().fg(text_dim())
+    );
+}
+
+/// The focused-row contract: `List::highlight_style` lays the edge-to-edge
+/// `BG_HOVER` tint over the selected row, but ONLY the label span promotes to
+/// `TEXT + bold`. The value (and any other span) keeps its own color/weight —
+/// the selection must not recolor or embolden the whole line.
+#[test]
+fn focused_row_promotes_only_label_keeps_value_color_and_full_bg() {
+    use ratatui::style::Modifier;
+
+    // Two rows so row 0 is the focused/selected one and row 1 is a blurred sibling.
+    // A non-empty value renders in ACCENT (an empty value would be TEXT_FAINT).
+    let focused = input_item(&InputField::new("Threads", "abc", ""), true, false, 0);
+    let blurred = input_item(&InputField::new("Connections", "xyz", ""), false, false, 0);
+
+    let mut terminal = Terminal::new(TestBackend::new(40, 4)).expect("test backend");
+    let inner = Rect::new(0, 0, 40, 4);
+    terminal
+        .draw(|frame| {
+            let _ = render_list(frame, inner, vec![focused, blurred], Some(0), true);
+        })
+        .expect("frame renders");
+    let buf = terminal.backend().buffer();
+
+    // Row layout: focus marker "❯ " (cols 0..2), label cell "threads  " (cols 2..),
+    // then the value. Sample a label cell and the first value cell.
+    let label_cell = &buf[(2, 0)]; // first label char ('t')
+    assert_eq!(label_cell.symbol(), "t", "label cell sampled at col 2");
+    assert_eq!(
+        label_cell.fg,
+        text(),
+        "focused label promotes to TEXT (205,214,244)"
+    );
+    assert!(
+        label_cell.modifier.contains(Modifier::BOLD),
+        "focused label is bold"
+    );
+
+    // "threads" (7) + 2-space gap = 9 cols after the 2-col marker → value at col 11.
+    let value_cell = &buf[(11, 0)];
+    assert_eq!(value_cell.symbol(), "a", "value cell sampled at col 11");
+    assert_eq!(
+        value_cell.fg,
+        accent(),
+        "value keeps its own ACCENT color, not recolored to TEXT"
+    );
+    assert!(
+        !value_cell.modifier.contains(Modifier::BOLD),
+        "value is NOT emboldened by the selection"
+    );
+
+    // The BG_HOVER tint spans the focused row edge-to-edge (first and last cell).
+    assert_eq!(
+        buf[(0, 0)].bg,
+        bg_hover(),
+        "row bg is BG_HOVER at the left edge"
+    );
+    assert_eq!(
+        buf[(39, 0)].bg,
+        bg_hover(),
+        "row bg is BG_HOVER at the right edge (edge-to-edge tint)"
+    );
+
+    // The blurred sibling carries neither the tint nor the bold label.
+    assert_ne!(
+        buf[(0, 1)].bg,
+        bg_hover(),
+        "blurred row has no BG_HOVER tint"
+    );
+    assert!(
+        !buf[(2, 1)].modifier.contains(Modifier::BOLD),
+        "blurred row label is not bold"
     );
 }
 

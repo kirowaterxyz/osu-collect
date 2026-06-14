@@ -24,7 +24,7 @@ pub enum Banner {
 }
 
 /// Per-WARNING-condition entry timestamps, used to break banner ties by which
-/// condition was entered most recently (cloudy-tui banner winner-ordering:
+/// condition was entered most recently (winner-ordering:
 /// DANGER > WARNING, WARNING ties broken by most-recently-entered).
 ///
 /// Held by `App` and updated under an immutable borrow during `draw` (interior

@@ -1,4 +1,4 @@
-//! Toast rendering (cloudy-tui): a floating stack anchored to the top-right.
+//! Toast rendering: a floating stack anchored to the top-right.
 //!
 //! Each toast is borderless: a 1-cell semantic `┃` bar, then content on a
 //! semi-transparent surface (`BG_SUNKEN` blended at 75 % over the cells
@@ -7,7 +7,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
 };
 
 use super::theme::blend;
@@ -77,7 +77,7 @@ fn draw_toast(frame: &mut Frame, rect: Rect, level: ToastLevel, title: &str, det
     blend_surface(frame, rect);
 
     let bar_style = Style::default().fg(bar_color(level));
-    let title_style = Style::default().fg(text()).add_modifier(Modifier::BOLD);
+    let title_style = Style::default().fg(text()).bold();
     let detail_style = Style::default().fg(text_dim());
     let buf = frame.buffer_mut();
 

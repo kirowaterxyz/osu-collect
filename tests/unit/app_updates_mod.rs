@@ -27,14 +27,17 @@ fn needs_initial_scan_reflects_cache_state() {
 }
 
 #[test]
-fn scroll_list_clamps_within_bounds() {
+fn scroll_list_wraps_at_both_ends() {
+    // Up past the first item wraps to the last.
     let mut state = Some(0);
     scroll_list(&mut state, 3, -1);
-    assert_eq!(state, Some(0));
-    scroll_list(&mut state, 3, 1);
-    assert_eq!(state, Some(1));
-    scroll_list(&mut state, 3, 10);
     assert_eq!(state, Some(2));
+    // Down past the last item wraps to the first.
+    scroll_list(&mut state, 3, 1);
+    assert_eq!(state, Some(0));
+    // A larger step wraps modulo the length.
+    scroll_list(&mut state, 3, 10);
+    assert_eq!(state, Some(1));
 }
 
 #[test]

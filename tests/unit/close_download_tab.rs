@@ -1,6 +1,8 @@
-//! `x` close-tab binding tests.
+//! Settled download-tab close + `x` toast-dismiss tests.
 //!
-//! Covers settled-tab close, in-progress no-op, static-tab no-op, and
+//! Settled tabs close via `esc`/`q` (close-in-place, no `CancelDownload`);
+//! `x` is reserved for toast dismissal and never closes a download tab.
+//! Covers settled close, in-progress cancel routing, static-tab no-op, and
 //! adjacent-tab navigation. Footer-hint and help-overlay surface checks live
 //! in `tests/unit/tui_footer.rs` and `tests/unit/tui_modal.rs` respectively,
 //! since those modules are crate-private.
@@ -36,18 +38,18 @@ fn push_page(app: &mut App, id: DownloadId, stage: DownloadStage) {
     app.active_tab = STATIC_TABS + app.downloads.len() - 1;
 }
 
-// ── x on settled tabs removes the page ────────────────────────────────────────
+// ── esc/q on settled tabs removes the page ───────────────────────────────────
 
 #[test]
-fn x_on_completed_tab_removes_page_and_focuses_left() {
+fn esc_on_completed_tab_removes_page_and_focuses_left() {
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
     assert_eq!(app.downloads.len(), 1);
     let closed_index = app.active_tab;
 
-    let cmd = app.handle_key(press(KeyCode::Char('x')));
+    let cmd = app.handle_key(press(KeyCode::Esc));
 
-    assert!(cmd.is_none(), "x must not emit a command");
+    assert!(cmd.is_none(), "esc must not emit a command");
     assert!(app.downloads.is_empty(), "completed page must be removed");
     // Only one download tab existed, so focus falls back to config (rightmost
     // static tab — the tab immediately to the left of the closed one).
@@ -56,12 +58,12 @@ fn x_on_completed_tab_removes_page_and_focuses_left() {
 }
 
 #[test]
-fn x_on_failed_tab_removes_page_and_focuses_left() {
+fn esc_on_failed_tab_removes_page_and_focuses_left() {
     let mut app = make_app();
     push_page(&mut app, 7, DownloadStage::Failed);
     assert_eq!(app.downloads.len(), 1);
 
-    let cmd = app.handle_key(press(KeyCode::Char('x')));
+    let cmd = app.handle_key(press(KeyCode::Esc));
 
     assert!(cmd.is_none());
     assert!(app.downloads.is_empty(), "failed page must be removed");
@@ -69,7 +71,7 @@ fn x_on_failed_tab_removes_page_and_focuses_left() {
 }
 
 #[test]
-fn x_closes_middle_download_tab_and_lands_on_previous_download_tab() {
+fn q_closes_middle_download_tab_and_lands_on_previous_download_tab() {
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
     push_page(&mut app, 2, DownloadStage::Completed);
@@ -77,7 +79,7 @@ fn x_closes_middle_download_tab_and_lands_on_previous_download_tab() {
     // focus the middle download tab (id=2 → tab index STATIC_TABS + 1)
     app.active_tab = STATIC_TABS + 1;
 
-    app.handle_key(press(KeyCode::Char('x')));
+    app.handle_key(press(KeyCode::Char('q')));
 
     assert_eq!(app.downloads.len(), 2);
     let remaining_ids: Vec<_> = app.downloads.iter().map(|p| p.id).collect();
@@ -87,7 +89,30 @@ fn x_closes_middle_download_tab_and_lands_on_previous_download_tab() {
     assert_eq!(app.active_tab, STATIC_TABS);
 }
 
-// ── x on in-progress tabs is a no-op ──────────────────────────────────────────
+// ── x never closes a download tab ────────────────────────────────────────────
+
+#[test]
+fn x_on_completed_tab_is_noop() {
+    let mut app = make_app();
+    push_page(&mut app, 1, DownloadStage::Completed);
+    let tab = app.active_tab;
+
+    let cmd = app.handle_key(press(KeyCode::Char('x')));
+
+    assert!(cmd.is_none(), "x must not emit a command");
+    assert_eq!(app.downloads.len(), 1, "completed page must persist");
+    assert_eq!(app.active_tab, tab, "active tab must not move");
+}
+
+#[test]
+fn x_on_failed_tab_is_noop() {
+    let mut app = make_app();
+    push_page(&mut app, 7, DownloadStage::Failed);
+
+    app.handle_key(press(KeyCode::Char('x')));
+
+    assert_eq!(app.downloads.len(), 1, "failed page must persist");
+}
 
 #[test]
 fn x_on_downloading_tab_is_noop() {
@@ -217,14 +242,14 @@ fn q_on_running_tab_still_emits_cancel_command() {
     assert_eq!(app.downloads.len(), 1, "page must stay until runtime acks");
 }
 
-// ── x cascade: sticky error toast dismisses before closing a settled tab ─────
+// ── x dismisses toasts and never closes the tab behind them ──────────────────
 
 #[test]
-fn x_dismisses_toast_instead_of_closing_settled_tab() {
+fn x_dismisses_toast_and_leaves_settled_tab_open() {
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
     let tab_before = app.active_tab;
-    // a visible toast intercepts `x` before the settled-tab close binding
+    // a visible toast is dismissed by `x`; the settled tab is untouched
     app.toast_err("network unreachable");
 
     let cmd = app.handle_key(press(KeyCode::Char('x')));
@@ -240,7 +265,7 @@ fn x_dismisses_toast_instead_of_closing_settled_tab() {
 }
 
 #[test]
-fn x_after_dismiss_falls_through_to_close_settled_tab() {
+fn x_after_dismiss_does_not_close_settled_tab() {
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
     app.toast_err("network unreachable");
@@ -250,11 +275,12 @@ fn x_after_dismiss_falls_through_to_close_settled_tab() {
     assert!(app.toasts.is_empty());
     assert_eq!(app.downloads.len(), 1);
 
-    // second `x`: no error toast in the way, the settled tab closes
+    // second `x`: no toast left, but `x` is toast-only — the tab still stays
     app.handle_key(press(KeyCode::Char('x')));
-    assert!(
-        app.downloads.is_empty(),
-        "without a sticky error, x must close the settled tab"
+    assert_eq!(
+        app.downloads.len(),
+        1,
+        "x must never close a settled download tab"
     );
 }
 
@@ -271,7 +297,7 @@ fn x_on_static_tab_without_error_is_unchanged() {
 // ── help overlay surface ──────────────────────────────────────────────────────
 
 #[test]
-fn help_overlay_lists_x_close_completed_tab() {
+fn help_overlay_lists_close_completed_tab() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let mut app = make_app();

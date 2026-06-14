@@ -61,8 +61,8 @@ pub fn is_low_disk_space(path: &Path) -> bool {
 /// Format `bytes` with the given unit suffix.
 ///
 /// Sizes use IEC binary units (`"B"` → `"3.45 GiB"`, 1024-based); rates use SI
-/// decimal units (`"B/s"` → `"3.45 GB/s"`, 1000-based) — cloudy-tui numeric
-/// formatting: storage is IEC, throughput is SI.
+/// decimal units (`"B/s"` → `"3.45 GB/s"`, 1000-based); storage is IEC,
+/// throughput is SI.
 pub fn format_bytes(bytes: u64, unit: &str) -> String {
     let bytes_f = bytes as f64;
     if unit.ends_with("/s") {

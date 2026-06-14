@@ -1,4 +1,4 @@
-//! Transient top-right notifications (cloudy-tui "toast").
+//! Transient top-right notifications (toast).
 //!
 //! Toasts carry fire-and-forget results and errors. They are ephemeral by
 //! design — there is no history surface. Durable signals live elsewhere: a

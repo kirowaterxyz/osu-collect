@@ -1,4 +1,4 @@
-use super::{format_eta, rate_limited_message, session_eta, tally_line};
+use super::{format_eta, overview_lines, rate_limited_message, session_eta, tally_line};
 use crate::utils::format_bytes;
 
 #[test]
@@ -131,6 +131,48 @@ fn rate_limited_message_zero_when_deadline_passed() {
     let msg = rate_limited_message(RATE_LIMITED_BASE, 0);
     assert_eq!(msg, "rate limited on all mirrors, waiting 0s");
     assert!(msg.ends_with("0s"));
+}
+
+// ── overview key-value rows ─────────────────────────────────────────────────────
+//
+// Form-row rule: no colon; every value left-aligns at a shared column —
+// each label is padded to the widest label width + ≥2 spaces.
+
+/// The four overview labels carry no colon and the label cell is padded so all
+/// values start at the same column. "collection" (10 chars) is the widest, so
+/// each label cell spans 10 + 2 = 12 columns.
+#[test]
+fn overview_rows_drop_colon_and_column_align() {
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.uploader = Some("someone".to_string());
+    let lines = overview_lines(&page);
+
+    // The first three rows are collection / uploader / output; their label cell
+    // (the first span) must be the same width and carry no colon.
+    let label_cells: Vec<String> = lines
+        .iter()
+        .take(3)
+        .map(|l| l.spans[0].content.to_string())
+        .collect();
+
+    for cell in &label_cells {
+        assert!(
+            !cell.contains(':'),
+            "label cell must drop the colon: {cell:?}"
+        );
+        assert_eq!(
+            cell.chars().count(),
+            12,
+            "label cell must pad to widest label (collection=10) + 2 spaces: {cell:?}"
+        );
+        assert!(
+            cell.ends_with("  "),
+            "value gap must be ≥2 spaces: {cell:?}"
+        );
+    }
+    assert!(label_cells[0].starts_with("collection"));
+    assert!(label_cells[1].starts_with("uploader"));
+    assert!(label_cells[2].starts_with("output"));
 }
 
 // ── overview tally ────────────────────────────────────────────────────────────

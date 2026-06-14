@@ -27,7 +27,6 @@ pub struct Theme {
     pub warning: Color,
     pub danger: Color,
     pub text: Color,
-    pub text_muted: Color,
     pub text_dim: Color,
     pub text_faint: Color,
     /// Blurred panel borders, soft rules, scrollbar track (LINE: 49,50,68 / 238).
@@ -207,7 +206,6 @@ impl Theme {
             warning: Color::Rgb(249, 226, 175),
             danger: Color::Rgb(243, 139, 168),
             text: Color::Rgb(205, 214, 244),
-            text_muted: Color::Rgb(186, 194, 222),
             text_dim: Color::Rgb(166, 173, 200),
             text_faint: Color::Rgb(127, 132, 156),
             line: Color::Rgb(49, 50, 68),
@@ -233,7 +231,6 @@ impl Theme {
             warning: Color::Indexed(223),
             danger: Color::Indexed(211),
             text: Color::Indexed(189),
-            text_muted: Color::Indexed(189),
             text_dim: Color::Indexed(145),
             text_faint: Color::Indexed(102),
             line: Color::Indexed(238),

@@ -250,7 +250,6 @@ pub struct CollectionPage {
     pub thread_scroll: usize,
     pub thread_visible_items: Cell<usize>,
     pub thread_total_items: Cell<usize>,
-    pub indeterminate_anim_start: Cell<Option<u64>>,
     cached_cumulative_speed: Cell<f64>,
     last_speed_update: Cell<Option<Instant>>,
     /// Instant when the first `DownloadStage::Downloading` entry occurred.
@@ -285,7 +284,6 @@ impl CollectionPage {
             thread_scroll: 0,
             thread_visible_items: Cell::new(0),
             thread_total_items: Cell::new(0),
-            indeterminate_anim_start: Cell::new(None),
             cached_cumulative_speed: Cell::new(0.0),
             last_speed_update: Cell::new(None),
             session_start: None,

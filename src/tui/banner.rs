@@ -124,7 +124,7 @@ fn banner_style_and_text(banner: &Banner) -> (ratatui::style::Color, String) {
 fn disk_label(kind: &str, free_bytes: u64) -> String {
     let mut s = String::with_capacity(32);
     s.push_str(kind);
-    // cloudy-tui banner copy: separate clauses with ` · ` (mid-dot), not a colon.
+    // Separate clauses with ` · ` (mid-dot), not a colon.
     s.push_str(" · ");
     s.push_str(&format_free_space(free_bytes));
     s

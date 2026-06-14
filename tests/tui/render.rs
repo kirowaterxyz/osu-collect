@@ -34,8 +34,8 @@ fn cursor_pos(app: &App, width: u16, height: u16) -> (u16, u16) {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     // `draw` positions the caret via `Frame::set_cursor_position`; ratatui applies
-    // it to the backend after the buffer flush (cloudy-tui move-then-show). A
-    // frame that never sets it leaves the cursor hidden — reported as `(0, 0)`.
+    // it to the backend after the buffer flush. A frame that never sets it
+    // leaves the cursor hidden — reported as `(0, 0)`.
     terminal.draw(|frame| draw(frame, app)).unwrap();
     let backend = terminal.backend();
     if backend.cursor_visible() {

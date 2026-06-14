@@ -12,11 +12,11 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{List, ListItem},
+    widgets::ListItem,
 };
 
 use super::widgets::{self, Metric};
-use super::{accent, focused_label, text, text_dim, text_faint, text_muted};
+use super::{accent, focused_label, text, text_dim, text_faint};
 
 const PANEL_TITLE: &str = " UPDATES ";
 
@@ -52,33 +52,30 @@ const SUFFIX_SELECTED: &str = "selected";
 const DIFF_PREFIX_REMOVED: &str = "-";
 const DIFF_SUFFIX_REMOVED: &str = "removed";
 
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    form: &UpdatesTab,
-    editing: bool,
-) -> Option<(u16, u16)> {
+pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab, editing: bool) {
     if area.height < super::COMPACT_HEIGHT {
         render_compact(frame, area, form);
-        return None;
+        return;
     }
 
     let block = widgets::panel_block(PANEL_TITLE, true, true);
     let inner = block.inner(area);
 
     let (items, focused_index) = build_items(form, editing);
-    let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
+    let total = items.len();
     frame.render_widget(block, area);
 
-    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
-    frame.render_widget(list, inner);
-    widgets::render_scrollbar(frame, inner, start, items.len());
+    // The download button styles its own focus (KEEP per pending exception), so
+    // it is excluded from the row highlight — but it must still scroll into view.
+    let highlight = form.selection.focus != UpdatesField::Download;
+    let start = widgets::render_list(frame, inner, items, Some(focused_index), highlight);
+    let end = (start + inner.height as usize).min(total);
 
     // Caret only when the osu! path field is the focused, editable row AND in
-    // edit mode (cloudy-tui: no caret on a selected-not-editing field).
+    // edit mode (no caret on a selected-not-editing field).
     let cursor_col = (editing && form.osu_path_editable())
-        .then(|| widgets::input_cursor_col(&form.path.osu_path));
-    widgets::panel_cursor(inner, focused_index, start, end, cursor_col)
+        .then(|| widgets::input_cursor_col(&form.path.osu_path, 0));
+    widgets::set_panel_cursor(frame, inner, focused_index, start, end, cursor_col);
 }
 
 /// Compact render: collection list with `[selected] name (+N -M)`.
@@ -108,12 +105,18 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
     } else {
         0
     };
-    let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
     frame.render_widget(block, area);
 
-    let list = List::new(items[start..end].to_vec()).highlight_symbol("");
-    frame.render_widget(list, inner);
-    widgets::render_scrollbar(frame, inner, start, items.len());
+    // Highlight the cursor row only while focus rests in the collection list;
+    // scroll to it (and the highlight) only then, otherwise no cursor.
+    let focused = form.selection.in_collection_list.then_some(focused_index);
+    widgets::render_list(
+        frame,
+        inner,
+        items,
+        focused,
+        form.selection.in_collection_list,
+    );
 }
 
 fn build_items(form: &UpdatesTab, editing: bool) -> (Vec<ListItem<'static>>, usize) {
@@ -135,6 +138,7 @@ fn build_items(form: &UpdatesTab, editing: bool) -> (Vec<ListItem<'static>>, usi
         CLIENT_OPTIONS,
         client_label(form.path.client_type),
         focus == UpdatesField::ClientType && !in_list,
+        0,
     ));
     if focus == UpdatesField::OsuPath && !in_list {
         focused_index = items.len();
@@ -342,7 +346,7 @@ fn osu_path_item(form: &UpdatesTab, editing: bool) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
         widgets::input_focus_span(focused, editing),
         Span::styled(
-            format!("{}: ", field.label.to_lowercase()),
+            widgets::label_cell(&field.label.to_lowercase(), 0),
             focused_label(focused),
         ),
         value,
@@ -372,6 +376,7 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
         form.selection.in_collection_list,
         focused,
         !form.selection.local_collections.is_empty(),
+        0,
     )
 }
 
@@ -384,11 +389,9 @@ fn collection_item(
         .collection_id
         .map(|id| format!("#{id}"))
         .unwrap_or_else(|| DETAIL_LOCAL.to_string());
-    let name_style = if is_scroll_pos {
-        Style::default().fg(text())
-    } else {
-        Style::default().fg(text_muted())
-    };
+    // Selected row: only the collection name promotes to TEXT + bold; the id,
+    // map count, and diff badges keep their own faint metadata color.
+    let name_style = focused_label(is_scroll_pos);
 
     let mut spans = vec![widgets::focus_span(is_scroll_pos)];
     spans.extend(widgets::checkbox_spans(collection.selected));
@@ -413,7 +416,7 @@ fn collection_item(
     if removed_count > 0 {
         spans.push(Span::styled(
             format!("  {DIFF_PREFIX_REMOVED}{removed_count} {DIFF_SUFFIX_REMOVED}"),
-            Style::default().fg(text_muted()),
+            Style::default().fg(text_faint()),
         ));
     }
 
@@ -458,6 +461,7 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         form.selection.in_beatmap_list,
         focused,
         form.total_missing_count() > 0,
+        0,
     )
 }
 

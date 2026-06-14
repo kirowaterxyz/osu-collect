@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use super::widgets;
-use super::{HELP_CUSTOM_MIRROR, danger, mirror_label, success, text_dim, text_faint, text_muted};
+use super::{HELP_CUSTOM_MIRROR, danger, line, mirror_label, success, text_dim, text_faint};
 use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
@@ -26,34 +26,30 @@ const LABEL_VIDEO: &str = "video";
 
 const LABEL_START_DOWNLOAD: &str = "start download";
 
-/// Returns the terminal caret position when a text field is focused, for the
-/// caller to apply. `None` when no caret should show (non-text focus).
+/// Positions the terminal caret (via [`ratatui::Frame::set_cursor_position`])
+/// when a text field is focused in edit mode; otherwise leaves it hidden.
 ///
 /// System-wide banners are rendered by [`super::draw`] above the body area, so
 /// this receives the already-reduced content area.
-pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) -> Option<(u16, u16)> {
+pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
     if area.height < super::COMPACT_HEIGHT {
-        return render_compact(frame, area, form, editing);
+        render_compact(frame, area, form, editing);
+        return;
     }
-    render_content(frame, area, form, editing)
+    render_content(frame, area, form, editing);
 }
 
 /// Compact render: all focusable fields without section headers, spacers, or help lines.
 ///
 /// Navigation is identical to normal mode — the full `HOME_FIELDS` cycle still applies.
 /// Only decorative chrome is stripped to reclaim vertical space.
-fn render_compact(
-    frame: &mut Frame,
-    area: Rect,
-    form: &HomeTab,
-    editing: bool,
-) -> Option<(u16, u16)> {
+fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
     items.push_focusable(
         HomeField::Collection,
-        widgets::input_item(&form.collection, focus == HomeField::Collection, editing),
+        widgets::input_item(&form.collection, focus == HomeField::Collection, editing, 0),
     );
     if let Some((state, text)) = &form.collection_resolve {
         items.push(resolve_row(*state, text));
@@ -65,6 +61,7 @@ fn render_compact(
             &form.custom_mirror,
             focus == HomeField::CustomMirror,
             editing,
+            0,
         ),
     );
 
@@ -72,7 +69,7 @@ fn render_compact(
 
     items.push_focusable(
         HomeField::Directory,
-        widgets::input_item(&form.directory, focus == HomeField::Directory, editing),
+        widgets::input_item(&form.directory, focus == HomeField::Directory, editing, 0),
     );
     items.push_focusable(
         HomeField::Threads,
@@ -81,6 +78,7 @@ fn render_compact(
             form.resolved_threads(),
             form.default_threads,
             focus == HomeField::Threads,
+            0,
         ),
     );
     push_toggle_rows(&mut items, form, focus);
@@ -95,15 +93,19 @@ fn render_compact(
     );
 
     let cursor_col = editing
-        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .then(|| {
+            form.focused_input()
+                .map(|f| widgets::input_cursor_col(f, 0))
+        })
         .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
         area,
         PANEL_TITLE,
-        &items,
+        items,
         focused_index,
+        focus != HomeField::Download,
         cursor_col,
         true,
         true,
@@ -117,12 +119,7 @@ fn can_download(form: &HomeTab) -> bool {
     !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
-fn render_content(
-    frame: &mut Frame,
-    area: Rect,
-    form: &HomeTab,
-    editing: bool,
-) -> Option<(u16, u16)> {
+fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -133,7 +130,7 @@ fn render_content(
     ));
     items.push_focusable(
         HomeField::Collection,
-        widgets::input_item(&form.collection, focus == HomeField::Collection, editing),
+        widgets::input_item(&form.collection, focus == HomeField::Collection, editing, 0),
     );
     if let Some((state, text)) = &form.collection_resolve {
         items.push(resolve_row(*state, text));
@@ -150,6 +147,7 @@ fn render_content(
             &form.custom_mirror,
             focus == HomeField::CustomMirror,
             editing,
+            0,
         ),
     );
     if focus == HomeField::CustomMirror {
@@ -165,7 +163,7 @@ fn render_content(
     ));
     items.push_focusable(
         HomeField::Directory,
-        widgets::input_item(&form.directory, focus == HomeField::Directory, editing),
+        widgets::input_item(&form.directory, focus == HomeField::Directory, editing, 0),
     );
     items.push_focusable(
         HomeField::Threads,
@@ -174,6 +172,7 @@ fn render_content(
             form.resolved_threads(),
             form.default_threads,
             focus == HomeField::Threads,
+            0,
         ),
     );
     push_toggle_rows(&mut items, form, focus);
@@ -189,15 +188,19 @@ fn render_content(
     );
 
     let cursor_col = editing
-        .then(|| form.focused_input().map(widgets::input_cursor_col))
+        .then(|| {
+            form.focused_input()
+                .map(|f| widgets::input_cursor_col(f, 0))
+        })
         .flatten();
     let (items, focused_index) = items.into_parts();
     widgets::render_scrollable_panel(
         frame,
         area,
         PANEL_TITLE,
-        &items,
+        items,
         focused_index,
+        focus != HomeField::Download,
         cursor_col,
         true,
         true,
@@ -217,11 +220,12 @@ fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
             None,
             form.auto_overwrite,
             focus == HomeField::AutoOverwrite,
+            0,
         ),
     );
     items.push_focusable(
         HomeField::Video,
-        widgets::row_item(LABEL_VIDEO, None, form.video, focus == HomeField::Video),
+        widgets::row_item(LABEL_VIDEO, None, form.video, focus == HomeField::Video, 0),
     );
 }
 
@@ -276,7 +280,9 @@ fn mirror_row_item(
     focused: bool,
     latency: Option<Option<ProbeResult>>,
 ) -> ListItem<'static> {
-    widgets::row_item_with_suffix(label, Some(host), on, focused, latency_span(latency))
+    // The host is an informational hint, not a configurable value, so it is NOT
+    // column-aligned (label_width 0) — it trails the mirror name directly.
+    widgets::row_item_with_suffix(label, Some(host), on, focused, latency_span(latency), 0)
 }
 
 /// The trailing latency readout appended to a mirror row, or `None` before the
@@ -308,12 +314,17 @@ const RESOLVE_ARROW: &str = "→ ";
 
 fn resolve_row(state: ResolveState, text: &str) -> ListItem<'static> {
     let (arrow_color, text_color) = match state {
-        ResolveState::Loading => (text_muted(), text_faint()),
+        ResolveState::Loading => (text_dim(), text_faint()),
         ResolveState::Success => (success(), text_faint()),
         ResolveState::Error => (danger(), danger()),
     };
+    // Tooltip leader matches its line's color: DANGER on error, LINE otherwise.
+    let leader_color = match state {
+        ResolveState::Error => danger(),
+        _ => line(),
+    };
     ListItem::new(Line::from(vec![
-        Span::styled(RESOLVE_PREFIX, Style::default().fg(text_faint())),
+        Span::styled(RESOLVE_PREFIX, Style::default().fg(leader_color)),
         Span::styled(RESOLVE_ARROW, Style::default().fg(arrow_color)),
         Span::styled(text.to_string(), Style::default().fg(text_color)),
     ]))
