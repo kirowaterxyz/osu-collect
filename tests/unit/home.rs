@@ -237,6 +237,23 @@ fn insert_at_caret_lands_mid_string() {
 }
 
 #[test]
+fn insert_str_lands_mid_string_and_advances_caret() {
+    let mut field = InputField::new("label", "ad", "ph");
+    field.caret_left(); // caret between 'a' and 'd'
+    field.insert_str("bc");
+    assert_eq!(field.value, "abcd");
+    assert_eq!(field.caret(), 3, "caret advances past the whole insert");
+}
+
+#[test]
+fn insert_str_drops_control_chars() {
+    let mut field = InputField::new("label", "", "ph");
+    field.insert_str("a\nb\tc\r");
+    assert_eq!(field.value, "abc", "newlines/tabs/CR are stripped");
+    assert_eq!(field.caret(), 3);
+}
+
+#[test]
 fn backspace_deletes_char_before_caret() {
     let mut field = InputField::new("label", "abc", "ph");
     field.caret_left(); // caret between 'b' and 'c'

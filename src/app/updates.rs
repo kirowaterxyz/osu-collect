@@ -299,6 +299,14 @@ impl UpdatesTab {
         }
     }
 
+    /// Insert a bracketed-paste payload into the osu! path field when it is the
+    /// editable focus. No-op in either list (paste has no meaning there).
+    pub fn handle_paste(&mut self, text: &str) {
+        if self.osu_path_editable() {
+            self.path.osu_path.insert_str(text);
+        }
+    }
+
     /// Advance the collection sort mode and re-sort `local_collections` in place.
     pub fn cycle_collection_sort(&mut self) {
         self.selection.collection_sort = self.selection.collection_sort.next();
@@ -855,12 +863,16 @@ impl UpdatesTab {
     }
 }
 
+/// Moves the list cursor by `delta`, wrapping at both ends: stepping down past
+/// the last item lands on the first, stepping up past the first lands on the
+/// last (index arithmetic modulo `len`).
 fn scroll_list(state: &mut Option<usize>, len: usize, delta: i64) {
     if len == 0 {
         return;
     }
+    let len_i = len as i64;
     let i = state.unwrap_or(0) as i64;
-    let next = (i + delta).clamp(0, len.saturating_sub(1) as i64) as usize;
+    let next = (i + delta).rem_euclid(len_i) as usize;
     *state = Some(next);
 }
 

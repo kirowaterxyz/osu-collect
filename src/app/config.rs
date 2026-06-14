@@ -169,6 +169,15 @@ impl ConfigTab {
         }
     }
 
+    /// Insert a bracketed-paste payload into the focused text field. No-op when
+    /// focus is on a non-text field.
+    pub fn handle_paste(&mut self, text: &str) {
+        clear_app_message(&mut self.message);
+        if let Some(field) = self.focused_input_mut() {
+            field.insert_str(text);
+        }
+    }
+
     pub fn backspace(&mut self) {
         clear_app_message(&mut self.message);
         if let Some(field) = self.focused_input_mut() {

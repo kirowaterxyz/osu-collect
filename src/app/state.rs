@@ -1,4 +1,5 @@
 use super::{
+    banner::BannerRecency,
     collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
     config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
@@ -74,6 +75,11 @@ pub struct App {
     /// and cleared once every download settles. Interior mutability because
     /// `draw()`/`brand_ramp()` read it under an immutable borrow.
     download_anim_start: Cell<Option<u64>>,
+    /// Per-WARNING-condition entry timestamps used to break banner ties by
+    /// most-recently-entered (`DiskLow` vs `TooSmall`). Updated under an
+    /// immutable borrow during `draw()` (interior mutability mirrors
+    /// `disk_cache`).
+    pub(crate) banner_recency: BannerRecency,
 }
 
 #[derive(Debug)]
@@ -179,6 +185,7 @@ impl App {
             next_download_id: 1,
             disk_cache: Cell::new(None),
             download_anim_start: Cell::new(None),
+            banner_recency: BannerRecency::default(),
         }
     }
 
@@ -1267,6 +1274,29 @@ impl App {
         None
     }
 
+    /// Route a bracketed-paste payload into the focused text field, mirroring
+    /// the per-tab dispatch of a typed character. Inert unless a text input is
+    /// focused and in edit mode (same `typing` gate as `handle_key`). Pasting
+    /// into the home collection field re-resolves the collection, just as
+    /// typing into it does.
+    pub fn handle_paste(&mut self, text: String) -> Option<AppCommand> {
+        if !(self.editing && self.focused_text_input()) {
+            return None;
+        }
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.mutate_collection_then_resolve(|h| h.handle_paste(&text)),
+            UPDATES_TAB_INDEX => {
+                self.updates.handle_paste(&text);
+                None
+            }
+            CONFIG_TAB_INDEX => {
+                self.config.handle_paste(&text);
+                None
+            }
+            _ => None,
+        }
+    }
+
     /// Advance the animation clock and drop any auto-dismiss toasts past their
     /// dwell. Driven by the runtime's periodic `Tick`.
     pub fn on_tick(&mut self) {
@@ -1394,9 +1424,6 @@ impl App {
             }
             DownloadEvent::StageChanged { id, stage } => {
                 if let Some(page) = self.page_mut(id) {
-                    if page.stage != stage {
-                        page.indeterminate_anim_start.set(None);
-                    }
                     page.stage = stage;
                     if matches!(stage, DownloadStage::Completed | DownloadStage::Failed) {
                         page.clear_active_downloads();

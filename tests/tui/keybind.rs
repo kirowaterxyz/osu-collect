@@ -188,6 +188,37 @@ fn backspace_removes_last_char() {
     assert_eq!(app.home.collection.value, "a");
 }
 
+// ── bracketed paste ───────────────────────────────────────────────────────────
+
+#[test]
+fn paste_into_collection_field_inserts_and_resolves() {
+    let mut app = make_app();
+    app.editing = true; // paste only types while editing
+    let cmd = app.handle_paste("12345".to_string());
+    assert_eq!(app.home.collection.value, "12345");
+    assert!(
+        matches!(cmd, Some(AppCommand::ResolveCollectionUrl { value }) if value == "12345"),
+        "pasting into the collection field re-resolves it"
+    );
+}
+
+#[test]
+fn paste_strips_newlines() {
+    let mut app = make_app();
+    app.editing = true;
+    app.handle_paste("12\n34\n".to_string());
+    assert_eq!(app.home.collection.value, "1234");
+}
+
+#[test]
+fn paste_outside_edit_mode_is_inert() {
+    let mut app = make_app();
+    // editing is false by default → paste must not type into the field
+    let cmd = app.handle_paste("nope".to_string());
+    assert_eq!(app.home.collection.value, "");
+    assert!(cmd.is_none());
+}
+
 // ── enter toggle on mirrors ───────────────────────────────────────────────────
 
 #[test]

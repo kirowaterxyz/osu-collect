@@ -1,53 +1,96 @@
 use crate::app::runtime::InputEvent;
 use crate::tui::bg;
-use crossterm::{
-    event::{self, Event as CrosstermEvent, KeyEventKind},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event as CrosstermEvent, KeyEventKind,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-use ratatui::{Terminal, backend::CrosstermBackend, style::Color};
+use crossterm::execute;
+use ratatui::{DefaultTerminal, style::Color};
 use std::{
-    io::{self, Stdout, Write},
-    sync::Once,
+    io::{self, Write},
     thread,
     time::Duration,
 };
 use tokio::sync::mpsc;
 
-pub type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
+pub type TuiTerminal = DefaultTerminal;
 
-static PANIC_HOOK: Once = Once::new();
-
+/// Enter the alternate screen + raw mode and layer the input seams + OSC-11
+/// background on top.
+///
+/// [`ratatui::try_init`] enables raw mode, enters the alternate screen, and
+/// installs a panic hook that restores the terminal before the default hook
+/// runs. That hook only does `disable_raw_mode` + `LeaveAlternateScreen`,
+/// though — bracketed paste, the kitty keyboard-enhancement flags, and the
+/// OSC-11 background override are seams ratatui's lifecycle doesn't manage, so
+/// they're set afterwards and need teardown of their own on every exit path.
+///
+/// Two exit paths are covered here:
+/// - **panic**: we chain a hook *on top of* ratatui's. `take_hook` grabs
+///   ratatui's freshly-installed hook, then `set_hook` installs a closure that
+///   first reverses the extra escapes ([`teardown_extra_escapes`]) and then
+///   calls ratatui's hook (which restores raw mode + the main screen). Chaining
+///   keeps ratatui's restore behaviour intact while adding ours in front, so a
+///   crash doesn't leak `DISAMBIGUATE_ESCAPE_CODES`, bracketed-paste mode, or
+///   the forced background into the user's shell.
+/// - **return / `?` early-return**: the caller holds a [`TerminalGuard`] whose
+///   `Drop` runs the same teardown unconditionally.
+///
+/// `PushKeyboardEnhancementFlags` disambiguates ctrl+backspace from ctrl+h on
+/// terminals that support it; the manual ctrl+h shim in `handle_key` stays as
+/// the fallback for terminals that ignore the flags.
 pub fn setup_terminal() -> io::Result<TuiTerminal> {
-    install_panic_hook();
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let _ = set_terminal_bg(&mut stdout, bg());
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend)
+    let terminal = ratatui::try_init()?;
+
+    // Chain on top of ratatui's panic hook: reverse our extra escapes first,
+    // then defer to ratatui's hook (restore raw mode + main screen, then the
+    // default hook). Best-effort — a panicking process must not panic again in
+    // the hook, so teardown swallows io errors.
+    let ratatui_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        teardown_extra_escapes();
+        ratatui_hook(info);
+    }));
+
+    let _ = execute!(io::stdout(), EnableBracketedPaste);
+    let _ = execute!(
+        io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    );
+    let _ = set_terminal_bg(&mut io::stdout(), bg());
+    Ok(terminal)
 }
 
-pub fn cleanup_terminal(terminal: &mut TuiTerminal) -> io::Result<()> {
-    disable_raw_mode()?;
-    let backend = terminal.backend_mut();
-    let _ = reset_terminal_bg(backend);
-    execute!(backend, LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
+/// Reverse the extra escapes layered by [`setup_terminal`]: pop the
+/// keyboard-enhancement flags, disable bracketed paste, reset the OSC-11
+/// background. Best-effort and **idempotent** — every step is a no-op when its
+/// state was never set, so running it twice (panic hook *and* [`TerminalGuard`]
+/// drop both firing during an unwind) is harmless. Does **not** touch raw mode
+/// or the alternate screen; that stays with [`ratatui::restore`].
+fn teardown_extra_escapes() {
+    let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
+    let _ = reset_terminal_bg(&mut io::stdout());
 }
 
-fn install_panic_hook() {
-    PANIC_HOOK.call_once(|| {
-        let default = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let mut stdout = io::stdout();
-            let _ = reset_terminal_bg(&mut stdout);
-            let _ = execute!(stdout, LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            default(info);
-        }));
-    });
+/// RAII teardown for the terminal seams [`setup_terminal`] layers on.
+///
+/// Constructed in the runtime loop right after setup; its `Drop` runs
+/// [`teardown_extra_escapes`] then [`ratatui::restore`] so the terminal is
+/// reset on **every** non-panic exit — normal return *and* any `?`
+/// early-return that skips the tail of `run`. The panic path is handled
+/// separately by the chained hook in [`setup_terminal`]; teardown being
+/// idempotent means an unwind that runs both is safe.
+///
+/// It doesn't own the [`TuiTerminal`] — the runtime loop still needs `&mut`
+/// access to draw — it just owns the teardown obligation.
+pub struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        teardown_extra_escapes();
+        ratatui::restore();
+    }
 }
 
 pub fn set_terminal_bg<W: Write>(out: &mut W, color: Color) -> io::Result<()> {
@@ -75,8 +118,17 @@ pub fn spawn_input_thread(tx: mpsc::UnboundedSender<InputEvent>) -> Option<threa
             loop {
                 if event::poll(tick_rate).unwrap_or(false) {
                     match event::read() {
-                        Ok(CrosstermEvent::Key(key)) if key.kind == KeyEventKind::Press => {
+                        // Forward Press AND Repeat so a held ↑/↓ keeps scrolling
+                        // (terminals with the kitty protocol emit Repeat events).
+                        Ok(CrosstermEvent::Key(key))
+                            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+                        {
                             if tx.send(InputEvent::Key(key)).is_err() {
+                                break;
+                            }
+                        }
+                        Ok(CrosstermEvent::Paste(text)) => {
+                            if tx.send(InputEvent::Paste(text)).is_err() {
                                 break;
                             }
                         }

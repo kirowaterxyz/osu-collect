@@ -18,7 +18,7 @@ use crate::{
     config::Config,
     config::constants::HOME_TAB_INDEX,
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
-    tui::terminal::{TuiTerminal, cleanup_terminal, setup_terminal, spawn_input_thread},
+    tui::terminal::{TerminalGuard, TuiTerminal, setup_terminal, spawn_input_thread},
     tui::{apply_theme, draw},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -32,19 +32,12 @@ use resolve::schedule_resolve;
 use scan::{handle_updates_event, spawn_failed_map_recheck_task, spawn_scan_task};
 use update::{UpdateEvent, handle_update_event, spawn_update_check};
 
-/// Render one frame, then move + show (or hide) the terminal caret via the
-/// backend *after* the buffer flush (cloudy-tui Motion: move-then-show, never
-/// via the frame API inside the draw closure — that flashes at the old spot).
+/// Render one frame. A focused text field positions the terminal caret via
+/// [`ratatui::Frame::set_cursor_position`] inside the draw closure; ratatui 0.30
+/// applies it *after* the buffer flush, so there is no flash at the old spot. A
+/// frame that never calls it leaves the cursor hidden (cloudy-tui Motion).
 fn render_frame(terminal: &mut TuiTerminal, app: &App) -> std::io::Result<()> {
-    let mut cursor = None;
-    terminal.draw(|f| cursor = draw(f, app))?;
-    match cursor {
-        Some((x, y)) => {
-            terminal.set_cursor_position((x, y))?;
-            terminal.show_cursor()?;
-        }
-        None => terminal.hide_cursor()?,
-    }
+    terminal.draw(|f| draw(f, app))?;
     Ok(())
 }
 
@@ -56,6 +49,11 @@ pub async fn run(
     apply_theme(config.display.theme);
     let validation_issue = config.validate().err().map(|e| e.to_string());
     let mut terminal = setup_terminal()?;
+    // Guarantees the extra terminal escapes are reversed (+ ratatui restore) on
+    // every exit path below, including the `render_frame(..)?` early-returns
+    // that would otherwise skip the teardown tail. `DefaultTerminal` has no
+    // restoring Drop of its own, so this guard is the single teardown site.
+    let _terminal_guard = TerminalGuard;
     let mut app = App::new(config);
     if let Some(msg) = validation_issue {
         warn!(error = %msg, "Configuration validation failed; surfacing to UI");
@@ -188,7 +186,8 @@ pub async fn run(
     if let Some(handle) = input_handle {
         let _ = handle.join();
     }
-    cleanup_terminal(&mut terminal)?;
+    // Terminal teardown is owned by `_terminal_guard` (dropped on return); no
+    // explicit cleanup here keeps it in exactly one place across all exit paths.
 
     Ok(())
 }
@@ -205,6 +204,10 @@ fn handle_input(
     match input {
         InputEvent::Key(key) => {
             handle_key_event(key, app, download_tx, updates_tx, auth_tx, downloads, tasks)
+        }
+        InputEvent::Paste(text) => {
+            let cmd = app.handle_paste(text);
+            dispatch_command(cmd, app, download_tx, updates_tx, auth_tx, downloads, tasks)
         }
         InputEvent::Resize => false,
         InputEvent::Tick => {
@@ -230,7 +233,23 @@ fn handle_key_event(
         return true;
     }
 
-    match app.handle_key(key) {
+    let cmd = app.handle_key(key);
+    dispatch_command(cmd, app, download_tx, updates_tx, auth_tx, downloads, tasks)
+}
+
+/// Run the side effects for an [`AppCommand`] produced by a key or paste event,
+/// returning `true` only when the app should quit. Shared by the key and paste
+/// input paths so both dispatch identically.
+fn dispatch_command(
+    cmd: Option<AppCommand>,
+    app: &mut App,
+    download_tx: &mpsc::UnboundedSender<DownloadEvent>,
+    updates_tx: &mpsc::UnboundedSender<UpdatesEvent>,
+    auth_tx: &mpsc::UnboundedSender<AuthEvent>,
+    downloads: &mut HashMap<DownloadId, DownloadHandle>,
+    tasks: &mut BackgroundTasks,
+) -> bool {
+    match cmd {
         Some(AppCommand::StartDownload { id, request }) => {
             let handle = download::spawn_download(id, request, download_tx.clone());
             info!(download_id = id, "Spawned download from UI request");
@@ -379,6 +398,8 @@ async fn abort_and_wait_downloads(downloads: &mut HashMap<DownloadId, DownloadHa
 #[derive(Clone, Debug)]
 pub enum InputEvent {
     Key(KeyEvent),
+    /// A bracketed-paste payload to route into the focused text field.
+    Paste(String),
     Resize,
     Tick,
 }

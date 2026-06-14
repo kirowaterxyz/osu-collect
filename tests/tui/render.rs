@@ -33,12 +33,17 @@ fn render_content(app: &App, width: u16, height: u16) -> String {
 fn cursor_pos(app: &App, width: u16, height: u16) -> (u16, u16) {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
-    // `draw` now RETURNS the caret position (the runtime applies it via the
-    // backend after the buffer flush — cloudy-tui move-then-show). `None` means
-    // no caret this frame.
-    let mut cursor = None;
-    terminal.draw(|frame| cursor = draw(frame, app)).unwrap();
-    cursor.unwrap_or((0, 0))
+    // `draw` positions the caret via `Frame::set_cursor_position`; ratatui applies
+    // it to the backend after the buffer flush (cloudy-tui move-then-show). A
+    // frame that never sets it leaves the cursor hidden — reported as `(0, 0)`.
+    terminal.draw(|frame| draw(frame, app)).unwrap();
+    let backend = terminal.backend();
+    if backend.cursor_visible() {
+        let pos = backend.cursor_position();
+        (pos.x, pos.y)
+    } else {
+        (0, 0)
+    }
 }
 
 #[test]
@@ -152,6 +157,22 @@ fn home_renders_mirrors_section() {
     assert!(content.contains("MIRRORS") || content.contains("mirrors"));
 }
 
+#[test]
+fn home_cta_scrolls_into_view_on_short_terminal() {
+    use osu_collect::app::HomeField;
+
+    // 18 rows overflows the home form (~17 rows) but stays out of compact mode
+    // (>= COMPACT_HEIGHT). The CTA is the last, unhighlighted row; before the
+    // scroll/highlight split it was selected=None → offset 0 → off-screen.
+    let mut app = make_app();
+    app.home.focus = HomeField::Download;
+    let content = render_content(&app, 120, 18);
+    assert!(
+        content.contains("start download"),
+        "focused CTA must scroll into view on a short terminal: {content}"
+    );
+}
+
 // ── updates view ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -169,6 +190,43 @@ fn updates_tab_shows_recheck_failed_control() {
     assert!(
         content.contains('2'),
         "the known-bad beatmap count must be rendered"
+    );
+}
+
+#[test]
+fn updates_focused_list_row_follows_viewport_on_short_terminal() {
+    use osu_collect::app::UpdatesField;
+    use osu_collect::app::updates::CollectionEntry;
+
+    // A long expanded collection list with the cursor on the last entry: the
+    // `ListState` scroll target must follow the cursor down so the bottom row is
+    // visible and the top row has scrolled out of the window.
+    let mut app = make_app();
+    app.next_tab();
+    app.updates.selection.focus = UpdatesField::Collections;
+    app.updates.selection.in_collection_list = true;
+    for i in 0..20u64 {
+        app.updates
+            .selection
+            .local_collections
+            .push(CollectionEntry {
+                name: format!("coll-{i:02}"),
+                collection_id: Some(i),
+                beatmap_count: 1,
+                selected: false,
+                removed_count: 0,
+            });
+    }
+    app.updates.selection.collections_state = Some(19);
+
+    let content = render_content(&app, 120, 18);
+    assert!(
+        content.contains("coll-19"),
+        "the focused bottom row must be visible in the scrolled window: {content}"
+    );
+    assert!(
+        !content.contains("coll-00"),
+        "the window must have scrolled down past the top row: {content}"
     );
 }
 
@@ -498,6 +556,79 @@ fn gauge_label_shows_avg_when_verified() {
 
     let avg = page.avg_verify_us();
     assert_eq!(avg, Some(1_000_000));
+}
+
+#[test]
+fn gauge_bottom_row_shows_tally_left_and_verified_right() {
+    use osu_collect::app::CollectionPage;
+    use osu_collect::download::DownloadStage;
+
+    let mut app = make_app();
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.downloaded = 3;
+    page.stats.skipped = 2;
+    page.stats.failed = 1;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    let buf = render_to_buffer(&app, 100, 24);
+    // Find the single row carrying both the tally and the verified count.
+    let row = (0..24u16)
+        .map(|y| {
+            (0..100u16)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .find(|r| r.contains("verified"))
+        .expect("a gauge bottom row with the verified count must render");
+
+    assert!(
+        row.contains("3 downloaded") && row.contains("1 failed"),
+        "tally must share the gauge bottom row: {row:?}"
+    );
+    assert!(
+        row.contains("5/10 verified"),
+        "verified count must share the gauge bottom row: {row:?}"
+    );
+    // Tally is left-aligned, verified is right-aligned: the tally precedes it.
+    let tally_at = row.find("downloaded").expect("tally present");
+    let verified_at = row.find("verified").expect("verified present");
+    assert!(
+        tally_at < verified_at,
+        "tally (left) must precede verified (right): {row:?}"
+    );
+}
+
+#[test]
+fn gauge_drops_verified_count_when_too_narrow_for_tally() {
+    use osu_collect::app::CollectionPage;
+    use osu_collect::download::DownloadStage;
+
+    let mut app = make_app();
+    let mut page = CollectionPage::new(1, "ranked maps".to_string(), 4);
+    page.stage = DownloadStage::Downloading;
+    page.total_maps = 10;
+    page.download_target = 10;
+    page.stats.downloaded = 3;
+    page.stats.skipped = 2;
+    page.stats.failed = 1;
+    app.downloads.push(page);
+    app.active_tab = 3;
+
+    // Narrow: the ~53-col tally fits but tally + " 5/10 verified " do not, so the
+    // verified count is dropped and the tally keeps the shared gauge bottom row.
+    let content = render_content(&app, 64, 24);
+    assert!(
+        content.contains("downloaded") && content.contains("1 failed"),
+        "the tally must still render at a narrow width: {content}"
+    );
+    assert!(
+        !content.contains("verified"),
+        "the verified count must be dropped when it would collide with the tally: {content}"
+    );
 }
 
 #[test]

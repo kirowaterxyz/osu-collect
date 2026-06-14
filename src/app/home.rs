@@ -70,6 +70,20 @@ impl InputField {
         self.caret = self.caret() + 1;
     }
 
+    /// Insert a pasted string at the caret, advancing the caret past it.
+    /// Control characters (newlines, tabs, etc.) are dropped so a multi-line
+    /// paste collapses into the single-line value the fields expect.
+    pub(crate) fn insert_str(&mut self, text: &str) {
+        let cleaned: String = text.chars().filter(|ch| !ch.is_control()).collect();
+        if cleaned.is_empty() {
+            return;
+        }
+        let byte = self.caret_byte();
+        let added = cleaned.chars().count();
+        self.value.insert_str(byte, &cleaned);
+        self.caret = self.caret() + added;
+    }
+
     /// Delete the char before the caret, moving the caret back one. No-op at
     /// the start of the value.
     pub(crate) fn delete_before_caret(&mut self) {
@@ -385,6 +399,14 @@ impl HomeTab {
     pub fn handle_char(&mut self, ch: char) {
         if let Some(field) = self.focused_input_mut() {
             field.insert_char(ch);
+        }
+    }
+
+    /// Insert a bracketed-paste payload into the focused text field. No-op when
+    /// focus is on a non-text field.
+    pub fn handle_paste(&mut self, text: &str) {
+        if let Some(field) = self.focused_input_mut() {
+            field.insert_str(text);
         }
     }
 
