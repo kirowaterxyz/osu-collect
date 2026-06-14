@@ -11,16 +11,29 @@ use ratatui::{
     widgets::{Block, Gauge, List, ListItem, Paragraph, Wrap},
 };
 
-use super::widgets::{self, SEPARATOR};
+use super::widgets::{self, Metric, SEPARATOR};
 use super::{
-    FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, eyebrow,
-    glyph_fill, info, line, spinner_str, success, text_dim, text_faint, text_muted, warning,
+    FILL_BLOCK, FILL_SHADE, GLYPH_BLOCK, GLYPH_SHADE, accent, bg_raised, danger, glyph_fill, info,
+    line, spinner_str, success, text_dim, text_faint, text_muted, warning,
 };
 
-const INFO_HEIGHT: u16 = 8;
+/// Tallest the gauge section ever gets: a one-row bar plus the two title rows the
+/// block reserves during the recheck pass (top `rechecking` + bottom `verified`).
+/// Every other stage uses one fewer row (see [`gauge_section_height`]).
 const GAUGE_HEIGHT: u16 = 3;
 /// Horizontal margin (columns) applied to each side of the progress bar.
 const GAUGE_H_MARGIN: u16 = 1;
+
+/// Vertical size of the gauge section for a stage. The colored bar fill is always
+/// one row; the extra rows are title rows the block reserves — the bottom
+/// `verified` title on every stage, plus a top `rechecking` title during recheck.
+fn gauge_section_height(stage: DownloadStage) -> u16 {
+    if matches!(stage, DownloadStage::Rechecking) {
+        GAUGE_HEIGHT // one bar row + top + bottom title rows
+    } else {
+        GAUGE_HEIGHT - 1 // one bar row + bottom title row
+    }
+}
 
 const PANEL_OVERVIEW: &str = " OVERVIEW ";
 const PANEL_ACTIVE: &str = " ACTIVE ";
@@ -35,7 +48,6 @@ const RESULTS_SUMMARY_HEIGHT: u16 = 8;
 const KEY_COLLECTION: &str = "collection: ";
 const KEY_UPLOADER: &str = "uploader: ";
 const KEY_OUTPUT: &str = "output: ";
-const KEY_SETTINGS: &str = "settings: ";
 const KEY_STATUS: &str = "status: ";
 const KEY_SPEED: &str = "  speed ";
 const KEY_ETA: &str = "  eta ";
@@ -43,7 +55,6 @@ const KEY_SIZE: &str = "  size ";
 
 const VALUE_UNKNOWN: &str = "unknown";
 const VALUE_PREPARING: &str = "preparing";
-const VALUE_THREADS_SUFFIX: &str = "threads";
 
 const STATUS_PENDING: &str = "pending";
 const STATUS_RESOLVING: &str = "resolving";
@@ -52,27 +63,20 @@ const STATUS_DOWNLOADING: &str = "downloading";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
 
-const SUMMARY_DONE: &str = "done";
-const SUMMARY_PROGRESS: &str = "progress";
-const SUMMARY_UNVERIFIED: &str = " unverified";
-
 const ACTIVE_VERIFYING: &str = "verifying existing archives...";
 const ACTIVE_FETCHING: &str = "fetching collection metadata...";
 const ACTIVE_NONE: &str = "no active threads";
 const PLACEHOLDER_PREPARING: &str = "preparing";
 const PLACEHOLDER_RESOLVING: &str = "resolving collection";
 
-const FAILED_SECTION_LABEL: &str = "FAILED";
+const FAILED_SECTION_LABEL: &str = "failed";
 
-const RESULTS_DOWNLOADED: &str = "DOWNLOADED";
-const RESULTS_SKIPPED: &str = "SKIPPED";
-const RESULTS_FAILED: &str = "FAILED";
-const RESULTS_UNVERIFIED: &str = "UNVERIFIED";
-const RESULTS_OUTRO_1: &str = "Done! Check https://github.com/uwuclxdy/osu-collect#importing-beatmaps for how to import downloaded beatmaps into osu correctly";
+const RESULTS_DOWNLOADED: &str = "downloaded";
+const RESULTS_SKIPPED: &str = "skipped";
+const RESULTS_FAILED: &str = "failed";
+const RESULTS_UNVERIFIED: &str = "unverified";
+const RESULTS_OUTRO_1: &str = "done! check https://github.com/uwuclxdy/osu-collect#importing-into-osu for how to import downloaded beatmaps into osu correctly";
 const RESULTS_OUTRO_2: &str = "and leave a star while you're at it :3";
-
-const LOW_DISK_PREFIX: &str = " low disk space: ";
-const LOW_DISK_SUFFIX: &str = " available";
 
 const COMPACT_ACTIVE: &str = "active: ";
 const COMPACT_FAILED: &str = " failed: ";
@@ -82,31 +86,30 @@ pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
         render_compact(frame, area, page, tick);
         return;
     }
-    let show_disk_warning = should_render_disk_warning(page);
-
-    let sections = match show_disk_warning {
-        true => Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(INFO_HEIGHT),
-            Constraint::Length(GAUGE_HEIGHT),
-            Constraint::Min(0),
-        ])
-        .split(area),
-        false => Layout::vertical([
-            Constraint::Length(INFO_HEIGHT),
-            Constraint::Length(GAUGE_HEIGHT),
-            Constraint::Min(0),
-        ])
-        .split(area),
+    // Low/full-disk surfaces as the system-wide Banner (top of body, every tab),
+    // not an inline line here — see `tui::draw` / `app::system_banners`.
+    //
+    // The OVERVIEW panel sizes to its content so a live download (no settings /
+    // tally rows) sits 2 lines shorter than a settled stage. The gauge collapses
+    // to nothing once complete — the RESULTS panel already carries the tally.
+    let info_lines = overview_lines(page);
+    let info_height = (info_lines.len() as u16).saturating_add(2); // rounded top + bottom border
+    let gauge_height = if matches!(page.stage, DownloadStage::Completed) {
+        0
+    } else {
+        gauge_section_height(page.stage)
     };
-    let mut idx = 0;
-    if show_disk_warning {
-        render_disk_warning(frame, sections[idx], page);
-        idx += 1;
+    let sections = Layout::vertical([
+        Constraint::Length(info_height),
+        Constraint::Length(gauge_height),
+        Constraint::Min(0),
+    ])
+    .split(area);
+    render_overview(frame, sections[0], info_lines);
+    if gauge_height > 0 {
+        render_gauge(frame, sections[1], page, tick);
     }
-    render_info(frame, sections[idx], page);
-    render_gauge(frame, sections[idx + 1], page, tick);
-    render_threads(frame, sections[idx + 2], page);
+    render_threads(frame, sections[2], page);
 }
 
 /// Compact render: overall gauge + active-download count + failed count.
@@ -114,18 +117,11 @@ pub fn render(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
 /// Per-row breakdown, failed-maps collapsible, and session ETA are hidden.
 /// The gauge alone tells the user "is it making progress."
 fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64) {
-    let show_disk_warning = should_render_disk_warning(page);
-
-    let sections = if show_disk_warning {
-        Layout::vertical([
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(area)
-    } else {
-        Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(area)
-    };
+    let sections = Layout::vertical([
+        Constraint::Length(gauge_section_height(page.stage)),
+        Constraint::Min(0),
+    ])
+    .split(area);
     render_gauge(frame, sections[0], page, tick);
 
     let active_count = page
@@ -151,41 +147,16 @@ fn render_compact(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u6
         ),
     ]);
 
-    if show_disk_warning {
-        render_disk_warning(frame, sections[1], page);
-        frame.render_widget(Paragraph::new(line), sections[2]);
-    } else {
-        frame.render_widget(Paragraph::new(line), sections[1]);
-    }
+    frame.render_widget(Paragraph::new(line), sections[1]);
 }
 
-fn should_render_disk_warning(page: &CollectionPage) -> bool {
-    page.low_disk_space.is_some()
-        && matches!(
-            page.stage,
-            DownloadStage::Pending
-                | DownloadStage::Resolving
-                | DownloadStage::Rechecking
-                | DownloadStage::Downloading
-        )
-}
-
-fn render_disk_warning(frame: &mut Frame, area: Rect, page: &CollectionPage) {
-    if let Some(available) = page.low_disk_space {
-        let bytes = format_bytes(available, "B");
-        let mut text =
-            String::with_capacity(LOW_DISK_PREFIX.len() + bytes.len() + LOW_DISK_SUFFIX.len());
-        text.push_str(LOW_DISK_PREFIX);
-        text.push_str(&bytes);
-        text.push_str(LOW_DISK_SUFFIX);
-        frame.render_widget(
-            Paragraph::new(text).style(Style::default().fg(warning())),
-            area,
-        );
-    }
-}
-
-fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
+/// Build the OVERVIEW panel's content lines. The panel height is derived from
+/// the line count, so each stage shows only what it needs:
+/// - rows: `collection`, `uploader`, `output`, `status` (+ inline speed/eta/size).
+/// - the `downloaded │ queued │ skipped │ failed` tally is the last line for every
+///   stage EXCEPT Completed, where the RESULTS panel owns the final summary (no
+///   duplication). The tally lives only here now — the gauge dropped its top title.
+fn overview_lines(page: &CollectionPage) -> Vec<Line<'_>> {
     let rate_limited =
         matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited();
     let status = if rate_limited {
@@ -240,26 +211,54 @@ fn render_info(frame: &mut Frame, area: Rect, page: &CollectionPage) {
             ),
         ]),
     ];
-    // `settings: N threads` is static config noise once the run is live — speed
-    // and ETA in the status line carry the actionable signal. Drop it while
-    // Downloading; keep it for other stages where nothing else fills the row.
-    if !matches!(page.stage, DownloadStage::Downloading) {
-        lines.push(Line::from(vec![
-            Span::styled(KEY_SETTINGS, key_style),
-            Span::styled(
-                {
-                    let mut s = page.concurrent.to_string();
-                    s.push(' ');
-                    s.push_str(VALUE_THREADS_SUFFIX);
-                    s
-                },
-                Style::default().fg(accent()),
-            ),
-        ]));
-    }
     lines.push(Line::from(status_spans));
-    lines.push(Line::from(summary_spans(page)));
+    // The downloaded │ queued │ skipped │ failed tally is the last overview line
+    // once the run is meaningfully under way. Suppressed before resolution
+    // (Pending/Resolving — all-zero noise) and at Completed, where the RESULTS
+    // panel is the single source of the final summary (see `render_threads`).
+    if matches!(
+        page.stage,
+        DownloadStage::Downloading | DownloadStage::Rechecking | DownloadStage::Failed
+    ) {
+        lines.push(tally_line(page));
+    }
+    lines
+}
 
+/// The `downloaded │ queued │ skipped │ failed` tally rendered at the bottom of
+/// the OVERVIEW panel (pre-completion only). Separators recede in `line()`; each
+/// count sits in its semantic tier (cloudy-tui: color carries meaning).
+fn tally_line(page: &CollectionPage) -> Line<'static> {
+    let downloaded = page.stats.downloaded as usize;
+    let queued = page.download_target;
+    let skipped = page.stats.skipped as usize;
+    let failed = page.stats.failed as usize;
+    let sep = || Span::styled(SEPARATOR, Style::default().fg(line()));
+    let failed_color = if failed > 0 { danger() } else { text_muted() };
+    Line::from(vec![
+        Span::styled(
+            format!("{downloaded} downloaded"),
+            Style::default().fg(success()),
+        ),
+        sep(),
+        Span::styled(
+            format!("{queued} queued"),
+            Style::default().fg(text_muted()),
+        ),
+        sep(),
+        Span::styled(
+            format!("{skipped} skipped"),
+            Style::default().fg(text_muted()),
+        ),
+        sep(),
+        Span::styled(
+            format!("{failed} failed"),
+            Style::default().fg(failed_color),
+        ),
+    ])
+}
+
+fn render_overview(frame: &mut Frame, area: Rect, lines: Vec<Line<'_>>) {
     frame.render_widget(
         Paragraph::new(lines)
             .block(widgets::panel_block(PANEL_OVERVIEW, false, true))
@@ -309,72 +308,6 @@ fn status_color(stage: DownloadStage, rate_limited: bool) -> Color {
     } else {
         widgets::status_style(stage).fg.unwrap_or(text_dim())
     }
-}
-
-fn summary_spans(page: &CollectionPage) -> Vec<Span<'static>> {
-    let (label, downloaded, skipped, failed, unverified) = if let Some(summary) = &page.summary {
-        (
-            SUMMARY_DONE,
-            summary.downloaded,
-            summary.skipped,
-            summary.failed,
-            summary.unverified,
-        )
-    } else {
-        (
-            SUMMARY_PROGRESS,
-            page.stats.downloaded,
-            page.stats.skipped,
-            page.stats.failed,
-            page.stats.unverified,
-        )
-    };
-
-    let mut spans = vec![
-        Span::styled(format!("{label}: "), Style::default().fg(text_faint())),
-        Span::styled(
-            {
-                let mut s = downloaded.to_string();
-                s.push_str(" downloaded");
-                s
-            },
-            Style::default().fg(success()),
-        ),
-        Span::styled(SEPARATOR, Style::default().fg(line())),
-        Span::styled(
-            {
-                let mut s = skipped.to_string();
-                s.push_str(" skipped");
-                s
-            },
-            Style::default().fg(text_muted()),
-        ),
-        Span::styled(SEPARATOR, Style::default().fg(line())),
-        Span::styled(
-            {
-                let mut s = failed.to_string();
-                s.push_str(" failed");
-                s
-            },
-            if failed > 0 {
-                Style::default().fg(danger())
-            } else {
-                Style::default().fg(text_muted())
-            },
-        ),
-    ];
-    if unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
-        spans.push(Span::styled(
-            {
-                let mut s = unverified.to_string();
-                s.push_str(SUMMARY_UNVERIFIED);
-                s
-            },
-            Style::default().fg(warning()),
-        ));
-    }
-    spans
 }
 
 /// Returns the session ETA label, or `None` if there is not yet enough data
@@ -434,7 +367,6 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     }
 
     let is_rechecking = matches!(page.stage, DownloadStage::Rechecking);
-    let queue_remaining = page.download_target;
     let total_collection = page.total_maps.max(1);
     let downloaded = page.stats.downloaded as usize;
     let failed = page.stats.failed as usize;
@@ -444,29 +376,28 @@ fn render_gauge(frame: &mut Frame, area: Rect, page: &CollectionPage, tick: u64)
     let verified_ratio = (verified_display as f64 / total_collection as f64).clamp(0.0, 1.0);
     let failed_ratio = (failed_display as f64 / total_collection as f64).clamp(0.0, 1.0);
 
-    let mut top_style = Style::default()
-        .fg(text_muted())
-        .add_modifier(Modifier::BOLD);
-    if is_rechecking {
-        top_style = top_style.fg(warning());
-    }
-
-    let top_title = if is_rechecking {
-        format!(" rechecking {verified_display}/{total_collection} ")
-    } else {
-        format!(" {downloaded} downloaded  {queue_remaining} queued ")
-    };
+    // The downloaded │ queued │ skipped │ failed tally now lives in the OVERVIEW
+    // panel (one source). While downloading the gauge carries no top title; only
+    // the rechecking stage keeps its own progress title.
     let verified_title = format!(" {verified_display}/{total_collection} verified ");
 
-    let block = Block::default()
-        .title(Line::from(Span::styled(top_title, top_style)).left_aligned())
-        .title_bottom(
+    let mut block = Block::default().title_bottom(
+        Line::from(Span::styled(
+            verified_title,
+            Style::default().fg(text_faint()),
+        ))
+        .right_aligned(),
+    );
+    if is_rechecking {
+        let style = Style::default().fg(warning()).add_modifier(Modifier::BOLD);
+        block = block.title(
             Line::from(Span::styled(
-                verified_title,
-                Style::default().fg(text_faint()),
+                format!(" rechecking {verified_display}/{total_collection} "),
+                style,
             ))
-            .right_aligned(),
+            .left_aligned(),
         );
+    }
 
     let fill_color = if is_rechecking { warning() } else { accent() };
 
@@ -633,19 +564,19 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
     if matches!(page.stage, DownloadStage::Completed)
         && let Some(summary) = &page.summary
     {
-        // No failures: the results block owns the whole panel area as before.
-        // With failures, keep the failed-maps disclosure visible and navigable
-        // (r/R retry, enter expand, ↑↓) by splitting the area — results summary
-        // on top, the scrollable failed list below.
+        // No failures: the results block is the sole content panel, so it owns
+        // focus (LINE_STRONG). With failures, the FAILED list is the navigable
+        // section (↑↓ move, r/R retry, enter expand) — it takes focus while the
+        // results summary recedes to a blurred read-only panel.
         if page.failed_maps.is_empty() {
-            render_results_block(frame, area, summary);
+            render_results_block(frame, area, summary, true);
         } else {
             let [summary_area, failed_area] = Layout::vertical([
                 Constraint::Length(RESULTS_SUMMARY_HEIGHT),
                 Constraint::Min(0),
             ])
             .areas(area);
-            render_results_block(frame, summary_area, summary);
+            render_results_block(frame, summary_area, summary, false);
             render_failed_section(frame, failed_area, page);
         }
         return;
@@ -665,13 +596,14 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
         let mut normal: Vec<ListItem> = Vec::new();
         let mut throttled: Vec<ListItem> = Vec::new();
 
-        for slot in &page.active_downloads {
-            match slot {
-                Some(line) if !line.stage.is_terminal() && line.displayed_rate_limited() => {
-                    throttled.push(rate_limited_item(line, row_width));
-                }
-                Some(line) => normal.push(widgets::active_download_item(line, row_width)),
-                None => normal.push(ListItem::new("")),
+        // Only rows that are actively downloading render — empty (not-started)
+        // slots are skipped and finished rows were already freed, so nothing that
+        // isn't downloading appears in the list.
+        for line in page.active_downloads.iter().flatten() {
+            if line.displayed_rate_limited() {
+                throttled.push(rate_limited_item(line, row_width));
+            } else {
+                normal.push(widgets::active_download_item(line, row_width));
             }
         }
 
@@ -703,7 +635,9 @@ fn render_threads(frame: &mut Frame, area: Rect, page: &CollectionPage) {
 /// `thread_scroll` / `thread_total_items` / `thread_visible_items` bookkeeping
 /// as the ACTIVE panel, so ↑↓ navigation and `r`/`R` retry keep working.
 fn render_failed_section(frame: &mut Frame, area: Rect, page: &CollectionPage) {
-    let block = widgets::panel_block(PANEL_FAILED, false, false);
+    // Focused (LINE_STRONG): on the completed view this is the section the
+    // cursor lives in (↑↓ navigate the failed rows, r/R retries).
+    let block = widgets::panel_block(PANEL_FAILED, true, false);
     let inner = block.inner(area);
     let mut items: Vec<ListItem> = Vec::new();
     push_failed_rows(&mut items, page);
@@ -730,16 +664,13 @@ fn render_scrollable_panel(
     let start = page.thread_scroll.min(max_scroll);
     let end = (start + visible_height).min(total);
 
-    let block = match widgets::scroll_indicator(start, end, total) {
-        Some(span) => block.title_top(Line::from(span).right_aligned()),
-        None => block,
-    };
     frame.render_widget(block, area);
 
     frame.render_widget(
         List::new(items[start..end].to_vec()).highlight_symbol(""),
         inner,
     );
+    widgets::render_scrollbar(frame, inner, start, total);
 }
 
 /// Append the `FAILED (n)` disclosure header and, when expanded, one row per
@@ -753,6 +684,7 @@ fn push_failed_rows(items: &mut Vec<ListItem<'static>>, page: &CollectionPage) {
         detail,
         page.failed_section_expanded,
         false,
+        count > 0,
     ));
     if page.failed_section_expanded {
         for failure in &page.failed_maps {
@@ -774,45 +706,27 @@ fn push_failed_rows(items: &mut Vec<ListItem<'static>>, page: &CollectionPage) {
     }
 }
 
-fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary) {
-    let eyebrow_style = eyebrow().add_modifier(Modifier::DIM);
-    let failed_style = if summary.failed > 0 {
-        Style::default().fg(danger())
+fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary, focused: bool) {
+    let failed_color = if summary.failed > 0 {
+        danger()
     } else {
-        Style::default().fg(text_muted())
+        text_muted()
     };
-    let mut spans = vec![
-        Span::raw("  "),
-        Span::styled(RESULTS_DOWNLOADED, eyebrow_style),
-        Span::raw(" "),
-        Span::styled(
-            summary.downloaded.to_string(),
-            Style::default().fg(accent()),
-        ),
-        Span::styled(SEPARATOR, Style::default().fg(line())),
-        Span::styled(RESULTS_SKIPPED, eyebrow_style),
-        Span::raw(" "),
-        Span::styled(
-            summary.skipped.to_string(),
-            Style::default().fg(text_muted()),
-        ),
-        Span::styled(SEPARATOR, Style::default().fg(line())),
-        Span::styled(RESULTS_FAILED, eyebrow_style),
-        Span::raw(" "),
-        Span::styled(summary.failed.to_string(), failed_style),
+    let mut metrics = vec![
+        Metric::colored(RESULTS_DOWNLOADED, summary.downloaded.to_string(), accent()),
+        Metric::colored(RESULTS_SKIPPED, summary.skipped.to_string(), text_muted()),
+        Metric::colored(RESULTS_FAILED, summary.failed.to_string(), failed_color),
     ];
     if summary.unverified > 0 {
-        spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
-        spans.push(Span::styled(RESULTS_UNVERIFIED, eyebrow_style));
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(
+        metrics.push(Metric::colored(
+            RESULTS_UNVERIFIED,
             summary.unverified.to_string(),
-            Style::default().fg(warning()),
+            warning(),
         ));
     }
 
     let lines = vec![
-        Line::from(spans),
+        widgets::summary_line(&metrics),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
@@ -827,7 +741,7 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
 
     frame.render_widget(
         Paragraph::new(lines)
-            .block(widgets::panel_block(PANEL_RESULTS, true, false))
+            .block(widgets::panel_block(PANEL_RESULTS, focused, false))
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -835,27 +749,33 @@ fn render_results_block(frame: &mut Frame, area: Rect, summary: &DownloadSummary
 
 /// Builds a list row for a rate-limited download slot.
 ///
-/// Uses the standard `active_download_item_msg` layout but appends a `Ns`
-/// countdown suffix so the user sees how long until the mirror is eligible again.
-/// When no cooldown deadline is recorded, delegates to the plain item builder.
+/// The base message (from `events::emit_status`) ends at `...waiting` with no
+/// number; this is the ONLY place the live `Ns` countdown is appended, so the
+/// seconds always tick down (a number baked into the debounced base message
+/// would freeze). When no deadline is recorded the count falls back to `0s` so
+/// the row never shows a dangling `waiting` with no value.
 fn rate_limited_item(
     line: &crate::app::collection::ActiveDownloadLine,
     width: u16,
 ) -> ListItem<'static> {
-    let base = line.displayed_message();
-    let msg = match line.cooldown_secs_remaining() {
-        Some(secs) => {
-            let s = secs.to_string();
-            let mut buf = String::with_capacity(base.len() + 1 + s.len() + 1);
-            buf.push_str(&base);
-            buf.push(' ');
-            buf.push_str(&s);
-            buf.push('s');
-            buf
-        }
-        None => base,
-    };
+    let msg = rate_limited_message(
+        &line.displayed_message(),
+        line.cooldown_secs_remaining().unwrap_or(0),
+    );
     widgets::active_download_item_msg(line, &msg, width)
+}
+
+/// Compose the rate-limited row text: the base message (ending at `...waiting`)
+/// plus the single live ` {secs}s` countdown. The only place the seconds are
+/// appended, so there is exactly one live-updating number.
+fn rate_limited_message(base: &str, secs: u64) -> String {
+    let s = secs.to_string();
+    let mut msg = String::with_capacity(base.len() + 1 + s.len() + 1);
+    msg.push_str(base);
+    msg.push(' ');
+    msg.push_str(&s);
+    msg.push('s');
+    msg
 }
 
 /// Returns `(display_label, color)` for a failure reason.

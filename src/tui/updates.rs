@@ -10,19 +10,22 @@ use crate::utils::pretty_path;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{List, ListItem},
 };
 
 use super::widgets::{self, Metric};
-use super::{accent, accent_alt, focused_label, text, text_dim, text_faint, text_muted};
+use super::{accent, focused_label, text, text_dim, text_faint, text_muted};
 
 const PANEL_TITLE: &str = " UPDATES ";
 
 const SECTION_SOURCE: &str = "source";
 const SECTION_COLLECTIONS: &str = "collections";
 const SECTION_MISSING: &str = "missing beatmaps";
+/// Sentinel for a field that belongs to no section (the download button);
+/// never equals a rendered header label, so no title lights up.
+const SECTION_NONE: &str = "";
 
 const LABEL_CLIENT: &str = "client";
 const CLIENT_OPTIONS: &[&str] = &["lazer", "stable"];
@@ -31,16 +34,15 @@ const LABEL_COLLECTIONS: &str = "collections";
 const LABEL_AVAILABLE: &str = "missing";
 const LABEL_DOWNLOAD_SELECTED: &str = "download selected";
 
-const DETAIL_LOADED_SUFFIX: &str = "loaded";
+const DETAIL_LOADED_SUFFIX: &str = "found";
 const DETAIL_MISSING_SUFFIX: &str = "missing";
 const DETAIL_LOADING: &str = "loading";
 const DETAIL_LOCAL: &str = "local";
 
-const METRIC_SELECTED: &str = "selected";
-const METRIC_MISSING: &str = "total missing";
-const METRIC_FAILED: &str = "failed";
+const METRIC_KNOWN_BAD: &str = "known bad";
 
 const HELP_OSU_PATH: &str = "your osu! install dir; must contain osu!.db or client.realm";
+const HELP_DOWNLOAD_SETTINGS: &str = "uses download settings from home tab";
 
 const TAG_PREVIOUSLY_DELETED: &str = "previously deleted";
 
@@ -50,7 +52,12 @@ const SUFFIX_SELECTED: &str = "selected";
 const DIFF_PREFIX_REMOVED: &str = "-";
 const DIFF_SUFFIX_REMOVED: &str = "removed";
 
-pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, u16)> {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &UpdatesTab,
+    editing: bool,
+) -> Option<(u16, u16)> {
     if area.height < super::COMPACT_HEIGHT {
         render_compact(frame, area, form);
         return None;
@@ -59,20 +66,17 @@ pub fn render(frame: &mut Frame, area: Rect, form: &UpdatesTab) -> Option<(u16, 
     let block = widgets::panel_block(PANEL_TITLE, true, true);
     let inner = block.inner(area);
 
-    let (items, focused_index) = build_items(form);
+    let (items, focused_index) = build_items(form, editing);
     let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
-    let block = match widgets::scroll_indicator(start, end, items.len()) {
-        Some(span) => block.title_top(Line::from(span).right_aligned()),
-        None => block,
-    };
     frame.render_widget(block, area);
 
     let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
+    widgets::render_scrollbar(frame, inner, start, items.len());
 
-    // Caret only when the osu! path field is the focused, editable row.
-    let cursor_col = form
-        .osu_path_editable()
+    // Caret only when the osu! path field is the focused, editable row AND in
+    // edit mode (cloudy-tui: no caret on a selected-not-editing field).
+    let cursor_col = (editing && form.osu_path_editable())
         .then(|| widgets::input_cursor_col(&form.path.osu_path));
     widgets::panel_cursor(inner, focused_index, start, end, cursor_col)
 }
@@ -105,23 +109,24 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &UpdatesTab) {
         0
     };
     let (start, end) = widgets::scroll_window(&items, focused_index, inner.height as usize);
-    let block = match widgets::scroll_indicator(start, end, items.len()) {
-        Some(span) => block.title_top(Line::from(span).right_aligned()),
-        None => block,
-    };
     frame.render_widget(block, area);
 
     let list = List::new(items[start..end].to_vec()).highlight_symbol("");
     frame.render_widget(list, inner);
+    widgets::render_scrollbar(frame, inner, start, items.len());
 }
 
-fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
+fn build_items(form: &UpdatesTab, editing: bool) -> (Vec<ListItem<'static>>, usize) {
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut focused_index = 0usize;
     let focus = form.selection.focus;
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
+    let active_section = updates_section(focus);
 
-    items.push(widgets::section_header(SECTION_SOURCE));
+    items.push(widgets::section_header(
+        SECTION_SOURCE,
+        active_section == SECTION_SOURCE,
+    ));
     if focus == UpdatesField::ClientType && !in_list {
         focused_index = items.len();
     }
@@ -134,13 +139,16 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     if focus == UpdatesField::OsuPath && !in_list {
         focused_index = items.len();
     }
-    items.push(osu_path_item(form));
+    items.push(osu_path_item(form, editing));
     if focus == UpdatesField::OsuPath && !in_list {
         items.push(widgets::help_item(HELP_OSU_PATH));
     }
     items.push(widgets::spacer());
 
-    items.push(widgets::section_header(SECTION_COLLECTIONS));
+    items.push(widgets::section_header(
+        SECTION_COLLECTIONS,
+        active_section == SECTION_COLLECTIONS,
+    ));
     if focus == UpdatesField::Collections && !in_list {
         focused_index = items.len();
     }
@@ -160,7 +168,10 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
     }
     items.push(widgets::spacer());
 
-    items.push(widgets::section_header(SECTION_MISSING));
+    items.push(widgets::section_header(
+        SECTION_MISSING,
+        active_section == SECTION_MISSING,
+    ));
     if focus == UpdatesField::BeatmapList && !in_list {
         focused_index = items.len();
     }
@@ -175,9 +186,6 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
             items.push(display_item(item, is_sel, form));
         }
     }
-    items.push(widgets::spacer());
-
-    items.push(summary_metrics(form));
     items.push(widgets::spacer());
 
     let selected = form.selected_beatmap_count();
@@ -195,22 +203,47 @@ fn build_items(form: &UpdatesTab) -> (Vec<ListItem<'static>>, usize) {
         download_focused,
         selected > 0,
     ));
+    if download_focused && selected > 0 {
+        items.push(widgets::help_item(HELP_DOWNLOAD_SETTINGS));
+    }
+    items.push(widgets::spacer());
+
+    // Summary stats sit below the button, one metric per line.
+    for metric in summary_metrics(form) {
+        items.push(widgets::summary_item(std::slice::from_ref(&metric)));
+    }
 
     (items, focused_index)
 }
 
-fn summary_metrics(form: &UpdatesTab) -> ListItem<'static> {
-    let mut metrics = vec![
-        Metric::accent(METRIC_SELECTED, form.selected_beatmap_count().to_string()),
-        Metric::muted(METRIC_MISSING, form.total_missing_count().to_string()),
-    ];
+/// The section a focused field belongs to, driving the active-section header cue.
+/// List rows keep their parent field's focus, so the same map covers both the
+/// settled and in-list states.
+///
+/// The download button sits below all sections, so it maps to no header
+/// (`SECTION_NONE`): focusing it leaves every section title un-underlined.
+fn updates_section(field: UpdatesField) -> &'static str {
+    use UpdatesField::*;
+    match field {
+        ClientType | OsuPath => SECTION_SOURCE,
+        Collections => SECTION_COLLECTIONS,
+        BeatmapList => SECTION_MISSING,
+        Download => SECTION_NONE,
+    }
+}
+
+/// The summary metrics, each rendered on its own line by the caller. Only the
+/// `known bad` count surfaces, and only once a scan has flagged maps no mirror
+/// can serve.
+fn summary_metrics(form: &UpdatesTab) -> Vec<Metric<'static>> {
+    let mut metrics = Vec::new();
     if form.scan.failed_beatmapset_count > 0 {
         metrics.push(Metric::muted(
-            METRIC_FAILED,
+            METRIC_KNOWN_BAD,
             form.scan.failed_beatmapset_count.to_string(),
         ));
     }
-    widgets::summary_item(&metrics)
+    metrics
 }
 
 fn display_item(
@@ -250,22 +283,19 @@ fn display_item(
                         .map(|beatmap| beatmap.selected)
                         .unwrap_or(false)
                 });
-            let (marker, marker_style) = widgets::check_marker(all_selected);
-
-            ListItem::new(Line::from(vec![
-                widgets::focus_span(is_scroll_pos),
-                Span::styled(marker, marker_style),
-                Span::styled(
-                    format!(" #{collection_id}"),
-                    Style::default().fg(text_faint()),
-                ),
-                Span::styled(
-                    format!("  {name}"),
-                    Style::default()
-                        .fg(accent_alt())
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]))
+            // Group header is hierarchy, not an active-item name marker —
+            // neutral TEXT, no orange anchor (which needs the paired `●` dot).
+            let mut spans = vec![widgets::focus_span(is_scroll_pos)];
+            spans.extend(widgets::checkbox_spans(all_selected));
+            spans.push(Span::styled(
+                format!(" #{collection_id}"),
+                Style::default().fg(text_faint()),
+            ));
+            spans.push(Span::styled(
+                format!("  {name}"),
+                Style::default().fg(text()),
+            ));
+            ListItem::new(Line::from(spans))
         }
         BeatmapDisplayItem::Beatmap { cache_index } => form
             .selection
@@ -283,7 +313,7 @@ fn client_label(client: OsuClient) -> &'static str {
     }
 }
 
-fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
+fn osu_path_item(form: &UpdatesTab, editing: bool) -> ListItem<'static> {
     let focused = form.selection.focus == UpdatesField::OsuPath
         && !form.selection.in_collection_list
         && !form.selection.in_beatmap_list;
@@ -310,7 +340,7 @@ fn osu_path_item(form: &UpdatesTab) -> ListItem<'static> {
     };
 
     ListItem::new(Line::from(vec![
-        widgets::focus_span(focused),
+        widgets::input_focus_span(focused, editing),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
             focused_label(focused),
@@ -341,6 +371,7 @@ fn collections_header(form: &UpdatesTab) -> ListItem<'static> {
         detail,
         form.selection.in_collection_list,
         focused,
+        !form.selection.local_collections.is_empty(),
     )
 }
 
@@ -349,7 +380,6 @@ fn collection_item(
     is_scroll_pos: bool,
     missing_counts: Option<(usize, usize)>,
 ) -> ListItem<'static> {
-    let (marker, marker_style) = widgets::check_marker(collection.selected);
     let id = collection
         .collection_id
         .map(|id| format!("#{id}"))
@@ -360,16 +390,17 @@ fn collection_item(
         Style::default().fg(text_muted())
     };
 
-    let mut spans = vec![
-        widgets::focus_span(is_scroll_pos),
-        Span::styled(marker, marker_style),
-        Span::styled(format!(" {id}"), Style::default().fg(text_faint())),
-        Span::styled(format!("  {}", collection.name), name_style),
-        Span::styled(
-            format!("  {} {COUNT_SUFFIX_MAPS}", collection.beatmap_count),
-            Style::default().fg(text_faint()),
-        ),
-    ];
+    let mut spans = vec![widgets::focus_span(is_scroll_pos)];
+    spans.extend(widgets::checkbox_spans(collection.selected));
+    spans.push(Span::styled(
+        format!(" {id}"),
+        Style::default().fg(text_faint()),
+    ));
+    spans.push(Span::styled(format!("  {}", collection.name), name_style));
+    spans.push(Span::styled(
+        format!("  {} {COUNT_SUFFIX_MAPS}", collection.beatmap_count),
+        Style::default().fg(text_faint()),
+    ));
 
     if let Some((n, total)) = missing_counts {
         spans.push(Span::styled(
@@ -426,22 +457,23 @@ fn beatmaps_header(form: &UpdatesTab) -> ListItem<'static> {
         detail,
         form.selection.in_beatmap_list,
         focused,
+        form.total_missing_count() > 0,
     )
 }
 
 fn beatmap_item(beatmap: &MissingBeatmapset, is_scroll_pos: bool) -> ListItem<'static> {
-    let (marker, marker_style) = widgets::check_marker(beatmap.selected);
-
-    let mut spans = vec![
-        widgets::focus_span(is_scroll_pos),
-        Span::styled(marker, marker_style),
-        Span::styled(format!(" #{}", beatmap.id), Style::default().fg(text_dim())),
-    ];
+    let mut spans = vec![widgets::focus_span(is_scroll_pos)];
+    spans.extend(widgets::checkbox_spans(beatmap.selected));
+    spans.push(Span::styled(
+        format!(" #{}", beatmap.id),
+        Style::default().fg(text_dim()),
+    ));
 
     if beatmap.previously_deleted {
+        // Informational metadata tag — not a sanctioned orange anchor.
         spans.push(Span::styled(
             format!("  {TAG_PREVIOUSLY_DELETED}"),
-            Style::default().fg(accent_alt()),
+            Style::default().fg(text_faint()),
         ));
     }
 

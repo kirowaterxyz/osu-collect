@@ -1,8 +1,12 @@
 use ratatui::{Terminal, backend::TestBackend, layout::Rect, style::Modifier};
 
-use super::render;
+use super::{RenderParams, render};
 
 fn header_buffer_with_active(active: usize) -> ratatui::buffer::Buffer {
+    header_buffer(active, false)
+}
+
+fn header_buffer(active: usize, downloading: bool) -> ratatui::buffer::Buffer {
     let tabs: Vec<std::borrow::Cow<'static, str>> = ["home", "updates", "config"]
         .map(std::borrow::Cow::Borrowed)
         .into();
@@ -10,10 +14,44 @@ fn header_buffer_with_active(active: usize) -> ratatui::buffer::Buffer {
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
         .draw(|frame| {
-            render(frame, Rect::new(0, 0, 80, 1), &tabs, active, None);
+            render(
+                frame,
+                RenderParams {
+                    area: Rect::new(0, 0, 80, 1),
+                    tabs: &tabs,
+                    active,
+                    pill: None,
+                    tick: 0,
+                    downloading,
+                    brand_ramp: if downloading { 1.0 } else { 0.0 },
+                },
+            );
         })
         .expect("header should render");
     terminal.backend().buffer().clone()
+}
+
+/// Concatenate the rendered cells into a single string for substring checks.
+fn buffer_text(buf: &ratatui::buffer::Buffer) -> String {
+    buf.content.iter().map(|cell| cell.symbol()).collect()
+}
+
+#[test]
+fn brand_renders_osu_bang_collect() {
+    let buf = header_buffer_with_active(0);
+    assert!(
+        buffer_text(&buf).contains("osu!collect"),
+        "header must render the osu!collect wordmark"
+    );
+}
+
+#[test]
+fn brand_text_is_identical_idle_and_downloading() {
+    // The animation only recolors the wordmark; the glyphs never change.
+    let idle = buffer_text(&header_buffer(0, false));
+    let busy = buffer_text(&header_buffer(0, true));
+    assert!(idle.contains("osu!collect"));
+    assert!(busy.contains("osu!collect"));
 }
 
 #[test]

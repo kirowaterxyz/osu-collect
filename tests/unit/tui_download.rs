@@ -1,12 +1,14 @@
-use super::{format_eta, session_eta};
+use super::{format_eta, rate_limited_message, session_eta, tally_line};
 use crate::utils::format_bytes;
 
 #[test]
 fn format_bytes_units() {
+    // Throughput → SI decimal (KB/s, MB/s); storage → IEC binary (KiB, GiB).
     assert_eq!(format_bytes(500, "B/s"), "500 B/s");
     assert_eq!(format_bytes(1024, "B/s"), "1 KB/s");
     assert_eq!(format_bytes(1024 * 1024, "B/s"), "1.0 MB/s");
-    assert_eq!(format_bytes(2 * 1024 * 1024 * 1024, "B"), "2.00 GB");
+    assert_eq!(format_bytes(2 * 1024 * 1024 * 1024, "B"), "2.00 GiB");
+    assert_eq!(format_bytes(2048, "B"), "2 KiB");
     assert_eq!(format_bytes(999, "B"), "999 B");
 }
 
@@ -98,4 +100,55 @@ fn session_eta_returns_eta() {
         speed_str.contains("MB/s"),
         "expected MB/s in speed: {speed_str:?}"
     );
+}
+
+// ── rate-limited countdown ────────────────────────────────────────────────────
+//
+// The base status message ends at "...waiting" with no number (events.rs); the
+// single live countdown is appended here. Regression guard: there must be exactly
+// ONE number, no frozen second value, and no double space.
+
+/// The exact base produced by `events::emit_status` for a `RateLimited` status:
+/// `status::RATE_LIMITED` + `RATE_LIMITED_SUFFIX`.
+const RATE_LIMITED_BASE: &str = "rate limited on all mirrors, waiting";
+
+#[test]
+fn rate_limited_message_has_single_live_countdown() {
+    let msg = rate_limited_message(RATE_LIMITED_BASE, 5);
+    assert_eq!(msg, "rate limited on all mirrors, waiting 5s");
+    // exactly one run of digits — proves no second frozen number lingers.
+    let digit_runs = msg
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .count();
+    assert_eq!(digit_runs, 1, "expected one number, got {msg:?}");
+    assert!(!msg.contains("  "), "no double space, got {msg:?}");
+}
+
+#[test]
+fn rate_limited_message_zero_when_deadline_passed() {
+    // None cooldown collapses to 0 — never a dangling "waiting" with no value.
+    let msg = rate_limited_message(RATE_LIMITED_BASE, 0);
+    assert_eq!(msg, "rate limited on all mirrors, waiting 0s");
+    assert!(msg.ends_with("0s"));
+}
+
+// ── overview tally ────────────────────────────────────────────────────────────
+
+#[test]
+fn tally_line_shows_all_four_counts() {
+    let mut page = CollectionPage::new(1, "test".to_string(), 1);
+    page.stats.downloaded = 3;
+    page.stats.skipped = 2;
+    page.stats.failed = 1;
+    page.download_target = 4;
+    let text: String = tally_line(&page)
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(text.contains("3 downloaded"), "got {text:?}");
+    assert!(text.contains("4 queued"), "got {text:?}");
+    assert!(text.contains("2 skipped"), "got {text:?}");
+    assert!(text.contains("1 failed"), "got {text:?}");
 }

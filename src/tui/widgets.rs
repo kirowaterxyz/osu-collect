@@ -7,27 +7,28 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, Padding, Paragraph},
+    widgets::{Block, BorderType, Borders, List, ListItem, Padding},
 };
 use std::sync::OnceLock;
 use std::time::Instant;
 
 use super::theme::{Tier, theme};
 use super::{
-    FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
-    GLYPH_SPACE, accent, accent_alt, bg, bg_hover, danger, eyebrow, focused_label, glyph_fill,
-    info, line, line_strong, success, text_dim, text_faint, text_muted, warning,
+    FILL_BLOCK, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_SHADE, GLYPH_SPACE, accent, accent_alt,
+    bg, bg_hover, danger, focused_label, glyph_fill, info, line, line_strong, success, text_dim,
+    text_faint, text_muted, warning,
 };
 
 pub const FOCUS_MARK: &str = "❯ ";
+/// Edit-mode glyph for a text-input row being actively edited (cloudy-tui).
+pub const EDIT_MARK: &str = "✎ ";
 pub const FOCUS_PAD: &str = "  ";
-/// Checkbox marker — ON. Used for multi-select checkbox rows.
-pub const CHECK_ON: &str = "◉";
-/// Checkbox marker — OFF. Used for multi-select checkbox rows.
-pub const CHECK_OFF: &str = "○";
 pub const EXPANDED: &str = "▼";
 pub const COLLAPSED: &str = "▶";
 pub const SEPARATOR: &str = "  │  ";
+/// Scrollbar track glyph (`LINE`) and thumb glyph (`TEXT_DIM`).
+const SCROLLBAR_TRACK: &str = "┊";
+const SCROLLBAR_THUMB: &str = "┃";
 
 /// Number of trailing filler spaces appended to selected rows to carry the
 /// `bg_hover` tint across the full panel width.  Ratatui clips to the rendered
@@ -45,11 +46,7 @@ impl<'a> Metric<'a> {
         Self::colored(label, value, text_muted())
     }
 
-    pub fn accent(label: &'a str, value: impl Into<String>) -> Self {
-        Self::colored(label, value, accent())
-    }
-
-    fn colored(label: &'a str, value: impl Into<String>, color: Color) -> Self {
+    pub fn colored(label: &'a str, value: impl Into<String>, color: Color) -> Self {
         Self {
             label,
             value: value.into(),
@@ -109,28 +106,39 @@ pub fn scroll_window<T>(
     (start, (start + visible_height).min(items.len()))
 }
 
-/// Returns a muted `Span` showing how many items lie above or below the
-/// visible window, e.g. `▲ 5 above · 12 below ▼`.
+/// Draw a scrollbar in a padded panel's right padding column.
 ///
-/// Returns `None` when the whole list fits in view (`start == 0 && end ==
-/// total`) or the inputs are degenerate (`total == 0`, `start > end`).
-pub(crate) fn scroll_indicator(start: usize, end: usize, total: usize) -> Option<Span<'static>> {
-    if total == 0 || start > end || end > total {
-        return None;
+/// cloudy-tui Scrollbar: the bar lives in the panel's 1-cell right padding
+/// column (`inner.x + inner.width`) so it never eats a content cell — content
+/// width is unchanged whether the bar shows or not. Track `┊` (`LINE`), thumb
+/// `┃` (`TEXT_DIM`), thumb length proportional to viewport / total. Draws
+/// nothing when the content fits (`total <= visible`). `visible` is the number
+/// of rows in view (`inner.height`); `start` is the scroll offset (top item
+/// index); `total` is the item count.
+pub(crate) fn render_scrollbar(frame: &mut Frame, inner: Rect, start: usize, total: usize) {
+    let visible = inner.height as usize;
+    if visible == 0 || inner.width == 0 || total <= visible {
+        return;
     }
-    let above = start;
-    let below = total.saturating_sub(end);
-    if above == 0 && below == 0 {
-        return None;
+    let track_h = visible;
+    let thumb_len = (visible * track_h / total).max(1).min(track_h);
+    let max_start = total - visible;
+    let max_thumb_pos = track_h - thumb_len;
+    let thumb_pos = (start.min(max_start) * max_thumb_pos + max_start / 2)
+        .checked_div(max_start)
+        .unwrap_or(0);
+    let track_style = Style::default().fg(line());
+    let thumb_style = Style::default().fg(text_dim());
+    let x = inner.x + inner.width;
+    let buf = frame.buffer_mut();
+    for i in 0..track_h {
+        let (glyph, style) = if i >= thumb_pos && i < thumb_pos + thumb_len {
+            (SCROLLBAR_THUMB, thumb_style)
+        } else {
+            (SCROLLBAR_TRACK, track_style)
+        };
+        buf.set_string(x, inner.y + i as u16, glyph, style);
     }
-
-    let text = match (above > 0, below > 0) {
-        (true, true) => format!(" ▲ {above} above · {below} below ▼ "),
-        (true, false) => format!(" ▲ {above} above "),
-        (false, true) => format!(" {below} below ▼ "),
-        (false, false) => unreachable!(),
-    };
-    Some(Span::styled(text, Style::default().fg(text_faint())))
 }
 
 /// Renders a scrollable form panel and returns the absolute caret position when
@@ -157,16 +165,13 @@ pub fn render_scrollable_panel(
     let block = panel_block(title, focused, first_panel);
     let inner = block.inner(area);
     let (start, end) = scroll_window(items, focused_index, inner.height as usize);
-    let block = match scroll_indicator(start, end, items.len()) {
-        Some(span) => block.title_top(Line::from(span).right_aligned()),
-        None => block,
-    };
     frame.render_widget(block, area);
 
     frame.render_widget(
         List::new(items[start..end].to_vec()).highlight_symbol(""),
         inner,
     );
+    render_scrollbar(frame, inner, start, items.len());
 
     panel_cursor(inner, focused_index, start, end, cursor_col)
 }
@@ -233,22 +238,12 @@ pub fn panel_block(title: &'static str, focused: bool, first_panel: bool) -> Blo
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color))
+        // cloudy-tui tab title sits right after the rounded corner: `╭ TITLE ─`.
         .title(Line::from(vec![
-            Span::styled("─", Style::default().fg(border_color)),
             Span::styled(title, title_style),
+            Span::styled("─", Style::default().fg(border_color)),
         ]))
         .padding(Padding::new(1, 1, 0, 0))
-}
-
-pub fn render_separator(frame: &mut Frame, area: Rect) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    let fill = glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, area.width as usize);
-    frame.render_widget(
-        Paragraph::new(fill.into_owned()).style(Style::default().fg(line())),
-        area,
-    );
 }
 
 pub fn focus_span(focused: bool) -> Span<'static> {
@@ -259,16 +254,23 @@ pub fn focus_span(focused: bool) -> Span<'static> {
     }
 }
 
-/// Checkbox marker for multi-select rows (`[x]` / `[ ]` style).
+/// Checkbox marker spans for multi-select rows: `[x]` checked, `[ ]` unchecked.
 ///
+/// cloudy-tui Checkbox row: brackets in `TEXT_DIM`, the `x` in `ACCENT`.
 /// Used by checkbox rows in the updates panel. For boolean toggle rows
 /// (`row_item` / `row_item_with_suffix`) use [`toggle_spans`] instead.
-pub fn check_marker(state: bool) -> (&'static str, Style) {
-    if state {
-        (CHECK_ON, Style::default().fg(accent()))
+pub fn checkbox_spans(state: bool) -> Vec<Span<'static>> {
+    let bracket = Style::default().fg(text_dim());
+    let inner = if state {
+        Span::styled("x", Style::default().fg(accent()))
     } else {
-        (CHECK_OFF, Style::default().fg(text_faint()))
-    }
+        Span::styled(" ", bracket)
+    };
+    vec![
+        Span::styled("[", bracket),
+        inner,
+        Span::styled("]", bracket),
+    ]
 }
 
 /// Tier-aware slide-toggle spans for a boolean `row_item`.
@@ -329,7 +331,22 @@ fn tint_spans(spans: &mut Vec<Span<'static>>) {
     }
 }
 
-pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
+/// Leading glyph for a text-input row: `✎` when the row is being edited, `❯`
+/// when selected-not-editing, two-space pad when blurred.
+pub fn input_focus_span(focused: bool, editing: bool) -> Span<'static> {
+    if focused && editing {
+        Span::styled(EDIT_MARK, Style::default().fg(accent()).bold())
+    } else if focused {
+        Span::styled(FOCUS_MARK, Style::default().fg(accent()).bold())
+    } else {
+        Span::raw(FOCUS_PAD)
+    }
+}
+
+/// A text-input row. `editing` applies only when `focused` and drives the `✎`
+/// glyph; the native caret is the caller's job (it requests `cursor_col` only
+/// while editing — see each view's `render`).
+pub fn input_item(field: &InputField, focused: bool, editing: bool) -> ListItem<'static> {
     let value = if field.value.is_empty() {
         Span::styled(field.placeholder.clone(), Style::default().fg(text_faint()))
     } else {
@@ -337,7 +354,7 @@ pub fn input_item(field: &InputField, focused: bool) -> ListItem<'static> {
     };
 
     let mut spans = vec![
-        focus_span(focused),
+        input_focus_span(focused, editing),
         Span::styled(
             format!("{}: ", field.label.to_lowercase()),
             focused_label(focused),
@@ -421,11 +438,18 @@ pub fn cycle_item(
     ListItem::new(Line::from(spans))
 }
 
-/// Eyebrow section header — `TEXT_DIM`, no bold.  Renders the label uppercased.
-pub fn section_header(label: &str) -> ListItem<'static> {
+/// Eyebrow section header — `TEXT_DIM + bold`, UPPERCASE (the sanctioned eyebrow
+/// bold variant, always on).  Adds an underline while `active` (focus rests on a
+/// row within this section) as the current-section cue.  See cloudy-tui Panel →
+/// internal sections.
+pub fn section_header(label: &str, active: bool) -> ListItem<'static> {
+    let mut style = Style::default().fg(text_dim()).add_modifier(Modifier::BOLD);
+    if active {
+        style = style.add_modifier(Modifier::UNDERLINED);
+    }
     ListItem::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled(label.to_uppercase(), Style::default().fg(text_dim())),
+        Span::styled(label.to_uppercase(), style),
     ]))
 }
 
@@ -476,11 +500,22 @@ pub fn disclosure_row(
     detail: impl Into<String>,
     expanded: bool,
     focused: bool,
+    expandable: bool,
 ) -> ListItem<'static> {
-    let marker = if expanded { EXPANDED } else { COLLAPSED };
+    // An empty section can't be opened: drop the arrow and dim the label so the
+    // row reads as inert rather than collapsed-but-openable.
+    let marker = if !expandable {
+        " "
+    } else if expanded {
+        EXPANDED
+    } else {
+        COLLAPSED
+    };
     // Glyph: TEXT_DIM collapsed, ACCENT expanded (per cloudy-tui contract).
     let glyph_color = if expanded { accent() } else { text_dim() };
-    let label_style = if expanded {
+    let label_style = if !expandable {
+        Style::default().fg(text_faint())
+    } else if expanded {
         Style::default().fg(accent()).add_modifier(Modifier::BOLD)
     } else {
         focused_label(focused)
@@ -568,17 +603,30 @@ pub fn button_item(label: &str, focused: bool, enabled: bool) -> ListItem<'stati
     ListItem::new(Line::from(spans))
 }
 
-pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
+/// A `label value` metric line separated by [`SEPARATOR`].
+///
+/// cloudy-tui metric styling: each label is lowercase `TEXT_FAINT` (a recessive
+/// tag), with its value beside it in its own brighter color — never the
+/// UPPERCASE bold eyebrow, which reads as a section header.
+pub fn summary_line(metrics: &[Metric<'_>]) -> Line<'static> {
     let mut spans = vec![Span::raw("  ")];
     for (index, metric) in metrics.iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled(SEPARATOR, Style::default().fg(line())));
         }
-        spans.push(Span::styled(metric.label.to_uppercase(), eyebrow()));
+        spans.push(Span::styled(
+            metric.label.to_owned(),
+            Style::default().fg(text_faint()),
+        ));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(metric.value.clone(), metric.style));
     }
-    ListItem::new(Line::from(spans))
+    Line::from(spans)
+}
+
+/// [`summary_line`] as a list item, for form / list render paths.
+pub fn summary_item(metrics: &[Metric<'_>]) -> ListItem<'static> {
+    ListItem::new(summary_line(metrics))
 }
 
 /// Builds a `[ label ]` status pill as a `Line`.

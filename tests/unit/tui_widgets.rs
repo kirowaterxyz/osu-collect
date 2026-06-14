@@ -1,12 +1,9 @@
-use super::{
-    input_cursor_col, message_style, panel_cursor, scroll_indicator, scroll_window,
-    truncate_to_width,
-};
+use super::{input_cursor_col, message_style, panel_cursor, scroll_window, truncate_to_width};
 use crate::app::InputField;
 use crate::download::BeatmapStage;
 use crate::tui::{
-    FILL_BLOCK, FILL_H_LINE, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_H_LINE, GLYPH_SHADE,
-    GLYPH_SPACE, danger, glyph_fill, success, text_dim, text_faint, warning,
+    FILL_BLOCK, FILL_SHADE, FILL_SPACE, GLYPH_BLOCK, GLYPH_SHADE, GLYPH_SPACE, danger, glyph_fill,
+    success, text_dim, text_faint, warning,
 };
 use ratatui::layout::Rect;
 
@@ -133,55 +130,9 @@ fn message_style_stage_classification() {
 }
 
 #[test]
-fn scroll_indicator_none_when_all_visible() {
-    assert!(scroll_indicator(0, 10, 10).is_none());
-}
-
-#[test]
-fn scroll_indicator_none_when_total_zero() {
-    assert!(scroll_indicator(0, 0, 0).is_none());
-}
-
-#[test]
-fn scroll_indicator_none_on_degenerate_start_after_end() {
-    assert!(scroll_indicator(10, 5, 20).is_none());
-}
-
-#[test]
-fn scroll_indicator_both_above_and_below() {
-    let span = scroll_indicator(5, 15, 100).expect("expected Some");
-    let text = span.content.as_ref();
-    assert!(text.contains("above"), "missing 'above': {text}");
-    assert!(text.contains("below"), "missing 'below': {text}");
-    assert!(text.contains('▲'), "missing '▲': {text}");
-    assert!(text.contains('▼'), "missing '▼': {text}");
-    assert!(text.contains('5'), "above count missing: {text}");
-    assert!(text.contains("85"), "below count missing: {text}");
-}
-
-#[test]
-fn scroll_indicator_only_below() {
-    let span = scroll_indicator(0, 15, 100).expect("expected Some");
-    let text = span.content.as_ref();
-    assert!(!text.contains("above"), "unexpected 'above': {text}");
-    assert!(text.contains("below"), "missing 'below': {text}");
-    assert!(text.contains('▼'), "missing '▼': {text}");
-}
-
-#[test]
-fn scroll_indicator_only_above() {
-    let span = scroll_indicator(50, 100, 100).expect("expected Some");
-    let text = span.content.as_ref();
-    assert!(text.contains("above"), "missing 'above': {text}");
-    assert!(!text.contains("below"), "unexpected 'below': {text}");
-    assert!(text.contains('▲'), "missing '▲': {text}");
-}
-
-#[test]
 fn glyph_fill_zero_is_empty() {
     assert_eq!(glyph_fill(&FILL_BLOCK, GLYPH_BLOCK, 0).as_ref(), "");
     assert_eq!(glyph_fill(&FILL_SHADE, GLYPH_SHADE, 0).as_ref(), "");
-    assert_eq!(glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, 0).as_ref(), "");
     assert_eq!(glyph_fill(&FILL_SPACE, GLYPH_SPACE, 0).as_ref(), "");
 }
 
@@ -199,11 +150,6 @@ fn glyph_fill_matches_repeat_for_all_glyphs() {
             "SHADE n={n}"
         );
         assert_eq!(
-            glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, n).as_ref(),
-            GLYPH_H_LINE.repeat(n),
-            "H_LINE n={n}"
-        );
-        assert_eq!(
             glyph_fill(&FILL_SPACE, GLYPH_SPACE, n).as_ref(),
             GLYPH_SPACE.repeat(n),
             "SPACE n={n}"
@@ -219,7 +165,7 @@ fn glyph_fill_fallback_above_max_width() {
         GLYPH_BLOCK.repeat(n)
     );
     assert_eq!(
-        glyph_fill(&FILL_H_LINE, GLYPH_H_LINE, n).as_ref(),
-        GLYPH_H_LINE.repeat(n)
+        glyph_fill(&FILL_SHADE, GLYPH_SHADE, n).as_ref(),
+        GLYPH_SHADE.repeat(n)
     );
 }

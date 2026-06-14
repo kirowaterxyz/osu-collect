@@ -228,8 +228,10 @@ pub struct CollectionPage {
     /// Config snapshot taken at download start, used to build retry requests.
     pub download_config: Option<DownloadConfig>,
     /// Fixed-size slot list — one slot per worker thread. Free slots are `None`.
-    /// Slot positions are stable for the lifetime of the page so completing
-    /// downloads don't shift their neighbours up in the UI.
+    /// Only actively-downloading beatmapsets occupy a slot: reaching a terminal
+    /// stage (success / skipped / failed / aborted) frees the slot immediately,
+    /// so the row stops rendering rather than lingering with a final message.
+    /// A new download then claims the lowest free slot.
     pub active_downloads: Vec<Option<ActiveDownloadLine>>,
     pub concurrent: usize,
     /// Last-seen downloaded bytes per beatmapset id; used by `update_progress`
@@ -331,9 +333,20 @@ impl CollectionPage {
         rate_limited: bool,
         cooldown_until: Option<Instant>,
     ) {
-        // terminal stages keep the line in place so the slot keeps rendering the final
-        // message ("done via nerinyan") until another beatmapset reuses it — otherwise
-        // the row would flash blank between completion and reuse
+        // Terminal stages drop the line immediately — only actively-downloading
+        // rows belong in the ACTIVE panel, so a finished / failed / skipped slot
+        // is freed at once and stops rendering (rows that aren't downloading are
+        // removed, not kept around with a final message).
+        if stage.is_terminal() {
+            if let Some(slot) = self.active_downloads.iter_mut().find(|slot| {
+                slot.as_ref()
+                    .is_some_and(|l| l.beatmapset_id == beatmapset_id)
+            }) {
+                *slot = None;
+            }
+            return;
+        }
+
         if let Some(line) = self.find_active_line_mut(beatmapset_id) {
             line.apply_status(stage, message, rate_limited, cooldown_until);
             return;
@@ -389,11 +402,9 @@ impl CollectionPage {
     }
 
     fn first_free_slot(&self) -> Option<usize> {
-        // a terminal-stage slot counts as free — it's still rendered so the row isn't
-        // blank, but a new beatmapset is welcome to overwrite it
-        self.active_downloads
-            .iter()
-            .position(|slot| slot.as_ref().is_none_or(|line| line.stage.is_terminal()))
+        // Terminal rows are freed the moment they finish (see `update_active_status`),
+        // so a free slot is simply an empty one — the lowest keeps positions stable.
+        self.active_downloads.iter().position(Option::is_none)
     }
 
     pub fn cumulative_speed(&self) -> f64 {
