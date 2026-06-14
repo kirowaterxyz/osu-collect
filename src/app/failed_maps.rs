@@ -122,6 +122,19 @@ pub fn remove_available(path: &Path, available: &HashSet<u32>) {
     save(&failed_maps, path);
 }
 
+/// Reconcile the persisted file with one download run's outcome in a single
+/// load → modify → save: drop every id that is now verifiably on disk
+/// (`resolved`) and add this run's `failures`. Doing both in one pass is what
+/// lets a successful re-download clear a previously-failed map — a separate
+/// add and remove could race and lose each other's update. `resolved` and
+/// `failures` are disjoint, but remove runs first so a contested id stays failed.
+pub fn reconcile(path: &Path, resolved: &HashSet<u32>, failures: impl IntoIterator<Item = u32>) {
+    let mut failed_maps = load(path);
+    failed_maps.remove_all(resolved);
+    failed_maps.insert_all(failures);
+    save(&failed_maps, path);
+}
+
 fn normalize(ids: &mut Vec<u32>) {
     ids.sort_unstable();
     ids.dedup();

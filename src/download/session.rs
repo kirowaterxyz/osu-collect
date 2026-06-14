@@ -125,6 +125,9 @@ pub(crate) struct PrepareParams<'a> {
     pub(crate) registry: &'a ActiveDownloadRegistry,
     pub(crate) emit: super::Emit<'a>,
     pub(crate) target: PrepareTarget<'a>,
+    /// When set, precheck skips validation so every requested id stays pending
+    /// and the library overwrites existing archives (`OnExists::Overwrite`).
+    pub(crate) overwrite: bool,
 }
 
 impl DownloadSession {
@@ -186,6 +189,7 @@ impl DownloadSession {
             output,
             lock_guard,
             params.config,
+            params.overwrite,
             params.emit,
         )
         .await
@@ -200,6 +204,7 @@ impl DownloadSession {
         output: OutputPreparation,
         lock_guard: DownloadLockGuard,
         config: &DownloadConfig,
+        overwrite: bool,
         emit: super::Emit<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let expectations = target.expectation_index(&beatmapset_ids);
@@ -216,6 +221,7 @@ impl DownloadSession {
             PrecheckOptions {
                 notify_verified: true,
                 archive_validation: config.archive_validation,
+                overwrite,
             },
             &cancel_rx,
             emit,

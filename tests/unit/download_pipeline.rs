@@ -297,25 +297,31 @@ fn emit_status_messages_match_format_output() {
         }
     }
 
-    let cooldowns: &[(std::time::Duration, u64)] = &[
-        (std::time::Duration::from_secs(60), 60),
-        (std::time::Duration::from_secs(0), 1),
-        (std::time::Duration::from_secs(1), 1),
+    // The base message ends at "...waiting" with NO number — the live countdown
+    // is appended once at render time from `cooldown_until` (single source), so
+    // the seconds shown always update. `cooldown_until` must be set whatever the
+    // cooldown duration, including zero.
+    let cooldowns = [
+        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(0),
+        std::time::Duration::from_secs(1),
     ];
-    for &(cooldown, expected_secs) in cooldowns {
+    for cooldown in cooldowns {
         let DownloadEvent::BeatmapStatus {
             message,
             rate_limited,
+            cooldown_until,
             ..
         } = drive_status(Status::RateLimited { cooldown })
         else {
             panic!("expected BeatmapStatus");
         };
-        assert_eq!(
-            message,
-            format!("rate limited on all mirrors, waiting {expected_secs}s")
-        );
+        assert_eq!(message, "rate limited on all mirrors, waiting");
         assert!(rate_limited);
+        assert!(
+            cooldown_until.is_some(),
+            "rate-limited status must carry a cooldown deadline for the live countdown"
+        );
     }
 }
 

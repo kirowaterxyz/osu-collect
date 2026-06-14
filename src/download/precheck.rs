@@ -7,13 +7,11 @@ use osu_downloader::{
     validate_and_remove,
 };
 
-#[cfg(not(unix))]
-use std::time::SystemTime;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 use tokio::{fs, sync::watch};
 use tracing::{debug, info, warn};
@@ -21,7 +19,12 @@ use tracing::{debug, info, warn};
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub(crate) enum CacheKey {
     #[cfg(unix)]
-    FileId { device: u64, inode: u64, size: u64 },
+    FileId {
+        device: u64,
+        inode: u64,
+        size: u64,
+        mtime: Option<SystemTime>,
+    },
     #[cfg(not(unix))]
     Path {
         path: PathBuf,
@@ -39,6 +42,7 @@ impl CacheKey {
                 device: meta.dev(),
                 inode: meta.ino(),
                 size: meta.len(),
+                mtime: meta.modified().ok(),
             }
         }
         #[cfg(not(unix))]
@@ -110,6 +114,10 @@ pub(crate) struct PrecheckReport {
 pub(crate) struct PrecheckOptions {
     pub(crate) notify_verified: bool,
     pub(crate) archive_validation: ArchiveValidation,
+    /// When set, existing archives are never classified as satisfied: every
+    /// requested id stays pending so the downloader overwrites it. Orphan temp
+    /// files are still removed during the candidate scan.
+    pub(crate) overwrite: bool,
 }
 
 pub(crate) async fn verify_existing_beatmapsets(
@@ -145,6 +153,24 @@ pub(crate) async fn verify_existing_beatmapsets(
     } = scan_candidates(output_dir, &expectations, cancel_rx).await?;
     if aborted {
         return Ok(state.aborted_report());
+    }
+
+    // Overwrite mode: orphan temps are already cleaned by the scan; skip
+    // validation so nothing is marked satisfied and every requested id stays
+    // pending. The library's `OnExists::Overwrite` deletes + re-downloads each.
+    if options.overwrite {
+        info!(
+            download_id = id,
+            orphan_temp = orphan_temp_count,
+            "overwrite mode: skipping existing-file validation, all ids stay pending"
+        );
+        return Ok(PrecheckReport {
+            satisfied: HashSet::new(),
+            skipped: 0,
+            unverified: Vec::new(),
+            verified_bytes: 0,
+            aborted: false,
+        });
     }
 
     let worker_count = parallelism.max(1);

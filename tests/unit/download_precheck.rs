@@ -1,9 +1,10 @@
 use super::{
     CacheKey, Candidate, PrecheckOptions, ValidationCache, scan_candidates,
-    validate_existing_candidate,
+    validate_existing_candidate, verify_existing_beatmapsets,
 };
 use osu_downloader::ArchiveValidation;
 use std::collections::HashSet;
+use std::sync::Arc;
 use tokio::sync::watch;
 
 #[test]
@@ -123,6 +124,7 @@ async fn off_mode_accepts_non_empty_file_without_validating() {
         PrecheckOptions {
             notify_verified: false,
             archive_validation: ArchiveValidation::Off,
+            overwrite: false,
         },
         rx,
     )
@@ -151,6 +153,7 @@ async fn off_mode_deletes_empty_file_and_flags_invalid() {
         PrecheckOptions {
             notify_verified: false,
             archive_validation: ArchiveValidation::Off,
+            overwrite: false,
         },
         rx,
     )
@@ -184,4 +187,51 @@ async fn scans_expected_osz_candidates_and_removes_orphan_temps() {
     assert_eq!(scan.candidates[0].beatmapset_id, 123);
     assert_eq!(scan.candidates[0].path, expected);
     assert!(!orphan.exists());
+}
+
+/// Overwrite mode never marks an existing valid archive as satisfied, so every
+/// requested id is left pending for re-download — while orphan temps are still
+/// swept during the scan.
+#[tokio::test]
+async fn overwrite_mode_marks_nothing_satisfied_and_removes_orphans() {
+    let dir = tempfile::tempdir().expect("create tempdir");
+    let existing = dir.path().join("123 artist.osz");
+    let orphan = dir.path().join("123 artist.osz.download-1-2.tmp");
+    std::fs::write(&existing, b"a valid-looking existing archive").unwrap();
+    std::fs::write(&orphan, b"orphan").unwrap();
+
+    let expectations: Arc<HashSet<u32>> = Arc::new([123, 456].into_iter().collect());
+    let (_tx, rx) = watch::channel(false);
+    let report = verify_existing_beatmapsets(
+        0,
+        dir.path(),
+        expectations,
+        1,
+        PrecheckOptions {
+            notify_verified: false,
+            archive_validation: ArchiveValidation::Eocd,
+            overwrite: true,
+        },
+        &rx,
+        |_event| {},
+    )
+    .await
+    .expect("precheck succeeds");
+
+    assert!(
+        report.satisfied.is_empty(),
+        "overwrite mode must not classify any id as satisfied"
+    );
+    assert_eq!(report.skipped, 0, "nothing is skipped under overwrite");
+    assert!(report.unverified.is_empty());
+    assert_eq!(report.verified_bytes, 0);
+    assert!(!report.aborted);
+    assert!(
+        !orphan.exists(),
+        "orphan temp files are still removed in overwrite mode"
+    );
+    assert!(
+        existing.exists(),
+        "precheck must leave the existing archive on disk; the downloader deletes it"
+    );
 }

@@ -9,7 +9,7 @@ use super::{
     warn_low_disk_space,
 };
 use crate::{
-    app::snapshots,
+    app::{failed_maps, snapshots},
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
@@ -132,6 +132,7 @@ async fn run_collection(
         target: PrepareTarget::Collection {
             collection_input: &collection_input,
         },
+        overwrite: auto_overwrite,
     })
     .await?
     else {
@@ -160,6 +161,17 @@ async fn run_collection(
     // saved state matches the user's intent even when some maps couldn't be downloaded.
     let db_collection_name = format!("{}-{}", collection.name, collection.id);
     write_collection_db(collection, db_collection_name, output_dir).await?;
+
+    // Clear any now-on-disk ids from the persisted failed-maps file (so a
+    // successful re-download stops showing as previously failed) and record this
+    // run's fresh failures — both in one pass.
+    let resolved: HashSet<u32> = session
+        .initial_satisfied
+        .iter()
+        .copied()
+        .chain(tally.successful.iter().copied())
+        .collect();
+    reconcile_failed_maps(resolved, failure_ids(&tally)).await;
 
     emit_finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
@@ -197,6 +209,7 @@ async fn run_selective(
             collections,
             beatmapset_ids: &beatmapset_ids,
         },
+        overwrite: false,
     })
     .await?
     else {
@@ -243,8 +256,34 @@ async fn run_selective(
         persist_snapshots(snapshot_dir, snapshot_files).await?;
     }
 
+    // A retry / selective run is exactly where stale previously-failed entries get
+    // cleared: drop every id now on disk and record this run's fresh failures.
+    reconcile_failed_maps(verified_now, failure_ids(&tally)).await;
+
     emit_finish(id, emit.as_ref(), tally.to_summary());
     Ok(())
+}
+
+/// Beatmapset ids that failed this run, for persisting to the failed-maps file.
+fn failure_ids(tally: &Tally) -> Vec<u32> {
+    tally.failures.iter().map(|f| f.beatmapset_id).collect()
+}
+
+/// Reconcile the persisted failed-maps file with one run's outcome off-thread:
+/// remove `resolved` (now on disk) and add `failures`. A missing data path or an
+/// IO error is non-fatal — persistence is best-effort, never blocks the run.
+async fn reconcile_failed_maps(resolved: HashSet<u32>, failures: Vec<u32>) {
+    if resolved.is_empty() && failures.is_empty() {
+        return;
+    }
+    let Some(path) = failed_maps::failed_maps_path() else {
+        warn!("failed maps path unavailable; skipping reconcile");
+        return;
+    };
+    let _ = tokio::task::spawn_blocking(move || {
+        failed_maps::reconcile(&path, &resolved, failures);
+    })
+    .await;
 }
 
 async fn persist_snapshots(

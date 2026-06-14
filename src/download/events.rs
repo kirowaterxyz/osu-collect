@@ -229,14 +229,13 @@ fn emit_status(id: DownloadId, beatmapset_id: u32, event: Status, emit: Emit<'_>
             None,
         ),
         Status::RateLimited { cooldown } => {
-            let secs = cooldown.as_secs().max(1).to_string();
-            let mut s = String::with_capacity(
-                status::RATE_LIMITED.len() + RATE_LIMITED_SUFFIX.len() + secs.len() + 1,
-            );
+            // Base message ends at "...waiting" with NO number — the live countdown
+            // is appended once by `download::rate_limited_item` from `cooldown_until`,
+            // so the seconds shown always update (a baked-in number would freeze).
+            let mut s =
+                String::with_capacity(status::RATE_LIMITED.len() + RATE_LIMITED_SUFFIX.len());
             s.push_str(status::RATE_LIMITED);
             s.push_str(RATE_LIMITED_SUFFIX);
-            s.push_str(&secs);
-            s.push('s');
             (
                 s,
                 BeatmapStage::Downloading,

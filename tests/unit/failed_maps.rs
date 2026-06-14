@@ -1,5 +1,5 @@
 use crate::app::failed_maps::{
-    FailedMapsFile, failed_maps_path_in, load, record_failures, remove_available, save,
+    FailedMapsFile, failed_maps_path_in, load, reconcile, record_failures, remove_available, save,
 };
 use std::collections::HashSet;
 
@@ -50,6 +50,36 @@ fn remove_available_keeps_unavailable_ids() {
     let loaded = load(&path);
 
     assert_eq!(loaded.beatmapset_ids, vec![1, 3]);
+}
+
+#[test]
+fn reconcile_clears_resolved_and_records_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("failed.json");
+    // A prior run left 1, 2, 3 failed.
+    record_failures(&path, [1, 2, 3]);
+
+    // A re-download resolves 1 and 2 (now on disk) and 4 fails fresh; 3 is
+    // untouched this run. The successful re-download must clear 1 and 2.
+    reconcile(&path, &HashSet::from([1, 2]), [4]);
+    let loaded = load(&path);
+
+    assert_eq!(loaded.beatmapset_ids, vec![3, 4]);
+}
+
+#[test]
+fn reconcile_contested_id_stays_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("failed.json");
+    record_failures(&path, [5]);
+
+    // Same id resolved and failed in one pass: remove runs first, add re-inserts,
+    // so a contested id stays failed (defensive — the two sets are disjoint in
+    // practice).
+    reconcile(&path, &HashSet::from([5]), [5]);
+    let loaded = load(&path);
+
+    assert_eq!(loaded.beatmapset_ids, vec![5]);
 }
 
 #[test]
