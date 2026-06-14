@@ -68,7 +68,9 @@ async fn validate_and_remove_deletes_invalid_files() {
 }
 
 #[tokio::test]
-async fn zip_with_odd_eocd_offset_still_passes() {
+async fn eocd_zip64_sentinel_offset_passes() {
+    // 0xFFFFFFFF in the CD-offset field marks a ZIP64 archive whose real offsets
+    // live in a separate ZIP64 record; strict accepts rather than false-rejecting.
     let mut data = minimal_zip_bytes_for_test();
     let eocd_pos = find_eocd_position(&data).unwrap();
     data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&(u32::MAX).to_le_bytes());
@@ -79,6 +81,28 @@ async fn zip_with_odd_eocd_offset_still_passes() {
         ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
             .await
             .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn eocd_with_inconsistent_cd_bounds_fails() {
+    // A wrong, non-sentinel CD offset means the directory no longer abuts the
+    // footer: strict must reject it while basic (magic-only) still accepts.
+    let mut data = minimal_zip_bytes_for_test();
+    let eocd_pos = find_eocd_position(&data).unwrap();
+    data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&5u32.to_le_bytes());
+
+    let mut tmp = NamedTempFile::new().unwrap();
+    tmp.write_all(&data).unwrap();
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Magic)
+            .await
+            .is_ok()
+    );
+    assert!(
+        ensure_valid_archive(tmp.path(), ArchiveValidation::Eocd)
+            .await
+            .is_err()
     );
 }
 

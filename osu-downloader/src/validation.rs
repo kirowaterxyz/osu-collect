@@ -9,7 +9,12 @@ use tokio::{
 
 const LOCAL_HEADER_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x03, 0x04];
 const EOCD_SIGNATURE: &[u8] = &[0x50, 0x4B, 0x05, 0x06];
-const MAX_EOCD_SEARCH_BYTES: u64 = 65_536;
+/// Minimum size of an end-of-central-directory record (no trailing comment).
+const EOCD_MIN_RECORD_LEN: usize = 22;
+/// Largest distance the EOCD signature can sit from EOF: the 22-byte record plus
+/// a maximal `u16` comment. The previous 65_536 window was ~22 bytes short and
+/// could miss the footer of a spec-valid archive carrying a near-max comment.
+const MAX_EOCD_SEARCH_BYTES: u64 = EOCD_MIN_RECORD_LEN as u64 + u16::MAX as u64;
 
 /// Archive validation strictness. Variants are ordered by strictness:
 /// `Off` < `Magic` < `Eocd`. A file that passes a stricter mode also satisfies
@@ -33,7 +38,10 @@ pub enum ArchiveValidation {
     /// Require the ZIP local-file-header magic bytes only (default).
     #[default]
     Magic,
-    /// Also require the ZIP end-of-central-directory footer.
+    /// Also locate and parse the ZIP end-of-central-directory record, checking
+    /// that the central directory it points to lands within the file and abuts
+    /// the footer. ZIP64 archives (sentinel fields) are accepted without the
+    /// bounds check rather than false-rejected.
     Eocd,
 }
 
@@ -144,25 +152,56 @@ async fn inspect_archive(
     Ok(ArchiveValidationResult::Valid)
 }
 
+/// Locate the EOCD record in the trailing window and validate that the central
+/// directory it describes is consistent with the file: the directory must abut
+/// the footer and lie within the file. ZIP64 archives store sentinel values here
+/// and keep the real offsets in a separate ZIP64 record; since osu `.osz` files
+/// are never ZIP64, those are accepted rather than false-rejected.
 async fn verify_eocd(file: &mut fs::File, file_size: u64) -> Result<()> {
-    if file_size < 22 {
+    if file_size < EOCD_MIN_RECORD_LEN as u64 {
         return Err(Error::validation(
             "invalid archive: missing central directory footer",
         ));
     }
 
     let search_len = MAX_EOCD_SEARCH_BYTES.min(file_size);
+    let window_start = file_size - search_len;
     file.seek(SeekFrom::End(-(search_len as i64))).await?;
     let mut buffer = vec![0u8; search_len as usize];
     file.read_exact(&mut buffer).await?;
 
-    if find_eocd_position(&buffer).is_some() {
-        Ok(())
-    } else {
-        Err(Error::validation(
+    let Some(eocd_pos) = find_eocd_position(&buffer) else {
+        return Err(Error::validation(
             "invalid archive: missing central directory footer",
-        ))
+        ));
+    };
+
+    // A signature whose fixed 22-byte record runs past the buffer is a
+    // truncated footer, not a usable EOCD.
+    if eocd_pos + EOCD_MIN_RECORD_LEN > buffer.len() {
+        return Err(Error::validation(
+            "invalid archive: truncated central directory footer",
+        ));
     }
+
+    let eocd = &buffer[eocd_pos..];
+    let total_entries = u16::from_le_bytes([eocd[10], eocd[11]]);
+    let cd_size = u32::from_le_bytes([eocd[12], eocd[13], eocd[14], eocd[15]]);
+    let cd_offset = u32::from_le_bytes([eocd[16], eocd[17], eocd[18], eocd[19]]);
+
+    // ZIP64 sentinels: the real values live in the ZIP64 EOCD record. Accept.
+    if total_entries == u16::MAX || cd_size == u32::MAX || cd_offset == u32::MAX {
+        return Ok(());
+    }
+
+    let eocd_abs = window_start + eocd_pos as u64;
+    if cd_offset as u64 + cd_size as u64 != eocd_abs {
+        return Err(Error::validation(
+            "invalid archive: central directory bounds do not match footer",
+        ));
+    }
+
+    Ok(())
 }
 
 async fn handle_invalid(
