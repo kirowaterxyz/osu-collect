@@ -52,8 +52,9 @@ cargo install --git https://github.com/uwuclxdy/osu-collect
 ```
 
 > [!NOTE]
-> osu!collect runs in a terminal. On Windows, use Windows Terminal or PowerShell 7+ for correct colors and key handling.
-> You should be able to open it with a double click as well, but it's not guaranteed.
+> osu!collect runs in a terminal. Windows users should be able to open it with a double click as well,
+> but it's not guaranteed. Open an [Issue](https://github.com/uwuclxdy/osu-collect/issues/new/choose) if it doesn't work.
+> Windows Terminal or PowerShell 7+ are recommended.
 
 ## Usage
 
