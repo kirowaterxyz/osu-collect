@@ -58,16 +58,33 @@ pub fn is_low_disk_space(path: &Path) -> bool {
     available_space(path).is_ok_and(|space| space < LOW_SPACE_THRESHOLD_BYTES)
 }
 
-/// Format `bytes` with a SI-1024 scale and the given unit suffix.
-/// Use `"B"` for sizes (`"3.45 GB"`) or `"B/s"` for rates (`"3.45 GB/s"`).
+/// Format `bytes` with the given unit suffix.
+///
+/// Sizes use IEC binary units (`"B"` → `"3.45 GiB"`, 1024-based); rates use SI
+/// decimal units (`"B/s"` → `"3.45 GB/s"`, 1000-based) — cloudy-tui numeric
+/// formatting: storage is IEC, throughput is SI.
 pub fn format_bytes(bytes: u64, unit: &str) -> String {
     let bytes_f = bytes as f64;
-    if bytes_f >= GB {
-        format!("{:.2} G{unit}", bytes_f / GB)
+    if unit.ends_with("/s") {
+        // Throughput → SI decimal (KB/s, MB/s, GB/s).
+        const SI_G: f64 = 1_000_000_000.0;
+        const SI_M: f64 = 1_000_000.0;
+        const SI_K: f64 = 1_000.0;
+        if bytes_f >= SI_G {
+            format!("{:.2} G{unit}", bytes_f / SI_G)
+        } else if bytes_f >= SI_M {
+            format!("{:.1} M{unit}", bytes_f / SI_M)
+        } else if bytes_f >= SI_K {
+            format!("{:.0} K{unit}", bytes_f / SI_K)
+        } else {
+            format!("{bytes} {unit}")
+        }
+    } else if bytes_f >= GB {
+        format!("{:.2} Gi{unit}", bytes_f / GB)
     } else if bytes_f >= MB {
-        format!("{:.1} M{unit}", bytes_f / MB)
+        format!("{:.1} Mi{unit}", bytes_f / MB)
     } else if bytes_f >= KB {
-        format!("{:.0} K{unit}", bytes_f / KB)
+        format!("{:.0} Ki{unit}", bytes_f / KB)
     } else {
         format!("{bytes} {unit}")
     }

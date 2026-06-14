@@ -12,7 +12,11 @@ fn make_app() -> App {
 fn render_to_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| draw(frame, app)).unwrap();
+    terminal
+        .draw(|frame| {
+            draw(frame, app);
+        })
+        .unwrap();
     terminal.backend().buffer().clone()
 }
 
@@ -29,9 +33,12 @@ fn render_content(app: &App, width: u16, height: u16) -> String {
 fn cursor_pos(app: &App, width: u16, height: u16) -> (u16, u16) {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| draw(frame, app)).unwrap();
-    let pos = terminal.get_cursor_position().unwrap();
-    (pos.x, pos.y)
+    // `draw` now RETURNS the caret position (the runtime applies it via the
+    // backend after the buffer flush — cloudy-tui move-then-show). `None` means
+    // no caret this frame.
+    let mut cursor = None;
+    terminal.draw(|frame| cursor = draw(frame, app)).unwrap();
+    cursor.unwrap_or((0, 0))
 }
 
 #[test]
@@ -40,6 +47,7 @@ fn caret_advances_as_collection_field_is_typed() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
+    app.editing = true; // edit mode: caret shows and keys type
 
     app.home.collection.set_value("");
     let empty = cursor_pos(&app, 120, 24);
@@ -64,6 +72,7 @@ fn caret_follows_left_arrow_then_home_and_end() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
+    app.editing = true; // edit mode: caret shows and keys type
     app.home.collection.set_value("");
     let origin = cursor_pos(&app, 120, 24);
 
@@ -99,7 +108,7 @@ fn caret_follows_left_arrow_then_home_and_end() {
 fn no_caret_on_toggle_field() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     assert_eq!(
         cursor_pos(&app, 120, 24),
         (0, 0),
@@ -126,7 +135,7 @@ fn no_caret_while_help_overlay_open() {
 fn home_renders_without_panic_standard() {
     let app = make_app();
     let content = render_content(&app, 120, 40);
-    assert!(content.contains("osu-collect"));
+    assert!(content.contains("osu!collect"));
 }
 
 #[test]
@@ -154,12 +163,12 @@ fn updates_tab_shows_recheck_failed_control() {
     let content = render_content(&app, 120, 60);
 
     assert!(
-        content.contains("FAILED") || content.contains("failed"),
-        "summary metrics must surface the failed count"
+        content.contains("known bad"),
+        "summary metrics must surface the known-bad count"
     );
     assert!(
         content.contains('2'),
-        "the failed beatmap count must be rendered"
+        "the known-bad beatmap count must be rendered"
     );
 }
 
@@ -207,7 +216,7 @@ fn home_footer_hides_toggle_hint_on_text_input_focus() {
     app.home.focus = HomeField::Collection;
     let content = render_content(&app, 120, 24);
     assert!(
-        !content.contains("enter toggle"),
+        !content.contains("↵ toggle"),
         "toggle hint must be hidden while a text field is focused"
     );
 }
@@ -219,7 +228,7 @@ fn home_footer_shows_enter_toggle_on_toggle_focus() {
     let mut app = make_app();
     app.home.focus = HomeField::AutoOverwrite;
     let content = render_content(&app, 120, 24);
-    assert!(content.contains("enter toggle"));
+    assert!(content.contains("↵ toggle"));
 }
 
 #[test]
@@ -229,7 +238,7 @@ fn home_footer_shows_enter_download_on_button_focus() {
     let mut app = make_app();
     app.home.focus = HomeField::Download;
     let content = render_content(&app, 120, 24);
-    assert!(content.contains("enter download"));
+    assert!(content.contains("↵ download"));
 }
 
 #[test]
@@ -238,6 +247,19 @@ fn updates_footer_hides_recheck_without_failed_maps() {
     app.next_tab();
     let content = render_content(&app, 120, 24);
     assert!(!content.contains("recheck"));
+}
+
+#[test]
+fn updates_footer_shows_recheck_with_failed_maps() {
+    let mut app = make_app();
+    app.next_tab();
+    // scan_status defaults to Idle (a "ready" state) so can_recheck is true.
+    app.updates.set_failed_beatmapset_count(1);
+    let content = render_content(&app, 120, 24);
+    assert!(
+        content.contains("recheck"),
+        "footer must surface the r recheck hint once maps are known bad"
+    );
 }
 
 #[test]
@@ -251,8 +273,8 @@ fn updates_footer_in_list_shows_scroll_and_select_hints() {
         "in-list footer must show scroll hint"
     );
     assert!(
-        content.contains("enter toggle"),
-        "in-list footer must show enter toggle hint"
+        content.contains("↵ toggle"),
+        "in-list footer must show ↵ toggle hint"
     );
     assert!(
         content.contains("all") && content.contains("none"),
@@ -271,7 +293,7 @@ fn config_footer_omits_space_on_text_input() {
 
     let mut app = make_app();
     // Focus a non-text field so Right switches tabs rather than moving the caret.
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     app.handle_key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,
         crossterm::event::KeyModifiers::empty(),
@@ -285,7 +307,7 @@ fn config_footer_omits_space_on_text_input() {
 
     let content = render_content(&app, 120, 24);
     assert!(!content.contains("space change"));
-    assert!(!content.contains("enter confirm"));
+    assert!(!content.contains("↵ confirm"));
 }
 
 // ── footer hint count & content per context ──────────────────────────────────
@@ -303,8 +325,9 @@ fn render_footer_row(app: &App, width: u16, height: u16) -> String {
 }
 
 fn hint_count(footer: &str) -> usize {
-    // hints are separated by "  │  " in the rendered footer; count separators + 1
-    footer.matches('│').count() + 1
+    // hint groups are 3-space separated (no glyph); count the inter-group gaps
+    // + 1. Trim the trailing panel padding first so it isn't counted.
+    footer.trim_end().matches("   ").count() + 1
 }
 
 #[test]
@@ -315,7 +338,7 @@ fn home_footer_toggle_focus_has_quit_hint_ending_with_help() {
     app.home.focus = HomeField::AutoOverwrite;
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
-    assert!(footer.contains("enter toggle"), "must show enter toggle");
+    assert!(footer.contains("↵ toggle"), "must show ↵ toggle");
     assert!(footer.contains("q quit"), "must show q quit");
     assert!(footer.contains('?'), "must end with ? help");
     assert_eq!(
@@ -333,10 +356,7 @@ fn home_footer_button_focus_shows_enter_download() {
     app.home.focus = HomeField::Download;
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
-    assert!(
-        footer.contains("enter download"),
-        "must show enter download"
-    );
+    assert!(footer.contains("↵ download"), "must show ↵ download");
     assert!(footer.contains("q quit"), "must show q quit");
     assert!(footer.contains('?'), "must end with ? help");
     assert_eq!(
@@ -347,19 +367,23 @@ fn home_footer_button_focus_shows_enter_download() {
 }
 
 #[test]
-fn home_footer_text_input_focus_has_three_hints_with_quit() {
+fn home_footer_text_input_focus_has_four_hints_with_edit_and_quit() {
     use osu_collect::app::HomeField;
 
     let mut app = make_app();
     app.home.focus = HomeField::Collection;
     let footer = render_footer_row(&app, 200, 24);
     assert!(footer.contains("↑↓"), "must show move hint");
+    assert!(
+        footer.contains("↵ edit"),
+        "selected text input must show ↵ edit"
+    );
     assert!(footer.contains('q'), "must show q quit");
     assert!(footer.contains('?'), "must show ? help");
     assert_eq!(
         hint_count(&footer),
-        3,
-        "text input focus must show exactly 3 hints"
+        4,
+        "selected text input must show move, edit, quit, help"
     );
 }
 
@@ -397,10 +421,10 @@ fn config_footer_non_text_has_four_hints_with_help() {
 
     let mut app = make_app();
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::DownloadNoVideo;
+    app.config.focus = ConfigField::DownloadVideo;
     let footer = render_footer_row(&app, 200, 24);
-    assert!(footer.contains("enter toggle"), "must show enter toggle");
-    assert!(footer.contains('s'), "must show s save");
+    assert!(footer.contains("↵ toggle"), "must show ↵ toggle");
+    assert!(footer.contains("q quit"), "must show q quit");
     assert!(footer.contains('?'), "must show ? help");
     assert_eq!(
         hint_count(&footer),
@@ -410,7 +434,7 @@ fn config_footer_non_text_has_four_hints_with_help() {
 }
 
 #[test]
-fn config_footer_text_input_shows_esc_back_not_space_toggle() {
+fn config_footer_text_input_shows_edit_not_toggle() {
     use osu_collect::app::ConfigField;
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
 
@@ -418,16 +442,28 @@ fn config_footer_text_input_shows_esc_back_not_space_toggle() {
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::MirrorCustomUrl;
     let footer = render_footer_row(&app, 200, 24);
-    assert!(footer.contains("esc"), "text field must show esc back");
+    assert!(
+        footer.contains("↵ edit"),
+        "selected text field must show ↵ edit"
+    );
+    assert!(footer.contains("q quit"), "config footer must show q quit");
     assert!(footer.contains('?'), "text field must show ? help");
     assert!(
-        !footer.contains("enter toggle"),
-        "text field must not show enter toggle"
+        !footer.contains("↵ toggle"),
+        "text field must not show ↵ toggle"
     );
     assert_eq!(
         hint_count(&footer),
         4,
-        "config text field footer must show exactly 4 hints"
+        "config text field footer must show move, edit, quit, help"
+    );
+
+    // While editing, the footer collapses to the exit affordance.
+    app.editing = true;
+    let footer = render_footer_row(&app, 200, 24);
+    assert!(
+        footer.contains("esc done"),
+        "editing config text field must show esc done"
     );
 }
 
@@ -517,7 +553,7 @@ fn help_overlay_hidden_when_closed() {
 // ── config item order ─────────────────────────────────────────────────────────
 
 #[test]
-fn config_tab_shows_download_section_before_mirrors() {
+fn config_tab_shows_mirrors_section_before_download() {
     let mut app = make_app();
     app.next_tab();
     app.next_tab();
@@ -525,12 +561,12 @@ fn config_tab_shows_download_section_before_mirrors() {
     // both sections should be present
     assert!(content.contains("download") || content.contains("DOWNLOAD"));
     assert!(content.contains("mirrors") || content.contains("MIRRORS"));
-    // "download" text should appear before "mirrors" text in the rendered buffer
+    // mirrors render before download, matching the home tab's section flow
+    let mir_pos = content.find("mirrors").or_else(|| content.find("MIRRORS"));
     let dl_pos = content
         .find("download")
         .or_else(|| content.find("DOWNLOAD"));
-    let mir_pos = content.find("mirrors").or_else(|| content.find("MIRRORS"));
-    if let (Some(d), Some(m)) = (dl_pos, mir_pos) {
-        assert!(d < m, "download section should render before mirrors");
+    if let (Some(m), Some(d)) = (mir_pos, dl_pos) {
+        assert!(m < d, "mirrors section should render before download");
     }
 }

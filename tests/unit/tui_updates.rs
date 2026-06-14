@@ -1,4 +1,5 @@
-use super::count_selected;
+use super::{SECTION_MISSING, SECTION_NONE, count_selected, updates_section};
+use crate::app::UpdatesField;
 use crate::app::updates::{MissingBeatmapset, MissingStatus};
 
 fn beatmap(id: u32, collection_id: u32, selected: bool) -> MissingBeatmapset {
@@ -85,4 +86,28 @@ fn diff_hidden_when_removed_is_zero() {
 #[test]
 fn diff_shows_when_removed_is_nonzero() {
     assert!(diff_is_visible(7), "-N removed must show");
+}
+
+// --- active-section cue ---
+//
+// The "download selected" button sits below all sections, so focusing it must
+// underline NO section header. `section_header` only underlines when the active
+// string equals a (non-empty) header label; `SECTION_NONE` ("") never matches.
+
+#[test]
+fn download_button_underlines_no_section() {
+    let active = updates_section(UpdatesField::Download);
+    assert_eq!(active, SECTION_NONE, "Download must map to SECTION_NONE");
+    assert!(active.is_empty(), "SECTION_NONE must be empty");
+    // and it must not match the missing-beatmaps header it used to underline.
+    assert_ne!(
+        active, SECTION_MISSING,
+        "focusing Download must not underline the missing-beatmaps header"
+    );
+}
+
+#[test]
+fn beatmap_list_still_underlines_missing_section() {
+    // The list field keeps its section cue — only the button changed.
+    assert_eq!(updates_section(UpdatesField::BeatmapList), SECTION_MISSING);
 }

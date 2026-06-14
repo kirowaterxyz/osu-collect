@@ -220,42 +220,34 @@ fn q_on_running_tab_still_emits_cancel_command() {
 // ── x cascade: sticky error toast dismisses before closing a settled tab ─────
 
 #[test]
-fn x_dismisses_error_toast_instead_of_closing_settled_tab() {
-    use crate::app::messages::AppMessage;
-
+fn x_dismisses_toast_instead_of_closing_settled_tab() {
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
     let tab_before = app.active_tab;
-    // simulate an error toast that was raised on the home tab; it should
-    // intercept `x` regardless of which tab is currently active
-    app.home.message = Some(AppMessage::error("network unreachable"));
+    // a visible toast intercepts `x` before the settled-tab close binding
+    app.toast_err("network unreachable");
 
     let cmd = app.handle_key(press(KeyCode::Char('x')));
 
     assert!(cmd.is_none(), "x must not emit a command");
-    assert!(
-        app.home.message.is_none(),
-        "x must dismiss the sticky error toast"
-    );
+    assert!(app.toasts.is_empty(), "x must dismiss the topmost toast");
     assert_eq!(
         app.downloads.len(),
         1,
-        "settled tab must stay open while the error toast was dismissed"
+        "settled tab must stay open while the toast was dismissed"
     );
     assert_eq!(app.active_tab, tab_before);
 }
 
 #[test]
 fn x_after_dismiss_falls_through_to_close_settled_tab() {
-    use crate::app::messages::AppMessage;
-
     let mut app = make_app();
     push_page(&mut app, 1, DownloadStage::Completed);
-    app.home.message = Some(AppMessage::error("network unreachable"));
+    app.toast_err("network unreachable");
 
-    // first `x`: dismisses the error toast, tab stays
+    // first `x`: dismisses the toast, tab stays
     app.handle_key(press(KeyCode::Char('x')));
-    assert!(app.home.message.is_none());
+    assert!(app.toasts.is_empty());
     assert_eq!(app.downloads.len(), 1);
 
     // second `x`: no error toast in the way, the settled tab closes
@@ -283,12 +275,17 @@ fn help_overlay_lists_x_close_completed_tab() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let mut app = make_app();
+    // Help is per-tab now; the close-tab binding lives in the download section,
+    // so focus a download tab before opening the overlay.
+    push_page(&mut app, 1, DownloadStage::Completed);
     app.help_open = true;
 
     let backend = TestBackend::new(80, 40);
     let mut terminal = Terminal::new(backend).expect("test backend");
     terminal
-        .draw(|frame| crate::tui::draw(frame, &app))
+        .draw(|frame| {
+            crate::tui::draw(frame, &app);
+        })
         .expect("render");
 
     let rendered: String = terminal

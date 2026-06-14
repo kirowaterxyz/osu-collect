@@ -1,6 +1,5 @@
 use crate::app::{
-    App, ConfigField, HomeField, HomeTab, MessageKind, UpdatesField, UpdatesTab,
-    messages::AppMessage,
+    App, ConfigField, HomeField, HomeTab, UpdatesField, UpdatesTab, messages::AppMessage,
 };
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use crate::download::DownloadStage;
@@ -12,39 +11,53 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::widgets;
-use super::{accent, danger, info, line, spinner_str, text_dim, text_faint, text_muted, warning};
+use super::{accent, spinner_str, text_dim, text_faint, warning};
 
 const HINT_SEPARATOR: &str = "  ·  ";
+/// Rendered gap between hint groups: 3 spaces, no glyph (cloudy-tui hint bar).
+const HINT_GROUP_GAP: &str = "   ";
 
-const QUIT_PROMPT_WARN: &str = " ⚠ ";
+/// Footer-alert prefix glyph (` ! `) for the quit prompt, in semantic color.
+const ALERT_WARN: &str = " ! ";
+
 const QUIT_PROMPT_TEXT: &str = "press q again to quit";
 const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit — active downloads will stop";
 
 const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q abort  ·  ? help";
 const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  x/q close  ·  ? help";
-const HINT_RETRY: &str = "r retry  ·  R retry all";
+const HINT_RETRY: &str = "r retry failed";
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
-const HINT_ENTER_TOGGLE: &str = "enter toggle";
-const HINT_ENTER_OPEN: &str = "enter open";
-const HINT_ENTER_CONFIRM: &str = "enter confirm";
-const HINT_ENTER_DOWNLOAD: &str = "enter download";
-const HINT_ESC_BACK: &str = "esc back";
-const HINT_ESC_QUIT: &str = "esc quit";
+const HINT_ENTER_TOGGLE: &str = "↵ toggle";
+const HINT_ENTER_OPEN: &str = "↵ open";
+const HINT_ENTER_CONFIRM: &str = "↵ confirm";
+const HINT_ENTER_DOWNLOAD: &str = "↵ download";
+/// Text-input row, selected-not-editing: enter descends into edit mode.
+const HINT_EDIT: &str = "↵ edit";
+/// While editing a text field: esc (or enter) exits back to selected.
+const HINT_EDIT_DONE: &str = "esc done";
 const HINT_PLUS_MINUS: &str = "+/- adjust";
 const HINT_ALL_NONE: &str = "a all / d none";
-const HINT_SAVE: &str = "s save";
+const HINT_RECHECK: &str = "r recheck";
 const HINT_QUIT: &str = "q quit";
 const HINT_HELP: &str = "? help";
 
-const PILL_INFO: &str = "info";
-const PILL_ERROR: &str = "error";
-const ERROR_DISMISS_HINT: &str = "  [x to dismiss]";
+/// Footer hint shown while a modal is open (cloudy-tui: discoverability lives in
+/// the context-aware footer hint bar, not a per-modal hint row).
+const HINT_MODAL_CLOSE: &str = "esc close";
+/// Footer hint for button-carrying confirm modals — the buttons show the
+/// choices, so only the universal cancel key is surfaced.
+const HINT_MODAL_CANCEL: &str = "esc cancel";
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    // A modal owns the footer while open: show its context-aware keys.
+    if let Some(hint) = modal_hint(app) {
+        frame.render_widget(Paragraph::new(hint_line(&hint)), area);
         return;
     }
 
@@ -61,6 +74,20 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(hint_line(&hint_for(app))), area);
 }
 
+/// Context-aware footer keys for whichever modal is open, or `None` when no
+/// modal is up. The confirm/retry modals now carry their choices as on-screen
+/// buttons (←/→ + `enter`), so the footer only needs the universal `esc cancel`
+/// rather than re-listing every key.
+fn modal_hint(app: &App) -> Option<String> {
+    if app.help_open {
+        Some(HINT_MODAL_CLOSE.to_string())
+    } else if app.confirm_retry_on_start.is_some() || app.confirm_retry.is_some() {
+        Some(HINT_MODAL_CANCEL.to_string())
+    } else {
+        None
+    }
+}
+
 fn current_message(app: &App) -> Option<&AppMessage> {
     match app.active_tab() {
         HOME_TAB_INDEX => app.home.message.as_ref(),
@@ -72,9 +99,9 @@ fn current_message(app: &App) -> Option<&AppMessage> {
 
 fn hint_for(app: &App) -> String {
     match app.active_tab() {
-        HOME_TAB_INDEX => home_hint(&app.home),
-        UPDATES_TAB_INDEX => updates_hint(&app.updates),
-        CONFIG_TAB_INDEX => config_hint(app.config.focus),
+        HOME_TAB_INDEX => home_hint(&app.home, app.editing),
+        UPDATES_TAB_INDEX => updates_hint(&app.updates, app.editing),
+        CONFIG_TAB_INDEX => config_hint(app.config.focus, app.editing),
         _ => download_tab_hint(app),
     }
 }
@@ -91,8 +118,11 @@ fn download_tab_hint(app: &App) -> String {
     } else {
         DOWNLOAD_TAB_HINT_RUNNING
     };
-    let has_failed = page.is_some_and(|page| !page.failed_maps.is_empty());
-    if has_failed {
+    // Advertise `r retry failed` only when something is actually retryable —
+    // 404 (NotFound) failures are never retryable, so a page of pure 404s must
+    // not show a hint whose key does nothing.
+    let has_retryable = page.is_some_and(|page| !page.retryable_ids(None).is_empty());
+    if has_retryable {
         join(&[base, HINT_RETRY])
     } else {
         base.to_string()
@@ -103,29 +133,38 @@ fn join(segments: &[&str]) -> String {
     segments.join(HINT_SEPARATOR)
 }
 
-fn home_hint(form: &HomeTab) -> String {
+fn home_hint(form: &HomeTab, editing: bool) -> String {
+    if editing {
+        return join(&[HINT_EDIT_DONE]);
+    }
     let mut segments = vec![HINT_MOVE];
     match form.focus {
         HomeField::Download => segments.push(HINT_ENTER_DOWNLOAD),
         f if f.is_stepper() => segments.push(HINT_PLUS_MINUS),
         f if f.is_toggle() => segments.push(HINT_ENTER_TOGGLE),
-        // text inputs: nothing to activate on this row
+        f if f.is_text_input() => segments.push(HINT_EDIT),
         _ => {}
     }
-    if form.focus.is_text_input() {
-        // `q` types into the field here; esc is the quit affordance.
-        segments.push(HINT_ESC_QUIT);
-    } else {
-        segments.push(HINT_QUIT);
-    }
+    // Outside edit mode `q` quits (it is not captured by the field).
+    segments.push(HINT_QUIT);
     segments.push(HINT_HELP);
     join(&segments)
 }
 
-fn updates_hint(form: &UpdatesTab) -> String {
+fn updates_hint(form: &UpdatesTab, editing: bool) -> String {
+    if editing {
+        return join(&[HINT_EDIT_DONE]);
+    }
+    // `r` rechecks known-bad maps from any non-editing focus (list or settled).
+    let can_recheck = form.can_recheck_failed_maps();
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
     if in_list {
-        return join(&[HINT_SCROLL, HINT_ENTER_TOGGLE, HINT_ALL_NONE, HINT_HELP]);
+        let mut segments = vec![HINT_SCROLL, HINT_ENTER_TOGGLE, HINT_ALL_NONE];
+        if can_recheck {
+            segments.push(HINT_RECHECK);
+        }
+        segments.push(HINT_HELP);
+        return join(&segments);
     }
 
     let mut segments = vec![HINT_MOVE];
@@ -133,27 +172,29 @@ fn updates_hint(form: &UpdatesTab) -> String {
         UpdatesField::ClientType => segments.push(HINT_ENTER_TOGGLE),
         UpdatesField::Collections | UpdatesField::BeatmapList => segments.push(HINT_ENTER_OPEN),
         UpdatesField::Download => segments.push(HINT_ENTER_DOWNLOAD),
-        UpdatesField::OsuPath => {}
+        UpdatesField::OsuPath => segments.push(HINT_EDIT),
     }
-    // `q` types into the osu! path field; esc is the quit affordance there.
-    if form.selection.focus == UpdatesField::OsuPath {
-        segments.push(HINT_ESC_QUIT);
-    } else {
-        segments.push(HINT_QUIT);
+    if can_recheck {
+        segments.push(HINT_RECHECK);
     }
+    segments.push(HINT_QUIT);
     segments.push(HINT_HELP);
     join(&segments)
 }
 
-fn config_hint(focus: ConfigField) -> String {
+fn config_hint(focus: ConfigField, editing: bool) -> String {
+    if editing {
+        return join(&[HINT_EDIT_DONE]);
+    }
     let mut segments = vec![HINT_MOVE];
     match focus {
         ConfigField::AuthChip => segments.push(HINT_ENTER_CONFIRM),
         field if field.is_stepper() => segments.push(HINT_PLUS_MINUS),
-        field if field.is_text_input() => segments.push(HINT_ESC_BACK),
+        field if field.is_text_input() => segments.push(HINT_EDIT),
         _ => segments.push(HINT_ENTER_TOGGLE),
     }
-    segments.push(HINT_SAVE);
+    // Config edits apply immediately (no save step); `q` quits outside edit mode.
+    segments.push(HINT_QUIT);
     segments.push(HINT_HELP);
     join(&segments)
 }
@@ -165,48 +206,30 @@ fn quit_prompt_paragraph(has_downloads: bool) -> Paragraph<'static> {
         QUIT_PROMPT_TEXT
     };
     Paragraph::new(Line::from(vec![
-        Span::styled(QUIT_PROMPT_WARN, Style::default().fg(warning())),
+        Span::styled(ALERT_WARN, Style::default().fg(warning())),
         Span::styled(text, Style::default().fg(text_dim())),
     ]))
 }
 
+/// Footer loading line: a spinner + the in-progress status in `TEXT_DIM`.
+/// Results and errors no longer appear here — they surface as toasts.
 fn message_line(msg: &AppMessage, tick: u64) -> Line<'static> {
-    let text = msg.text.trim_start().to_string();
-    let muted = Style::default().fg(text_muted());
-    match msg.kind {
-        MessageKind::Loading => Line::from(vec![
-            Span::styled(
-                spinner_str(tick),
-                Style::default().fg(accent()).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(text, muted),
-        ]),
-        MessageKind::Info => {
-            let mut spans = vec![Span::raw(" ")];
-            spans.extend(widgets::status_pill(PILL_INFO, info()).spans);
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled(text, muted));
-            Line::from(spans)
-        }
-        MessageKind::Error => {
-            let mut spans = vec![Span::raw(" ")];
-            spans.extend(widgets::status_pill(PILL_ERROR, danger()).spans);
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled(text, Style::default().fg(danger())));
-            spans.push(Span::styled(
-                ERROR_DISMISS_HINT,
-                Style::default().fg(text_faint()),
-            ));
-            Line::from(spans)
-        }
-    }
+    Line::from(vec![
+        Span::styled(
+            spinner_str(tick),
+            Style::default().fg(accent()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            msg.text.trim_start().to_string(),
+            Style::default().fg(text_dim()),
+        ),
+    ])
 }
 
 fn hint_line(hint: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let label_style = Style::default().fg(text_faint());
     let key_style = Style::default().fg(accent()).add_modifier(Modifier::BOLD);
-    let separator_style = Style::default().fg(line());
 
     for (index, segment) in hint.split('·').enumerate() {
         let trimmed = segment.trim();
@@ -214,7 +237,8 @@ fn hint_line(hint: &str) -> Line<'static> {
             continue;
         }
         if index > 0 {
-            spans.push(Span::styled(widgets::SEPARATOR, separator_style));
+            // cloudy-tui: hint groups are 3-space separated, no glyph.
+            spans.push(Span::raw(HINT_GROUP_GAP));
         } else {
             spans.push(Span::raw(" "));
         }

@@ -10,15 +10,16 @@ pub mod messages;
 pub mod runtime;
 pub mod snapshots;
 pub mod state;
+pub mod toast;
 pub mod updates;
 
-pub use banner::{Banner, home_banners};
+pub use banner::{Banner, system_banners};
 pub use collection::{ActiveDownloadLine, CollectionPage};
-pub use config::{AuthLoginState, ChipAction, ConfigDiffEntry, ConfigField, ConfigTab};
+pub use config::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField, ResolveState};
-pub use messages::MessageKind;
 pub use runtime::run as run_app;
 pub use state::{App, AppCommand};
+pub use toast::{Toast, ToastLevel, ToastTag, Toasts};
 pub use updates::{UpdatesField, UpdatesTab};
 
 pub(crate) fn next_field<T: Copy + PartialEq>(fields: &[T], current: T) -> T {

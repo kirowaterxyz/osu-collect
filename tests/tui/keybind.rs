@@ -42,6 +42,7 @@ fn ctrl_c_quits() {
 #[test]
 fn ctrl_w_deletes_word_in_text_field() {
     let mut app = make_app();
+    app.editing = true; // word-delete edits only in edit mode
     // set_value parks the caret at the end so word-delete acts on "world".
     app.home.collection.set_value("hello world");
     app.handle_key(ctrl(KeyCode::Char('w')));
@@ -52,6 +53,7 @@ fn ctrl_w_deletes_word_in_text_field() {
 fn ctrl_backspace_as_ctrl_h_deletes_word_not_types_h() {
     // many terminals deliver ctrl+backspace as ^H (ctrl+h)
     let mut app = make_app();
+    app.editing = true;
     app.home.collection.set_value("hello world");
     app.handle_key(ctrl(KeyCode::Char('h')));
     assert_eq!(
@@ -63,29 +65,39 @@ fn ctrl_backspace_as_ctrl_h_deletes_word_not_types_h() {
 // ── tab navigation ────────────────────────────────────────────────────────────
 
 #[test]
-fn tab_key_moves_to_next_tab() {
+fn right_arrow_moves_to_next_tab() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
+    app.home.focus = HomeField::Video; // non-text so ←/→ switch screens
     assert_eq!(app.active_tab(), 0);
-    app.handle_key(press(KeyCode::Tab));
+    app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), 1);
 }
 
 #[test]
-fn backtab_wraps_to_last_tab() {
+fn left_arrow_wraps_to_last_tab() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
-    app.handle_key(press(KeyCode::BackTab));
-    // should wrap to last static tab (2 = config) since no downloads
+    app.home.focus = HomeField::Video;
+    app.handle_key(press(KeyCode::Left));
+    // wraps to the last static tab (2 = config) since no downloads
     assert_eq!(app.active_tab(), 2);
 }
 
 #[test]
-fn tab_wraps_back_to_zero() {
+fn tab_and_backtab_do_not_switch_screens() {
+    use osu_collect::app::HomeField;
     let mut app = make_app();
-    // 3 static tabs: home, updates, config
-    app.handle_key(press(KeyCode::Tab)); // → 1
-    app.handle_key(press(KeyCode::Tab)); // → 2
-    app.handle_key(press(KeyCode::Tab)); // → 0
+    app.home.focus = HomeField::Video;
     assert_eq!(app.active_tab(), 0);
+    app.handle_key(press(KeyCode::Tab));
+    assert_eq!(
+        app.active_tab(),
+        0,
+        "tab must not switch screens (←/→ only)"
+    );
+    app.handle_key(press(KeyCode::BackTab));
+    assert_eq!(app.active_tab(), 0, "shift+tab must not switch screens");
 }
 
 // ── quit key ─────────────────────────────────────────────────────────────────
@@ -95,7 +107,7 @@ fn q_on_home_tab_shows_toast_first() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     // q only quits off a text field; the default focus is the collection input
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(cmd.is_none(), "first q must not quit immediately");
     assert!(app.home.quit_prompt, "first q must set the quit toast");
@@ -105,20 +117,21 @@ fn q_on_home_tab_shows_toast_first() {
 fn q_twice_on_home_tab_quits() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     app.handle_key(press(KeyCode::Char('q')));
     let cmd = app.handle_key(press(KeyCode::Char('q')));
     assert!(matches!(cmd, Some(AppCommand::Quit)));
 }
 
 #[test]
-fn q_on_collection_field_types_instead_of_quitting() {
+fn q_while_editing_collection_field_types_instead_of_quitting() {
     let mut app = make_app();
-    // collection field is focused by default
+    // collection field is focused by default; enter edit mode so q types
+    app.editing = true;
     app.handle_key(press(KeyCode::Char('q')));
     assert!(
         !app.home.quit_prompt,
-        "q must not quit while typing in a field"
+        "q must not quit while editing a field"
     );
     assert_eq!(app.home.collection.value, "q", "q must type into the field");
 }
@@ -157,7 +170,8 @@ fn up_from_first_field_wraps_to_last() {
 #[test]
 fn typing_into_collection_field_updates_value() {
     let mut app = make_app();
-    // collection is focused by default
+    // collection is focused by default; enter edit mode so keys type
+    app.editing = true;
     app.handle_key(press(KeyCode::Char('1')));
     app.handle_key(press(KeyCode::Char('2')));
     app.handle_key(press(KeyCode::Char('3')));
@@ -167,6 +181,7 @@ fn typing_into_collection_field_updates_value() {
 #[test]
 fn backspace_removes_last_char() {
     let mut app = make_app();
+    app.editing = true;
     app.handle_key(press(KeyCode::Char('a')));
     app.handle_key(press(KeyCode::Char('b')));
     app.handle_key(press(KeyCode::Backspace));
@@ -180,8 +195,7 @@ fn enter_on_mirror_field_toggles_state() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     // navigate to nerinyan mirror field
-    // home: Collection → Directory → CustomMirror → MirrorOsuDirect → MirrorNerinyan
-    app.handle_key(press(KeyCode::Down)); // → Directory
+    // home: Collection → CustomMirror → MirrorOsuDirect → MirrorNerinyan
     app.handle_key(press(KeyCode::Down)); // → CustomMirror
     app.handle_key(press(KeyCode::Down)); // → MirrorOsuDirect
     app.handle_key(press(KeyCode::Down)); // → MirrorNerinyan
@@ -274,8 +288,8 @@ fn enter_on_download_button_without_collection_input_produces_error() {
     // focus the download button; enter there should fail to download
     app.home.focus = HomeField::Download;
     app.handle_key(press(KeyCode::Enter));
-    // no command issued (error path), message should be set
-    assert!(app.home.message.is_some());
+    // no command issued (error path), an error toast should be raised
+    assert!(!app.toasts.is_empty());
 }
 
 #[test]
@@ -286,7 +300,7 @@ fn enter_on_collection_field_does_not_start_download() {
     // it must not attempt a download (that lives on the button now)
     app.handle_key(press(KeyCode::Enter));
     assert!(
-        app.home.message.is_none(),
+        app.toasts.is_empty(),
         "enter on the collection field must not trigger the download error path"
     );
 }
@@ -302,7 +316,7 @@ fn enter_on_config_login_triggers_login_attempt() {
 
     let mut app = make_app();
     // Focus a non-text field so Right switches tabs rather than moving the caret.
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
@@ -318,7 +332,7 @@ fn enter_on_config_login_triggers_login_attempt() {
         assert!(matches!(cmd, Some(AppCommand::Login { .. })));
     } else {
         assert!(cmd.is_none());
-        assert!(app.config.message.is_some());
+        assert!(!app.toasts.is_empty());
     }
 }
 
@@ -329,7 +343,7 @@ fn space_on_auth_chip_does_nothing() {
 
     let mut app = make_app();
     // Focus a non-text field so Right switches tabs rather than moving the caret.
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     app.handle_key(press(KeyCode::Right));
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
@@ -350,21 +364,19 @@ fn question_mark_opens_help_overlay() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     // ? types into a text field; move focus off the default collection input
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     assert!(!app.help_open);
     app.handle_key(press(KeyCode::Char('?')));
     assert!(app.help_open, "? must open the help overlay");
 }
 
 #[test]
-fn question_mark_on_text_field_types_instead_of_opening_help() {
+fn question_mark_while_editing_text_field_types_instead_of_opening_help() {
     let mut app = make_app();
-    // collection field is focused by default
+    // collection field is focused by default; enter edit mode so ? types
+    app.editing = true;
     app.handle_key(press(KeyCode::Char('?')));
-    assert!(
-        !app.help_open,
-        "? must not open help while typing in a field"
-    );
+    assert!(!app.help_open, "? must not open help while editing a field");
     assert_eq!(app.home.collection.value, "?", "? must type into the field");
 }
 
@@ -398,9 +410,64 @@ fn q_closes_help_overlay_without_quitting() {
 fn question_mark_returns_no_command() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     let cmd = app.handle_key(press(KeyCode::Char('?')));
     assert!(cmd.is_none(), "? must not issue any AppCommand");
+}
+
+#[test]
+fn down_up_scroll_the_open_help_overlay() {
+    let mut app = make_app();
+    app.help_open = true;
+    assert_eq!(app.help_scroll.get(), 0);
+
+    app.handle_key(press(KeyCode::Down));
+    app.handle_key(press(KeyCode::Down));
+    assert_eq!(
+        app.help_scroll.get(),
+        2,
+        "down must scroll the overlay down"
+    );
+
+    app.handle_key(press(KeyCode::Up));
+    assert_eq!(app.help_scroll.get(), 1, "up must scroll the overlay up");
+}
+
+#[test]
+fn up_at_help_top_stays_pinned() {
+    let mut app = make_app();
+    app.help_open = true;
+    app.handle_key(press(KeyCode::Up));
+    assert_eq!(app.help_scroll.get(), 0, "up at the top must not underflow");
+}
+
+#[test]
+fn keys_are_inert_while_help_open() {
+    // `r` would normally probe mirrors on the home tab; the help overlay must
+    // swallow it so background actions never fire underneath the modal.
+    let mut app = make_app();
+    app.help_open = true;
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+    assert!(
+        cmd.is_none(),
+        "background hotkeys must be inert while help is open"
+    );
+    assert!(app.help_open, "an unrelated key must not close help");
+}
+
+#[test]
+fn opening_help_resets_scroll() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::Video;
+    app.help_scroll.set(7);
+    app.handle_key(press(KeyCode::Char('?')));
+    assert!(app.help_open);
+    assert_eq!(
+        app.help_scroll.get(),
+        0,
+        "opening help must reset the scroll"
+    );
 }
 
 // ── updates tab: enter does not exit lists ────────────────────────────────────

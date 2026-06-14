@@ -2,6 +2,7 @@ mod auth;
 mod mirror_probe;
 mod resolve;
 mod scan;
+mod update;
 
 pub use mirror_probe::{MirrorProbeEvent, ProbeResult, probe_url};
 pub use scan::{
@@ -12,17 +13,13 @@ pub use scan::{
 
 pub use resolve::{HomeResolveEvent, handle_home_resolve_event};
 
-use super::{
-    App, AppCommand,
-    messages::{set_error_message, set_info_message},
-};
+use super::{App, AppCommand};
 use crate::{
-    app::failed_maps,
     config::Config,
     config::constants::HOME_TAB_INDEX,
     download::{self, DownloadEvent, DownloadHandle, DownloadId},
-    tui::terminal::{cleanup_terminal, setup_terminal, spawn_input_thread},
-    tui::{draw, init_theme},
+    tui::terminal::{TuiTerminal, cleanup_terminal, setup_terminal, spawn_input_thread},
+    tui::{apply_theme, draw},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
@@ -33,28 +30,39 @@ use auth::{AuthEvent, handle_auth_event, spawn_login_task, spawn_logout_task};
 use mirror_probe::{handle_mirror_probe_event, schedule_probe};
 use resolve::schedule_resolve;
 use scan::{handle_updates_event, spawn_failed_map_recheck_task, spawn_scan_task};
+use update::{UpdateEvent, handle_update_event, spawn_update_check};
+
+/// Render one frame, then move + show (or hide) the terminal caret via the
+/// backend *after* the buffer flush (cloudy-tui Motion: move-then-show, never
+/// via the frame API inside the draw closure — that flashes at the old spot).
+fn render_frame(terminal: &mut TuiTerminal, app: &App) -> std::io::Result<()> {
+    let mut cursor = None;
+    terminal.draw(|f| cursor = draw(f, app))?;
+    match cursor {
+        Some((x, y)) => {
+            terminal.set_cursor_position((x, y))?;
+            terminal.show_cursor()?;
+        }
+        None => terminal.hide_cursor()?,
+    }
+    Ok(())
+}
 
 pub async fn run(
     config: Config,
     startup_notice: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting application runtime loop");
-    init_theme(config.display.theme);
+    apply_theme(config.display.theme);
     let validation_issue = config.validate().err().map(|e| e.to_string());
     let mut terminal = setup_terminal()?;
     let mut app = App::new(config);
-    let mut notice = startup_notice;
     if let Some(msg) = validation_issue {
         warn!(error = %msg, "Configuration validation failed; surfacing to UI");
-        if let Some(ref notice_text) = notice {
-            set_error_message(&mut app.home.message, format!("{msg}\n{notice_text}"));
-            notice = None;
-        } else {
-            set_error_message(&mut app.home.message, msg);
-        }
+        app.toast_err(msg);
     }
-    if let Some(message) = notice.take() {
-        set_info_message(&mut app.home.message, message);
+    if let Some(message) = startup_notice {
+        app.toast_info(message);
     }
 
     let (download_tx, mut download_rx) = mpsc::unbounded_channel::<DownloadEvent>();
@@ -63,6 +71,7 @@ pub async fn run(
     let (input_tx, mut input_rx) = mpsc::unbounded_channel::<InputEvent>();
     let (home_resolve_tx, mut home_resolve_rx) = mpsc::unbounded_channel::<HomeResolveEvent>();
     let (mirror_probe_tx, mut mirror_probe_rx) = mpsc::unbounded_channel::<MirrorProbeEvent>();
+    let (update_tx, mut update_rx) = mpsc::unbounded_channel::<UpdateEvent>();
     let input_handle = spawn_input_thread(input_tx.clone());
 
     let mut should_quit = false;
@@ -97,13 +106,15 @@ pub async fn run(
         }
     }
 
+    // Background self-update check; surfaces as toasts (downloading → restart).
+    spawn_update_check(update_tx);
+
     while !should_quit {
-        terminal.draw(|f| draw(f, &app))?;
+        render_frame(&mut terminal, &app)?;
 
         tokio::select! {
             Some(event) = download_rx.recv() => {
                 trace!(?event, "Received download event");
-                persist_failed_maps(&event);
                 if let Some(completed_id) = download_finished_id(&event) {
                     debug!(download_id = completed_id, "Download handle finished; awaiting join");
                     if let Some(handle) = active_downloads.remove(&completed_id) {
@@ -145,6 +156,10 @@ pub async fn run(
                 trace!(?event, "Received mirror probe event");
                 handle_mirror_probe_event(event, &mut app.home);
             }
+            Some(event) = update_rx.recv() => {
+                trace!(?event, "Received update event");
+                handle_update_event(event, &mut app);
+            }
             else => break,
         }
     }
@@ -160,8 +175,8 @@ pub async fn run(
     }
 
     app.home.quit_prompt = false;
-    set_info_message(&mut app.home.message, "Quitting...");
-    terminal.draw(|f| draw(f, &app))?;
+    app.toast_info("quitting…");
+    render_frame(&mut terminal, &app)?;
 
     drop(download_rx);
     drop(updates_rx);
@@ -193,7 +208,7 @@ fn handle_input(
         }
         InputEvent::Resize => false,
         InputEvent::Tick => {
-            app.clear_expired_messages();
+            app.on_tick();
             false
         }
     }
@@ -281,24 +296,6 @@ fn handle_key_event(
         Some(AppCommand::RecheckFailedMaps) => {
             spawn_failed_map_recheck_task(app, updates_tx.clone());
         }
-        Some(AppCommand::RetryFailedMap {
-            download_id,
-            beatmapset_id,
-        }) => {
-            if let Some((new_id, request)) =
-                app.start_retry_download(download_id, vec![beatmapset_id])
-            {
-                let handle =
-                    download::spawn_selective_download(new_id, request, download_tx.clone());
-                info!(
-                    source_download_id = download_id,
-                    retry_download_id = new_id,
-                    beatmapset_id,
-                    "Spawned single-map retry download"
-                );
-                downloads.insert(new_id, handle);
-            }
-        }
         Some(AppCommand::RetryAllFailed { download_id }) => {
             let retryable_ids = app
                 .downloads
@@ -336,21 +333,6 @@ fn handle_key_event(
     }
 
     false
-}
-
-fn persist_failed_maps(event: &DownloadEvent) {
-    let DownloadEvent::FailedMaps { failures, .. } = event else {
-        return;
-    };
-    if failures.is_empty() {
-        return;
-    }
-    let Some(path) = failed_maps::failed_maps_path() else {
-        warn!("failed maps path unavailable");
-        return;
-    };
-    let ids: Vec<u32> = failures.iter().map(|f| f.beatmapset_id).collect();
-    tokio::task::spawn_blocking(move || failed_maps::record_failures(&path, ids));
 }
 
 fn download_finished_id(event: &DownloadEvent) -> Option<DownloadId> {

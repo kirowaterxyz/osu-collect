@@ -8,12 +8,13 @@ mod footer;
 mod header;
 mod home;
 pub(crate) mod modal;
+mod toast;
 mod updates;
 mod widgets;
 
-pub use theme::{Theme, init_theme, theme};
+pub use theme::{Theme, apply_theme, theme};
 
-use crate::app::{App, home_banners};
+use crate::app::{App, system_banners};
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use osu_downloader::MirrorKind;
 use ratatui::{
@@ -40,20 +41,13 @@ pub fn mirror_label(kind: MirrorKind) -> &'static str {
 
 /// Minimum per-tab content-area height before a view switches to its compact layout.
 pub(crate) const COMPACT_HEIGHT: u16 = 12;
-/// Minimum total terminal height before the outer chrome (header + separators +
-/// footer) collapses to its compact layout. Larger than `COMPACT_HEIGHT` since it
-/// budgets for the chrome rows the per-tab threshold does not.
-pub(crate) const COMPACT_LAYOUT_HEIGHT: u16 = 14;
 
-pub(crate) const GLYPH_H_LINE: &str = "─";
 pub(crate) const GLYPH_BLOCK: &str = "█";
 pub(crate) const GLYPH_SHADE: &str = "░";
 pub(crate) const GLYPH_SPACE: &str = " ";
 
 const MAX_FILL_WIDTH: usize = 256;
 
-pub(crate) static FILL_H_LINE: LazyLock<String> =
-    LazyLock::new(|| GLYPH_H_LINE.repeat(MAX_FILL_WIDTH));
 pub(crate) static FILL_BLOCK: LazyLock<String> =
     LazyLock::new(|| GLYPH_BLOCK.repeat(MAX_FILL_WIDTH));
 pub(crate) static FILL_SHADE: LazyLock<String> =
@@ -135,7 +129,6 @@ pub(crate) fn bg_raised() -> Color {
 pub(crate) fn bg_hover() -> Color {
     theme().bg_hover
 }
-#[allow(dead_code)] // wired by pass 2a (selected-row tint)
 pub(crate) fn bg_sunken() -> Color {
     theme().bg_sunken
 }
@@ -157,21 +150,23 @@ pub fn spinner_str(tick: u64) -> &'static str {
     SPINNER_FRAMES_PADDED[tick as usize % SPINNER_FRAMES_PADDED.len()]
 }
 
-/// Format free bytes as `"1.5 TB free"`, `"45.1 GB free"`, `"234.5 MB free"`, etc.
+/// Format free bytes as `"1.5 TiB free"`, `"45.1 GiB free"`, `"234.5 MiB free"`, etc.
+///
+/// Storage uses IEC binary units (1024-based) per cloudy-tui numeric formatting.
 pub(crate) fn format_free_space(bytes: u64) -> String {
-    const TB: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
-    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MB: f64 = 1024.0 * 1024.0;
-    const KB: f64 = 1024.0;
+    const TIB: f64 = 1024.0 * 1024.0 * 1024.0 * 1024.0;
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    const KIB: f64 = 1024.0;
     let f = bytes as f64;
-    if f >= TB {
-        format!("{:.1} TB free", f / TB)
-    } else if f >= GB {
-        format!("{:.1} GB free", f / GB)
-    } else if f >= MB {
-        format!("{:.1} MB free", f / MB)
-    } else if f >= KB {
-        format!("{:.0} KB free", f / KB)
+    if f >= TIB {
+        format!("{:.1} TiB free", f / TIB)
+    } else if f >= GIB {
+        format!("{:.1} GiB free", f / GIB)
+    } else if f >= MIB {
+        format!("{:.1} MiB free", f / MIB)
+    } else if f >= KIB {
+        format!("{:.0} KiB free", f / KIB)
     } else {
         format!("{bytes} B free")
     }
@@ -180,103 +175,112 @@ pub(crate) fn format_free_space(bytes: u64) -> String {
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";
 
 pub fn eyebrow() -> Style {
-    Style::default()
-        .fg(text_faint())
-        .add_modifier(Modifier::BOLD)
+    // cloudy-tui eyebrow / column-header: TEXT_DIM (sanctioned bold variant),
+    // never the faint placeholder tier.
+    Style::default().fg(text_dim()).add_modifier(Modifier::BOLD)
 }
 
 pub fn focused_label(focused: bool) -> Style {
     if focused {
         Style::default().fg(text()).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(text_muted())
+        // Blurred form-row label sits in TEXT_DIM (one of the three text tiers),
+        // not the off-contract text_muted slot.
+        Style::default().fg(text_dim())
     }
 }
 
-pub fn draw(frame: &mut Frame, app: &App) {
+/// Render one full frame.
+///
+/// Returns the terminal caret position the backend should move to *after* the
+/// buffer flush (`Some` only when a text field is focused and no overlay is
+/// open), or `None` when the cursor must stay hidden. cloudy-tui Motion: the
+/// caller positions + shows the cursor via the backend after `draw`, never via
+/// the frame API inside the draw closure.
+pub fn draw(frame: &mut Frame, app: &App) -> Option<(u16, u16)> {
     let area = frame.area();
     if area.width == 0 || area.height == 0 {
-        return;
+        return None;
     }
 
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
-    let compact = area.height < COMPACT_LAYOUT_HEIGHT;
-    let chunks: Rc<[_]> = if compact {
-        Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(area)
-    } else {
-        Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(area)
-    };
+    // Borderless shell: header row, body, footer row — no `─` divider rules
+    // between regions (cloudy-tui: the shell is borderless, spacing + the body
+    // panel border separate the regions).
+    let chunks: Rc<[_]> = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .split(area);
 
-    let (header_area, content_area, footer_area) = if compact {
-        (chunks[0], chunks[1], chunks[2])
-    } else {
-        widgets::render_separator(frame, chunks[1]);
-        widgets::render_separator(frame, chunks[3]);
-        (chunks[0], chunks[2], chunks[4])
-    };
+    let (header_area, content_area, footer_area) = (chunks[0], chunks[1], chunks[2]);
 
     let tabs = app.tab_titles();
     // Suppress the pill on narrow terminals so tabs are never crowded off-screen.
     let pill = if area.width >= 100 {
-        header::StatusPill::compute(app.downloading_count(), app.disk_free_bytes())
+        header::StatusPill::compute(app.disk_free_bytes())
     } else {
         None
     };
-    header::render(frame, header_area, &tabs, app.active_tab(), pill.as_ref());
+    header::render(
+        frame,
+        header::RenderParams {
+            area: header_area,
+            tabs: &tabs,
+            active: app.active_tab(),
+            pill: pill.as_ref(),
+            tick: app.tick_count,
+            downloading: app.is_downloading(),
+            brand_ramp: app.brand_ramp(),
+        },
+    );
 
-    let home_banners = home_banners(app.disk_free_bytes());
+    // System-wide banners (disk low/full + compact "terminal too small") render
+    // at the top of the body on EVERY tab, then the active view fills the rest.
+    let banners = system_banners(app.disk_free_bytes(), content_area.height);
+    let (banner_area, body_area) = banner::split_banner_area(content_area, &banners);
+    banner::render_banners(frame, banner_area, &banners);
 
+    let editing = app.editing;
     let cursor = match app.active_tab() {
-        HOME_TAB_INDEX => home::render(frame, content_area, &app.home, &home_banners),
-        UPDATES_TAB_INDEX => updates::render(frame, content_area, &app.updates),
-        CONFIG_TAB_INDEX => config::render(frame, content_area, &app.config),
+        HOME_TAB_INDEX => home::render(frame, body_area, &app.home, editing),
+        UPDATES_TAB_INDEX => updates::render(frame, body_area, &app.updates, editing),
+        CONFIG_TAB_INDEX => config::render(frame, body_area, &app.config, editing),
         tab => match app.download_for_tab(tab) {
             Some(page) => {
-                download::render(frame, content_area, page, app.tick_count);
+                download::render(frame, body_area, page, app.tick_count);
                 None
             }
-            None => home::render(frame, content_area, &app.home, &home_banners),
+            None => home::render(frame, body_area, &app.home, editing),
         },
     };
 
     footer::render(frame, footer_area, app);
 
     // A focused text field shows the terminal caret — but never under an overlay.
-    let overlay_open = app.confirm_retry_on_start.is_some()
-        || app.confirm_retry.is_some()
-        || app.config_save_modal
-        || app.help_open;
-    if let (false, Some((x, y))) = (overlay_open, cursor) {
-        frame.set_cursor_position((x, y));
-    }
+    let overlay_open =
+        app.confirm_retry_on_start.is_some() || app.confirm_retry.is_some() || app.help_open;
+    let cursor = if overlay_open { None } else { cursor };
 
     if let Some(modal) = &app.confirm_retry_on_start {
-        modal::render_retry_on_start_modal(frame, area, modal.failed_count);
+        modal::render_retry_on_start_modal(frame, area, modal.failed_count, modal.focus);
     } else if let Some(modal) = &app.confirm_retry {
-        modal::render_confirm_retry_modal(frame, area, modal.retryable_count);
-    } else if app.config_save_modal {
-        let diff = app
-            .config
-            .build_config()
-            .map(|pending| app.config.diff_entries(&pending))
-            .unwrap_or_default();
-        modal::render_config_save_modal(frame, area, &diff);
+        modal::render_confirm_retry_modal(frame, area, modal.retryable_count, modal.focus);
     } else if app.help_open {
-        modal::render_help_overlay(frame, area);
+        // Clamp the requested scroll to the real viewport and store it back so
+        // the next ↑/↓ starts from the on-screen position (no dead presses).
+        let clamped =
+            modal::render_help_overlay(frame, area, app.help_scroll.get(), app.active_tab());
+        app.help_scroll.set(clamped);
     }
+
+    // Toasts float over everything else (cloudy-tui: rendered last so the
+    // buffer beneath is final for the 75 % blend).
+    toast::render_toasts(frame, area, &app.toasts);
+
+    cursor
 }
 
 #[cfg(test)]

@@ -4,8 +4,8 @@ use super::{
     config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
     failed_maps,
     home::{HomeField, HomeTab},
-    messages::{clear_expired_message, dismiss_error_message, set_error_message, set_info_message},
     snapshots,
+    toast::{Toast, Toasts},
     updates::{UpdatesAction, UpdatesField, UpdatesTab, extract_collection_id},
 };
 use crate::{
@@ -37,14 +37,24 @@ pub struct App {
     pub updates: UpdatesTab,
     pub config: ConfigTab,
     pub downloads: Vec<CollectionPage>,
+    /// Transient top-right notifications — results and errors. Ephemeral by
+    /// design; durable signals live on banners, inline state, or tab markers.
+    pub toasts: Toasts,
     pub active_tab: usize,
     pub collection_state: CollectionStateFile,
     pub collection_state_path: Option<PathBuf>,
     pub scan_handle: Option<tokio::task::JoinHandle<()>>,
     pub tick_count: u64,
     pub help_open: bool,
-    /// Pending confirmation for "save config?" diff modal shown when `s` is pressed.
-    pub config_save_modal: bool,
+    /// Top-row scroll offset for the help overlay. Interior mutability because
+    /// `draw()` borrows `App` immutably but clamps the offset to the viewport
+    /// and writes the clamped value back (mirrors `disk_cache`).
+    pub help_scroll: Cell<usize>,
+    /// Edit mode for the focused text-input row. cloudy-tui: edit is OFF by
+    /// default — a focused text field is selected-not-editing (`❯`, no cursor,
+    /// keys are global hotkeys) until `enter` descends into editing (`✎` +
+    /// native cursor, keys type). Reset whenever focus moves or tabs switch.
+    pub editing: bool,
     /// Pending confirmation for "retry N failed maps?" when count > 50.
     pub confirm_retry: Option<RetryAllConfirmModal>,
     /// Pre-download prompt: previously failed beatmapsets in
@@ -59,6 +69,11 @@ pub struct App {
     /// mutability because `draw()` borrows `App` immutably but must refresh
     /// the cache at most once per `DISK_CACHE_TTL`.
     disk_cache: Cell<Option<(Instant, u64)>>,
+    /// Tick at which the current downloading run began, used to ease the header
+    /// brand shimmer in. `None` while idle; set on the first downloading frame
+    /// and cleared once every download settles. Interior mutability because
+    /// `draw()`/`brand_ramp()` read it under an immutable borrow.
+    download_anim_start: Cell<Option<u64>>,
 }
 
 #[derive(Debug)]
@@ -82,11 +97,6 @@ pub enum AppCommand {
     Logout,
     ScanLocalDatabase,
     RecheckFailedMaps,
-    /// Retry a single failed beatmapset from a download page.
-    RetryFailedMap {
-        download_id: DownloadId,
-        beatmapset_id: u32,
-    },
     /// Retry all retryable failed maps for a download page (excludes NotFound).
     RetryAllFailed {
         download_id: DownloadId,
@@ -105,24 +115,42 @@ pub enum AppCommand {
 
 /// State for the "retry N failed maps?" confirm modal shown when `R` is pressed
 /// with more than 50 retryable failures.
+///
+/// Buttons (left→right): `cancel`, `retry`. `focus` is the index of the selected
+/// button; ←/→ move it, `enter` activates it, `esc` cancels.
 #[derive(Debug)]
 pub struct RetryAllConfirmModal {
     pub download_id: DownloadId,
     pub retryable_count: usize,
+    /// Selected button index into [`CONFIRM_RETRY_BUTTONS`].
+    pub focus: usize,
 }
 
 /// State for the pre-download retry prompt. Surfaces under `Ask` when
 /// previously failed beatmaps for this collection are persisted on disk.
 ///
-/// `enter` proceeds with retry, `n` proceeds without, `esc` cancels.
-/// The pending request is dispatched on `enter`/`n` (with the
-/// `include_previously_failed` flag set accordingly) and discarded on `esc`.
+/// Buttons (left→right): `cancel`, `skip`, `retry`. ←/→ move `focus`, `enter`
+/// activates the focused button — `retry` dispatches with
+/// `include_previously_failed = true`, `skip` dispatches with it `false`, and
+/// `cancel` (or `esc`) discards the queued download.
 #[derive(Debug)]
 pub struct RetryOnStartModal {
     pub id: DownloadId,
     pub failed_count: usize,
     pub pending: DownloadRequest,
+    /// Selected button index into [`RETRY_ON_START_BUTTONS`].
+    pub focus: usize,
 }
+
+/// Button labels for [`RetryOnStartModal`], left→right.
+pub const RETRY_ON_START_BUTTONS: [&str; 3] = ["cancel", "skip", "retry"];
+/// Default-focused button: `retry` (the recommended, non-destructive action).
+pub const RETRY_ON_START_DEFAULT_FOCUS: usize = 2;
+
+/// Button labels for [`RetryAllConfirmModal`], left→right.
+pub const CONFIRM_RETRY_BUTTONS: [&str; 2] = ["cancel", "retry"];
+/// Default-focused button: `retry`.
+pub const CONFIRM_RETRY_DEFAULT_FOCUS: usize = 1;
 
 impl App {
     pub fn new(config: Config) -> Self {
@@ -136,18 +164,21 @@ impl App {
             updates: UpdatesTab::new(),
             config: ConfigTab::new(&config),
             downloads: Vec::new(),
+            toasts: Toasts::default(),
             active_tab: HOME_TAB_INDEX,
             collection_state: coll_state,
             collection_state_path: state_path,
             scan_handle: None,
             tick_count: 0,
             help_open: false,
-            config_save_modal: false,
+            help_scroll: Cell::new(0),
+            editing: false,
             confirm_retry: None,
             confirm_retry_on_start: None,
             failed_maps_path_override: None,
             next_download_id: 1,
             disk_cache: Cell::new(None),
+            download_anim_start: Cell::new(None),
         }
     }
 
@@ -155,12 +186,33 @@ impl App {
         self.active_tab
     }
 
-    /// Number of download pages currently in the `Downloading` stage.
-    pub fn downloading_count(&self) -> usize {
+    /// Whether any download page is in a non-terminal stage (preparing,
+    /// resolving, rechecking, or downloading). Drives the header brand
+    /// animation, which idles once every page reaches `Completed`/`Failed`.
+    pub fn is_downloading(&self) -> bool {
         self.downloads
             .iter()
-            .filter(|p| p.stage == DownloadStage::Downloading)
-            .count()
+            .any(|p| !matches!(p.stage, DownloadStage::Completed | DownloadStage::Failed))
+    }
+
+    /// Ease-in ramp (0..1) for the header brand shimmer. Anchors a start tick the
+    /// first downloading frame, then eases from 0 to 1 over `BRAND_EASE_TICKS`
+    /// (smoothstep) so the shimmer fades in instead of cutting in; returns 0 while
+    /// idle and re-arms on the next run. Resets when every download settles.
+    pub fn brand_ramp(&self) -> f32 {
+        // ~0.8s at the 50ms tick rate (see `tui::terminal`).
+        const BRAND_EASE_TICKS: f32 = 16.0;
+        if !self.is_downloading() {
+            self.download_anim_start.set(None);
+            return 0.0;
+        }
+        let start = self.download_anim_start.get().unwrap_or_else(|| {
+            self.download_anim_start.set(Some(self.tick_count));
+            self.tick_count
+        });
+        let t = (self.tick_count.saturating_sub(start) as f32 / BRAND_EASE_TICKS).clamp(0.0, 1.0);
+        // smoothstep — a gentler start than a linear ramp.
+        t * t * (3.0 - 2.0 * t)
     }
 
     /// Free bytes on the filesystem of the first active download's output
@@ -194,33 +246,42 @@ impl App {
     }
 
     pub fn next_tab(&mut self) -> Option<AppCommand> {
+        // Commit a mid-edit config field before the tab (and its focus) changes.
+        self.commit_config_edit();
         let total = self.total_tabs();
         self.active_tab = (self.active_tab + 1) % total;
+        self.editing = false;
         self.check_auto_scan()
     }
 
     pub fn prev_tab(&mut self) -> Option<AppCommand> {
+        self.commit_config_edit();
         let total = self.total_tabs();
         if self.active_tab == 0 {
             self.active_tab = total - 1;
         } else {
             self.active_tab -= 1;
         }
+        self.editing = false;
         self.check_auto_scan()
     }
 
     /// Switch to the home tab and place focus on the directory field.
     /// Called when the user activates the disk-low or disk-full banner action.
+    /// The field lands selected-not-editing — `enter` starts editing.
     pub fn focus_output_dir(&mut self) {
         self.active_tab = HOME_TAB_INDEX;
         self.home.focus = HomeField::Directory;
+        self.editing = false;
     }
 
     fn check_auto_scan(&mut self) -> Option<AppCommand> {
         if self.active_tab == UPDATES_TAB_INDEX && self.updates.needs_initial_scan() {
             self.updates.scan.scan_generation = self.updates.scan.scan_generation.wrapping_add(1);
             Some(AppCommand::ScanLocalDatabase)
-        } else if self.active_tab == HOME_TAB_INDEX {
+        } else if self.active_tab == HOME_TAB_INDEX && self.home.mirror_latency.is_empty() {
+            // Probe once when results are missing; existing pings persist across
+            // tab switches. Manual `r` always forces a fresh probe.
             Some(AppCommand::ProbeMirrors)
         } else {
             None
@@ -244,23 +305,22 @@ impl App {
             self.confirm_retry = None;
             return true;
         }
-        if self.config_save_modal {
-            self.config_save_modal = false;
-            return true;
-        }
         if self.help_open {
-            self.help_open = false;
+            self.close_help();
             return true;
         }
         false
     }
 
+    /// Close the help overlay and reset its scroll offset.
+    fn close_help(&mut self) {
+        self.help_open = false;
+        self.help_scroll.set(0);
+    }
+
     /// Whether any modal is currently blocking input.
     pub fn any_modal_open(&self) -> bool {
-        self.help_open
-            || self.config_save_modal
-            || self.confirm_retry.is_some()
-            || self.confirm_retry_on_start.is_some()
+        self.help_open || self.confirm_retry.is_some() || self.confirm_retry_on_start.is_some()
     }
 
     /// Cancel a pending pre-download retry prompt. Drops the queued page that
@@ -270,12 +330,34 @@ impl App {
         let Some(modal) = self.confirm_retry_on_start.take() else {
             return;
         };
+        self.discard_pending_download(modal);
+    }
+
+    /// Drop the queued page allocated for an already-taken pre-download retry
+    /// prompt. Shared by the `esc`/`cancel`-button paths after they have removed
+    /// the modal from `confirm_retry_on_start`.
+    fn discard_pending_download(&mut self, modal: RetryOnStartModal) {
         self.remove_download_page(modal.id);
         self.active_tab = HOME_TAB_INDEX;
-        set_info_message(&mut self.home.message, "download cancelled");
+        self.toast_info("download cancelled");
+    }
+
+    /// If a config text field was mid-edit, persist it before edit mode drops.
+    /// Config edits apply immediately, so every path that leaves edit mode must
+    /// commit first — enter/esc do this inline; field-nav and tab-switch route
+    /// through here.
+    fn commit_config_edit(&mut self) {
+        if self.editing
+            && self.active_tab() == CONFIG_TAB_INDEX
+            && self.config.focus.is_text_input()
+        {
+            self.apply_config_change();
+        }
     }
 
     fn focus_next_field(&mut self) {
+        self.commit_config_edit();
+        self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.next_field(),
             UPDATES_TAB_INDEX => self.updates.next_field(),
@@ -285,6 +367,8 @@ impl App {
     }
 
     fn focus_prev_field(&mut self) {
+        self.commit_config_edit();
+        self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.prev_field(),
             UPDATES_TAB_INDEX => self.updates.prev_field(),
@@ -293,59 +377,50 @@ impl App {
         }
     }
 
-    /// Opens the save-diff modal if there are pending changes; shows an info
-    /// toast if the form is identical to the loaded config; shows an error if
-    /// the form values are invalid.
-    fn try_save_config(&mut self) {
-        match self.config.build_config() {
-            Ok(new_config) => {
-                if let Err(err) = new_config.validate() {
-                    set_error_message(&mut self.config.message, err.to_string());
-                    return;
-                }
-
-                if self.config.has_pending_changes(&new_config) {
-                    self.config_save_modal = true;
-                } else {
-                    set_info_message(&mut self.config.message, "no changes to save");
-                }
+    /// Persist the current config form to disk and apply any live-effect change
+    /// (theme) immediately. Config-tab edits have no save step, so this runs
+    /// after every settled change.
+    ///
+    /// Invalid input (e.g. all mirrors disabled, a malformed custom URL) surfaces
+    /// an error toast and leaves the on-disk config untouched. A successful apply
+    /// is silent — the UI already reflects the change.
+    fn apply_config_change(&mut self) {
+        let mut new_config = match self.config.build_config() {
+            Ok(config) => config,
+            Err(err) => {
+                self.toast_err(err);
+                return;
             }
-            Err(err) => set_error_message(&mut self.config.message, err),
+        };
+        // A download may have refreshed the last-used inputs after this tab was
+        // loaded; keep the freshest on-disk `recent` so frequent auto-saves never
+        // revert the prefill to the load-time snapshot.
+        new_config.recent = crate::config::load_config_or_default().recent;
+        if let Err(err) = new_config.validate() {
+            self.toast_err(err.to_string());
+            return;
         }
-    }
-
-    /// Writes the pending config to disk. Called when the user confirms the
-    /// save-diff modal with `enter`.
-    pub fn confirm_save_config(&mut self) {
-        self.config_save_modal = false;
-        match self.config.build_config() {
-            Ok(new_config) => match save_config(&new_config) {
-                Ok(path) => {
-                    let mut msg = String::with_capacity(64);
-                    msg.push_str("config saved to ");
-                    msg.push_str(&path.display().to_string());
-                    msg.push_str(" (applies on next launch)");
-                    set_info_message(&mut self.config.message, msg);
-                    // Advance the snapshot so the diff clears after a successful save.
-                    self.config.loaded_config = new_config;
-                }
-                Err(err) => set_error_message(&mut self.config.message, err.to_string()),
-            },
-            Err(err) => set_error_message(&mut self.config.message, err),
+        match save_config(&new_config) {
+            Ok(_) => {
+                // Theme is the only setting with a visible-now effect; swap the
+                // live palette so the change shows without a relaunch.
+                crate::tui::apply_theme(new_config.display.theme);
+                self.config.loaded_config = new_config;
+            }
+            Err(err) => self.toast_err(err.to_string()),
         }
     }
 
     fn request_login(&mut self) -> Option<AppCommand> {
         if matches!(self.config.login_state, AuthLoginState::InProgress(_)) {
             self.config.set_login_failed();
-            set_info_message(&mut self.config.message, "login cancelled");
+            self.toast_info("login cancelled");
             return Some(AppCommand::CancelLogin);
         }
 
         let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
-            set_error_message(
-                &mut self.config.message,
-                "login unavailable - build without credentials",
+            self.push_toast(
+                Toast::danger("login unavailable").with_detail("built without credentials"),
             );
             return None;
         };
@@ -363,7 +438,7 @@ impl App {
                 Some(AppCommand::Logout)
             }
             AuthLoginState::LoggedOut => {
-                set_info_message(&mut self.config.message, "already logged out");
+                self.toast_info("already logged out");
                 None
             }
             AuthLoginState::InProgress(_) => None,
@@ -382,7 +457,7 @@ impl App {
         let mut config = crate::config::load_config_or_default();
         let collection = self.home.collection.value.trim();
         config.recent.collection = (!collection.is_empty()).then(|| collection.to_string());
-        let directory = self.home.directory.value.trim();
+        let directory = self.home.persisted_directory();
         config.recent.directory = (!directory.is_empty()).then(|| directory.to_string());
         let _ = save_config(&config);
     }
@@ -391,13 +466,13 @@ impl App {
         let mut request = match self.home.build_request(self.config.archive_validation) {
             Ok(request) => request,
             Err(err) => {
-                set_error_message(&mut self.home.message, err);
+                self.toast_err(err);
                 return None;
             }
         };
 
         if self.downloads.len() >= usize::MAX - 1 {
-            set_error_message(&mut self.home.message, "Too many downloads queued");
+            self.toast_err("too many downloads queued");
             return None;
         }
 
@@ -429,6 +504,7 @@ impl App {
                     id,
                     failed_count,
                     pending: request,
+                    focus: RETRY_ON_START_DEFAULT_FOCUS,
                 });
                 None
             }
@@ -441,7 +517,7 @@ impl App {
         let id = self.next_download_id;
         self.next_download_id += 1;
         self.push_pending_page(id, &request);
-        set_info_message(&mut self.home.message, format!("Queued download #{id}"));
+        self.toast_ok(format!("queued download #{id}"));
         (id, request)
     }
 
@@ -453,7 +529,7 @@ impl App {
         request: DownloadRequest,
     ) -> (DownloadId, DownloadRequest) {
         self.push_pending_page(id, &request);
-        set_info_message(&mut self.home.message, format!("Queued download #{id}"));
+        self.toast_ok(format!("queued download #{id}"));
         (id, request)
     }
 
@@ -499,7 +575,7 @@ impl App {
     pub fn request_selective_download(&mut self) -> Option<(DownloadId, SelectiveDownloadRequest)> {
         let beatmapset_ids = self.updates.selected_beatmapset_ids();
         if beatmapset_ids.is_empty() {
-            self.updates.set_error("No beatmaps selected for download");
+            self.report_scan_error("no beatmaps selected for download");
             return None;
         }
 
@@ -511,14 +587,13 @@ impl App {
             .collect();
 
         if collection_ids.is_empty() {
-            self.updates.set_error("No collections available");
+            self.report_scan_error("no collections available");
             return None;
         }
 
         let mirrors = self.home.build_mirror_list();
         if mirrors.is_empty() {
-            self.updates
-                .set_error("No mirrors selected (configure in Home tab)");
+            self.report_scan_error("no mirrors selected (configure in the home tab)");
             return None;
         }
 
@@ -533,7 +608,7 @@ impl App {
         };
 
         if self.downloads.len() >= usize::MAX - 1 {
-            self.updates.set_error("Too many downloads queued");
+            self.report_scan_error("too many downloads queued");
             return None;
         }
 
@@ -553,12 +628,9 @@ impl App {
         self.downloads.push(page);
         self.active_tab = STATIC_TABS + self.downloads.len() - 1;
 
-        set_info_message(
-            &mut self.updates.message,
-            format!(
-                "Queued update download #{id} ({} beatmaps)",
-                beatmapset_ids.len()
-            ),
+        self.push_toast(
+            Toast::success(format!("queued update download #{id}"))
+                .with_detail(format!("{} beatmaps", beatmapset_ids.len())),
         );
 
         let config = DownloadConfig {
@@ -739,28 +811,39 @@ impl App {
         // ctrl+w and ctrl+backspace delete the previous word in the focused text
         // field (no-op elsewhere). Many terminals send ctrl+backspace as ^H
         // (ctrl+h), so both are intercepted early — otherwise they type 'w'/'h'.
-        if key.modifiers.contains(KeyModifiers::CONTROL)
+        if self.editing
+            && key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('w') | KeyCode::Char('h'))
         {
             return self.backspace_word_focused();
         }
 
-        // Pre-download retry prompt intercepts enter/n/esc.
-        // `enter` dispatches the queued request with retry enabled; `n`
-        // dispatches without; `esc` cancels the whole download.
+        // Pre-download retry prompt: button-driven. ←/→ move the focused button
+        // across [cancel, skip, retry]; `enter` activates it; `esc` cancels the
+        // download. All other keys are swallowed while the modal is open.
         if self.confirm_retry_on_start.is_some() {
             match key.code {
+                KeyCode::Left => {
+                    if let Some(m) = self.confirm_retry_on_start.as_mut() {
+                        m.focus = m.focus.saturating_sub(1);
+                    }
+                    return None;
+                }
+                KeyCode::Right => {
+                    if let Some(m) = self.confirm_retry_on_start.as_mut() {
+                        m.focus = (m.focus + 1).min(RETRY_ON_START_BUTTONS.len() - 1);
+                    }
+                    return None;
+                }
                 KeyCode::Enter => {
                     let modal = self.confirm_retry_on_start.take()?;
+                    // 0 cancel, 1 skip, 2 retry.
+                    if modal.focus == 0 {
+                        self.discard_pending_download(modal);
+                        return None;
+                    }
                     let mut request = modal.pending;
-                    request.include_previously_failed = true;
-                    let (id, request) = self.dispatch_pending(modal.id, request);
-                    return Some(AppCommand::StartDownload { id, request });
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') => {
-                    let modal = self.confirm_retry_on_start.take()?;
-                    let mut request = modal.pending;
-                    request.include_previously_failed = false;
+                    request.include_previously_failed = modal.focus == RETRY_ON_START_DEFAULT_FOCUS;
                     let (id, request) = self.dispatch_pending(modal.id, request);
                     return Some(AppCommand::StartDownload { id, request });
                 }
@@ -772,13 +855,31 @@ impl App {
             }
         }
 
-        // Confirm-retry modal intercepts enter/esc/q and nothing else.
-        if let Some(modal) = &self.confirm_retry {
-            let download_id = modal.download_id;
+        // Confirm-retry modal: button-driven. ←/→ move across [cancel, retry];
+        // `enter` activates the focused button; `esc`/`q` cancel.
+        if self.confirm_retry.is_some() {
             match key.code {
+                KeyCode::Left => {
+                    if let Some(m) = self.confirm_retry.as_mut() {
+                        m.focus = m.focus.saturating_sub(1);
+                    }
+                    return None;
+                }
+                KeyCode::Right => {
+                    if let Some(m) = self.confirm_retry.as_mut() {
+                        m.focus = (m.focus + 1).min(CONFIRM_RETRY_BUTTONS.len() - 1);
+                    }
+                    return None;
+                }
                 KeyCode::Enter => {
-                    self.confirm_retry = None;
-                    return Some(AppCommand::RetryAllFailed { download_id });
+                    let modal = self.confirm_retry.take()?;
+                    // 0 cancel, 1 retry.
+                    if modal.focus == CONFIRM_RETRY_DEFAULT_FOCUS {
+                        return Some(AppCommand::RetryAllFailed {
+                            download_id: modal.download_id,
+                        });
+                    }
+                    return None;
                 }
                 KeyCode::Esc | KeyCode::Char('q') => {
                     self.confirm_retry = None;
@@ -788,25 +889,29 @@ impl App {
             }
         }
 
-        // Config save-diff modal intercepts enter/esc. `enter` writes to disk;
-        // `esc` cancels — form values stay as edited.
-        if self.config_save_modal {
+        // Help overlay owns all input while open: ↑/↓ (and PageUp/Down, Home/End)
+        // scroll it; `?`/esc/`q` close it; everything else is inert. Render clamps
+        // the offset to the viewport, so over-scrolling is harmless.
+        if self.help_open {
+            const HELP_PAGE: usize = 8;
+            let scroll = self.help_scroll.get();
             match key.code {
-                KeyCode::Enter => {
-                    self.confirm_save_config();
-                    return None;
-                }
-                KeyCode::Esc => {
-                    self.config_save_modal = false;
-                    return None;
-                }
-                _ => return None,
+                KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => self.close_help(),
+                KeyCode::Up => self.help_scroll.set(scroll.saturating_sub(1)),
+                KeyCode::Down => self.help_scroll.set(scroll.saturating_add(1)),
+                KeyCode::PageUp => self.help_scroll.set(scroll.saturating_sub(HELP_PAGE)),
+                KeyCode::PageDown => self.help_scroll.set(scroll.saturating_add(HELP_PAGE)),
+                KeyCode::Home => self.help_scroll.set(0),
+                KeyCode::End => self.help_scroll.set(usize::MAX),
+                _ => {}
             }
+            return None;
         }
 
-        // When a text field is focused, letter/`?`/`x` keybinds yield to typing
-        // so the character lands in the field instead of firing a global action.
-        let typing = self.focused_text_input();
+        // We are "typing" only when a text field is focused AND in edit mode.
+        // Outside edit mode a focused text field is selected-not-editing, so
+        // letter/`?`/`x` keybinds fire as global hotkeys (cloudy-tui).
+        let typing = self.editing && self.focused_text_input();
 
         // `q` only quits outside text fields; esc always does. Typing a key
         // therefore counts as a non-quit action and dismisses the quit prompt.
@@ -816,24 +921,34 @@ impl App {
             self.home.quit_prompt = false;
         }
 
-        // Sticky error toasts swallow `x` before any per-tab handler sees it.
-        // Mirrors the universal `esc`/`q` cascade: a visible error is more
-        // attention-grabbing than the settled-tab close binding it would
-        // otherwise route to. Skipped while typing so `x` reaches the field.
+        // `x` dismisses the topmost toast before any per-tab handler sees it
+        // (cloudy-tui dismissal precedence: toast → footer alert → app binding).
+        // Skipped while typing so `x` reaches the field.
         if key.code == KeyCode::Char('x')
             && !key.modifiers.contains(KeyModifiers::CONTROL)
             && !typing
-            && self.dismiss_active_error_toast()
+            && self.toasts.dismiss_top()
         {
             return None;
         }
 
         match key.code {
             KeyCode::Char('?') if !typing => {
-                self.help_open = !self.help_open;
+                // Help is closed here (the open case is handled by the guard above).
+                self.help_open = true;
+                self.help_scroll.set(0);
                 return None;
             }
             KeyCode::Esc | KeyCode::Char('q') if matches!(key.code, KeyCode::Esc) || !typing => {
+                // esc exits edit mode before anything else (back/quit cascade).
+                if self.editing {
+                    self.editing = false;
+                    // Committing a config text edit applies it immediately.
+                    if self.active_tab() == CONFIG_TAB_INDEX {
+                        self.apply_config_change();
+                    }
+                    return None;
+                }
                 if self.close_modal() {
                     return None;
                 }
@@ -871,23 +986,15 @@ impl App {
                 }
             }
             KeyCode::Tab => {
-                // When focused on the directory input on the home tab, Tab
-                // runs filesystem completion instead of switching tabs.
-                if self.active_tab() == HOME_TAB_INDEX && self.home.focus == HomeField::Directory {
-                    self.home.tab_complete_directory();
-                    return None;
-                }
-                if !self.updates_list_open()
-                    && let Some(cmd) = self.next_tab()
+                // `tab` completes the home directory path while editing it — NOT
+                // a screen switch (cloudy-tui: screens switch with ←/→ only;
+                // `tab` / `shift+tab` stay free for app use).
+                if self.editing
+                    && self.active_tab() == HOME_TAB_INDEX
+                    && self.home.focus == HomeField::Directory
+                    && let Some(candidates) = self.home.tab_complete_directory()
                 {
-                    return Some(cmd);
-                }
-            }
-            KeyCode::BackTab => {
-                if !self.updates_list_open()
-                    && let Some(cmd) = self.prev_tab()
-                {
-                    return Some(cmd);
+                    self.toast_info(candidates);
                 }
             }
             KeyCode::Up => {
@@ -924,111 +1031,132 @@ impl App {
             }
             // `enter` is the universal activate/toggle key: it confirms the
             // focused button, toggles the focused checkbox/option, or opens a
-            // list — replacing the old `space`-to-toggle binding.
-            KeyCode::Enter => match self.active_tab() {
-                HOME_TAB_INDEX => {
-                    match self.home.focus {
-                        HomeField::Download => {
-                            if let Some((id, request)) = self.request_download() {
-                                return Some(AppCommand::StartDownload { id, request });
-                            }
-                        }
-                        field if field.is_toggle() => self.home.toggle_current(),
-                        // Text inputs and the threads stepper have nothing to activate.
-                        _ => {}
+            // list — replacing the old `space`-to-toggle binding. On a text
+            // input it toggles edit mode instead (cloudy-tui).
+            KeyCode::Enter => {
+                if self.focused_text_input() {
+                    let was_editing = self.editing;
+                    self.editing = !self.editing;
+                    // Leaving edit mode on a config text field commits it to disk.
+                    if was_editing && self.active_tab() == CONFIG_TAB_INDEX {
+                        self.apply_config_change();
                     }
+                    return None;
                 }
-                UPDATES_TAB_INDEX => {
-                    let in_list = self.updates.selection.in_collection_list
-                        || self.updates.selection.in_beatmap_list;
-                    if in_list {
-                        // enter / space toggle the focused list item
-                        self.updates.toggle_list_item();
-                        return None;
+                match self.active_tab() {
+                    HOME_TAB_INDEX => {
+                        match self.home.focus {
+                            HomeField::Download => {
+                                if let Some((id, request)) = self.request_download() {
+                                    return Some(AppCommand::StartDownload { id, request });
+                                }
+                            }
+                            field if field.is_toggle() => self.home.toggle_current(),
+                            // Text inputs and the threads stepper have nothing to activate.
+                            _ => {}
+                        }
                     }
-                    match self.updates.selection.focus {
-                        UpdatesField::ClientType => {
-                            if self.updates.toggle_current() == UpdatesAction::RefreshAll {
-                                return Some(AppCommand::ScanLocalDatabase);
-                            }
+                    UPDATES_TAB_INDEX => {
+                        let in_list = self.updates.selection.in_collection_list
+                            || self.updates.selection.in_beatmap_list;
+                        if in_list {
+                            // enter / space toggle the focused list item
+                            self.updates.toggle_list_item();
+                            return None;
                         }
-                        UpdatesField::Collections | UpdatesField::BeatmapList => {
-                            self.updates.enter_opens_list();
-                        }
-                        UpdatesField::Download => {
-                            if !self.updates.is_scan_ready() {
-                                return None;
+                        match self.updates.selection.focus {
+                            UpdatesField::ClientType => {
+                                if self.updates.toggle_current() == UpdatesAction::RefreshAll {
+                                    return Some(AppCommand::ScanLocalDatabase);
+                                }
                             }
-                            match self.updates.handle_enter() {
-                                UpdatesAction::Download => {
-                                    if let Some((id, request)) = self.request_selective_download() {
-                                        return Some(AppCommand::StartSelectiveDownload {
-                                            id,
-                                            request,
-                                        });
+                            UpdatesField::Collections | UpdatesField::BeatmapList => {
+                                self.updates.enter_opens_list();
+                            }
+                            UpdatesField::Download => {
+                                if !self.updates.is_scan_ready() {
+                                    return None;
+                                }
+                                match self.updates.handle_enter() {
+                                    UpdatesAction::Download => {
+                                        if let Some((id, request)) =
+                                            self.request_selective_download()
+                                        {
+                                            return Some(AppCommand::StartSelectiveDownload {
+                                                id,
+                                                request,
+                                            });
+                                        }
                                     }
+                                    UpdatesAction::RecheckFailedMaps => {
+                                        return Some(AppCommand::RecheckFailedMaps);
+                                    }
+                                    UpdatesAction::None | UpdatesAction::RefreshAll => {}
                                 }
-                                UpdatesAction::RecheckFailedMaps => {
-                                    return Some(AppCommand::RecheckFailedMaps);
-                                }
-                                UpdatesAction::None | UpdatesAction::RefreshAll => {}
                             }
+                            UpdatesField::OsuPath => {}
                         }
-                        UpdatesField::OsuPath => {}
+                    }
+                    CONFIG_TAB_INDEX => match self.config.focus {
+                        ConfigField::AuthChip => {
+                            return match self.config.chip_action() {
+                                // Cancel routes through request_login, which detects InProgress and cancels.
+                                ChipAction::Login | ChipAction::Cancel => self.request_login(),
+                                ChipAction::Logout => self.request_logout(),
+                            };
+                        }
+                        field if field.is_text_input() || field.is_stepper() => {}
+                        // toggle / cycle fields (space also works) — applied live
+                        _ => {
+                            self.config.toggle_current();
+                            self.apply_config_change();
+                        }
+                    },
+                    _ => {
+                        // download page: enter expands/collapses the failed section
+                        if let Some(page) = self.active_download_page_mut() {
+                            page.toggle_failed_section();
+                        }
                     }
                 }
-                CONFIG_TAB_INDEX => match self.config.focus {
-                    ConfigField::AuthChip => {
-                        return match self.config.chip_action() {
-                            // Cancel routes through request_login, which detects InProgress and cancels.
-                            ChipAction::Login | ChipAction::Cancel => self.request_login(),
-                            ChipAction::Logout => self.request_logout(),
-                        };
-                    }
-                    field if field.is_text_input() || field.is_stepper() => {}
-                    // toggle / cycle fields (space also works)
-                    _ => self.config.toggle_current(),
-                },
-                _ => {
-                    // download page: enter expands/collapses the failed section
-                    if let Some(page) = self.active_download_page_mut() {
-                        page.toggle_failed_section();
-                    }
-                }
-            },
+            }
             // `space` is a toggle alias for `enter`: it flips the focused
             // checkbox / list selection but never activates buttons, opens lists,
             // or confirms the auth chip. In a text input it types a literal
             // space instead.
             KeyCode::Char(' ') => match self.active_tab() {
                 HOME_TAB_INDEX => {
-                    if self.home.focus.is_toggle() {
-                        self.home.toggle_current();
-                    } else if self.home.focus.is_text_input()
-                        && let Some(cmd) =
+                    if typing {
+                        if let Some(cmd) =
                             self.mutate_collection_then_resolve(|h| h.handle_char(' '))
-                    {
-                        return Some(cmd);
+                        {
+                            return Some(cmd);
+                        }
+                    } else if self.home.focus.is_toggle() {
+                        self.home.toggle_current();
                     }
                 }
                 UPDATES_TAB_INDEX => {
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
-                    if in_list {
-                        self.updates.toggle_list_item();
-                    } else if self.updates.selection.focus == UpdatesField::ClientType {
-                        if self.updates.toggle_current() == UpdatesAction::RefreshAll {
-                            return Some(AppCommand::ScanLocalDatabase);
-                        }
-                    } else if self.updates.is_typing() {
+                    if typing {
                         self.updates.handle_char(' ');
+                    } else if in_list {
+                        self.updates.toggle_list_item();
+                    } else if self.updates.selection.focus == UpdatesField::ClientType
+                        && self.updates.toggle_current() == UpdatesAction::RefreshAll
+                    {
+                        return Some(AppCommand::ScanLocalDatabase);
                     }
                 }
                 CONFIG_TAB_INDEX => match self.config.focus {
+                    _ if typing => self.config.handle_char(' '),
                     ConfigField::AuthChip => {}
-                    field if field.is_text_input() => self.config.handle_char(' '),
-                    field if field.is_stepper() => {}
-                    _ => self.config.toggle_current(),
+                    field if field.is_text_input() || field.is_stepper() => {}
+                    _ => {
+                        self.config.toggle_current();
+                        self.apply_config_change();
+                    }
                 },
                 _ => {
                     if let Some(page) = self.active_download_page_mut() {
@@ -1052,51 +1180,57 @@ impl App {
                             _ => {}
                         }
                     }
-                    // `r` refreshes mirror latency when no text input is focused.
-                    if ch == 'r' && !self.home.focus.is_text_input() {
+                    // When editing, the char types into the focused field.
+                    // Otherwise letters are global hotkeys: `r` probes mirror
+                    // latency, `d` jumps to the output-dir field.
+                    if typing {
+                        if let Some(cmd) =
+                            self.mutate_collection_then_resolve(|h| h.handle_char(ch))
+                        {
+                            return Some(cmd);
+                        }
+                    } else if ch == 'r' {
                         return Some(AppCommand::ProbeMirrors);
-                    }
-                    // `d` jumps focus to the directory field (banner action for disk warnings).
-                    if ch == 'd' && !self.home.focus.is_text_input() {
+                    } else if ch == 'd' {
                         return Some(AppCommand::FocusOutputDir);
-                    }
-                    if let Some(cmd) = self.mutate_collection_then_resolve(|h| h.handle_char(ch)) {
-                        return Some(cmd);
                     }
                 }
                 UPDATES_TAB_INDEX => {
                     let in_list = self.updates.selection.in_collection_list
                         || self.updates.selection.in_beatmap_list;
-                    // suppress global letter shortcuts when the osu! path text field is focused
-                    let suppress_shortcuts = self.updates.is_typing() && !in_list;
-                    if !suppress_shortcuts && ch == 'r' && self.updates.can_recheck_failed_maps() {
+                    if typing {
+                        // editing the osu! path field → type the char
+                        self.updates.handle_char(ch);
+                    } else if in_list {
+                        // list shortcuts (a all / d none / s sort) are not editing
+                        if ch == 'r' && self.updates.can_recheck_failed_maps() {
+                            return Some(AppCommand::RecheckFailedMaps);
+                        }
+                        self.updates.handle_char(ch);
+                    } else if ch == 'r' && self.updates.can_recheck_failed_maps() {
                         return Some(AppCommand::RecheckFailedMaps);
                     }
-                    self.updates.handle_char(ch);
                 }
                 CONFIG_TAB_INDEX => {
                     let focus = self.config.focus;
-                    // Stepper: +/- adjust thread count when threads field is focused.
+                    // Stepper: +/- adjust thread count when threads field is focused;
+                    // each step applies to disk immediately.
                     if focus.is_stepper() {
                         match ch {
                             '+' => {
                                 self.config.step_up();
+                                self.apply_config_change();
                                 return None;
                             }
                             '-' => {
                                 self.config.step_down();
+                                self.apply_config_change();
                                 return None;
                             }
                             _ => {}
                         }
                     }
-                    let is_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                    if !is_ctrl && !focus.is_text_input() {
-                        match ch {
-                            's' => self.try_save_config(),
-                            _ => self.config.handle_char(ch),
-                        }
-                    } else {
+                    if typing {
                         self.config.handle_char(ch);
                     }
                 }
@@ -1106,7 +1240,9 @@ impl App {
                     }
                 }
             },
-            KeyCode::Backspace => {
+            // Backspace edits only while in edit mode; outside it there is no
+            // text-capture context, so it is inert.
+            KeyCode::Backspace if typing => {
                 // alt/ctrl+backspace deletes the previous word.
                 if key
                     .modifiers
@@ -1131,20 +1267,37 @@ impl App {
         None
     }
 
-    pub fn clear_expired_messages(&mut self) {
-        clear_expired_message(&mut self.home.message);
-        clear_expired_message(&mut self.updates.message);
-        clear_expired_message(&mut self.config.message);
+    /// Advance the animation clock and drop any auto-dismiss toasts past their
+    /// dwell. Driven by the runtime's periodic `Tick`.
+    pub fn on_tick(&mut self) {
         self.tick_count = self.tick_count.wrapping_add(1);
+        self.toasts.clear_expired();
     }
 
-    /// Dismiss any sticky error toast currently visible in a static tab's
-    /// message slot. Returns `true` when an error was cleared so callers can
-    /// short-circuit further `x` handling on the same keypress.
-    pub fn dismiss_active_error_toast(&mut self) -> bool {
-        dismiss_error_message(&mut self.home.message)
-            || dismiss_error_message(&mut self.updates.message)
-            || dismiss_error_message(&mut self.config.message)
+    /// Push a success result toast (top-right).
+    pub fn toast_ok(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::success(message));
+    }
+
+    /// Push a neutral info toast (top-right).
+    pub fn toast_info(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::info(message));
+    }
+
+    /// Push an error toast (top-right, `DANGER`, longer dwell).
+    pub fn toast_err(&mut self, message: impl Into<String>) {
+        self.toasts.push(Toast::danger(message));
+    }
+
+    /// Push a pre-built toast — for detail lines or sticky lifetimes.
+    pub fn push_toast(&mut self, toast: Toast) {
+        self.toasts.push(toast);
+    }
+
+    /// Mark the updates scan as errored and surface the reason as a toast.
+    pub fn report_scan_error(&mut self, message: impl Into<String>) {
+        self.updates.mark_scan_error();
+        self.toast_err(message);
     }
 
     pub fn handle_download_event(&mut self, event: DownloadEvent) {
@@ -1319,15 +1472,9 @@ impl App {
 
         let display = title.unwrap_or_else(|| format!("download #{download_id}"));
         if was_running {
-            set_info_message(
-                &mut self.home.message,
-                format!("Cancelled download \"{}\"", display),
-            );
+            self.push_toast(Toast::info("cancelled download").with_detail(display));
         } else {
-            set_info_message(
-                &mut self.home.message,
-                format!("No active download to cancel for \"{}\"", display),
-            );
+            self.push_toast(Toast::info("no active download to cancel").with_detail(display));
         }
     }
 
@@ -1406,34 +1553,30 @@ impl App {
     }
 
     fn handle_download_tab_key(&mut self, ch: char) -> Option<AppCommand> {
-        let page = self.active_download_page_mut()?;
         match ch {
-            'r' => {
-                // retry focused row; skip NotFound silently
-                let focused = page.failed_focus?;
-                let ids = page.retryable_ids(Some(focused));
-                if ids.is_empty() {
-                    return None;
-                }
-                let beatmapset_id = ids[0];
-                let download_id = page.id;
-                page.remove_failed_map(beatmapset_id);
-                Some(AppCommand::RetryFailedMap {
-                    download_id,
-                    beatmapset_id,
-                })
-            }
-            'R' => {
+            // Case-insensitive retry (cloudy-tui: hotkeys are case-insensitive):
+            // `r`/`R` retry ALL retryable failed maps (NotFound skipped); >50
+            // routes through the confirm modal.
+            'r' | 'R' => {
+                let page = self.active_download_page_mut()?;
                 let retryable = page.retryable_ids(None);
+                let has_failed = !page.failed_maps.is_empty();
+                let download_id = page.id;
                 if retryable.is_empty() {
+                    // `r` is advertised only when retryable maps exist, but if the
+                    // user presses it with nothing but 404s (NotFound is never
+                    // retryable), say why instead of silently doing nothing.
+                    if has_failed {
+                        self.toast_info("nothing to retry — failed maps are 404 / not found");
+                    }
                     return None;
                 }
-                let download_id = page.id;
                 let count = retryable.len();
                 if count > 50 {
                     self.confirm_retry = Some(RetryAllConfirmModal {
                         download_id,
                         retryable_count: count,
+                        focus: CONFIRM_RETRY_DEFAULT_FOCUS,
                     });
                     None
                 } else {
@@ -1444,6 +1587,7 @@ impl App {
                 // Settled tabs (Completed/Failed) close on `x`. In-progress
                 // stages route cancellation through `q` to avoid silently
                 // killing a running download.
+                let page = self.active_download_page_mut()?;
                 if !matches!(page.stage, DownloadStage::Completed | DownloadStage::Failed) {
                     return None;
                 }

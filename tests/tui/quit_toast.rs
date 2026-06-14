@@ -17,7 +17,7 @@ fn make_app() -> App {
 /// (on a text field `q` types instead).
 fn make_app_quittable() -> App {
     let mut app = make_app();
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
     app
 }
 
@@ -73,17 +73,23 @@ fn second_esc_quits() {
 // ── unrelated key clears toast and falls through ──────────────────────────────
 
 #[test]
-fn tab_clears_toast_and_switches_tab() {
+fn arrow_clears_toast_and_switches_tab() {
     let mut app = make_app_quittable();
     app.handle_key(press(KeyCode::Char('q')));
     assert!(app.home.quit_prompt);
     let tab_before = app.active_tab();
-    app.handle_key(press(KeyCode::Tab));
-    assert!(!app.home.quit_prompt, "tab must clear the quit toast");
+    // ←/→ switch screens (tab no longer does); a non-text focus is required so
+    // the arrow switches a tab instead of moving a caret.
+    app.home.focus = HomeField::Video;
+    app.handle_key(press(KeyCode::Right));
+    assert!(
+        !app.home.quit_prompt,
+        "switching screens must clear the quit toast"
+    );
     assert_ne!(
         app.active_tab(),
         tab_before,
-        "tab must still switch the active tab"
+        "→ must still switch the active tab"
     );
 }
 

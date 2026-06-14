@@ -167,22 +167,44 @@ fn r_on_home_tab_emits_probe_mirrors() {
     );
 }
 
-/// `r` on the home tab while a text input is focused does NOT emit ProbeMirrors.
+/// `r` while EDITING a text input types the char instead of probing mirrors.
+/// (Outside edit mode `r` is a global hotkey that probes — see the next test.)
 #[test]
-fn r_on_home_tab_with_text_input_focused_does_not_probe() {
+fn r_while_editing_text_input_types_instead_of_probing() {
     let mut app = App::new(Config::default());
     app.active_tab = HOME_TAB_INDEX;
-    // Collection field is a text input — 'r' should be typed into it.
     app.home.focus = crate::app::HomeField::Collection;
+    app.editing = true; // edit mode: keys type into the field
 
     let cmd = app.handle_key(char_key('r'));
 
     assert!(
         !matches!(cmd, Some(AppCommand::ProbeMirrors)),
-        "ProbeMirrors must not fire when text input is focused"
+        "ProbeMirrors must not fire while editing a text input"
     );
     // The character should have been inserted.
     assert_eq!(app.home.collection.value, "r");
+}
+
+/// `r` on a text-input row that is selected-not-editing is a global hotkey and
+/// probes mirror latency (cloudy-tui: edit is off until `enter`).
+#[test]
+fn r_on_selected_not_editing_text_input_probes() {
+    let mut app = App::new(Config::default());
+    app.active_tab = HOME_TAB_INDEX;
+    app.home.focus = crate::app::HomeField::Collection;
+    // editing defaults false
+
+    let cmd = app.handle_key(char_key('r'));
+
+    assert!(
+        matches!(cmd, Some(AppCommand::ProbeMirrors)),
+        "r must probe when the text input is selected-not-editing"
+    );
+    assert_eq!(
+        app.home.collection.value, "",
+        "r must not type when not editing"
+    );
 }
 
 /// `r` on the updates tab does NOT emit ProbeMirrors from home.
@@ -230,7 +252,7 @@ fn switching_to_updates_tab_emits_scan_not_probe() {
     let mut app = App::new(Config::default());
     app.active_tab = HOME_TAB_INDEX;
     // Focus a non-text field so Right switches tabs rather than moving the caret.
-    app.home.focus = HomeField::NoVideo;
+    app.home.focus = HomeField::Video;
 
     let cmd = app.handle_key(key(KeyCode::Right));
 

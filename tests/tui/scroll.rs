@@ -19,7 +19,11 @@ fn updates_tab_renders_at_minimum_size() {
 
     let backend = TestBackend::new(80, 14);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal.draw(|frame| draw(frame, &app)).unwrap();
+    terminal
+        .draw(|frame| {
+            draw(frame, &app);
+        })
+        .unwrap();
     let buf = terminal.backend().buffer().clone();
     let content: String = buf.content().iter().map(|c| c.symbol()).collect();
     // should render something meaningful even at 80×14

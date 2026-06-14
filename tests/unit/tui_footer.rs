@@ -83,9 +83,28 @@ fn footer_hint_caps_at_four_segments_on_settled_tab() {
 }
 
 #[test]
-fn footer_hint_includes_retry_when_page_has_failed_maps() {
+fn footer_hint_includes_retry_when_page_has_retryable_failed_maps() {
     let mut app = App::new(Config::default());
     push_focused_page(&mut app, 1, DownloadStage::Failed);
+    app.downloads[0].failed_maps.push(FailedMap {
+        beatmapset_id: 1,
+        title: None,
+        reason: FailureReason::NetworkError,
+    });
+
+    let hint = hint_for(&app);
+    assert!(
+        hint.contains("r retry"),
+        "retryable failures must advertise `r retry`, got: {hint}"
+    );
+}
+
+#[test]
+fn footer_hint_omits_retry_when_failures_are_all_404() {
+    let mut app = App::new(Config::default());
+    push_focused_page(&mut app, 1, DownloadStage::Failed);
+    // NotFound (404) is never retryable, so the hint must not promise a key that
+    // would do nothing.
     app.downloads[0].failed_maps.push(FailedMap {
         beatmapset_id: 1,
         title: None,
@@ -94,12 +113,8 @@ fn footer_hint_includes_retry_when_page_has_failed_maps() {
 
     let hint = hint_for(&app);
     assert!(
-        hint.contains("r retry"),
-        "failed-maps hint must advertise `r retry`, got: {hint}"
-    );
-    assert!(
-        hint.contains("R retry all"),
-        "failed-maps hint must advertise `R retry all`, got: {hint}"
+        !hint.contains("retry"),
+        "404-only failures must not advertise retry: {hint}"
     );
 }
 
@@ -128,17 +143,23 @@ fn home_hint_shows_quit_on_non_text_input_row() {
 }
 
 #[test]
-fn home_hint_shows_esc_quit_on_text_input_row() {
+fn home_hint_shows_edit_then_done_on_text_input_row() {
     let mut app = App::new(Config::default());
     app.home.focus = HomeField::Collection;
 
+    // Selected-not-editing: enter descends into edit; q still quits (global).
     let hint = hint_for(&app);
     assert!(
-        hint.contains("esc quit"),
-        "text-input home row must advertise `esc quit`, got: {hint}"
+        hint.contains("↵ edit"),
+        "selected text-input row must advertise `↵ edit`, got: {hint}"
     );
+    assert!(hint.contains("q quit"), "not editing → q quits: {hint}");
+
+    // Editing: the hint collapses to the exit affordance.
+    app.editing = true;
+    let hint = hint_for(&app);
     assert!(
-        !hint.contains("q quit"),
-        "text-input home row must not show `q quit` (q types into field): {hint}"
+        hint.contains("esc done"),
+        "editing must advertise `esc done`, got: {hint}"
     );
 }

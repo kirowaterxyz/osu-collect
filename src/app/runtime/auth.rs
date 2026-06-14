@@ -1,7 +1,4 @@
-use super::super::{
-    App, AuthLoginState,
-    messages::{set_error_message, set_info_message},
-};
+use super::super::{App, AuthLoginState, Toast};
 use crate::auth;
 use tokio::sync::mpsc;
 use tracing::debug;
@@ -21,19 +18,19 @@ pub(super) fn handle_auth_event(event: AuthEvent, app: &mut App) {
         }
         AuthEvent::LoginComplete(Ok(())) => {
             app.config.set_login_complete();
-            set_info_message(&mut app.config.message, "login successful");
+            app.toast_ok("login successful");
         }
         AuthEvent::LoginComplete(Err(err)) => {
             app.config.set_login_failed();
-            set_error_message(&mut app.config.message, format!("login failed: {err}"));
+            app.push_toast(Toast::danger("login failed").with_detail(err));
         }
         AuthEvent::LogoutComplete(Ok(())) => {
             app.config.set_logged_out();
-            set_info_message(&mut app.config.message, "logged out");
+            app.toast_ok("logged out");
         }
         AuthEvent::LogoutComplete(Err(err)) => {
             app.config.set_login_failed();
-            set_error_message(&mut app.config.message, format!("logout failed: {err}"));
+            app.push_toast(Toast::danger("logout failed").with_detail(err));
         }
     }
 }

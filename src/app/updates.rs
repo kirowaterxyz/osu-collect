@@ -1,6 +1,6 @@
 use super::{
     home::InputField,
-    messages::{AppMessage, set_error_message},
+    messages::{AppMessage, clear_app_message},
     next_field, prev_field,
 };
 use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
@@ -471,13 +471,14 @@ impl UpdatesTab {
 
     /// Returns `true` when the enter key should open a list panel rather than
     /// trigger a download. Mutates state to enter the panel as a side effect.
+    /// An empty list is not expandable, so enter on it is a no-op.
     pub fn enter_opens_list(&mut self) -> bool {
         match self.selection.focus {
-            UpdatesField::Collections => {
+            UpdatesField::Collections if !self.selection.local_collections.is_empty() => {
                 self.selection.in_collection_list = true;
                 true
             }
-            UpdatesField::BeatmapList if self.is_scan_ready() => {
+            UpdatesField::BeatmapList if self.is_scan_ready() && self.total_missing_count() > 0 => {
                 self.selection.in_beatmap_list = true;
                 true
             }
@@ -662,9 +663,13 @@ impl UpdatesTab {
         self.selection.collections_state = Some(0);
     }
 
-    pub fn set_error(&mut self, message: impl Into<String>) {
+    /// Mark the scan as errored and clear any in-flight loading status. The
+    /// reason is surfaced as a toast by the caller ([`App::report_scan_error`]).
+    ///
+    /// [`App::report_scan_error`]: crate::app::App::report_scan_error
+    pub fn mark_scan_error(&mut self) {
         self.scan.scan_status = ScanStatus::Error;
-        set_error_message(&mut self.message, message);
+        clear_app_message(&mut self.message);
     }
 
     pub fn is_path_auto_detected(&self) -> bool {

@@ -1,29 +1,33 @@
-use super::super::banner::{Banner, home_banners};
+use super::super::banner::{Banner, system_banners};
 use crate::config::constants::{DISK_DANGER_BYTES, DISK_WARN_BYTES};
 
-// --- home_banners behaviour ---
+// Body heights well clear of the compact threshold (COMPACT_HEIGHT = 12).
+const TALL: u16 = 24;
+const TINY: u16 = 4;
+
+// --- system_banners behaviour ---
 
 #[test]
 fn no_banners_when_disk_free_is_above_warn_threshold() {
     let free = DISK_WARN_BYTES + 1;
     assert!(
-        home_banners(Some(free)).is_empty(),
-        "no banner above warn threshold"
+        system_banners(Some(free), TALL).is_empty(),
+        "no banner above warn threshold on a tall body"
     );
 }
 
 #[test]
 fn no_banners_when_disk_free_is_none() {
     assert!(
-        home_banners(None).is_empty(),
-        "no banner when disk path unavailable"
+        system_banners(None, TALL).is_empty(),
+        "no banner when disk path unavailable on a tall body"
     );
 }
 
 #[test]
 fn disk_low_banner_between_danger_and_warn() {
     let free = DISK_DANGER_BYTES + 1;
-    let banners = home_banners(Some(free));
+    let banners = system_banners(Some(free), TALL);
     assert_eq!(banners.len(), 1);
     assert!(
         matches!(banners[0], Banner::DiskLow { .. }),
@@ -37,7 +41,7 @@ fn disk_low_banner_between_danger_and_warn() {
 #[test]
 fn disk_full_banner_below_danger_threshold() {
     let free = DISK_DANGER_BYTES - 1;
-    let banners = home_banners(Some(free));
+    let banners = system_banners(Some(free), TALL);
     assert_eq!(banners.len(), 1);
     assert!(
         matches!(banners[0], Banner::DiskFull { .. }),
@@ -53,8 +57,8 @@ fn no_banner_when_exactly_at_warn_threshold() {
     let free = DISK_WARN_BYTES;
     // boundary: warn is STRICTLY less-than, so == threshold means no banner
     assert!(
-        home_banners(Some(free)).is_empty(),
-        "no banner when exactly at warn threshold"
+        system_banners(Some(free), TALL).is_empty(),
+        "no banner when exactly at warn threshold on a tall body"
     );
 }
 
@@ -62,11 +66,32 @@ fn no_banner_when_exactly_at_warn_threshold() {
 fn disk_low_banner_not_disk_full_when_between_thresholds() {
     // pick a value strictly between danger and warn
     let mid = DISK_DANGER_BYTES + (DISK_WARN_BYTES - DISK_DANGER_BYTES) / 2;
-    let banners = home_banners(Some(mid));
+    let banners = system_banners(Some(mid), TALL);
     assert_eq!(banners.len(), 1, "exactly one banner in low range");
     assert!(
         matches!(banners[0], Banner::DiskLow { .. }),
         "must be DiskLow, not DiskFull, in low range"
+    );
+}
+
+#[test]
+fn too_small_banner_when_body_below_compact_threshold() {
+    let banners = system_banners(None, TINY);
+    assert_eq!(banners.len(), 1, "compact body must surface one banner");
+    assert!(
+        matches!(banners[0], Banner::TooSmall),
+        "expected TooSmall when the body is below the compact threshold"
+    );
+}
+
+#[test]
+fn disk_full_outranks_too_small() {
+    let free = DISK_DANGER_BYTES - 1;
+    let banners = system_banners(Some(free), TINY);
+    assert_eq!(banners.len(), 1);
+    assert!(
+        matches!(banners[0], Banner::DiskFull { .. }),
+        "DiskFull (DANGER) must win over TooSmall (WARNING) on a tiny body"
     );
 }
 
@@ -85,7 +110,9 @@ fn render_home_banners(free_bytes: Option<u64>, width: u16, height: u16) -> Stri
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend");
     terminal
-        .draw(|frame| crate::tui::draw(frame, &app))
+        .draw(|frame| {
+            crate::tui::draw(frame, &app);
+        })
         .expect("render");
     terminal
         .backend()

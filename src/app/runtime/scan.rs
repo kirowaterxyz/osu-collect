@@ -1,6 +1,6 @@
 use super::super::{
     App, collection_state, failed_maps,
-    messages::{clear_app_message, set_info_message, set_loading_message},
+    messages::{clear_app_message, set_loading_message},
     snapshots,
     updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id},
 };
@@ -87,10 +87,8 @@ pub(super) fn handle_updates_event(
             let selected_ids = app.updates.selected_collection_ids();
             if selected_ids.is_empty() {
                 app.updates.scan.scan_status = ScanStatus::Ready;
-                set_info_message(
-                    &mut app.updates.message,
-                    "No collections with IDs found to compare",
-                );
+                clear_app_message(&mut app.updates.message);
+                app.toast_info("no collections with ids found to compare");
                 return;
             }
 
@@ -143,7 +141,8 @@ pub(super) fn handle_updates_event(
                 manually_added_count,
                 hidden_failed_count,
             );
-            set_info_message(&mut app.updates.message, msg);
+            clear_app_message(&mut app.updates.message);
+            app.toast_info(msg.trim());
 
             for (collection_id, ids) in collection_seen {
                 let installed_ids: Vec<u32> = ids
@@ -171,7 +170,7 @@ pub(super) fn handle_updates_event(
             if generation == app.updates.scan.scan_generation {
                 set_loading_message(
                     &mut app.updates.message,
-                    format!("checking failed maps {checked}/{total}..."),
+                    format!("rechecking known bad maps {checked}/{total}..."),
                 );
             }
         }
@@ -183,19 +182,17 @@ pub(super) fn handle_updates_event(
             if generation != app.updates.scan.scan_generation {
                 return;
             }
-            set_info_message(
-                &mut app.updates.message,
-                format!(
-                    "{} failed maps available; {} still unavailable",
-                    available.len(),
-                    unavailable.len()
-                ),
-            );
+            clear_app_message(&mut app.updates.message);
+            app.toast_info(format!(
+                "{} known bad maps now downloadable; {} still unavailable",
+                available.len(),
+                unavailable.len()
+            ));
             app.updates.scan.scan_generation = app.updates.scan.scan_generation.wrapping_add(1);
             spawn_scan_task(app, updates_tx.clone());
         }
         UpdatesEvent::Error(msg) => {
-            app.updates.set_error(msg);
+            app.report_scan_error(msg);
         }
     }
 }
@@ -218,7 +215,7 @@ fn build_scan_summary(
         ));
     }
     if hidden_failed > 0 {
-        msg.push_str(&format!("; {hidden_failed} hidden failed maps"));
+        msg.push_str(&format!("; {hidden_failed} known bad maps"));
     }
     msg
 }
@@ -321,19 +318,19 @@ pub(super) fn spawn_failed_map_recheck_task(
 
     let generation = app.updates.scan.scan_generation;
     let Some(path) = failed_maps::failed_maps_path() else {
-        set_info_message(&mut app.updates.message, "no failed maps to check");
+        app.toast_info("no known bad maps to recheck");
         return;
     };
     let ids: Vec<u32> = failed_maps::load(&path).beatmapset_ids;
     if ids.is_empty() {
-        set_info_message(&mut app.updates.message, "no failed maps to check");
+        app.toast_info("no known bad maps to recheck");
         return;
     }
 
     app.updates.scan.scan_status = ScanStatus::CheckingFailedMaps;
     set_loading_message(
         &mut app.updates.message,
-        format!("checking failed maps 0/{}...", ids.len()),
+        format!("rechecking known bad maps 0/{}...", ids.len()),
     );
 
     let handle = tokio::spawn(async move {

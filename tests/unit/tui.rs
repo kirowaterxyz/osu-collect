@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, CollectionPage, ConfigField, messages::AppMessage},
+    app::{App, CollectionPage, ConfigField},
     config::{Config, constants::CONFIG_TAB_INDEX},
     download::{DownloadEvent, DownloadStage, DownloadSummary},
 };
@@ -9,7 +9,9 @@ fn render_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer 
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| super::draw(frame, app))
+        .draw(|frame| {
+            super::draw(frame, app);
+        })
         .expect("app should render");
     terminal.backend().buffer().clone()
 }
@@ -18,7 +20,9 @@ fn render_app(app: &App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| super::draw(frame, app))
+        .draw(|frame| {
+            super::draw(frame, app);
+        })
         .expect("app should render");
 
     terminal
@@ -48,7 +52,7 @@ fn home_render_shows_cloudy_sections_and_footer() {
     use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
-    // focus a mirror toggle so the footer hint exposes the enter-toggle shortcut
+    // focus a mirror toggle so the footer hint exposes the toggle shortcut
     app.home.focus = HomeField::MirrorNerinyan;
 
     let output = render_app(&app, 80, 24);
@@ -61,7 +65,9 @@ fn home_render_shows_cloudy_sections_and_footer() {
     assert!(output.contains("COLLECTION"));
     assert!(output.contains("MIRRORS"));
     assert!(output.contains("DOWNLOAD"));
-    assert!(output.contains("enter"));
+    // footer renders `enter` as the glyph `↵`, never the word
+    assert!(output.contains("↵ toggle"));
+    assert!(!output.contains("enter toggle"), "enter must render as ↵");
 }
 
 #[test]
@@ -105,15 +111,15 @@ fn config_render_shows_strict_help_only_when_strict_selected() {
     app.config.archive_validation = ArchiveValidation::Magic;
     let basic = render_app(&app, 100, 24);
     assert!(
-        !basic.contains("strict mode may reject"),
-        "help line must be hidden when basic is selected"
+        !basic.contains("eocd"),
+        "the strict-only help line must be hidden when basic is selected"
     );
 
     app.config.archive_validation = ArchiveValidation::Eocd;
     let strict = render_app(&app, 100, 24);
     assert!(
-        strict.contains("strict mode may reject"),
-        "help line must appear when strict is selected: {strict}"
+        strict.contains("eocd"),
+        "the strict help line must appear when strict is selected: {strict}"
     );
 }
 
@@ -156,10 +162,130 @@ fn download_render_shows_status_metrics_and_results() {
     let output = render_app(&app, 90, 24);
 
     assert!(output.contains("completed"));
-    assert!(output.contains("2 threads"));
-    assert!(output.contains("8 downloaded"));
-    assert!(output.contains("DOWNLOADED"));
-    assert!(output.contains("SKIPPED"));
+    // The OVERVIEW `settings: N threads` row and the `done:` tally are gone
+    // post-completion; the RESULTS block carries the counts as lowercase
+    // `label value` metrics (cloudy-tui metric styling).
+    assert!(output.contains("downloaded 8"));
+    assert!(output.contains("skipped 2"));
+}
+
+#[test]
+fn confirm_retry_modal_renders_focused_button_block() {
+    // cloudy-tui: confirm modals carry right-aligned buttons; the focused one is
+    // a neutral inverse block (fg=BG, bg=TEXT), unfocused are bare TEXT_DIM.
+    // focus=1 is `retry`.
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("test backend should initialize");
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            super::modal::render_confirm_retry_modal(frame, area, 12, 1);
+        })
+        .expect("modal should render");
+    let buf = terminal.backend().buffer().clone();
+    let text: String = buf.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(
+        text.contains("cancel") && text.contains("retry"),
+        "both buttons must render, got: {text}"
+    );
+
+    // The focused `retry` button renders as an inverse block with bg = TEXT.
+    let text_color = Color::Rgb(205, 214, 244);
+    let has_inverse = buf
+        .content
+        .iter()
+        .any(|cell| cell.style().bg == Some(text_color));
+    assert!(
+        has_inverse,
+        "focused button must render as an inverse TEXT-bg block"
+    );
+}
+
+#[test]
+fn confirm_retry_modal_is_content_sized_not_terminal_sized() {
+    // cloudy-tui: a modal shrinks to its content and never grows past 60% of the
+    // terminal. On a very wide terminal it must stay narrow, not balloon.
+    let width = 200u16;
+    let backend = TestBackend::new(width, 24);
+    let mut terminal = Terminal::new(backend).expect("test backend should initialize");
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            super::modal::render_confirm_retry_modal(frame, area, 12, 1);
+        })
+        .expect("modal should render");
+    let buf = terminal.backend().buffer().clone();
+
+    // Measure the modal by the horizontal span of its border glyphs (only the
+    // modal is drawn here, so these are unambiguous).
+    let is_border = |s: &str| matches!(s, "╭" | "╮" | "╰" | "╯" | "│" | "─");
+    let buf_width = buf.area.width as usize;
+    let (mut min_x, mut max_x) = (usize::MAX, 0usize);
+    for (i, cell) in buf.content.iter().enumerate() {
+        if is_border(cell.symbol()) {
+            let x = i % buf_width;
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+        }
+    }
+    assert_ne!(min_x, usize::MAX, "modal border must render");
+    let modal_w = max_x - min_x + 1;
+    assert!(
+        modal_w <= (width as usize * 60 / 100),
+        "modal must not exceed 60% of terminal width, got {modal_w}"
+    );
+    assert!(
+        modal_w < 40,
+        "modal must be content-sized (~25 cols), not terminal-sized, got {modal_w}"
+    );
+}
+
+#[test]
+fn modal_buttons_do_not_shift_on_focus_change() {
+    fn render(focus: usize) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(60, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend should initialize");
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                super::modal::render_confirm_retry_modal(frame, area, 12, focus);
+            })
+            .expect("modal should render");
+        terminal.backend().buffer().clone()
+    }
+    let cancel_focused = render(0);
+    let retry_focused = render(1);
+
+    // Glyph layout is byte-for-byte identical regardless of which button is
+    // focused — every button always carries its insets, so only the highlight
+    // moves and no button shifts position.
+    let glyphs = |b: &ratatui::buffer::Buffer| -> String {
+        b.content.iter().map(|c| c.symbol().to_string()).collect()
+    };
+    assert_eq!(
+        glyphs(&cancel_focused),
+        glyphs(&retry_focused),
+        "button glyph positions must not change when focus changes"
+    );
+
+    // The inverse highlight (bg = TEXT) exists in both states but in different
+    // cells (it follows the focused button).
+    let text_bg = Color::Rgb(205, 214, 244);
+    let bg_cells = |b: &ratatui::buffer::Buffer| -> Vec<usize> {
+        b.content
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.style().bg == Some(text_bg))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let cancel_hl = bg_cells(&cancel_focused);
+    let retry_hl = bg_cells(&retry_focused);
+    assert!(
+        !cancel_hl.is_empty() && !retry_hl.is_empty(),
+        "each focus state highlights one button"
+    );
+    assert_ne!(cancel_hl, retry_hl, "the highlight moves with focus");
 }
 
 #[test]
@@ -231,7 +357,9 @@ fn spinner_advances_with_tick_count() {
     use crate::app::messages::AppMessage;
 
     let mut app = App::new(Config::default());
-    app.home.message = Some(AppMessage::loading("loading..."));
+    app.home.message = Some(AppMessage {
+        text: "loading...".to_string(),
+    });
 
     let buf0 = render_buffer(&app, 80, 24);
     // grab cells in the footer row (last row at y=23)
@@ -412,7 +540,7 @@ fn active_view_renders_bouncing_bar_when_total_is_unknown() {
 }
 
 #[test]
-fn active_panel_height_is_constant_across_completion_and_start() {
+fn active_panel_drops_finished_and_idle_rows() {
     use crate::download::BeatmapStage;
 
     fn count_id_prefixes(output: &str) -> usize {
@@ -437,32 +565,31 @@ fn active_panel_height_is_constant_across_completion_and_start() {
     app.active_tab = 3;
 
     let baseline = render_app(&app, 120, 30);
-    let baseline_total = app.downloads[0].thread_total_items.get();
-    assert_eq!(baseline_total, 3, "concurrent=3 means 3 active rows");
-    assert_eq!(count_id_prefixes(&baseline), 3);
+    assert_eq!(
+        count_id_prefixes(&baseline),
+        3,
+        "three active downloads render"
+    );
 
-    // complete the middle slot — total row count stays the same and the slot keeps
-    // rendering its terminal message ("done") instead of going blank until the next
-    // beatmapset arrives. text is debounced so we wait past the window before rendering.
+    // Completing the middle slot removes its row outright — a finished download
+    // is no longer downloading, so it must not linger with a "done" message. Text
+    // is debounced, so wait past the window before rendering.
     app.downloads[0].update_active_status(11, BeatmapStage::Success, "done", false, None);
     std::thread::sleep(std::time::Duration::from_millis(75));
     let after_complete = render_app(&app, 120, 30);
     assert_eq!(
-        app.downloads[0].thread_total_items.get(),
-        baseline_total,
-        "freed slot must not collapse the panel height"
-    );
-    assert_eq!(
         count_id_prefixes(&after_complete),
-        3,
-        "terminal slot must keep rendering its row so it never flashes blank"
+        2,
+        "a finished download's row is removed from the active list"
     );
     assert!(
-        after_complete.contains("done"),
-        "terminal message must remain visible until the slot is reused"
+        !after_complete.contains("done"),
+        "the finished row's terminal message must not linger"
     );
+    assert!(after_complete.contains("#10") && after_complete.contains("#12"));
+    assert!(!after_complete.contains("#11"), "finished id must be gone");
 
-    // refill — the lingering terminal slot is reused, ids stay at 3
+    // A fresh download claims the freed slot and a row reappears.
     app.downloads[0].update_active_status(
         99,
         BeatmapStage::Downloading,
@@ -471,18 +598,16 @@ fn active_panel_height_is_constant_across_completion_and_start() {
         None,
     );
     let after_refill = render_app(&app, 120, 30);
-    assert_eq!(app.downloads[0].thread_total_items.get(), baseline_total);
     assert_eq!(count_id_prefixes(&after_refill), 3);
     assert!(
         after_refill.contains("#99"),
-        "new beatmapset must take the lingering terminal slot"
+        "new beatmapset takes the freed slot"
     );
 
-    // and an all-empty active panel still keeps `concurrent` rows so the stage transition
-    // from rechecking to first lib status can't flash a placeholder for a single frame
+    // Clearing every slot leaves no active rows at all.
     app.downloads[0].clear_active_downloads();
-    let _ = render_app(&app, 120, 30);
-    assert_eq!(app.downloads[0].thread_total_items.get(), baseline_total);
+    let after_clear = render_app(&app, 120, 30);
+    assert_eq!(count_id_prefixes(&after_clear), 0, "no active rows remain");
 }
 
 #[test]
@@ -586,11 +711,14 @@ fn rechecking_stage_replaces_top_title_with_recheck_progress() {
 
     assert!(
         output.contains("rechecking 3/10"),
-        "gauge top title must show recheck progress instead of downloaded/queued during rechecking"
+        "gauge top title must show recheck progress during rechecking"
     );
+    // The downloaded/queued/skipped/failed tally moved into the OVERVIEW panel
+    // (the gauge dropped its top-title tally). During rechecking it renders at the
+    // bottom of OVERVIEW, with the recheck title still owned by the gauge.
     assert!(
-        !output.contains("queued"),
-        "queued count must not appear in the gauge top title during rechecking"
+        output.contains("queued"),
+        "overview tally must render the queued count during rechecking"
     );
 }
 
@@ -1120,23 +1248,25 @@ fn terminal_stage_clears_active_downloads() {
 }
 
 #[test]
-fn footer_info_message_uses_info_color() {
+fn info_toast_renders_with_info_colored_bar() {
     let mut app = App::new(Config::default());
-    app.home.message = Some(AppMessage::info("ready"));
+    app.toast_info("ready");
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend).expect("test backend should initialize");
     terminal
-        .draw(|frame| super::draw(frame, &app))
+        .draw(|frame| {
+            super::draw(frame, &app);
+        })
         .expect("app should render");
 
-    let has_info_cell = terminal
+    let has_info_bar = terminal
         .backend()
         .buffer()
         .content
         .iter()
-        .any(|cell| cell.symbol() == "i" && cell.style().fg == Some(Color::Rgb(116, 199, 236)));
+        .any(|cell| cell.symbol() == "┃" && cell.style().fg == Some(Color::Rgb(116, 199, 236)));
 
-    assert!(has_info_cell);
+    assert!(has_info_bar, "info toast must render a ┃ bar in INFO color");
 }
 
 #[test]
@@ -1193,15 +1323,18 @@ fn home_hint_shows_plus_minus_when_threads_focused() {
 
 #[test]
 fn config_archive_validation_help_shows_when_focused() {
+    use crate::download::ArchiveValidation;
+
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
     app.config.focus = ConfigField::DownloadArchiveValidation;
+    app.config.archive_validation = ArchiveValidation::Magic;
 
     let output = render_app(&app, 100, 30);
 
     assert!(
-        output.contains("basic verifies headers"),
-        "archive validation help must appear when field is focused: {output}"
+        output.contains("verifies archive headers"),
+        "the current-state help must appear when the field is focused: {output}"
     );
 }
 
@@ -1214,11 +1347,11 @@ fn config_archive_validation_help_hidden_when_not_focused() {
     let output = render_app(&app, 100, 30);
 
     assert!(
-        !output.contains("basic verifies headers"),
+        !output.contains("verifies archive headers"),
         "archive validation help must not appear when field is not focused: {output}"
     );
     assert!(
-        !output.contains("strict mode may reject"),
+        !output.contains("eocd"),
         "strict help must not appear when field is not focused: {output}"
     );
 }
@@ -1235,12 +1368,12 @@ fn config_archive_validation_strict_help_when_strict_selected_and_focused() {
     let output = render_app(&app, 100, 30);
 
     assert!(
-        output.contains("strict mode may reject"),
-        "strict help must appear when strict is selected and field is focused: {output}"
+        output.contains("eocd"),
+        "the strict-state help must appear when strict is selected and focused: {output}"
     );
     assert!(
-        !output.contains("off skips checks"),
-        "generic help must not appear alongside the strict help: {output}"
+        !output.contains("verifies archive headers"),
+        "only the current-state help must render, not the basic one: {output}"
     );
 }
 
@@ -1354,7 +1487,7 @@ fn compact_home_renders_without_panic() {
 }
 
 #[test]
-fn compact_home_shows_url_field_and_summary() {
+fn compact_home_shows_url_field() {
     use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
@@ -1428,54 +1561,24 @@ fn compact_updates_renders_without_panic() {
 // --- status pill tests ---
 
 #[test]
-fn pill_shows_downloading_count_when_at_least_one_page_is_downloading() {
+fn pill_is_none_when_disk_path_is_unknown() {
     use super::header::StatusPill;
 
-    let pill = StatusPill::compute(2, None).expect("two downloading pages produces a pill");
-    let segs = pill.segments();
-    let all_text: String = segs.iter().map(|(t, _)| t.as_str()).collect();
     assert!(
-        all_text.contains("2 downloading"),
-        "pill must display downloading count, got {all_text:?}"
+        StatusPill::compute(None).is_none(),
+        "pill must be None when free space is unknown"
     );
 }
 
 #[test]
-fn pill_omits_downloading_segment_when_count_is_zero() {
-    use super::header::StatusPill;
-
-    // Healthy disk (above warn threshold) + no downloads → pill is hidden entirely.
-    // Use a low-disk value so the disk segment IS present but the downloading segment is not.
-    let free = 500u64 * 1024 * 1024; // 500 MiB — below 1 GiB warn threshold
-    let pill = StatusPill::compute(0, Some(free));
-    let pill = pill.expect("low-disk segment keeps pill visible");
-    let segs = pill.segments();
-    let all_text: String = segs.iter().map(|(t, _)| t.as_str()).collect();
-    assert!(
-        !all_text.contains("downloading"),
-        "downloading segment must be absent when count is 0, got {all_text:?}"
-    );
-}
-
-#[test]
-fn pill_is_none_when_no_downloads_and_no_disk_path() {
-    use super::header::StatusPill;
-
-    assert!(
-        StatusPill::compute(0, None).is_none(),
-        "pill must be None when nothing to show"
-    );
-}
-
-#[test]
-fn pill_is_none_when_no_downloads_and_disk_above_warn_threshold() {
+fn pill_is_none_when_disk_above_warn_threshold() {
     use super::header::StatusPill;
 
     // 2 GiB — well above 1 GiB warn threshold: disk segment omitted, pill hidden.
     let free = 2u64 * 1024 * 1024 * 1024;
     assert!(
-        StatusPill::compute(0, Some(free)).is_none(),
-        "pill must be None when disk is healthy and nothing is downloading"
+        StatusPill::compute(Some(free)).is_none(),
+        "pill must be None when disk is healthy"
     );
 }
 
@@ -1486,7 +1589,7 @@ fn pill_disk_color_is_warning_below_1_gib() {
 
     // 500 MiB — below 1 GiB warn threshold, above 100 MiB danger threshold
     let free = 500u64 * 1024 * 1024;
-    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
+    let pill = StatusPill::compute(Some(free)).expect("disk segment present");
     let segs = pill.segments();
     let disk_seg = segs
         .iter()
@@ -1506,7 +1609,7 @@ fn pill_disk_color_is_danger_below_100_mib() {
 
     // 50 MiB — below 100 MiB danger threshold
     let free = 50u64 * 1024 * 1024;
-    let pill = StatusPill::compute(0, Some(free)).expect("disk segment present");
+    let pill = StatusPill::compute(Some(free)).expect("disk segment present");
     let segs = pill.segments();
     let disk_seg = segs
         .iter()
@@ -1525,7 +1628,7 @@ fn header_renders_brand_tabs_and_version_regions() {
     let output = render_app(&app, 120, 24);
 
     assert!(
-        output.contains("osu-collect"),
+        output.contains("osu!collect"),
         "brand must render in header"
     );
     assert!(output.contains("home"), "tabs must render in header");
@@ -1533,29 +1636,5 @@ fn header_renders_brand_tabs_and_version_regions() {
     assert!(
         output.contains(version),
         "version must render in header: expected {version:?} in output"
-    );
-}
-
-#[test]
-fn downloading_count_reflects_downloading_stage_pages_only() {
-    let mut app = App::new(Config::default());
-
-    let mut page1 = CollectionPage::new(1, "a".into(), 1);
-    page1.stage = DownloadStage::Downloading;
-
-    let mut page2 = CollectionPage::new(2, "b".into(), 1);
-    page2.stage = DownloadStage::Completed;
-
-    let mut page3 = CollectionPage::new(3, "c".into(), 1);
-    page3.stage = DownloadStage::Downloading;
-
-    app.downloads.push(page1);
-    app.downloads.push(page2);
-    app.downloads.push(page3);
-
-    assert_eq!(
-        app.downloading_count(),
-        2,
-        "only Downloading-stage pages should be counted"
     );
 }

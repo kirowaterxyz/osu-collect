@@ -173,22 +173,49 @@ fn ask_mode_enter_dispatches_with_retry() {
 }
 
 #[test]
-fn ask_mode_n_dispatches_without_retry() {
+fn ask_mode_skip_button_dispatches_without_retry() {
     let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
     let _ = app.request_download();
     assert!(app.confirm_retry_on_start.is_some());
 
-    let cmd = app.handle_key(press(KeyCode::Char('n')));
+    // Buttons are [cancel, skip, retry] with retry default-focused; ← moves to
+    // the `skip` button, then enter dispatches without retry.
+    app.handle_key(press(KeyCode::Left));
+    let cmd = app.handle_key(press(KeyCode::Enter));
     assert!(
         app.confirm_retry_on_start.is_none(),
-        "n must close the modal"
+        "activating skip must close the modal"
     );
     let Some(AppCommand::StartDownload { request, .. }) = cmd else {
-        panic!("n must emit StartDownload, got {cmd:?}");
+        panic!("skip must emit StartDownload, got {cmd:?}");
     };
     assert!(
         !request.include_previously_failed,
-        "n must dispatch with include_previously_failed = false"
+        "skip must dispatch with include_previously_failed = false"
+    );
+}
+
+#[test]
+fn ask_mode_cancel_button_discards_download() {
+    let (mut app, _dir) = app_with_failed_maps(RetryFailedOnDownload::Ask);
+    let downloads_before = app.downloads.len();
+    let _ = app.request_download();
+    assert!(app.confirm_retry_on_start.is_some());
+
+    // ← twice from the default `retry` lands on `cancel`; enter discards the
+    // queued download (same effect as esc).
+    app.handle_key(press(KeyCode::Left));
+    app.handle_key(press(KeyCode::Left));
+    let cmd = app.handle_key(press(KeyCode::Enter));
+    assert!(cmd.is_none(), "cancel must not dispatch a command");
+    assert!(
+        app.confirm_retry_on_start.is_none(),
+        "cancel must close the modal"
+    );
+    assert_eq!(
+        app.downloads.len(),
+        downloads_before,
+        "cancel must not leave a queued page behind"
     );
 }
 

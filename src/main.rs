@@ -1,5 +1,5 @@
 use osu_collect::app::run_app;
-use osu_collect::auto_update::{cleanup_stale_artifacts, spawn_background_update};
+use osu_collect::auto_update::cleanup_stale_artifacts;
 use osu_collect::cli;
 use osu_collect::config::{LogLevel, LoggingConfig, load_config_or_default};
 use osu_collect::realm_bridge::ffi::set_realm_debug_logging;
@@ -59,7 +59,6 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             set_realm_debug_logging(realm_debug);
             let _logging_guard = utils::init_logging(&config.logging)?;
             cleanup_stale_artifacts();
-            spawn_background_update();
             run_app(config, None).await?;
         }
     }

@@ -65,73 +65,44 @@ fn setup_download_tab_with_failures(app: &mut App, reasons: &[FailureReason]) ->
     id
 }
 
-// ── r on focused failed row ───────────────────────────────────────────────────
+// ── r retries all (case-insensitive) ─────────────────────────────────────────
 
 #[test]
-fn r_on_focused_failed_row_emits_retry_failed_map() {
+fn r_retries_all_failed_maps() {
     let mut app = make_app();
-    let download_id = setup_download_tab_with_failures(&mut app, &[FailureReason::NetworkError]);
-
-    // focus the first (only) row
-    app.active_download_page_mut().unwrap().failed_focus_next();
-
-    let cmd = app.handle_key(press(KeyCode::Char('r')));
-    assert!(
-        matches!(
-            cmd,
-            Some(AppCommand::RetryFailedMap {
-                download_id: did,
-                beatmapset_id: 1
-            }) if did == download_id
-        ),
-        "r on focused row should emit RetryFailedMap with the right IDs"
-    );
-}
-
-#[test]
-fn r_without_focus_emits_nothing() {
-    let mut app = make_app();
-    setup_download_tab_with_failures(&mut app, &[FailureReason::NetworkError]);
-    // failed_focus is None by default
-    let cmd = app.handle_key(press(KeyCode::Char('r')));
-    assert!(
-        cmd.is_none(),
-        "r without a focused row must not emit any command"
-    );
-}
-
-#[test]
-fn r_on_not_found_row_emits_nothing() {
-    let mut app = make_app();
-    setup_download_tab_with_failures(&mut app, &[FailureReason::NotFound]);
-
-    app.active_download_page_mut().unwrap().failed_focus_next();
-
-    let cmd = app.handle_key(press(KeyCode::Char('r')));
-    assert!(
-        cmd.is_none(),
-        "r on a NotFound row must be skipped silently"
-    );
-}
-
-#[test]
-fn r_removes_retried_row_from_failed_maps() {
-    let mut app = make_app();
-    setup_download_tab_with_failures(
+    let download_id = setup_download_tab_with_failures(
         &mut app,
         &[FailureReason::NetworkError, FailureReason::RateLimited],
     );
 
-    // focus first row (beatmapset_id = 1)
-    app.active_download_page_mut().unwrap().failed_focus_next();
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+    assert!(
+        matches!(cmd, Some(AppCommand::RetryAllFailed { download_id: did }) if did == download_id),
+        "r must retry ALL retryable failed maps (hotkeys are case-insensitive)"
+    );
+}
 
-    let _ = app.handle_key(press(KeyCode::Char('r')));
+#[test]
+fn r_retries_all_without_a_focused_row() {
+    let mut app = make_app();
+    let download_id = setup_download_tab_with_failures(&mut app, &[FailureReason::NetworkError]);
+    // failed_focus is None — r still retries all retryable maps
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+    assert!(
+        matches!(cmd, Some(AppCommand::RetryAllFailed { download_id: did }) if did == download_id),
+        "r retries all regardless of the focused row"
+    );
+}
 
-    let page = app.active_download_page_mut().unwrap();
-    assert_eq!(page.failed_maps.len(), 1, "retried row must be removed");
-    assert_eq!(
-        page.failed_maps[0].beatmapset_id, 2,
-        "remaining row should be the second map"
+#[test]
+fn r_with_only_not_found_emits_nothing() {
+    let mut app = make_app();
+    setup_download_tab_with_failures(&mut app, &[FailureReason::NotFound]);
+
+    let cmd = app.handle_key(press(KeyCode::Char('r')));
+    assert!(
+        cmd.is_none(),
+        "r with only NotFound failures (none retryable) must emit nothing"
     );
 }
 
@@ -261,11 +232,11 @@ fn r_on_home_tab_text_input_does_not_emit_retry() {
     assert_eq!(app.home.focus, HomeField::Collection);
 
     let cmd = app.handle_key(press(KeyCode::Char('r')));
-    // r on the home tab's text field should NOT emit RetryFailedMap —
+    // r on the home tab's text field must NOT trigger a retry —
     // it types into the collection input instead
     assert!(
-        !matches!(cmd, Some(AppCommand::RetryFailedMap { .. })),
-        "r on a text input must not emit RetryFailedMap"
+        !matches!(cmd, Some(AppCommand::RetryAllFailed { .. })),
+        "r on a text input must not trigger a retry"
     );
 }
 
@@ -276,12 +247,17 @@ fn help_overlay_contains_retry_bindings() {
     use ratatui::{Terminal, backend::TestBackend};
 
     let mut app = make_app();
+    // Help is per-tab now; the retry binding lives in the download section, so
+    // focus a download tab before opening the overlay.
+    setup_download_tab_with_failures(&mut app, &[FailureReason::NetworkError]);
     app.help_open = true;
 
     let backend = TestBackend::new(80, 40);
     let mut terminal = Terminal::new(backend).expect("test backend");
     terminal
-        .draw(|frame| crate::tui::draw(frame, &app))
+        .draw(|frame| {
+            crate::tui::draw(frame, &app);
+        })
         .expect("render");
 
     let rendered: String = terminal
@@ -297,8 +273,8 @@ fn help_overlay_contains_retry_bindings() {
         "help overlay must show the 'r' retry binding"
     );
     assert!(
-        rendered.contains('R'),
-        "help overlay must show the 'R' retry-all binding"
+        rendered.contains("retry failed maps"),
+        "help overlay must describe the retry action"
     );
 }
 
