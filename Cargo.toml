@@ -1,6 +1,6 @@
 [package]
 name = "osu-collect"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 authors = ["uwuclxdy"]
 description = "Download and update installed collections from osu!collector (TUI)"
