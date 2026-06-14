@@ -16,7 +16,7 @@ jobs:
       OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
       OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -45,13 +45,30 @@ jobs:
       - name: Build for Linux
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/osu-collect dist/osu-collect-linux-x64
+          chmod +x dist/osu-collect-linux-x64
+          cd dist && sha256sum osu-collect-linux-x64 > osu-collect-linux-x64.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: osu-collect-linux-x64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            dist/osu-collect-linux-x64
+            dist/osu-collect-linux-x64.sha256
+
   build-windows:
     runs-on: windows-latest
     env:
       OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
       OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -75,13 +92,31 @@ jobs:
       - name: Build for Windows
         run: cargo build --release --target x86_64-pc-windows-msvc
 
+      - name: Package artifact
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/osu-collect.exe dist/osu-collect-windows-x64.exe
+          Get-FileHash dist/osu-collect-windows-x64.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  osu-collect-windows-x64.exe" } |
+            Out-File -Encoding ascii dist/osu-collect-windows-x64.exe.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: osu-collect-windows-x64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            dist/osu-collect-windows-x64.exe
+            dist/osu-collect-windows-x64.exe.sha256
+
   build-macos:
     runs-on: macos-latest
     env:
       OSU_CLIENT_ID: ${{ secrets.OSU_CLIENT_ID }}
       OSU_CLIENT_SECRET: ${{ secrets.OSU_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -107,3 +142,20 @@ jobs:
 
       - name: Build for macOS (arm64)
         run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/osu-collect dist/osu-collect-macos-arm64
+          chmod +x dist/osu-collect-macos-arm64
+          cd dist && shasum -a 256 osu-collect-macos-arm64 > osu-collect-macos-arm64.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: osu-collect-macos-arm64
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            dist/osu-collect-macos-arm64
+            dist/osu-collect-macos-arm64.sha256

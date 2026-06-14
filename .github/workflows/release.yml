@@ -12,7 +12,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -42,7 +42,7 @@ jobs:
           cd release && sha256sum osu-collect-linux-x64 > osu-collect-linux-x64.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-binary
           if-no-files-found: error
@@ -53,7 +53,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -79,7 +79,7 @@ jobs:
             Out-File -Encoding ascii release/osu-collect-windows-x64.exe.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-binary
           if-no-files-found: error
@@ -90,7 +90,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -118,7 +118,7 @@ jobs:
           cd release && shasum -a 256 osu-collect-macos-arm64 > osu-collect-macos-arm64.sha256
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-binary
           if-no-files-found: error
@@ -133,19 +133,19 @@ jobs:
       contents: write
     steps:
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-binary
           path: release
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-binary
           path: release
 
       - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: macos-binary
           path: release
