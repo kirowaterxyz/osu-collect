@@ -15,21 +15,21 @@ doctest = false
 
 [dependencies]
 osu-downloader = { path = "osu-downloader" }
-reqwest = { version = "0.13.3", default-features = false, features = ["json", "stream", "default-tls", "blocking", "form"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream", "default-tls", "blocking", "form"] }
 open = "5.3.5"
 bytes = "1.11.1"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 thiserror = "2.0.18"
 semver = "1.0.28"
 toml = "1.1.2"
 dirs = "6.0.0"
-time = { version = "0.3.47", features = ["formatting"] }
+time = { version = "0.3.49", features = ["formatting"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "fs", "io-util", "sync", "time", "net"] }
 async-channel = "2.5.0"
 futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
 osu-db = "0.3.0"
-ratatui = { version = "0.30.0", default-features = false, features = ["crossterm"] }
+ratatui = { version = "0.30.1", default-features = false, features = ["crossterm"] }
 crossterm = "0.29.0"
 md-5 = "0.11.0"
 dashmap = "6.2.1"
@@ -39,13 +39,14 @@ tracing-appender = "0.2.5"
 regex-lite = "0.1.9"
 whoami = "2.1.2"
 cxx = "1.0.194"
+fs2 = "0.4.3"
+smallvec = "1.15.2"
+sha2 = "0.11.0"
+unicode-width = "0.2.2"
+
 # Suppress link-cplusplus's unconditional `-lstdc++`; build.rs owns C++ runtime linking
 # so Windows mingw builds can statically pull libstdc++.a instead of libstdc++-6.dll.
 link-cplusplus = { version = "1.0.12", features = ["nothing"] }
-fs2 = "0.4.3"
-smallvec = "1.15.1"
-sha2 = "0.11.0"
-unicode-width = "0.2.2"
 
 [[example]]
 name = "ram_harness"
@@ -64,7 +65,7 @@ path = "tests/mod.rs"
 tempfile = "3.27.0"
 osu-downloader = { path = "osu-downloader", features = ["test-helpers"] }
 criterion = { version = "0.8.2", features = ["html_reports"] }
-chrono = "0.4"
+chrono = "0.4.45"
 
 [build-dependencies]
 cxx-build = "1.0.194"
