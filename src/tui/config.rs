@@ -15,7 +15,8 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    HELP_CUSTOM_MIRROR, bg_hover, bg_raised, mirror_label, success, text, text_dim, warning,
+    HELP_CUSTOM_MIRROR, HELP_OSU_OFFICIAL_LOCKED, bg_hover, bg_raised, mirror_label, success, text,
+    text_dim, warning,
 };
 use osu_downloader::MirrorKind;
 
@@ -141,6 +142,7 @@ fn build_config_items(
         ));
     }
 
+    let logged_in = matches!(form.login_state, AuthLoginState::LoggedIn);
     let mirror_states = [
         (ConfigField::MirrorOsuDirect, form.osu_direct),
         (ConfigField::MirrorNerinyan, form.nerinyan),
@@ -151,18 +153,30 @@ fn build_config_items(
         (ConfigField::MirrorOsuOfficial, form.osu_official),
     ];
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
-        items.push_focusable(
-            field,
-            // Host is an informational hint, not a configurable value, so it is
-            // NOT column-aligned (label_width 0) — it trails the mirror name.
+        // Host is an informational hint, not a configurable value, so it is NOT
+        // column-aligned (label_width 0) — it trails the mirror name.
+        let item = if *kind == MirrorKind::OsuApi && !logged_in {
+            // osu! official needs a login: greyed + inert when logged out.
+            widgets::disabled_toggle_row(
+                mirror_label(*kind),
+                Some(kind.host()),
+                on,
+                focus == field,
+                0,
+            )
+        } else {
             widgets::row_item(
                 mirror_label(*kind),
                 Some(kind.host()),
                 on,
                 focus == field,
                 0,
-            ),
-        );
+            )
+        };
+        items.push_focusable(field, item);
+    }
+    if show_chrome && focus == ConfigField::MirrorOsuOfficial && !logged_in {
+        items.push(widgets::help_item(HELP_OSU_OFFICIAL_LOCKED));
     }
     items.push_focusable(
         ConfigField::MirrorCustomUrl,

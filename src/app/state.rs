@@ -206,6 +206,40 @@ impl App {
         self.active_tab
     }
 
+    /// Whether the osu! official mirror can be enabled — only with a stored
+    /// `*`-scope login. Drives the greyed-out toggle and the "log in first"
+    /// notice; the toggle is inert until this is `true`.
+    pub fn osu_official_unlocked(&self) -> bool {
+        matches!(self.config.login_state, AuthLoginState::LoggedIn)
+    }
+
+    /// When the focused field is the osu! official mirror toggle and the user is
+    /// logged out, surface a "log in first" toast and return `true` so the caller
+    /// skips the toggle. The mirror cannot be enabled without a `*` token.
+    fn block_osu_official_if_logged_out(&mut self) -> bool {
+        let focused_osu_official = match self.active_tab() {
+            HOME_TAB_INDEX => self.home.focus == HomeField::MirrorOsuOfficial,
+            CONFIG_TAB_INDEX => self.config.focus == ConfigField::MirrorOsuOfficial,
+            _ => false,
+        };
+        if focused_osu_official && !self.osu_official_unlocked() {
+            self.push_toast(
+                Toast::info("log in to enable the osu! official mirror")
+                    .with_detail("open the login tab from the config auth chip"),
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Toggle the focused home field, unless it's the logged-out osu! official
+    /// mirror (then it stays off and the user is notified).
+    fn toggle_home_current_gated(&mut self) {
+        if !self.block_osu_official_if_logged_out() {
+            self.home.toggle_current();
+        }
+    }
+
     /// Whether any download page is in a non-terminal stage (preparing,
     /// resolving, rechecking, or downloading). Drives the header brand
     /// animation, which idles once every page reaches `Completed`/`Failed`.
@@ -1214,7 +1248,7 @@ impl App {
                                     return Some(AppCommand::StartDownload { id, request });
                                 }
                             }
-                            field if field.is_toggle() => self.home.toggle_current(),
+                            field if field.is_toggle() => self.toggle_home_current_gated(),
                             // Text inputs and the threads stepper have nothing to activate.
                             _ => {}
                         }
@@ -1270,8 +1304,10 @@ impl App {
                         field if field.is_text_input() || field.is_stepper() => {}
                         // toggle / cycle fields (space also works) — applied live
                         _ => {
-                            self.config.toggle_current();
-                            self.apply_config_change();
+                            if !self.block_osu_official_if_logged_out() {
+                                self.config.toggle_current();
+                                self.apply_config_change();
+                            }
                         }
                     },
                     tab if self.is_login_tab(tab) => return self.login_enter(),
@@ -1296,7 +1332,7 @@ impl App {
                             return Some(cmd);
                         }
                     } else if self.home.focus.is_toggle() {
-                        self.home.toggle_current();
+                        self.toggle_home_current_gated();
                     }
                 }
                 UPDATES_TAB_INDEX => {
@@ -1317,8 +1353,10 @@ impl App {
                     ConfigField::AuthChip => {}
                     field if field.is_text_input() || field.is_stepper() => {}
                     _ => {
-                        self.config.toggle_current();
-                        self.apply_config_change();
+                        if !self.block_osu_official_if_logged_out() {
+                            self.config.toggle_current();
+                            self.apply_config_change();
+                        }
                     }
                 },
                 tab if self.is_login_tab(tab) => {

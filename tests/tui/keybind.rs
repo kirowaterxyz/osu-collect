@@ -280,6 +280,44 @@ fn space_on_mirror_field_also_toggles_state() {
 }
 
 #[test]
+fn osu_official_toggle_blocked_and_notifies_when_logged_out() {
+    use osu_collect::app::{AuthLoginState, HomeField};
+    let mut app = make_app();
+    app.config.login_state = AuthLoginState::LoggedOut;
+    app.home.osu_official = false;
+    app.home.focus = HomeField::MirrorOsuOfficial;
+
+    app.handle_key(press(KeyCode::Enter));
+    assert!(
+        !app.home.osu_official,
+        "osu! official must not be enablable while logged out"
+    );
+    assert!(
+        !app.toasts.is_empty(),
+        "a logged-out enable attempt must notify the user to log in"
+    );
+
+    // `space` is gated the same way.
+    app.handle_key(press(KeyCode::Char(' ')));
+    assert!(!app.home.osu_official, "space must not enable it either");
+}
+
+#[test]
+fn osu_official_toggle_works_when_logged_in() {
+    use osu_collect::app::{AuthLoginState, HomeField};
+    let mut app = make_app();
+    app.config.login_state = AuthLoginState::LoggedIn;
+    app.home.osu_official = false;
+    app.home.focus = HomeField::MirrorOsuOfficial;
+
+    app.handle_key(press(KeyCode::Enter));
+    assert!(
+        app.home.osu_official,
+        "logged in, the osu! official toggle works normally"
+    );
+}
+
+#[test]
 fn space_on_download_button_does_not_start_download() {
     use osu_collect::app::HomeField;
     let mut app = make_app();

@@ -638,6 +638,40 @@ pub fn row_item_with_suffix(
     ListItem::new(Line::from(spans))
 }
 
+/// A toggle row rendered **disabled** (inert): the toggle glyph, label, and
+/// detail are all `text_faint`, signalling the row can't be activated. The focus
+/// caret still shows (the row is focusable so the user sees where they are), but
+/// the caller must skip activation and surface a reason — pair it with a
+/// `help_item` tooltip on focus (cloudy-tui disabled-row pattern).
+pub fn disabled_toggle_row(
+    label: &str,
+    detail: Option<&str>,
+    state: bool,
+    focused: bool,
+    label_width: usize,
+) -> ListItem<'static> {
+    let faint = Style::default().fg(text_faint());
+    // The toggle glyph is rendered faint too (not the live accent/line colors),
+    // so the whole control reads as disabled.
+    let toggle: Vec<Span<'static>> = match theme().tier() {
+        Tier::Full if state => vec![Span::styled("─●", faint)],
+        Tier::Full => vec![Span::styled("○─", faint)],
+        Tier::Compatible if state => vec![Span::styled("[on]", faint)],
+        Tier::Compatible => vec![Span::styled("[off]", faint)],
+    };
+
+    let mut spans = vec![focus_span(focused)];
+    spans.extend(toggle);
+    spans.push(Span::styled(
+        format!(" {}", label_cell(label, label_width)),
+        faint,
+    ));
+    if let Some(d) = detail {
+        spans.push(Span::styled(d.to_string(), faint));
+    }
+    ListItem::new(Line::from(spans))
+}
+
 /// A button row rendered as a filled pill, activated with `enter`.
 ///
 /// `enabled` greys the label when the action is currently unavailable (e.g. no

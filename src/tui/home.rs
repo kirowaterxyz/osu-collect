@@ -9,7 +9,10 @@ use ratatui::{
 };
 
 use super::widgets;
-use super::{HELP_CUSTOM_MIRROR, danger, line, mirror_label, success, text_dim, text_faint};
+use super::{
+    HELP_CUSTOM_MIRROR, HELP_OSU_OFFICIAL_LOCKED, danger, line, mirror_label, success, text_dim,
+    text_faint,
+};
 use osu_downloader::MirrorKind;
 
 const PANEL_TITLE: &str = " HOME ";
@@ -31,19 +34,19 @@ const LABEL_START_DOWNLOAD: &str = "start download";
 ///
 /// System-wide banners are rendered by [`super::draw`] above the body area, so
 /// this receives the already-reduced content area.
-pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
+pub fn render(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool, editing: bool) {
     if area.height < super::COMPACT_HEIGHT {
-        render_compact(frame, area, form, editing);
+        render_compact(frame, area, form, unlocked, editing);
         return;
     }
-    render_content(frame, area, form, editing);
+    render_content(frame, area, form, unlocked, editing);
 }
 
 /// Compact render: all focusable fields without section headers, spacers, or help lines.
 ///
 /// Navigation is identical to normal mode — the full `HOME_FIELDS` cycle still applies.
 /// Only decorative chrome is stripped to reclaim vertical space.
-fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
+fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool, editing: bool) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -65,7 +68,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) 
         ),
     );
 
-    push_mirror_rows(&mut items, form, focus);
+    push_mirror_rows(&mut items, form, focus, unlocked);
 
     items.push_focusable(
         HomeField::Directory,
@@ -119,7 +122,7 @@ fn can_download(form: &HomeTab) -> bool {
     !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
-fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) {
+fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool, editing: bool) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
 
@@ -154,7 +157,11 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, editing: bool) 
         items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
     }
 
-    push_mirror_rows(&mut items, form, focus);
+    push_mirror_rows(&mut items, form, focus, unlocked);
+    // Locked osu! official row: explain why it's greyed when focused.
+    if !unlocked && focus == HomeField::MirrorOsuOfficial {
+        items.push(widgets::help_item(HELP_OSU_OFFICIAL_LOCKED));
+    }
     items.push(widgets::spacer());
 
     items.push(widgets::section_header(
@@ -233,7 +240,12 @@ fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
 ///
 /// Shared by `render_compact` and `render_content` — the row content is
 /// identical in both paths; only the surrounding chrome differs.
-fn push_mirror_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, focus: HomeField) {
+fn push_mirror_rows(
+    items: &mut widgets::FormItems<HomeField>,
+    form: &HomeTab,
+    focus: HomeField,
+    unlocked: bool,
+) {
     let mirror_states = [
         (HomeField::MirrorOsuDirect, form.osu_direct),
         (HomeField::MirrorNerinyan, form.nerinyan),
@@ -244,17 +256,26 @@ fn push_mirror_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
         (HomeField::MirrorOsuOfficial, form.osu_official),
     ];
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
-        let latency = form.mirror_latency.get(kind).copied();
-        items.push_focusable(
-            field,
+        // osu! official needs a login: render it greyed + inert when logged out.
+        let item = if *kind == MirrorKind::OsuApi && !unlocked {
+            widgets::disabled_toggle_row(
+                mirror_label(*kind),
+                Some(kind.host()),
+                on,
+                focus == field,
+                0,
+            )
+        } else {
+            let latency = form.mirror_latency.get(kind).copied();
             mirror_row_item(
                 mirror_label(*kind),
                 kind.host(),
                 on,
                 focus == field,
                 latency,
-            ),
-        );
+            )
+        };
+        items.push_focusable(field, item);
     }
 }
 

@@ -176,6 +176,8 @@ pub(crate) fn format_free_space(bytes: u64) -> String {
 }
 
 pub const HELP_CUSTOM_MIRROR: &str = "must contain {id}";
+/// Focus tooltip / locked-row reason for the osu! official mirror when logged out.
+pub const HELP_OSU_OFFICIAL_LOCKED: &str = "log in to enable the osu! official mirror";
 
 pub fn eyebrow() -> Style {
     // Eyebrow / column-header style: TEXT_DIM (sanctioned bold variant),
@@ -250,7 +252,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         app.confirm_retry_on_start.is_some() || app.confirm_retry.is_some() || app.help_open;
     let editing = app.editing && !overlay_open;
     match app.active_tab() {
-        HOME_TAB_INDEX => home::render(frame, body_area, &app.home, editing),
+        HOME_TAB_INDEX => home::render(
+            frame,
+            body_area,
+            &app.home,
+            app.osu_official_unlocked(),
+            editing,
+        ),
         UPDATES_TAB_INDEX => updates::render(frame, body_area, &app.updates, editing),
         CONFIG_TAB_INDEX => config::render(frame, body_area, &app.config, editing),
         tab if app.is_login_tab(tab) => {
@@ -266,7 +274,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
         tab => match app.download_for_tab(tab) {
             Some(page) => download::render(frame, body_area, page, app.tick_count),
-            None => home::render(frame, body_area, &app.home, editing),
+            None => home::render(
+                frame,
+                body_area,
+                &app.home,
+                app.osu_official_unlocked(),
+                editing,
+            ),
         },
     }
 
