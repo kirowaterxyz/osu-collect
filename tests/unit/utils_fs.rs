@@ -119,3 +119,23 @@ fn pretty_path_empty_path_does_not_panic() {
     // Just assert it doesn't panic; the exact string is platform-dependent.
     let _ = result.as_ref();
 }
+
+#[test]
+fn pretty_path_strips_windows_verbatim_drive_prefix() {
+    // `std::fs::canonicalize` hands back `\\?\C:\…` on Windows; the TUI must show
+    // the bare path. Pure string logic, so this is deterministic on any platform
+    // (the embedded `C:\Users\cloudy` is never the test host's home → no `~`).
+    assert_eq!(
+        pretty_path(Path::new(r"\\?\C:\Users\cloudy\Downloads\play later-67")).as_ref(),
+        r"C:\Users\cloudy\Downloads\play later-67"
+    );
+}
+
+#[test]
+fn pretty_path_strips_windows_verbatim_unc_prefix() {
+    // `\\?\UNC\server\share` is the verbatim form of `\\server\share`.
+    assert_eq!(
+        pretty_path(Path::new(r"\\?\UNC\server\share\maps")).as_ref(),
+        r"\\server\share\maps"
+    );
+}

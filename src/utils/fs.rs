@@ -9,15 +9,33 @@ use std::{
 };
 use tokio::fs;
 
-/// Replace the home directory prefix in `path` with `~`.
+/// Strip the Windows extended-length ("verbatim") path prefix for display.
+///
+/// `std::fs::canonicalize` returns paths in `\\?\` form on Windows, which is
+/// noise in any user-facing surface. Maps `\\?\C:\x` → `C:\x` and
+/// `\\?\UNC\server\share` → `\\server\share`; returns the input untouched when
+/// no such prefix is present (so it is a no-op for every non-Windows path).
+fn strip_verbatim_prefix(s: &str) -> Cow<'_, str> {
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        Cow::Owned(format!(r"\\{rest}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        Cow::Borrowed(rest)
+    } else {
+        Cow::Borrowed(s)
+    }
+}
+
+/// Format `path` for display: drop the Windows verbatim prefix, then collapse a
+/// leading home directory to `~`.
 ///
 /// Returns `"~"` (a `&'static str` borrow) when `path` is exactly the home
-/// directory, `"~/…"` (owned) when it is a subdirectory, and the result of
-/// `to_string_lossy().into_owned()` (owned) for all other paths. Always
-/// allocates for paths outside the home directory because `Path::to_string_lossy`
-/// does not hand out a borrow tied to the caller's `path` argument.
+/// directory, `"~/…"` (owned) when it is a subdirectory, and the cleaned path
+/// (owned) for all other paths. The verbatim strip runs first so the home
+/// collapse still matches a canonicalized Windows path.
 pub fn pretty_path(path: impl AsRef<Path>) -> Cow<'static, str> {
-    let path = path.as_ref();
+    let raw = path.as_ref().to_string_lossy();
+    let cleaned = strip_verbatim_prefix(&raw);
+    let path = Path::new(cleaned.as_ref());
     if let Some(home) = dirs::home_dir() {
         if path == home {
             return Cow::Borrowed("~");
