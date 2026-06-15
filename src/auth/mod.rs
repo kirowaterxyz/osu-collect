@@ -18,10 +18,11 @@ const CALLBACK_PORT: u16 = 7273;
 const REFRESH_MARGIN_SECS: u64 = 60;
 const OSU_AUTHORIZE_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 const OSU_TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
-// `lazer` is what grants the `BeatmapsetDownload` privilege on the official API;
-// without it `GET /api/v2/beatmapsets/{id}/download` returns 403. It only works
-// with the authorization_code grant + a real user, which is exactly this flow.
-pub const OAUTH_SCOPES: &[&str] = &["public", "identify", "lazer"];
+// The osu! API download endpoint needs the `lazer` scope, but that scope is
+// reserved for the first-party osu!lazer client — third-party OAuth apps get
+// `invalid_scope` at /oauth/authorize. So official-API beatmap download is not
+// reachable here; we request only the scopes this app can actually be granted.
+pub const OAUTH_SCOPES: &[&str] = &["public", "identify"];
 const LOGIN_SUCCESS_PAGE: &str = include_str!("pages/login_success.html");
 const LOGIN_FAILURE_PAGE: &str = include_str!("pages/login_failure.html");
 
