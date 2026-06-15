@@ -22,6 +22,16 @@ fn new_logged_in_starts_on_account_view() {
     assert_eq!(tab.phase, LoginPhase::LoggedIn);
     assert_eq!(tab.focus, LoginField::Submit);
     assert_eq!(tab.fields(), [LoginField::Submit].as_slice());
+    assert!(
+        !tab.just_logged_in,
+        "opening already-logged-in (manage path) must not flag a fresh login"
+    );
+}
+
+#[test]
+fn new_logged_out_is_not_freshly_logged_in() {
+    let tab = LoginTab::new(false);
+    assert!(!tab.just_logged_in);
 }
 
 #[test]
@@ -61,6 +71,10 @@ fn enter_logged_in_clears_every_secret() {
     assert!(tab.username.value.is_empty());
     assert!(tab.password.value.is_empty());
     assert!(tab.code.value.is_empty());
+    assert!(
+        tab.just_logged_in,
+        "a fresh login must flag the close-tab hint"
+    );
 }
 
 #[test]
@@ -74,6 +88,20 @@ fn reset_credentials_keeps_username_clears_password() {
     assert_eq!(tab.username.value, "keepme");
     assert!(tab.password.value.is_empty());
     assert_eq!(tab.focus, LoginField::Username);
+}
+
+#[test]
+fn logout_clears_fresh_login_flag() {
+    // Log in, then log out (reset to the credentials form): the close-tab hint
+    // must not survive across a logout.
+    let mut tab = LoginTab::new(false);
+    tab.enter_logged_in();
+    assert!(tab.just_logged_in);
+    tab.reset_credentials();
+    assert!(
+        !tab.just_logged_in,
+        "logout must clear the fresh-login flag"
+    );
 }
 
 #[test]

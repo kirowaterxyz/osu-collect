@@ -137,11 +137,39 @@ fn q_while_editing_collection_field_types_instead_of_quitting() {
 }
 
 #[test]
-fn esc_on_home_tab_shows_toast_first() {
+fn esc_on_home_tab_never_quits_or_arms() {
     let mut app = make_app();
     let cmd = app.handle_key(press(KeyCode::Esc));
-    assert!(cmd.is_none(), "first esc must not quit immediately");
-    assert!(app.home.quit_prompt, "first esc must set the quit toast");
+    assert!(cmd.is_none(), "esc on a static tab must not quit");
+    assert!(
+        !app.home.quit_prompt,
+        "esc is back-only; it must never arm the quit prompt"
+    );
+}
+
+#[test]
+fn esc_twice_on_home_tab_never_quits() {
+    let mut app = make_app();
+    let first = app.handle_key(press(KeyCode::Esc));
+    let second = app.handle_key(press(KeyCode::Esc));
+    assert!(first.is_none() && second.is_none(), "esc must never quit");
+    assert!(!app.home.quit_prompt);
+}
+
+#[test]
+fn esc_cancels_a_q_armed_quit_prompt() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    app.home.focus = HomeField::Video; // non-text so `q` is a hotkey
+    app.handle_key(press(KeyCode::Char('q')));
+    assert!(app.home.quit_prompt, "first q must arm the quit prompt");
+
+    let cmd = app.handle_key(press(KeyCode::Esc));
+    assert!(cmd.is_none(), "esc must not quit after a q-armed prompt");
+    assert!(
+        !app.home.quit_prompt,
+        "esc must cancel the armed quit prompt"
+    );
 }
 
 // ── field navigation ──────────────────────────────────────────────────────────

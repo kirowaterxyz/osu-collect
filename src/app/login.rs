@@ -57,6 +57,12 @@ pub struct LoginTab {
     pub code: InputField,
     pub focus: LoginField,
     pub phase: LoginPhase,
+    /// `true` only when the `LoggedIn` phase was reached via a fresh login this
+    /// session ([`LoginTab::enter_logged_in`]). Stays `false` when the tab opens
+    /// already-logged-in via the config "manage" chip ([`LoginTab::new`] with
+    /// `logged_in`), so the "you can close this tab now" hint shows only after an
+    /// actual sign-in.
+    pub just_logged_in: bool,
 }
 
 impl LoginTab {
@@ -79,6 +85,7 @@ impl LoginTab {
             code: InputField::new("code", "", "verification code"),
             focus,
             phase,
+            just_logged_in: false,
         }
     }
 
@@ -108,9 +115,12 @@ impl LoginTab {
     }
 
     /// Move to the logged-in view and clear every entered secret from the UI.
+    /// Marks `just_logged_in` so the view shows the "you can close this tab now"
+    /// hint — the config "manage" path keeps it `false` via [`LoginTab::new`].
     pub fn enter_logged_in(&mut self) {
         self.phase = LoginPhase::LoggedIn;
         self.focus = LoginField::Submit;
+        self.just_logged_in = true;
         self.username.set_value(String::new());
         self.password.set_value(String::new());
         self.code.set_value(String::new());
@@ -120,6 +130,7 @@ impl LoginTab {
     /// The username is kept so a retry is one keypress; the password is wiped.
     pub fn reset_credentials(&mut self) {
         self.phase = LoginPhase::Credentials;
+        self.just_logged_in = false;
         self.password.set_value(String::new());
         self.code.set_value(String::new());
         self.focus = LoginField::Username;

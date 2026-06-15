@@ -16,13 +16,13 @@ const SECTION_CREDENTIALS: &str = "credentials";
 const SECTION_VERIFICATION: &str = "verification";
 const SECTION_ACCOUNT: &str = "account";
 
-const NOTE_PASSWORD: &str = "password is sent to osu.ppy.sh over https; only the token is stored.";
+const NOTE_PASSWORD: &str = "logs in to osu.ppy.sh over https, access token is stored locally";
 const NOTE_VERIFICATION: &str = "osu! emailed a code to verify this device.";
 
 const CAUTION: &[&str] = &[
     "signs in with osu!lazer's first-party client (unofficial).",
-    "grey area: heavy use risks a rate-limit or, rarely, a restriction.",
-    "keep it as a last-resort mirror, used sparingly.",
+    "requests to osu! are throttled automatically to stay within its limits.",
+    "grey area: still best as a last-resort mirror, used sparingly.",
 ];
 
 pub fn render(
@@ -124,6 +124,11 @@ fn build_login_items(
         LoginPhase::LoggedIn => {
             items.push(status_line());
             items.push(note_line("the osu! official mirror is now available."));
+            // Only after a fresh sign-in this session — not when the tab was
+            // opened already-logged-in via the config "manage" chip.
+            if login.just_logged_in {
+                items.push(note_line("you can close this tab now (esc or q)."));
+            }
             items.push(widgets::spacer());
             items.push(widgets::section_header(SECTION_ACCOUNT, false));
             for line in CAUTION {

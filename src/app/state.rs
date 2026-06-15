@@ -1114,6 +1114,11 @@ impl App {
                 {
                     return None;
                 }
+                // esc is purely "back": it cancels an armed quit prompt and backs
+                // out of a dynamic tab, but never quits. Only `q` quits.
+                if matches!(key.code, KeyCode::Esc) {
+                    return self.handle_back_key();
+                }
                 return self.handle_quit_key();
             }
             // In a focused text field, ←/→ move the caret instead of switching
@@ -1812,6 +1817,22 @@ impl App {
         self.active_tab = closed_tab_index
             .saturating_sub(1)
             .min(self.total_tabs() - 1);
+    }
+
+    /// `esc` as a pure "back" key. Runs after the edit/modal/updates cascade.
+    /// Cancels an armed quit prompt, backs out of a dynamic tab (closes the
+    /// login/settled-download tab or cancels a running download), and otherwise
+    /// does nothing at the static top level. It never arms or confirms a quit —
+    /// quitting is `q`-only.
+    fn handle_back_key(&mut self) -> Option<AppCommand> {
+        if self.home.quit_prompt {
+            self.home.quit_prompt = false;
+            return None;
+        }
+        if self.active_tab() >= STATIC_TABS {
+            return self.cancel_command_for_active_tab();
+        }
+        None
     }
 
     fn handle_quit_key(&mut self) -> Option<AppCommand> {

@@ -7,6 +7,20 @@ use reqwest::header::HeaderMap;
 use std::fmt::Write as _;
 use std::time::Duration;
 
+/// Minimum spacing between requests to the osu! official API ([`MirrorKind::OsuApi`]),
+/// enforced process-wide across all concurrent download workers.
+///
+/// osu!'s API v2 guidance is roughly 60 requests/minute, so one request per
+/// second keeps bursts inside that envelope no matter how many threads are
+/// downloading. This is a *proactive* limiter that only gates `OsuApi`; every
+/// other mirror is untouched, and it is independent of the *reactive* per-mirror
+/// [`MirrorKind::rate_limit_backoff`] applied after a 429.
+///
+/// Note: this does **not** keep downloads under osu!'s separate hourly download
+/// quota (~10–20/hour). Once that cap is hit osu! returns 429 and the reactive
+/// backoff takes over.
+pub(crate) const OSU_API_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Mirror type identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MirrorKind {

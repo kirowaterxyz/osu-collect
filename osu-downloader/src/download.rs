@@ -458,6 +458,18 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
         },
     );
 
+    // Proactive client-side rate limit: only the osu! official API is throttled,
+    // spaced across all workers so concurrency can't burst past osu!'s request
+    // rate. Other mirrors are never gated. The sleep is cancelable so a pending
+    // throttle never blocks a cancel.
+    if mirror.kind() == MirrorKind::OsuApi
+        && run_cancelable(params.mirror_pool.throttle_osu_api(), &params.cancel_rx)
+            .await
+            .is_none()
+    {
+        return MirrorAttempt::Done(BeatmapsetDownloadOutcome::Aborted);
+    }
+
     let url = mirror.url_for(params.beatmapset_id);
     let mut request = params.client.get(&url);
     if let Some(headers) = mirror.headers() {

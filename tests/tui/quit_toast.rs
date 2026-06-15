@@ -1,8 +1,9 @@
 /// Quit confirmation toast behaviour.
 ///
-/// First `q`/`esc` shows a toast and does NOT quit.
-/// Second `q`/`esc` while the toast is visible quits.
-/// Any other key while the toast is visible dismisses it and falls through.
+/// First `q` shows a toast and does NOT quit; second `q` while the toast is
+/// visible quits. `esc` is back-only: it never arms the toast and never quits,
+/// but it does cancel a `q`-armed toast. Any other key while the toast is
+/// visible dismisses it and falls through.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use osu_collect::{
     app::{App, AppCommand, HomeField},
@@ -41,11 +42,14 @@ fn first_q_sets_quit_prompt_no_downloads() {
 }
 
 #[test]
-fn first_esc_sets_quit_prompt_no_downloads() {
+fn esc_does_not_arm_quit_prompt() {
     let mut app = make_app();
     let cmd = app.handle_key(press(KeyCode::Esc));
-    assert!(cmd.is_none(), "first esc must not quit");
-    assert!(app.home.quit_prompt, "first esc must raise the quit toast");
+    assert!(cmd.is_none(), "esc must not quit");
+    assert!(
+        !app.home.quit_prompt,
+        "esc is back-only; it must never raise the quit toast"
+    );
 }
 
 // ── second q while toast visible quits ───────────────────────────────────────
@@ -61,13 +65,19 @@ fn second_q_quits() {
 }
 
 #[test]
-fn second_esc_quits() {
-    let mut app = make_app();
-    app.handle_key(press(KeyCode::Esc));
-    assert!(app.home.quit_prompt);
+fn esc_cancels_q_armed_quit_prompt_without_quitting() {
+    let mut app = make_app_quittable();
+    app.handle_key(press(KeyCode::Char('q')));
+    assert!(app.home.quit_prompt, "first q must arm the quit toast");
     let cmd = app.handle_key(press(KeyCode::Esc));
-    assert!(matches!(cmd, Some(AppCommand::Quit)));
-    assert!(!app.home.quit_prompt, "quit_prompt must be cleared on quit");
+    assert!(
+        !matches!(cmd, Some(AppCommand::Quit)),
+        "esc must not quit a q-armed prompt: {cmd:?}"
+    );
+    assert!(
+        !app.home.quit_prompt,
+        "esc must cancel the armed quit toast"
+    );
 }
 
 // ── unrelated key clears toast and falls through ──────────────────────────────

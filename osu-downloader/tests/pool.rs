@@ -1,6 +1,8 @@
 use super::MirrorPool;
+use crate::mirrors::OSU_API_MIN_REQUEST_INTERVAL;
 use crate::{Mirror, MirrorKind};
 use std::thread::sleep;
+use std::time::Duration;
 
 #[test]
 fn rate_limit_records_penalty() {
@@ -42,6 +44,25 @@ fn penalties_are_independent_across_mirrors() {
     pool.mark_rate_limited(MirrorKind::Nerinyan);
     assert!(pool.penalty_remaining(MirrorKind::Nerinyan).is_some());
     assert!(pool.penalty_remaining(MirrorKind::OsuDirect).is_none());
+}
+
+#[test]
+fn osu_api_throttle_interval_is_one_second() {
+    // The proactive osu! official limiter targets ~60 req/min.
+    assert_eq!(OSU_API_MIN_REQUEST_INTERVAL, Duration::from_secs(1));
+}
+
+#[tokio::test]
+async fn first_osu_api_throttle_does_not_block() {
+    // With no prior request stamped, the gate must return immediately — only
+    // the *second* call within the interval waits.
+    let pool = MirrorPool::new(vec![Mirror::osu_api()]);
+    let start = std::time::Instant::now();
+    pool.throttle_osu_api().await;
+    assert!(
+        start.elapsed() < OSU_API_MIN_REQUEST_INTERVAL,
+        "the first osu! API request must not be delayed"
+    );
 }
 
 #[test]
