@@ -4,27 +4,28 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
-pub fn bundled_credentials() -> Option<(&'static str, &'static str)> {
-    let id = option_env!("OSU_CLIENT_ID")?;
-    let secret = option_env!("OSU_CLIENT_SECRET")?;
-    if id.is_empty() || secret.is_empty() {
-        return None;
-    }
-    Some((id, secret))
-}
-
 const AUTH_FILE: &str = "auth.json";
-const CALLBACK_PORT: u16 = 7273;
 const REFRESH_MARGIN_SECS: u64 = 60;
-const OSU_AUTHORIZE_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 const OSU_TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
-// The osu! API download endpoint needs the `lazer` scope, but that scope is
-// reserved for the first-party osu!lazer client — third-party OAuth apps get
-// `invalid_scope` at /oauth/authorize. So official-API beatmap download is not
-// reachable here; we request only the scopes this app can actually be granted.
-pub const OAUTH_SCOPES: &[&str] = &["public", "identify"];
-const LOGIN_SUCCESS_PAGE: &str = include_str!("pages/login_success.html");
-const LOGIN_FAILURE_PAGE: &str = include_str!("pages/login_failure.html");
+
+/// Base URL for osu! API v2.
+pub const OSU_API_BASE: &str = "https://osu.ppy.sh/api/v2";
+
+/// osu!lazer's first-party OAuth client id. The id/secret are public in the
+/// open-source osu!lazer client (`ppy/osu`, `ProductionEndpointConfiguration.cs`).
+/// Only this first-party client may request the `*` (lazer-tier) scope that
+/// carries beatmap-download privilege, and only via the password (ROPC) grant —
+/// a self-service third-party OAuth app gets `invalid_scope`.
+pub const LAZER_CLIENT_ID: &str = "5";
+/// Public client secret for osu!lazer's first-party client. See [`LAZER_CLIENT_ID`].
+pub const LAZER_CLIENT_SECRET: &str = "FGc9GAtyHzeQDshWP5Ah7dega8hJACAJpQtw6OXk";
+/// Scope requested by the lazer password grant. `*` carries every privilege,
+/// including the beatmap download endpoint.
+pub const LAZER_SCOPE: &str = "*";
+/// `x-api-version` header value sent on every api v2 request. Any recent
+/// `YYYYMMDD` integer works; this mirrors a known-good osu!lazer build and is
+/// **mandatory** — osu! rejects api v2 calls that omit it.
+pub const X_API_VERSION: &str = "20250115";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
@@ -57,6 +58,13 @@ impl StoredAuth {
     pub fn bearer_token(&self) -> &str {
         &self.access_token
     }
+
+    /// Whether this token carries the `*` (lazer-tier) scope the official-mirror
+    /// download endpoint requires. The client-side gate that stops an old
+    /// narrow-scope token from being attached to `MirrorKind::OsuApi`.
+    pub fn has_lazer_scope(&self) -> bool {
+        self.scopes.iter().any(|scope| scope == LAZER_SCOPE)
+    }
 }
 
 fn auth_path() -> Option<std::path::PathBuf> {
@@ -88,16 +96,29 @@ pub fn save(auth: &StoredAuth) -> Result<()> {
     let json = serde_json::to_string_pretty(auth)
         .map_err(|e| AppError::other_dynamic(format!("auth serialize: {e}").into_boxed_str()))?;
 
+    // Create the temp file 0600 *before* the token is written, so it is never
+    // briefly world-readable under the process umask; the rename preserves the
+    // mode onto the final file.
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &json)?;
     {
-        use std::fs::File;
-        File::open(&tmp)?.sync_all()?;
+        use std::io::Write as _;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&tmp)?;
+        file.write_all(json.as_bytes())?;
+        file.sync_all()?;
     }
     std::fs::rename(&tmp, &path)?;
 
     #[cfg(unix)]
     {
+        // Belt-and-suspenders: a stale pre-existing temp would have kept its old
+        // mode (OpenOptions::mode only applies on creation), so re-assert 0600.
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&path)?.permissions();
         perms.set_mode(0o600);
@@ -118,77 +139,157 @@ pub fn delete() -> Result<()> {
     Ok(())
 }
 
-pub fn build_authorize_url(
-    client_id: &str,
-    redirect_uri: &str,
-    scopes: &[&str],
-    state: &str,
-) -> String {
-    let scope = scopes.join(" ");
-    format!(
-        "{OSU_AUTHORIZE_URL}?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope}&state={state}",
-        redirect_uri = urlencoding_simple(redirect_uri),
-        scope = urlencoding_simple(&scope),
-        state = urlencoding_simple(state),
-    )
+pub fn token_request_failed(operation: &str, status: reqwest::StatusCode) -> AppError {
+    AppError::other_dynamic(format!("{operation} failed ({status})").into_boxed_str())
 }
 
-fn urlencoding_simple(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            b' ' => out.push('+'),
-            b => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-pub fn authorization_code_params<'a>(
-    client_id: &'a str,
-    client_secret: &'a str,
-    redirect_uri: &'a str,
-    code: &'a str,
-) -> [(&'a str, &'a str); 5] {
+/// Form body for the lazer password (ROPC) grant.
+pub fn password_grant_params<'a>(username: &'a str, password: &'a str) -> [(&'a str, &'a str); 6] {
     [
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("code", code),
-        ("grant_type", "authorization_code"),
-        ("redirect_uri", redirect_uri),
+        ("grant_type", "password"),
+        ("client_id", LAZER_CLIENT_ID),
+        ("client_secret", LAZER_CLIENT_SECRET),
+        ("username", username),
+        ("password", password),
+        ("scope", LAZER_SCOPE),
     ]
 }
 
-pub async fn exchange_code(
+/// Exchange an osu! username + password for a `*`-scope (lazer-tier) token via
+/// the ROPC grant, and persist it.
+///
+/// The raw password is sent to `osu.ppy.sh` over TLS but **never stored** — only
+/// the returned access/refresh tokens are saved to `auth.json`.
+pub async fn password_grant(
     client: &reqwest::Client,
-    client_id: &str,
-    client_secret: &str,
-    redirect_uri: &str,
-    code: &str,
-) -> Result<TokenResponse> {
-    let params = authorization_code_params(client_id, client_secret, redirect_uri, code);
+    username: &str,
+    password: &str,
+) -> Result<StoredAuth> {
+    let params = password_grant_params(username, password);
 
     let resp = client
         .post(OSU_TOKEN_URL)
         .form(&params)
         .send()
         .await
-        .map_err(|e| AppError::other_dynamic(format!("token request: {e}").into_boxed_str()))?;
+        .map_err(|e| AppError::other_dynamic(format!("login request: {e}").into_boxed_str()))?;
 
     if !resp.status().is_success() {
-        return Err(token_request_failed("token exchange", resp.status()));
+        // The body is intentionally dropped — it may echo the submitted credentials.
+        return Err(token_request_failed("login", resp.status()));
     }
 
-    resp.json::<TokenResponse>()
+    let token = resp
+        .json::<TokenResponse>()
         .await
-        .map_err(|e| AppError::other_dynamic(format!("token parse: {e}").into_boxed_str()))
+        .map_err(|e| AppError::other_dynamic(format!("token parse: {e}").into_boxed_str()))?;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let auth = StoredAuth {
+        client_id: LAZER_CLIENT_ID.to_string(),
+        client_secret: LAZER_CLIENT_SECRET.to_string(),
+        redirect_uri: String::new(),
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        expires_at: now + token.expires_in,
+        scopes: vec![LAZER_SCOPE.to_string()],
+    };
+
+    save(&auth)?;
+    Ok(auth)
 }
 
-pub fn token_request_failed(operation: &str, status: reqwest::StatusCode) -> AppError {
-    AppError::other_dynamic(format!("{operation} failed ({status})").into_boxed_str())
+/// Full lazer login: [`password_grant`] followed by a session-verification
+/// probe. Returns `Ok(true)` when osu! requires device (new-IP / 2FA)
+/// verification before this token can download.
+pub async fn lazer_login(client: &reqwest::Client, username: &str, password: &str) -> Result<bool> {
+    let auth = password_grant(client, username, password).await?;
+    Ok(session_verification_required(client, auth.bearer_token()).await)
+}
+
+/// Probe whether osu! requires session (device) verification before this token
+/// can download.
+///
+/// **UNVERIFIED against osu-web source.** osu!lazer (`ppy/osu`) is the only
+/// reference and it does not implement ROPC, so the exact `/me` shape for this
+/// gate could not be confirmed offline. This parses the documented signals
+/// defensively — a `401` response, `session_verified == false`, or a non-null
+/// `session_verification_method` — and treats any network/parse error or
+/// unrecognised body as **not required**, so a false positive never blocks an
+/// otherwise-working login. Confirm and adjust against a real account.
+pub async fn session_verification_required(client: &reqwest::Client, access_token: &str) -> bool {
+    let resp = match client
+        .get(format!("{OSU_API_BASE}/me"))
+        .bearer_auth(access_token)
+        .header("x-api-version", X_API_VERSION)
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(err) => {
+            warn!(error = %err, "session verification probe failed; assuming not required");
+            return false;
+        }
+    };
+
+    // A pending device verification makes osu! reject `/me` with 401.
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return true;
+    }
+
+    let Ok(body) = resp.json::<serde_json::Value>().await else {
+        return false;
+    };
+
+    if body.get("session_verified") == Some(&serde_json::Value::Bool(false)) {
+        return true;
+    }
+    body.get("session_verification_method")
+        .is_some_and(|method| !method.is_null())
+}
+
+/// Submit the emailed / TOTP session-verification code for the given token.
+pub async fn submit_session_verification(
+    client: &reqwest::Client,
+    access_token: &str,
+    code: &str,
+) -> Result<()> {
+    let resp = client
+        .post(format!("{OSU_API_BASE}/session/verify"))
+        .bearer_auth(access_token)
+        .header("x-api-version", X_API_VERSION)
+        .form(&[("verification_key", code.trim())])
+        .send()
+        .await
+        .map_err(|e| AppError::other_dynamic(format!("verify request: {e}").into_boxed_str()))?;
+
+    if !resp.status().is_success() {
+        return Err(token_request_failed("verification", resp.status()));
+    }
+    Ok(())
+}
+
+/// Ask osu! to re-send (reissue) the session-verification code.
+pub async fn reissue_session_verification(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<()> {
+    let resp = client
+        .post(format!("{OSU_API_BASE}/session/verify/reissue"))
+        .bearer_auth(access_token)
+        .header("x-api-version", X_API_VERSION)
+        .send()
+        .await
+        .map_err(|e| AppError::other_dynamic(format!("reissue request: {e}").into_boxed_str()))?;
+
+    if !resp.status().is_success() {
+        return Err(token_request_failed("code reissue", resp.status()));
+    }
+    Ok(())
 }
 
 pub fn refresh_params<'a>(
@@ -206,14 +307,16 @@ pub fn refresh_params<'a>(
     ]
 }
 
+/// Refresh an access token. `scope` must match the stored token's scope so a
+/// `*` (lazer) token refreshes with `*` rather than a narrower default.
 pub async fn refresh(
     client: &reqwest::Client,
     client_id: &str,
     client_secret: &str,
     refresh_token: &str,
+    scope: &str,
 ) -> Result<TokenResponse> {
-    let scope = OAUTH_SCOPES.join(" ");
-    let params = refresh_params(client_id, client_secret, refresh_token, &scope);
+    let params = refresh_params(client_id, client_secret, refresh_token, scope);
 
     let resp = client
         .post(OSU_TOKEN_URL)
@@ -249,7 +352,6 @@ pub async fn client_credentials(
     client_secret: &str,
 ) -> Result<TokenResponse> {
     let params = client_credentials_params(client_id, client_secret);
-
     request_token(client, OSU_TOKEN_URL, &params).await
 }
 
@@ -281,7 +383,16 @@ pub async fn ensure_valid(client: &reqwest::Client, auth: &mut StoredAuth) -> Re
 
     let token_resp = if let Some(refresh_token) = auth.refresh_token.as_deref() {
         info!("refreshing OAuth token");
-        refresh(client, &auth.client_id, &auth.client_secret, refresh_token).await?
+        // Refresh with the token's own scope so a `*` (lazer) token keeps `*`.
+        let scope = auth.scopes.join(" ");
+        refresh(
+            client,
+            &auth.client_id,
+            &auth.client_secret,
+            refresh_token,
+            &scope,
+        )
+        .await?
     } else {
         info!("refreshing OAuth token with client credentials");
         client_credentials(client, &auth.client_id, &auth.client_secret).await?
@@ -306,124 +417,6 @@ fn apply_token_response(auth: &mut StoredAuth, resp: TokenResponse) {
         auth.refresh_token = Some(rt);
     }
     auth.expires_at = now + resp.expires_in;
-}
-
-fn generate_state() -> String {
-    use std::hash::{BuildHasher, Hash, Hasher};
-
-    // Two independent OS-seeded RandomState instances give ~128 bits of unpredictable output.
-    let rs1 = std::collections::hash_map::RandomState::new();
-    let rs2 = std::collections::hash_map::RandomState::new();
-    let mut h2 = rs2.build_hasher();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    nanos.hash(&mut h2);
-    std::process::id().hash(&mut h2);
-    format!("{:016x}{:016x}", rs1.hash_one(nanos), h2.finish())
-}
-
-pub async fn run_login_flow(
-    client: &reqwest::Client,
-    client_id: &str,
-    client_secret: &str,
-) -> Result<StoredAuth> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind(format!("127.0.0.1:{CALLBACK_PORT}"))
-        .await
-        .map_err(|e| {
-            AppError::other_dynamic(
-                format!("cannot bind port {CALLBACK_PORT}: {e}").into_boxed_str(),
-            )
-        })?;
-
-    let redirect_uri = format!("http://localhost:{CALLBACK_PORT}/oauth/callback");
-    let state = generate_state();
-    let auth_url = build_authorize_url(client_id, &redirect_uri, OAUTH_SCOPES, &state);
-
-    open::that(&auth_url)
-        .map_err(|e| AppError::other_dynamic(format!("open browser: {e}").into_boxed_str()))?;
-
-    let (mut stream, _) = listener
-        .accept()
-        .await
-        .map_err(|e| AppError::other_dynamic(format!("accept failed: {e}").into_boxed_str()))?;
-
-    let (reader, mut writer) = stream.split();
-    let mut lines = BufReader::new(reader).lines();
-
-    let request_line = lines
-        .next_line()
-        .await
-        .map_err(|e| AppError::other_dynamic(format!("read request: {e}").into_boxed_str()))?
-        .unwrap_or_default();
-
-    let (code, returned_state) = parse_callback_query(&request_line)?;
-
-    let response_body = if returned_state != state {
-        warn!("OAuth state mismatch (possible CSRF): expected {state}, got {returned_state}");
-        LOGIN_FAILURE_PAGE
-    } else {
-        LOGIN_SUCCESS_PAGE
-    };
-
-    let http_resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        response_body.len(),
-        response_body,
-    );
-    let _ = writer.write_all(http_resp.as_bytes()).await;
-
-    if returned_state != state {
-        return Err(AppError::other_dynamic(Box::from("OAuth state mismatch")));
-    }
-
-    let token_resp = exchange_code(client, client_id, client_secret, &redirect_uri, &code).await?;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    let auth = StoredAuth {
-        client_id: client_id.to_string(),
-        client_secret: client_secret.to_string(),
-        redirect_uri,
-        access_token: token_resp.access_token,
-        refresh_token: token_resp.refresh_token,
-        expires_at: now + token_resp.expires_in,
-        scopes: OAUTH_SCOPES.iter().map(|s| s.to_string()).collect(),
-    };
-
-    save(&auth)?;
-    Ok(auth)
-}
-
-pub fn parse_callback_query(request_line: &str) -> Result<(String, String)> {
-    // "GET /oauth/callback?code=xxx&state=yyy HTTP/1.1"
-    let path = request_line.split_whitespace().nth(1).unwrap_or("");
-
-    let query = path.split_once('?').map(|x| x.1).unwrap_or("");
-
-    let mut code = None;
-    let mut state = None;
-    for part in query.split('&') {
-        if let Some(v) = part.strip_prefix("code=") {
-            code = Some(v.to_string());
-        } else if let Some(v) = part.strip_prefix("state=") {
-            state = Some(v.to_string());
-        }
-    }
-
-    match (code, state) {
-        (Some(c), Some(s)) => Ok((c, s)),
-        _ => Err(AppError::other_dynamic(Box::from(
-            "callback missing code or state",
-        ))),
-    }
 }
 
 #[cfg(test)]

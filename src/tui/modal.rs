@@ -112,7 +112,12 @@ const UPDATES_TAB: &[HelpRow] = &[
     HelpRow::new("r", "recheck failed"),
 ];
 
-const CONFIG_TAB: &[HelpRow] = &[HelpRow::new("↵ (auth chip)", "log in / log out")];
+const CONFIG_TAB: &[HelpRow] = &[HelpRow::new("↵ (auth chip)", "open login tab")];
+
+const LOGIN_TAB: &[HelpRow] = &[
+    HelpRow::new("↵", "edit field / submit"),
+    HelpRow::new("esc / q", "close login tab"),
+];
 
 const DOWNLOAD_TAB: &[HelpRow] = &[
     HelpRow::new("↵", "expand / collapse failed"),
@@ -135,8 +140,9 @@ pub(crate) fn render_help_overlay(
     area: Rect,
     scroll: usize,
     active_tab: usize,
+    is_login_tab: bool,
 ) -> usize {
-    let lines = build_help_lines(active_tab);
+    let lines = build_help_lines(active_tab, is_login_tab);
     let content_w = lines.iter().map(line_width).max().unwrap_or(0);
     let items: Vec<ListItem<'static>> = lines.into_iter().map(ListItem::new).collect();
 
@@ -345,12 +351,16 @@ fn button_spans(buttons: &[&'static str], focus: usize) -> Vec<Span<'static>> {
 /// Builds the help rows as measurable [`Line`]s: the always-shown `global`
 /// section plus only the section for the currently active tab. Download tabs
 /// (any index past the static three) map to the `download` section.
-fn build_help_lines(active_tab: usize) -> Vec<Line<'static>> {
-    let (heading, rows) = match active_tab {
-        HOME_TAB_INDEX => ("home", HOME_TAB),
-        UPDATES_TAB_INDEX => ("updates", UPDATES_TAB),
-        CONFIG_TAB_INDEX => ("config", CONFIG_TAB),
-        _ => ("download", DOWNLOAD_TAB),
+fn build_help_lines(active_tab: usize, is_login_tab: bool) -> Vec<Line<'static>> {
+    let (heading, rows) = if is_login_tab {
+        ("login", LOGIN_TAB)
+    } else {
+        match active_tab {
+            HOME_TAB_INDEX => ("home", HOME_TAB),
+            UPDATES_TAB_INDEX => ("updates", UPDATES_TAB),
+            CONFIG_TAB_INDEX => ("config", CONFIG_TAB),
+            _ => ("download", DOWNLOAD_TAB),
+        }
     };
 
     let mut lines = Vec::new();

@@ -26,7 +26,10 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
-use auth::{AuthEvent, handle_auth_event, spawn_login_task, spawn_logout_task};
+use auth::{
+    AuthEvent, handle_auth_event, spawn_lazer_login_task, spawn_logout_task, spawn_reissue_task,
+    spawn_verification_task,
+};
 use mirror_probe::{handle_mirror_probe_event, schedule_probe};
 use resolve::schedule_resolve;
 use scan::{handle_updates_event, spawn_failed_map_recheck_task, spawn_scan_task};
@@ -129,7 +132,13 @@ pub async fn run(
             }
             Some(event) = auth_rx.recv() => {
                 trace!(?event, "Received auth event");
-                if matches!(event, AuthEvent::LoginComplete(_)) {
+                // Clear the stored handle once its task reports completion.
+                // Reissue + logout are fire-and-forget (never stored), so a
+                // queued ReissueComplete must not wipe a live login/verify handle.
+                if matches!(
+                    event,
+                    AuthEvent::LazerLoginComplete(_) | AuthEvent::VerificationComplete(_)
+                ) {
                     tasks.login = None;
                 }
                 handle_auth_event(event, &mut app);
@@ -276,14 +285,22 @@ fn dispatch_command(
             };
             app.handle_cancel_result(id, was_running);
         }
-        Some(AppCommand::Login {
-            client_id,
-            client_secret,
-        }) => {
+        Some(AppCommand::LazerLogin { username, password }) => {
             if let Some(prev) = tasks.login.take() {
                 prev.abort();
             }
-            tasks.login = Some(spawn_login_task(client_id, client_secret, auth_tx.clone()));
+            tasks.login = Some(spawn_lazer_login_task(username, password, auth_tx.clone()));
+        }
+        Some(AppCommand::SubmitVerification { code }) => {
+            if let Some(prev) = tasks.login.take() {
+                prev.abort();
+            }
+            tasks.login = Some(spawn_verification_task(code, auth_tx.clone()));
+        }
+        Some(AppCommand::ReissueVerification) => {
+            // Fire-and-forget: do not occupy `tasks.login`, so it can't clobber
+            // or be clobbered by an in-flight login / verify handle.
+            spawn_reissue_task(auth_tx.clone());
         }
         Some(AppCommand::CancelLogin) => {
             if let Some(handle) = tasks.login.take() {

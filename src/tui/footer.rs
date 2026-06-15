@@ -1,5 +1,6 @@
 use crate::app::{
-    App, ConfigField, HomeField, HomeTab, UpdatesField, UpdatesTab, messages::AppMessage,
+    App, ConfigField, HomeField, HomeTab, LoginField, UpdatesField, UpdatesTab,
+    messages::AppMessage,
 };
 use crate::config::constants::{CONFIG_TAB_INDEX, HOME_TAB_INDEX, UPDATES_TAB_INDEX};
 use crate::download::DownloadStage;
@@ -44,6 +45,8 @@ const HINT_ALL_NONE: &str = "a all / d none";
 const HINT_RECHECK: &str = "r recheck";
 const HINT_QUIT: &str = "q quit";
 const HINT_HELP: &str = "? help";
+/// Close hint for the dynamic, closeable login tab.
+const HINT_LOGIN_CLOSE: &str = "esc/q close";
 
 /// Footer hint shown while a modal is open — discoverability lives in the
 /// context-aware footer hint bar, not a per-modal hint row.
@@ -95,6 +98,8 @@ fn current_message(app: &App) -> Option<&AppMessage> {
         HOME_TAB_INDEX => app.home.message.as_ref(),
         UPDATES_TAB_INDEX => app.updates.message.as_ref(),
         CONFIG_TAB_INDEX => app.config.message.as_ref(),
+        // The login flow surfaces its in-progress status via `config.message`.
+        tab if app.is_login_tab(tab) => app.config.message.as_ref(),
         _ => None,
     }
 }
@@ -104,8 +109,26 @@ fn hint_for(app: &App) -> String {
         HOME_TAB_INDEX => home_hint(&app.home, app.editing),
         UPDATES_TAB_INDEX => updates_hint(&app.updates, app.editing),
         CONFIG_TAB_INDEX => config_hint(app.config.focus, app.editing),
+        tab if app.is_login_tab(tab) => login_hint(app, app.editing),
         _ => download_tab_hint(app),
     }
+}
+
+fn login_hint(app: &App, editing: bool) -> String {
+    if editing {
+        return join(&[HINT_EDIT_DONE]);
+    }
+    let mut segments = vec![HINT_MOVE];
+    if let Some(login) = app.login.as_ref() {
+        match login.focus {
+            LoginField::Submit | LoginField::Resend => segments.push(HINT_ENTER_CONFIRM),
+            field if field.is_text_input() => segments.push(HINT_EDIT),
+            _ => {}
+        }
+    }
+    segments.push(HINT_LOGIN_CLOSE);
+    segments.push(HINT_HELP);
+    join(&segments)
 }
 
 /// `esc/q close` appears only when the active download page is settled

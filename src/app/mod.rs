@@ -6,6 +6,7 @@ pub mod collection_state;
 pub mod config;
 pub mod failed_maps;
 pub mod home;
+pub mod login;
 pub mod messages;
 pub mod runtime;
 pub mod snapshots;
@@ -15,8 +16,9 @@ pub mod updates;
 
 pub use banner::{Banner, BannerRecency, system_banners};
 pub use collection::{ActiveDownloadLine, CollectionPage};
-pub use config::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
+pub use config::{AuthLoginState, ConfigField, ConfigTab};
 pub use home::{HomeField, HomeTab, InputField, ResolveState};
+pub use login::{LoginField, LoginPhase, LoginTab};
 pub use runtime::run as run_app;
 pub use state::{App, AppCommand};
 pub use toast::{Toast, ToastLevel, ToastTag, Toasts};

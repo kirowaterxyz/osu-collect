@@ -389,13 +389,12 @@ fn spinner_advances_with_tick_count() {
 }
 
 #[test]
-fn login_key_on_non_login_field_does_not_produce_login_command() {
-    use crate::app::AppCommand;
+fn letter_key_on_config_toggle_row_is_inert() {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    // focus is MirrorNerinyan by default — not LoginAction
+    // focus is a mirror toggle by default — not the auth chip.
     let key = KeyEvent {
         code: KeyCode::Char('l'),
         modifiers: KeyModifiers::empty(),
@@ -404,9 +403,10 @@ fn login_key_on_non_login_field_does_not_produce_login_command() {
     };
     let cmd = app.handle_key(key);
     assert!(
-        !matches!(cmd, Some(AppCommand::Login { .. })),
-        "'l' on non-LoginAction focus must not trigger login"
+        cmd.is_none(),
+        "a letter on a config toggle row issues no command"
     );
+    assert!(app.login.is_none(), "a letter must not open the login tab");
 }
 
 #[test]

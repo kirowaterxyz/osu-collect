@@ -404,6 +404,38 @@ pub fn input_item(
     ListItem::new(Line::from(spans))
 }
 
+/// A text-input row whose value renders masked (`•`), for password fields.
+///
+/// Mirrors [`input_item`] exactly except the value glyphs are hidden. The
+/// placeholder still shows while empty, and the caret column is unaffected:
+/// the caret is a char index and the mask is one `•` per source char, so
+/// [`input_cursor_col`] lands on the right cell.
+pub fn password_input_item(
+    field: &InputField,
+    focused: bool,
+    editing: bool,
+    label_width: usize,
+) -> ListItem<'static> {
+    let value = if field.value.is_empty() {
+        Span::styled(field.placeholder.clone(), Style::default().fg(text_faint()))
+    } else {
+        Span::styled(
+            "•".repeat(field.value.chars().count()),
+            Style::default().fg(accent()),
+        )
+    };
+
+    let spans = vec![
+        input_focus_span(focused, editing),
+        Span::styled(
+            label_cell(&field.label.to_lowercase(), label_width),
+            focused_label(focused),
+        ),
+        value,
+    ];
+    ListItem::new(Line::from(spans))
+}
+
 /// A stepper row showing a numeric value with an optional "recommended: N" chip.
 ///
 /// `recommended` is shown as a dim chip when the current value differs; omitted

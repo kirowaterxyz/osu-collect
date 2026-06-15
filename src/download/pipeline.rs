@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use osu_downloader::{
     Downloader, Event as LibEvent, Mirror, OnExists, Session as LibDownloadSession,
 };
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -430,10 +430,11 @@ where
 /// Attach the osu! API bearer token to any auth-requiring mirror.
 ///
 /// [`osu_downloader::MirrorKind::OsuApi`] downloads need an `Authorization:
-/// Bearer` header carrying a `lazer`-scope user token. We resolve (and refresh)
-/// the stored login here, at download time, and attach it. Auth-requiring
-/// mirrors are dropped when no valid token is available, so the rest of the run
-/// proceeds on the anonymous mirrors.
+/// Bearer` header carrying a `*` (lazer-tier) user token plus an
+/// `x-api-version` header. We resolve (and refresh) the stored login here, at
+/// download time, and attach both. Auth-requiring mirrors are dropped when no
+/// valid token is available, so the rest of the run proceeds on the anonymous
+/// mirrors.
 async fn inject_mirror_auth(mirrors: &[Mirror]) -> Vec<Mirror> {
     if !mirrors.iter().any(|mirror| mirror.kind().requires_auth()) {
         return mirrors.to_vec();
@@ -457,31 +458,36 @@ async fn inject_mirror_auth(mirrors: &[Mirror]) -> Vec<Mirror> {
         .collect()
 }
 
-/// Resolve the osu! token and wrap it in an `Authorization: Bearer` header map.
-/// Returns `None` (with a logged reason) when there is no valid login or the
-/// token can't form a header value.
+/// Resolve the osu! token and wrap it in the `Authorization: Bearer` +
+/// `x-api-version` header map every api v2 download needs. Returns `None` (with
+/// a logged reason) when there is no valid login or the token can't form a
+/// header value.
 async fn build_osu_auth_headers() -> Option<HeaderMap> {
     let token = resolve_osu_bearer().await?;
-    match HeaderValue::from_str(&format!("Bearer {token}")) {
-        Ok(value) => {
-            let mut headers = HeaderMap::new();
-            headers.insert(AUTHORIZATION, value);
-            Some(headers)
-        }
+    let bearer = match HeaderValue::from_str(&format!("Bearer {token}")) {
+        Ok(value) => value,
         Err(err) => {
             warn!(error = %err, "osu! token is not a valid header value; skipping the official mirror");
-            None
+            return None;
         }
-    }
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, bearer);
+    // The api v2 download endpoint rejects requests without `x-api-version`.
+    headers.insert(
+        HeaderName::from_static("x-api-version"),
+        HeaderValue::from_static(crate::auth::X_API_VERSION),
+    );
+    Some(headers)
 }
 
 /// Load, scope-check, and refresh the stored osu! token for the official mirror.
 /// Returns `None` (with a logged reason) when the user is not logged in, the
-/// token lacks the `lazer` scope, or a refresh fails.
+/// token lacks the `*` (lazer-tier) scope, or a refresh fails.
 async fn resolve_osu_bearer() -> Option<String> {
     let mut auth = crate::auth::load()?;
-    if !auth.scopes.iter().any(|scope| scope == "lazer") {
-        warn!("stored osu! token lacks the 'lazer' scope; re-login to enable the official mirror");
+    if !auth.has_lazer_scope() {
+        warn!("stored osu! token lacks the '*' scope; re-login to enable the official mirror");
         return None;
     }
     let client = reqwest::Client::new();

@@ -42,10 +42,10 @@ fn no_video_templates_for_new_mirrors() {
         Mirror::hinamizawa().no_video().url_for(42),
         "https://mirror.hinamizawa.ai/api/v1/hinai/d/42?no_video=true"
     );
-    // osu! official has no no-video variant: same URL either way.
+    // osu! official no-video appends the verified `?noVideo=1` query param.
     assert_eq!(
         Mirror::osu_api().no_video().url_for(42),
-        "https://osu.ppy.sh/api/v2/beatmapsets/42/download"
+        "https://osu.ppy.sh/api/v2/beatmapsets/42/download?noVideo=1"
     );
 }
 

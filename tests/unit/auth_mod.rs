@@ -1,147 +1,84 @@
 use super::{
-    OAUTH_SCOPES, StoredAuth, authorization_code_params, build_authorize_url,
-    client_credentials_params, parse_callback_query, refresh_params, token_request_failed,
+    LAZER_CLIENT_ID, LAZER_CLIENT_SECRET, LAZER_SCOPE, StoredAuth, X_API_VERSION,
+    client_credentials_params, password_grant_params, refresh_params, token_request_failed,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[test]
-fn authorize_url_contains_required_params() {
-    let url = build_authorize_url(
-        "42",
-        "http://localhost:7273/oauth/callback",
-        OAUTH_SCOPES,
-        "abc123",
-    );
-    assert!(url.contains("client_id=42"));
-    assert!(url.contains("response_type=code"));
-    assert!(url.contains("state=abc123"));
-    assert!(url.contains("public+identify"));
-    // `lazer` is first-party-only — third-party apps must not request it.
-    assert!(!url.contains("lazer"));
+/// Look up a form param's value by key.
+fn value<'a>(params: &'a [(&'a str, &'a str)], key: &str) -> Option<&'a str> {
+    params.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
 }
 
 #[test]
-fn parse_callback_query_ok() {
-    let line = "GET /oauth/callback?code=THECODE&state=THESTATE HTTP/1.1";
-    let (code, state) = parse_callback_query(line).unwrap();
-    assert_eq!(code, "THECODE");
-    assert_eq!(state, "THESTATE");
+fn password_grant_body_includes_required_fields() {
+    let params = password_grant_params("player", "hunter2");
+    assert_eq!(value(&params, "grant_type"), Some("password"));
+    assert_eq!(value(&params, "client_id"), Some(LAZER_CLIENT_ID));
+    assert_eq!(value(&params, "client_secret"), Some(LAZER_CLIENT_SECRET));
+    assert_eq!(value(&params, "username"), Some("player"));
+    assert_eq!(value(&params, "password"), Some("hunter2"));
+    // `scope=*` is what carries beatmap-download privilege.
+    assert_eq!(value(&params, "scope"), Some(LAZER_SCOPE));
 }
 
 #[test]
-fn parse_callback_query_missing_fields() {
-    let line = "GET /oauth/callback?code=only HTTP/1.1";
-    assert!(parse_callback_query(line).is_err());
+fn lazer_constants_are_well_formed() {
+    assert_eq!(LAZER_CLIENT_ID, "5");
+    assert_eq!(LAZER_SCOPE, "*");
+    // x-api-version must be a recent YYYYMMDD integer.
+    assert_eq!(X_API_VERSION.len(), 8);
+    assert!(X_API_VERSION.chars().all(|c| c.is_ascii_digit()));
 }
 
 #[test]
-fn token_request_error_omits_body() {
-    let err = token_request_failed("token refresh", reqwest::StatusCode::UNAUTHORIZED);
-    let message = err.to_string();
-
-    assert!(message.contains("token refresh failed"));
-    assert!(message.contains("401"));
-    assert!(!message.contains("access_token"));
-    assert!(!message.contains("invalid_client"));
-    assert!(!message.contains("secret"));
-}
-
-#[test]
-fn authorization_code_body_includes_required_fields() {
-    let params = authorization_code_params("42", "secret", "http://localhost/callback", "code");
-
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_id" && *value == "42")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_secret" && *value == "secret")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "grant_type" && *value == "authorization_code")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "code" && *value == "code")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "redirect_uri" && *value == "http://localhost/callback")
-    );
-}
-
-#[test]
-fn refresh_body_includes_required_fields() {
-    let params = refresh_params("42", "secret", "rt_abc", "public identify");
-
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_id" && *value == "42")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_secret" && *value == "secret")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "grant_type" && *value == "refresh_token")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "refresh_token" && *value == "rt_abc")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "scope" && *value == "public identify")
-    );
+fn refresh_body_carries_scope_through() {
+    // A `*` (lazer) token must refresh with `*`, not a narrower default.
+    let params = refresh_params("5", "secret", "rt_abc", "*");
+    assert_eq!(value(&params, "grant_type"), Some("refresh_token"));
+    assert_eq!(value(&params, "refresh_token"), Some("rt_abc"));
+    assert_eq!(value(&params, "scope"), Some("*"));
 }
 
 #[test]
 fn client_credentials_body_includes_required_fields() {
     let params = client_credentials_params("42", "secret");
-
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_id" && *value == "42")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "client_secret" && *value == "secret")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "grant_type" && *value == "client_credentials")
-    );
-    assert!(
-        params
-            .iter()
-            .any(|(key, value)| *key == "scope" && *value == "public")
-    );
+    assert_eq!(value(&params, "grant_type"), Some("client_credentials"));
+    assert_eq!(value(&params, "scope"), Some("public"));
 }
 
 #[test]
-fn state_mismatch_detected() {
-    let expected = "correct_state_abc123";
-    let line = "GET /oauth/callback?code=THECODE&state=tampered_state HTTP/1.1";
+fn token_request_error_omits_body() {
+    let err = token_request_failed("login", reqwest::StatusCode::UNAUTHORIZED);
+    let message = err.to_string();
+    assert!(message.contains("login failed"));
+    assert!(message.contains("401"));
+    // The error must never leak submitted credentials or token material.
+    assert!(!message.contains("access_token"));
+    assert!(!message.contains("password"));
+}
 
-    let (code, returned_state) = parse_callback_query(line).unwrap();
-    assert_eq!(code, "THECODE");
-    assert_ne!(returned_state, expected);
+#[test]
+fn has_lazer_scope_gates_official_mirror() {
+    let mut auth = StoredAuth {
+        client_id: LAZER_CLIENT_ID.into(),
+        client_secret: LAZER_CLIENT_SECRET.into(),
+        redirect_uri: String::new(),
+        access_token: "tok".into(),
+        refresh_token: Some("rt".into()),
+        expires_at: 0,
+        scopes: vec![LAZER_SCOPE.into()],
+    };
+    assert!(auth.has_lazer_scope(), "a `*` token must pass the gate");
+
+    // An old browser-OAuth token (no `*`) must be rejected for the mirror.
+    auth.scopes = vec!["public".into(), "identify".into()];
+    assert!(!auth.has_lazer_scope());
+
+    auth.scopes = vec![];
+    assert!(
+        !auth.has_lazer_scope(),
+        "a scopeless token must be rejected"
+    );
 }
 
 #[test]
@@ -175,13 +112,13 @@ fn token_persistence_roundtrip() {
     let path = dir.path().join("auth.json");
 
     let auth = StoredAuth {
-        client_id: "my_id".into(),
-        client_secret: "my_secret".into(),
-        redirect_uri: "http://localhost:7273/oauth/callback".into(),
+        client_id: LAZER_CLIENT_ID.into(),
+        client_secret: LAZER_CLIENT_SECRET.into(),
+        redirect_uri: String::new(),
         access_token: "access".into(),
         refresh_token: Some("refresh".into()),
         expires_at: 9999999999,
-        scopes: vec!["public".into(), "identify".into()],
+        scopes: vec![LAZER_SCOPE.into()],
     };
 
     let json = serde_json::to_string_pretty(&auth).unwrap();
@@ -189,10 +126,7 @@ fn token_persistence_roundtrip() {
 
     let loaded: StoredAuth =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(loaded.client_id, "my_id");
     assert_eq!(loaded.access_token, "access");
     assert_eq!(loaded.refresh_token.as_deref(), Some("refresh"));
-    assert!(loaded.scopes.contains(&"public".to_string()));
-    assert!(loaded.scopes.contains(&"identify".to_string()));
-    assert!(!loaded.scopes.contains(&"lazer".to_string()));
+    assert!(loaded.scopes.contains(&"*".to_string()));
 }

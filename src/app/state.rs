@@ -2,9 +2,10 @@ use super::{
     banner::BannerRecency,
     collection::CollectionPage,
     collection_state::{self, CollectionStateFile},
-    config::{AuthLoginState, ChipAction, ConfigField, ConfigTab},
+    config::{AuthLoginState, ConfigField, ConfigTab},
     failed_maps,
     home::{HomeField, HomeTab},
+    login::{LoginField, LoginPhase, LoginTab},
     snapshots,
     toast::{Toast, Toasts},
     updates::{UpdatesAction, UpdatesField, UpdatesTab, extract_collection_id},
@@ -14,7 +15,7 @@ use crate::{
         Config, RetryFailedOnDownload,
         constants::{
             CONFIG_TAB_INDEX, DISK_CACHE_TTL, HOME_TAB_INDEX, STATIC_TABS, TAB_CONFIG_LOWER,
-            TAB_HOME_LOWER, TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
+            TAB_HOME_LOWER, TAB_LOGIN_LOWER, TAB_UPDATES_LOWER, UPDATES_TAB_INDEX,
         },
         save_config,
     },
@@ -37,6 +38,10 @@ pub struct App {
     pub home: HomeTab,
     pub updates: UpdatesTab,
     pub config: ConfigTab,
+    /// The dynamic, closeable login tab. `Some` only while the tab is open
+    /// (opened from the config auth chip, closed with `esc`/`q`). Rendered as a
+    /// tab appended after any download tabs.
+    pub login: Option<LoginTab>,
     pub downloads: Vec<CollectionPage>,
     /// Transient top-right notifications — results and errors. Ephemeral by
     /// design; durable signals live on banners, inline state, or tab markers.
@@ -95,10 +100,17 @@ pub enum AppCommand {
     CancelDownload {
         id: DownloadId,
     },
-    Login {
-        client_id: String,
-        client_secret: String,
+    /// Start an osu!lazer password (ROPC) login with the entered credentials.
+    LazerLogin {
+        username: String,
+        password: String,
     },
+    /// Submit the session-verification code osu! emailed for a new device.
+    SubmitVerification {
+        code: String,
+    },
+    /// Ask osu! to re-send the session-verification code.
+    ReissueVerification,
     CancelLogin,
     Logout,
     ScanLocalDatabase,
@@ -169,6 +181,7 @@ impl App {
             home: HomeTab::new(&config),
             updates: UpdatesTab::new(),
             config: ConfigTab::new(&config),
+            login: None,
             downloads: Vec::new(),
             toasts: Toasts::default(),
             active_tab: HOME_TAB_INDEX,
@@ -369,6 +382,11 @@ impl App {
             HOME_TAB_INDEX => self.home.next_field(),
             UPDATES_TAB_INDEX => self.updates.next_field(),
             CONFIG_TAB_INDEX => self.config.next_field(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.next_field();
+                }
+            }
             _ => {}
         }
     }
@@ -380,6 +398,11 @@ impl App {
             HOME_TAB_INDEX => self.home.prev_field(),
             UPDATES_TAB_INDEX => self.updates.prev_field(),
             CONFIG_TAB_INDEX => self.config.prev_field(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.prev_field();
+                }
+            }
             _ => {}
         }
     }
@@ -418,30 +441,84 @@ impl App {
         }
     }
 
-    fn request_login(&mut self) -> Option<AppCommand> {
-        if matches!(self.config.login_state, AuthLoginState::InProgress(_)) {
+    /// Whether a login / verification request is currently in flight.
+    fn login_in_flight(&self) -> bool {
+        matches!(self.config.login_state, AuthLoginState::InProgress(_))
+    }
+
+    /// Enter on the login tab. Text-input rows toggle edit mode in the caller
+    /// (via `focused_text_input`); this handles the action chips.
+    fn login_enter(&mut self) -> Option<AppCommand> {
+        match self.login.as_ref()?.focus {
+            LoginField::Submit => self.login_chip_enter(),
+            LoginField::Resend => self.request_reissue(),
+            _ => None,
+        }
+    }
+
+    /// Enter on the login tab's primary action chip. Cancels a running request,
+    /// else branches on the phase: log in / verify / log out.
+    fn login_chip_enter(&mut self) -> Option<AppCommand> {
+        if self.login_in_flight() {
+            // Drop the in-progress state (phase is preserved, so cancelling a
+            // mid-verification request keeps the code field) and abort the task.
             self.config.set_login_failed();
             self.toast_info("login cancelled");
             return Some(AppCommand::CancelLogin);
         }
+        match self.login.as_ref()?.phase {
+            LoginPhase::Credentials => self.request_lazer_login(),
+            LoginPhase::NeedsVerification => self.request_verification(),
+            LoginPhase::LoggedIn => self.request_logout(),
+        }
+    }
 
-        let Some((client_id, client_secret)) = crate::auth::bundled_credentials() else {
-            self.push_toast(
-                Toast::danger("login unavailable").with_detail("built without credentials"),
-            );
-            return None;
+    /// Start the lazer password grant from the entered username + password.
+    fn request_lazer_login(&mut self) -> Option<AppCommand> {
+        let (username, password) = {
+            let login = self.login.as_ref()?;
+            (
+                login.username.value.trim().to_string(),
+                login.password.value.clone(),
+            )
         };
-        self.config.set_login_in_progress();
-        Some(AppCommand::Login {
-            client_id: client_id.to_string(),
-            client_secret: client_secret.to_string(),
-        })
+        if username.is_empty() || password.is_empty() {
+            self.toast_err("enter your osu! username and password");
+            return None;
+        }
+        // Wipe the password from the field the moment it is handed off, so the
+        // secret never lingers in the UI buffer.
+        if let Some(login) = self.login.as_mut() {
+            login.clear_password();
+        }
+        self.config.set_loading("signing in…");
+        Some(AppCommand::LazerLogin { username, password })
+    }
+
+    /// Submit the entered session-verification code.
+    fn request_verification(&mut self) -> Option<AppCommand> {
+        let code = self.login.as_ref()?.code.value.trim().to_string();
+        if code.is_empty() {
+            self.toast_err("enter the verification code");
+            return None;
+        }
+        self.config.set_loading("verifying…");
+        Some(AppCommand::SubmitVerification { code })
+    }
+
+    /// Ask osu! to re-send the verification code (no login-state change).
+    fn request_reissue(&mut self) -> Option<AppCommand> {
+        if self.login_in_flight() {
+            return None;
+        }
+        self.toast_info("resending code…");
+        Some(AppCommand::ReissueVerification)
     }
 
     fn request_logout(&mut self) -> Option<AppCommand> {
         match self.config.login_state {
             AuthLoginState::LoggedIn => {
-                self.config.set_loading("logging out...");
+                self.config.set_loading("logging out…");
                 Some(AppCommand::Logout)
             }
             AuthLoginState::LoggedOut => {
@@ -453,7 +530,45 @@ impl App {
     }
 
     fn total_tabs(&self) -> usize {
-        STATIC_TABS + self.downloads.len()
+        STATIC_TABS + self.downloads.len() + usize::from(self.login.is_some())
+    }
+
+    /// Tab index of the login tab while open. Appended after the download tabs
+    /// so download indices stay anchored at `STATIC_TABS`.
+    pub fn login_tab_index(&self) -> Option<usize> {
+        self.login
+            .as_ref()
+            .map(|_| STATIC_TABS + self.downloads.len())
+    }
+
+    /// Whether `idx` is the currently-open login tab.
+    pub fn is_login_tab(&self, idx: usize) -> bool {
+        self.login_tab_index() == Some(idx)
+    }
+
+    /// Open the login tab (or focus it if already open) and switch to it. The
+    /// phase is seeded from the current login state so a logged-in user lands on
+    /// the account view rather than the credentials form.
+    fn open_login_tab(&mut self) {
+        if self.login.is_none() {
+            let logged_in = matches!(self.config.login_state, AuthLoginState::LoggedIn);
+            self.login = Some(LoginTab::new(logged_in));
+        }
+        if let Some(index) = self.login_tab_index() {
+            self.active_tab = index;
+        }
+        self.editing = false;
+    }
+
+    /// Close the login tab and land focus on the nearest remaining tab (the
+    /// rightmost download, else config). An in-flight login keeps running — its
+    /// result updates the chip in the background.
+    fn close_login_tab(&mut self) {
+        if self.login.take().is_none() {
+            return;
+        }
+        self.editing = false;
+        self.active_tab = self.active_tab.min(self.total_tabs().saturating_sub(1));
     }
 
     /// Persist the current collection and download-directory inputs to the
@@ -731,6 +846,10 @@ impl App {
             HOME_TAB_INDEX => self.home.focus.is_text_input(),
             UPDATES_TAB_INDEX => self.updates.osu_path_editable(),
             CONFIG_TAB_INDEX => self.config.focus.is_text_input(),
+            tab if self.is_login_tab(tab) => self
+                .login
+                .as_ref()
+                .is_some_and(|login| login.focus.is_text_input()),
             _ => false,
         }
     }
@@ -743,6 +862,11 @@ impl App {
             HOME_TAB_INDEX => self.home.caret_left(),
             UPDATES_TAB_INDEX => self.updates.caret_left(),
             CONFIG_TAB_INDEX => self.config.caret_left(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.caret_left();
+                }
+            }
             _ => {}
         }
     }
@@ -752,6 +876,11 @@ impl App {
             HOME_TAB_INDEX => self.home.caret_right(),
             UPDATES_TAB_INDEX => self.updates.caret_right(),
             CONFIG_TAB_INDEX => self.config.caret_right(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.caret_right();
+                }
+            }
             _ => {}
         }
     }
@@ -761,6 +890,11 @@ impl App {
             HOME_TAB_INDEX => self.home.caret_home(),
             UPDATES_TAB_INDEX => self.updates.caret_home(),
             CONFIG_TAB_INDEX => self.config.caret_home(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.caret_home();
+                }
+            }
             _ => {}
         }
     }
@@ -770,6 +904,11 @@ impl App {
             HOME_TAB_INDEX => self.home.caret_end(),
             UPDATES_TAB_INDEX => self.updates.caret_end(),
             CONFIG_TAB_INDEX => self.config.caret_end(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.caret_end();
+                }
+            }
             _ => {}
         }
     }
@@ -785,6 +924,12 @@ impl App {
             }
             CONFIG_TAB_INDEX => {
                 self.config.delete_forward();
+                None
+            }
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.delete_forward();
+                }
                 None
             }
             _ => None,
@@ -803,6 +948,12 @@ impl App {
             }
             CONFIG_TAB_INDEX => {
                 self.config.backspace_word();
+                None
+            }
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.backspace_word();
+                }
                 None
             }
             _ => None,
@@ -1106,11 +1257,10 @@ impl App {
                     }
                     CONFIG_TAB_INDEX => match self.config.focus {
                         ConfigField::AuthChip => {
-                            return match self.config.chip_action() {
-                                // Cancel routes through request_login, which detects InProgress and cancels.
-                                ChipAction::Login | ChipAction::Cancel => self.request_login(),
-                                ChipAction::Logout => self.request_logout(),
-                            };
+                            // The chip is a navigation affordance: open the
+                            // dedicated login tab, which owns the login flow.
+                            self.open_login_tab();
+                            return None;
                         }
                         field if field.is_text_input() || field.is_stepper() => {}
                         // toggle / cycle fields (space also works) — applied live
@@ -1119,6 +1269,7 @@ impl App {
                             self.apply_config_change();
                         }
                     },
+                    tab if self.is_login_tab(tab) => return self.login_enter(),
                     _ => {
                         // download page: enter expands/collapses the failed section
                         if let Some(page) = self.active_download_page_mut() {
@@ -1165,6 +1316,12 @@ impl App {
                         self.apply_config_change();
                     }
                 },
+                tab if self.is_login_tab(tab) => {
+                    // Chips trigger on enter only; space just types into a field.
+                    if typing && let Some(login) = self.login.as_mut() {
+                        login.handle_char(' ');
+                    }
+                }
                 _ => {
                     if let Some(page) = self.active_download_page_mut() {
                         page.toggle_failed_section();
@@ -1241,6 +1398,12 @@ impl App {
                         self.config.handle_char(ch);
                     }
                 }
+                tab if self.is_login_tab(tab) => {
+                    // No non-typing hotkeys on the login tab; type into the field.
+                    if typing && let Some(login) = self.login.as_mut() {
+                        login.handle_char(ch);
+                    }
+                }
                 _ => {
                     if let Some(cmd) = self.handle_download_tab_key(ch) {
                         return Some(cmd);
@@ -1265,6 +1428,11 @@ impl App {
                     }
                     UPDATES_TAB_INDEX => self.updates.backspace(),
                     CONFIG_TAB_INDEX => self.config.backspace(),
+                    tab if self.is_login_tab(tab) => {
+                        if let Some(login) = self.login.as_mut() {
+                            login.backspace();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1291,6 +1459,12 @@ impl App {
             }
             CONFIG_TAB_INDEX => {
                 self.config.handle_paste(&text);
+                None
+            }
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.handle_paste(&text);
+                }
                 None
             }
             _ => None,
@@ -1466,12 +1640,16 @@ impl App {
     }
 
     pub fn tab_titles(&self) -> Vec<Cow<'_, str>> {
-        let mut titles = Vec::with_capacity(self.downloads.len() + STATIC_TABS);
+        let mut titles = Vec::with_capacity(self.total_tabs());
         titles.push(Cow::Borrowed(TAB_HOME_LOWER));
         titles.push(Cow::Borrowed(TAB_UPDATES_LOWER));
         titles.push(Cow::Borrowed(TAB_CONFIG_LOWER));
         for page in &self.downloads {
             titles.push(download_tab_title(page));
+        }
+        // Appended last so download indices stay anchored at `STATIC_TABS`.
+        if self.login.is_some() {
+            titles.push(Cow::Borrowed(TAB_LOGIN_LOWER));
         }
         titles
     }
@@ -1654,6 +1832,12 @@ impl App {
 
     fn cancel_command_for_active_tab(&mut self) -> Option<AppCommand> {
         if self.active_tab < STATIC_TABS {
+            return None;
+        }
+
+        // The login tab is dynamic + closeable: `esc`/`q` close it in place.
+        if self.is_login_tab(self.active_tab) {
+            self.close_login_tab();
             return None;
         }
 

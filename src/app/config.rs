@@ -23,14 +23,6 @@ pub enum AuthLoginState {
     LoggedIn,
 }
 
-/// Action the auth chip's enter key triggers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChipAction {
-    Login,
-    Cancel,
-    Logout,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
     AuthChip,
@@ -141,9 +133,8 @@ impl ConfigTab {
             logging_dir: logging_dir_field(&config.logging),
             // Absent config key → show the default (full) palette in the cycle.
             theme: config.display.theme.unwrap_or_default(),
-            // Login is functional (it authorizes the osu! official mirror), but
-            // start focus one row below the chip so an accidental enter never
-            // kicks off the browser OAuth flow.
+            // Start focus one row below the auth chip so an accidental enter
+            // never opens the login tab on entry.
             focus: ConfigField::Theme,
             message: None,
             default_threads: default_threads(),
@@ -373,15 +364,6 @@ impl ConfigTab {
     pub fn set_logged_out(&mut self) {
         self.login_state = AuthLoginState::LoggedOut;
         clear_app_message(&mut self.message);
-    }
-
-    /// Returns the action the chip's enter key should trigger given the current `login_state`.
-    pub fn chip_action(&self) -> ChipAction {
-        match &self.login_state {
-            AuthLoginState::LoggedOut => ChipAction::Login,
-            AuthLoginState::InProgress(_) => ChipAction::Cancel,
-            AuthLoginState::LoggedIn => ChipAction::Logout,
-        }
     }
 
     pub fn resolved_threads(&self) -> u8 {

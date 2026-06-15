@@ -561,7 +561,8 @@ impl HomeTab {
             (self.beatconnect, MirrorKind::Beatconnect),
             (self.hinamizawa, MirrorKind::Hinamizawa),
             // OsuApi is built header-less here; the download pipeline injects the
-            // `lazer`-scope bearer token before the request goes out.
+            // `*` (lazer-tier) bearer token + `x-api-version` header before the
+            // request goes out.
             (self.osu_official, MirrorKind::OsuApi),
         ];
 

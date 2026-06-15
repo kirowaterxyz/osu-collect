@@ -15,8 +15,7 @@ use ratatui::{
 
 use super::widgets;
 use super::{
-    HELP_CUSTOM_MIRROR, bg_hover, bg_raised, mirror_label, success, text, text_dim, text_faint,
-    warning,
+    HELP_CUSTOM_MIRROR, bg_hover, bg_raised, mirror_label, success, text, text_dim, warning,
 };
 use osu_downloader::MirrorKind;
 
@@ -36,15 +35,13 @@ const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "log level";
 const LABEL_LOGGING_FORMAT: &str = "log format";
 
-const CHIP_UNAVAILABLE: &str = " login unavailable ";
-const CHIP_UNAVAILABLE_REASON: &str = "no credentials in build";
 const CHIP_LOGGED_OUT: &str = " signed out";
 const CHIP_LOGGED_IN: &str = " signed in";
 const CHIP_ACTION_LOGIN: &str = "log in";
-const CHIP_ACTION_LOGOUT: &str = "log out";
-const CHIP_ACTION_CANCEL: &str = "cancel";
+const CHIP_ACTION_MANAGE: &str = "manage";
+const CHIP_ACTION_VIEW: &str = "view";
 const CHIP_LOGGING_IN: &str = " logging in… ";
-const CHIP_LOGIN_HINT: &str = "log in to enable the osu! official mirror";
+const CHIP_LOGIN_HINT: &str = "opens the login tab to enable the osu! official mirror";
 
 const THEME_MODE_LABELS: &[&str] = &["full", "compatible"];
 
@@ -116,11 +113,7 @@ fn build_config_items(
 
     items.push_focusable(ConfigField::AuthChip, auth_chip_item(form));
     if show_chrome && focus == ConfigField::AuthChip {
-        if crate::auth::bundled_credentials().is_some() {
-            items.push(widgets::help_item(CHIP_LOGIN_HINT));
-        } else {
-            items.push(widgets::help_item(CHIP_UNAVAILABLE_REASON));
-        }
+        items.push(widgets::help_item(CHIP_LOGIN_HINT));
     }
     if show_chrome {
         items.push(widgets::spacer());
@@ -308,23 +301,16 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
     })
 }
 
-/// Renders the auth state chip: a single styled row at the top of the config tab.
+/// Renders the auth state chip: a single styled row at the top of the config
+/// tab. The action segment opens the dedicated login tab (which owns the actual
+/// login / verify / logout flow); the state segment mirrors `login_state`.
 ///
-/// - Signed in:   ` signed in · log out `
-/// - Signed out:  ` signed out · log in `
-/// - In progress: ` logging in… · cancel`
-/// - Unavailable: ` login unavailable ` (reason shown as a focus-gated tooltip)
+/// - Signed in:   ` signed in   manage`
+/// - Signed out:  ` signed out   log in`
+/// - In progress: ` logging in…   view`
 fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
     let focused = form.focus == ConfigField::AuthChip;
     let chip_bg = Style::default().bg(bg_raised());
-
-    let available = crate::auth::bundled_credentials().is_some();
-    if !available {
-        return ListItem::new(Line::from(Span::styled(
-            CHIP_UNAVAILABLE,
-            chip_bg.fg(text_faint()),
-        )));
-    }
 
     // State segment (semantic when charged, TEXT_DIM neutral) then a 2-space
     // gap on the chip fill, then the action segment — no mid-dot separator.
@@ -340,14 +326,11 @@ fn auth_chip_item(form: &ConfigTab) -> ListItem<'static> {
                 format!(" {step} ").into()
             };
             // No italic — italic is reserved for panel/modal titles.
-            (
-                Span::styled(label, chip_bg.fg(warning())),
-                CHIP_ACTION_CANCEL,
-            )
+            (Span::styled(label, chip_bg.fg(warning())), CHIP_ACTION_VIEW)
         }
         AuthLoginState::LoggedIn => (
             Span::styled(CHIP_LOGGED_IN, chip_bg.fg(success())),
-            CHIP_ACTION_LOGOUT,
+            CHIP_ACTION_MANAGE,
         ),
     };
 

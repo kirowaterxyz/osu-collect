@@ -1,4 +1,4 @@
-use super::{AuthLoginState, ChipAction, ConfigField, ConfigTab};
+use super::{AuthLoginState, ConfigField, ConfigTab};
 use crate::config::Config;
 use crate::download::ArchiveValidation;
 
@@ -114,32 +114,6 @@ fn all_fields_form_complete_cycle() {
         tab.next_field();
     }
     assert_eq!(tab.focus, start, "next_field must complete a full cycle");
-}
-
-#[test]
-fn chip_action_is_login_when_logged_out() {
-    let tab = tab_logged_out();
-    assert_eq!(tab.chip_action(), ChipAction::Login);
-}
-
-#[test]
-fn chip_action_is_logout_when_logged_in() {
-    let tab = tab_logged_in();
-    assert_eq!(tab.chip_action(), ChipAction::Logout);
-}
-
-#[test]
-fn chip_action_is_cancel_during_login_flow() {
-    let mut tab = tab_logged_out();
-    tab.set_login_in_progress();
-    assert_eq!(tab.chip_action(), ChipAction::Cancel);
-}
-
-#[test]
-fn chip_action_is_cancel_with_step_text() {
-    let mut tab = tab_logged_out();
-    tab.set_loading("opening browser...");
-    assert_eq!(tab.chip_action(), ChipAction::Cancel);
 }
 
 #[test]

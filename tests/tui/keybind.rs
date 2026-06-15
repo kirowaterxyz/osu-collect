@@ -339,11 +339,9 @@ fn enter_on_collection_field_does_not_start_download() {
 // ── config tab key bindings ───────────────────────────────────────────────────
 
 #[test]
-fn enter_on_config_login_triggers_login_attempt() {
+fn enter_on_config_chip_opens_login_tab() {
     use osu_collect::app::{ConfigField, HomeField};
     use osu_collect::config::constants::CONFIG_TAB_INDEX;
-
-    use osu_collect::app::AuthLoginState;
 
     let mut app = make_app();
     // Focus a non-text field so Right switches tabs rather than moving the caret.
@@ -352,19 +350,17 @@ fn enter_on_config_login_triggers_login_attempt() {
     app.handle_key(press(KeyCode::Right));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
     app.config.focus = ConfigField::AuthChip;
-    // Force logged-out state so chip_action() returns Login regardless of any
-    // on-disk auth.json that may exist in the test environment.
-    app.config.login_state = AuthLoginState::LoggedOut;
 
-    // enter must reach the login request path (command depends on bundled creds)
+    // The chip is a navigation affordance: enter opens the dedicated login tab
+    // and dispatches no command (the tab owns the actual login flow).
     let cmd = app.handle_key(press(KeyCode::Enter));
-    let credentials_available = osu_collect::auth::bundled_credentials().is_some();
-    if credentials_available {
-        assert!(matches!(cmd, Some(AppCommand::Login { .. })));
-    } else {
-        assert!(cmd.is_none());
-        assert!(!app.toasts.is_empty());
-    }
+    assert!(cmd.is_none(), "opening the login tab dispatches no command");
+    assert!(app.login.is_some(), "login tab must be created");
+    assert_eq!(
+        Some(app.active_tab()),
+        app.login_tab_index(),
+        "focus must move to the login tab"
+    );
 }
 
 #[test]

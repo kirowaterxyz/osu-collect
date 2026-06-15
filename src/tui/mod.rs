@@ -7,6 +7,7 @@ mod download;
 mod footer;
 mod header;
 mod home;
+mod login;
 pub(crate) mod modal;
 mod toast;
 mod updates;
@@ -252,6 +253,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
         HOME_TAB_INDEX => home::render(frame, body_area, &app.home, editing),
         UPDATES_TAB_INDEX => updates::render(frame, body_area, &app.updates, editing),
         CONFIG_TAB_INDEX => config::render(frame, body_area, &app.config, editing),
+        tab if app.is_login_tab(tab) => {
+            if let Some(login_tab) = app.login.as_ref() {
+                login::render(
+                    frame,
+                    body_area,
+                    login_tab,
+                    &app.config.login_state,
+                    editing,
+                );
+            }
+        }
         tab => match app.download_for_tab(tab) {
             Some(page) => download::render(frame, body_area, page, app.tick_count),
             None => home::render(frame, body_area, &app.home, editing),
@@ -267,8 +279,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else if app.help_open {
         // Clamp the requested scroll to the real viewport and store it back so
         // the next ↑/↓ starts from the on-screen position (no dead presses).
-        let clamped =
-            modal::render_help_overlay(frame, area, app.help_scroll.get(), app.active_tab());
+        let clamped = modal::render_help_overlay(
+            frame,
+            area,
+            app.help_scroll.get(),
+            app.active_tab(),
+            app.is_login_tab(app.active_tab()),
+        );
         app.help_scroll.set(clamped);
     }
 

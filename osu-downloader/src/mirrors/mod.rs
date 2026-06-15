@@ -25,8 +25,9 @@ pub enum MirrorKind {
     /// Official osu! API v2 download endpoint.
     ///
     /// Unlike the other built-ins this requires an `Authorization: Bearer`
-    /// header carrying a user token with the `lazer` scope; the caller must
-    /// attach it via [`Mirror::with_headers`]. See [`MirrorKind::requires_auth`].
+    /// header carrying a user token with the `*` (lazer-tier) scope **and** an
+    /// `x-api-version` header; the caller must attach both via
+    /// [`Mirror::with_headers`]. See [`MirrorKind::requires_auth`].
     OsuApi,
     /// Custom mirror with user-provided URL template.
     Custom,
@@ -85,8 +86,8 @@ impl MirrorKind {
                 label: "osu! official",
                 backoff_secs: 300,
                 template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
-                // The official download endpoint has no documented no-video variant.
-                template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
+                // `?noVideo=1` is the verified no-video query param (osu-web).
+                template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download?noVideo=1",
             }),
             MirrorKind::Custom => None,
         }
@@ -284,8 +285,9 @@ impl Mirror {
     /// Official osu! API v2 download mirror.
     ///
     /// The returned mirror has **no** auth header; downloads will fail with
-    /// `401`/`403` until the caller attaches a `lazer`-scope bearer token via
-    /// [`Mirror::with_headers`]. See [`MirrorKind::requires_auth`].
+    /// `401`/`403` until the caller attaches a `*` (lazer-tier) bearer token
+    /// plus an `x-api-version` header via [`Mirror::with_headers`]. See
+    /// [`MirrorKind::requires_auth`].
     pub fn osu_api() -> Self {
         Self::new_builtin(MirrorKind::OsuApi)
     }
