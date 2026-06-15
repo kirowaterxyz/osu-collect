@@ -11,35 +11,47 @@ set "INSTALL_DIR=%LOCALAPPDATA%\Programs\osu-collect"
 set "INSTALL_BIN=%INSTALL_DIR%\osu-collect.exe"
 set "TMPDIR=%TEMP%\osu-collect-install-%RANDOM%"
 
-:: -- fetch latest release tag via PowerShell ----------------------------------
+:: -- fetch release metadata (one request, with retry) ------------------------
 
 echo ==^> fetching latest release info...
 
-for /f "delims=" %%T in ('powershell -NoProfile -Command ^
-  "$r = Invoke-RestMethod -Uri '%API_URL%' -UseBasicParsing; $r.tag_name"') do (
-  set "LATEST_TAG=%%T"
-)
-if "%LATEST_TAG%"=="" (
-  echo error: could not fetch latest release tag
+:: fetch once and parse locally -- curl --retry rides out the transient 5xx /
+:: timeout the GitHub API occasionally returns; three separate live calls did not
+set "RELJSON=%TEMP%\osu-collect-release-%RANDOM%.json"
+curl.exe -fsSL --retry 5 -A "osu-collect-installer" -o "%RELJSON%" "%API_URL%"
+if errorlevel 1 (
+  echo error: could not reach the GitHub API ^(try again in a minute^)
+  del /f /q "%RELJSON%" 2>nul
   exit /b 1
 )
 
-:: -- build asset URLs ---------------------------------------------------------
-
-for /f "delims=" %%U in ('powershell -NoProfile -Command ^
-  "$r = Invoke-RestMethod -Uri '%API_URL%' -UseBasicParsing; ($r.assets | Where-Object { $_.name -eq '%ASSET_NAME%' }).browser_download_url"') do (
-  set "DOWNLOAD_URL=%%U"
+:: NULL sentinels keep all three fields non-empty so for /f does not collapse the
+:: "|" delimiters when an asset is missing
+for /f "tokens=1,2,3 delims=|" %%a in ('powershell -NoProfile -Command ^
+  "$r = Get-Content -LiteralPath '%RELJSON%' -Raw | ConvertFrom-Json; " ^
+  "$t = $r.tag_name; if (-not $t) { $t = 'NULL' }; " ^
+  "$d = ($r.assets | Where-Object { $_.name -eq '%ASSET_NAME%' }).browser_download_url; if (-not $d) { $d = 'NULL' }; " ^
+  "$s = ($r.assets | Where-Object { $_.name -eq '%ASSET_NAME%.sha256' }).browser_download_url; if (-not $s) { $s = 'NULL' }; " ^
+  "Write-Output ($t + '|' + $d + '|' + $s)"') do (
+  set "LATEST_TAG=%%a"
+  set "DOWNLOAD_URL=%%b"
+  set "SHA256_URL=%%c"
 )
-if "%DOWNLOAD_URL%"=="" (
+del /f /q "%RELJSON%" 2>nul
+
+if "%LATEST_TAG%"=="" (
+  echo error: could not read release info
+  exit /b 1
+)
+if "%LATEST_TAG%"=="NULL" (
+  echo error: latest release has no tag
+  exit /b 1
+)
+if "%DOWNLOAD_URL%"=="NULL" (
   echo error: asset '%ASSET_NAME%' not found in release %LATEST_TAG%
   exit /b 1
 )
-
-for /f "delims=" %%U in ('powershell -NoProfile -Command ^
-  "$r = Invoke-RestMethod -Uri '%API_URL%' -UseBasicParsing; ($r.assets | Where-Object { $_.name -eq '%ASSET_NAME%.sha256' }).browser_download_url"') do (
-  set "SHA256_URL=%%U"
-)
-if "%SHA256_URL%"=="" (
+if "%SHA256_URL%"=="NULL" (
   echo error: checksum file '%ASSET_NAME%.sha256' not found in release %LATEST_TAG%
   exit /b 1
 )
