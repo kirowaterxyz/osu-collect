@@ -35,6 +35,7 @@ run_test "$SCRIPT_DIR/test_osucollector.sh"
 run_test "$SCRIPT_DIR/test_github_releases.sh"
 run_test "$SCRIPT_DIR/test_nekoha_size.sh"
 run_test "$SCRIPT_DIR/test_mirrors_download.sh"
+run_test "$SCRIPT_DIR/test_osu_official.sh"
 
 echo ""
 echo "========================================"
