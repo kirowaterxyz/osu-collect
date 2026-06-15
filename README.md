@@ -37,24 +37,43 @@ osu!collect is a terminal app (TUI) that **downloads osu! beatmap collections fr
 
 ## Installation
 
-**Prebuilt binary** (recommended): download from [Releases](https://github.com/uwuclxdy/osu-collect/releases/latest).
+### One-line install (recommended)
 
-**One-line install** (Linux x64 / macOS):
+**Linux x64 / macOS Apple Silicon**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/uwuclxdy/osu-collect/main/install.sh | bash
 ```
 
-**Install latest from source** (Rust 1.85+):
+**Windows x64 (PowerShell)**:
 
-```bash
-cargo install --git https://github.com/uwuclxdy/osu-collect
+```powershell
+iwr https://raw.githubusercontent.com/uwuclxdy/osu-collect/main/install.bat -OutFile "$env:TEMP\osu-install.bat"; & "$env:TEMP\osu-install.bat"
 ```
+
+This installs to `%LOCALAPPDATA%\Programs\osu-collect`, adds it to your `PATH`, creates shortcut 
+on desktop and registers itself in **Settings → Apps → Installed apps**. No admin needed.
+
+### Prebuilt binary
+
+Download from [Releases](https://github.com/uwuclxdy/osu-collect/releases/latest) and run it in terminal.
 
 > [!NOTE]
 > osu!collect runs in a terminal. Windows users should be able to open it with a double click as well,
 > but it's not guaranteed. Open an [Issue](https://github.com/uwuclxdy/osu-collect/issues/new/choose) if it doesn't work.
 > Windows Terminal or PowerShell 7+ are recommended.
+
+### Install latest from source (Rust 1.85+)
+
+```bash
+cargo install --git https://github.com/uwuclxdy/osu-collect
+```
+
+## Uninstall
+
+**Windows**: Settings → Apps → Installed apps → **osu!collect** → Uninstall. 
+
+**Linux/macOS**: run `rm ~/.local/bin/osu-collect`.
 
 ## Usage
 
