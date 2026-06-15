@@ -43,6 +43,12 @@ pub fn probe_url(kind: MirrorKind) -> Option<&'static str> {
         MirrorKind::Sayobot => Some("https://dl.sayobot.cn/"),
         // Nekoha root at mirror.nekoha.moe
         MirrorKind::Nekoha => Some("https://mirror.nekoha.moe/"),
+        // Beatconnect CDN root
+        MirrorKind::Beatconnect => Some("https://beatconnect.io/"),
+        // Hinamizawa cascade root
+        MirrorKind::Hinamizawa => Some("https://mirror.hinamizawa.ai/"),
+        // osu! official site root (the download endpoint itself needs auth)
+        MirrorKind::OsuApi => Some("https://osu.ppy.sh/"),
         MirrorKind::Custom => None,
     }
 }
@@ -91,25 +97,22 @@ async fn run_probe_all(
         .build()
         .unwrap_or_default();
 
-    // Probe all four built-in mirrors in parallel.
-    let (r_osu_direct, r_nerinyan, r_sayobot, r_nekoha) = tokio::join!(
-        probe_one(&client, MirrorKind::OsuDirect),
-        probe_one(&client, MirrorKind::Nerinyan),
-        probe_one(&client, MirrorKind::Sayobot),
-        probe_one(&client, MirrorKind::Nekoha),
-    );
+    // Probe every built-in mirror in parallel. Iterating BUILTINS keeps this in
+    // sync as mirrors are added — no per-mirror wiring here.
+    let client = &client;
+    let results = futures_util::future::join_all(
+        MirrorKind::BUILTINS
+            .iter()
+            .map(|&kind| async move { (kind, probe_one(client, kind).await) }),
+    )
+    .await;
 
     // Bail if cancelled while probes were running.
     if *cancel_rx.borrow() {
         return;
     }
 
-    for (kind, result) in [
-        (MirrorKind::OsuDirect, r_osu_direct),
-        (MirrorKind::Nerinyan, r_nerinyan),
-        (MirrorKind::Sayobot, r_sayobot),
-        (MirrorKind::Nekoha, r_nekoha),
-    ] {
+    for (kind, result) in results {
         let _ = tx.send(MirrorProbeEvent::Result { kind, result });
     }
 }

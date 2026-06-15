@@ -13,7 +13,10 @@ use crate::{
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
 };
 use futures_util::StreamExt;
-use osu_downloader::{Downloader, Event as LibEvent, OnExists, Session as LibDownloadSession};
+use osu_downloader::{
+    Downloader, Event as LibEvent, Mirror, OnExists, Session as LibDownloadSession,
+};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -338,8 +341,15 @@ async fn run_pipeline_core(
         OnExists::Skip
     };
 
+    // Attach the osu! API bearer token to any auth-requiring mirror. Auth-gated
+    // mirrors are dropped when there is no valid login, which can empty the list.
+    let mirrors = inject_mirror_auth(&config.mirrors).await;
+    if mirrors.is_empty() {
+        return Err(DownloadError::NoMirrors);
+    }
+
     let downloader = Downloader::builder()
-        .mirrors(config.mirrors.iter().cloned())
+        .mirrors(mirrors.iter().cloned())
         .concurrent_downloads(config.concurrent.max(1) as usize)
         .archive_validation(config.archive_validation)
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
@@ -415,6 +425,71 @@ where
             },
         }
     }
+}
+
+/// Attach the osu! API bearer token to any auth-requiring mirror.
+///
+/// [`osu_downloader::MirrorKind::OsuApi`] downloads need an `Authorization:
+/// Bearer` header carrying a `lazer`-scope user token. We resolve (and refresh)
+/// the stored login here, at download time, and attach it. Auth-requiring
+/// mirrors are dropped when no valid token is available, so the rest of the run
+/// proceeds on the anonymous mirrors.
+async fn inject_mirror_auth(mirrors: &[Mirror]) -> Vec<Mirror> {
+    if !mirrors.iter().any(|mirror| mirror.kind().requires_auth()) {
+        return mirrors.to_vec();
+    }
+
+    // Build the bearer header once and reuse it for every auth-gated mirror.
+    let auth_headers = build_osu_auth_headers().await;
+    if auth_headers.is_none() {
+        warn!("osu! official mirror selected but no valid login; skipping it");
+    }
+
+    mirrors
+        .iter()
+        .filter_map(|mirror| {
+            if !mirror.kind().requires_auth() {
+                return Some(mirror.clone());
+            }
+            let headers = auth_headers.clone()?;
+            Some(mirror.clone().with_headers(headers))
+        })
+        .collect()
+}
+
+/// Resolve the osu! token and wrap it in an `Authorization: Bearer` header map.
+/// Returns `None` (with a logged reason) when there is no valid login or the
+/// token can't form a header value.
+async fn build_osu_auth_headers() -> Option<HeaderMap> {
+    let token = resolve_osu_bearer().await?;
+    match HeaderValue::from_str(&format!("Bearer {token}")) {
+        Ok(value) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(AUTHORIZATION, value);
+            Some(headers)
+        }
+        Err(err) => {
+            warn!(error = %err, "osu! token is not a valid header value; skipping the official mirror");
+            None
+        }
+    }
+}
+
+/// Load, scope-check, and refresh the stored osu! token for the official mirror.
+/// Returns `None` (with a logged reason) when the user is not logged in, the
+/// token lacks the `lazer` scope, or a refresh fails.
+async fn resolve_osu_bearer() -> Option<String> {
+    let mut auth = crate::auth::load()?;
+    if !auth.scopes.iter().any(|scope| scope == "lazer") {
+        warn!("stored osu! token lacks the 'lazer' scope; re-login to enable the official mirror");
+        return None;
+    }
+    let client = reqwest::Client::new();
+    if let Err(err) = crate::auth::ensure_valid(&client, &mut auth).await {
+        warn!(error = %err, "failed to refresh osu! token for the official mirror");
+        return None;
+    }
+    Some(auth.bearer_token().to_string())
 }
 
 pub async fn try_remove_empty_output_dir(output_dir: &Path) {

@@ -44,7 +44,7 @@ const CHIP_ACTION_LOGIN: &str = "log in";
 const CHIP_ACTION_LOGOUT: &str = "log out";
 const CHIP_ACTION_CANCEL: &str = "cancel";
 const CHIP_LOGGING_IN: &str = " logging in… ";
-const CHIP_LOGIN_HINT: &str = "this does nothing (yet)";
+const CHIP_LOGIN_HINT: &str = "log in to enable the osu! official mirror";
 
 const THEME_MODE_LABELS: &[&str] = &["full", "compatible"];
 
@@ -153,6 +153,9 @@ fn build_config_items(
         (ConfigField::MirrorNerinyan, form.nerinyan),
         (ConfigField::MirrorSayobot, form.sayobot),
         (ConfigField::MirrorNekoha, form.nekoha),
+        (ConfigField::MirrorBeatconnect, form.beatconnect),
+        (ConfigField::MirrorHinamizawa, form.hinamizawa),
+        (ConfigField::MirrorOsuOfficial, form.osu_official),
     ];
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
         items.push_focusable(
@@ -296,9 +299,8 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
     Some(match field {
         AuthChip => return None,
         Theme => SECTION_DISPLAY,
-        MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorCustomUrl => {
-            SECTION_MIRRORS
-        }
+        MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorBeatconnect
+        | MirrorHinamizawa | MirrorOsuOfficial | MirrorCustomUrl => SECTION_MIRRORS,
         DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {
             SECTION_DOWNLOAD
         }

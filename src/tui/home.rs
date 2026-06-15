@@ -229,7 +229,7 @@ fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
     );
 }
 
-/// Pushes the four built-in mirror toggle rows, each with its latency suffix.
+/// Pushes the built-in mirror toggle rows, each with its latency suffix.
 ///
 /// Shared by `render_compact` and `render_content` — the row content is
 /// identical in both paths; only the surrounding chrome differs.
@@ -239,6 +239,9 @@ fn push_mirror_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
         (HomeField::MirrorNerinyan, form.nerinyan),
         (HomeField::MirrorSayobot, form.sayobot),
         (HomeField::MirrorNekoha, form.nekoha),
+        (HomeField::MirrorBeatconnect, form.beatconnect),
+        (HomeField::MirrorHinamizawa, form.hinamizawa),
+        (HomeField::MirrorOsuOfficial, form.osu_official),
     ];
     for (kind, (field, on)) in MirrorKind::BUILTINS.iter().zip(mirror_states) {
         let latency = form.mirror_latency.get(kind).copied();
@@ -263,9 +266,8 @@ fn home_section(field: HomeField) -> &'static str {
     use HomeField::*;
     match field {
         Collection => SECTION_COLLECTION,
-        CustomMirror | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha => {
-            SECTION_MIRRORS
-        }
+        CustomMirror | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha
+        | MirrorBeatconnect | MirrorHinamizawa | MirrorOsuOfficial => SECTION_MIRRORS,
         Threads | AutoOverwrite | Video | Directory => SECTION_DOWNLOAD,
         Download => SECTION_NONE,
     }

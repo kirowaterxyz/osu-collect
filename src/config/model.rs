@@ -67,6 +67,17 @@ pub struct MirrorConfig {
     pub sayobot: bool,
     #[serde(default = "default_enabled")]
     pub nekoha: bool,
+    /// Anonymous beatconnect.io CDN download. On by default.
+    #[serde(default = "default_enabled")]
+    pub beatconnect: bool,
+    /// Hinamizawa cascade. Off by default: it races server-side through the
+    /// other mirrors, so enabling it alongside them is redundant.
+    #[serde(default)]
+    pub hinamizawa: bool,
+    /// Official osu! API download. Off by default: needs an interactive
+    /// `lazer`-scope login and is rate-limited to 10–20 downloads/hour.
+    #[serde(default)]
+    pub osu_official: bool,
     #[serde(default)]
     pub url: Option<Box<str>>,
 }
@@ -148,6 +159,9 @@ impl Default for MirrorConfig {
             osu_direct: true,
             sayobot: true,
             nekoha: true,
+            beatconnect: true,
+            hinamizawa: false,
+            osu_official: false,
             url: None,
         }
     }
@@ -165,6 +179,9 @@ impl MirrorConfig {
             || self.osu_direct
             || self.sayobot
             || self.nekoha
+            || self.beatconnect
+            || self.hinamizawa
+            || self.osu_official
             || self.custom_template().is_some()
     }
 }

@@ -18,7 +18,10 @@ const CALLBACK_PORT: u16 = 7273;
 const REFRESH_MARGIN_SECS: u64 = 60;
 const OSU_AUTHORIZE_URL: &str = "https://osu.ppy.sh/oauth/authorize";
 const OSU_TOKEN_URL: &str = "https://osu.ppy.sh/oauth/token";
-pub const OAUTH_SCOPES: &[&str] = &["public", "identify"];
+// `lazer` is what grants the `BeatmapsetDownload` privilege on the official API;
+// without it `GET /api/v2/beatmapsets/{id}/download` returns 403. It only works
+// with the authorization_code grant + a real user, which is exactly this flow.
+pub const OAUTH_SCOPES: &[&str] = &["public", "identify", "lazer"];
 const LOGIN_SUCCESS_PAGE: &str = include_str!("pages/login_success.html");
 const LOGIN_FAILURE_PAGE: &str = include_str!("pages/login_failure.html");
 

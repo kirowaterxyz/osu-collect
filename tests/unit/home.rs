@@ -11,14 +11,18 @@ fn home_all_off(config: &Config) -> HomeTab {
     home.osu_direct = false;
     home.sayobot = false;
     home.nekoha = false;
+    home.beatconnect = false;
+    home.hinamizawa = false;
+    home.osu_official = false;
     home.custom_mirror.value = String::new();
     home
 }
 #[test]
-fn home_defaults_to_every_builtin_mirror() {
+fn home_defaults_to_every_default_on_mirror() {
     let config = Config::default();
     let home = HomeTab::new(&config);
 
+    // hinamizawa + osu! official are default-off, so they are absent here.
     let mirror_kinds: Vec<_> = home
         .build_mirror_list()
         .iter()
@@ -31,6 +35,7 @@ fn home_defaults_to_every_builtin_mirror() {
             MirrorKind::OsuDirect,
             MirrorKind::Sayobot,
             MirrorKind::Nekoha,
+            MirrorKind::Beatconnect,
         ]
     );
 }

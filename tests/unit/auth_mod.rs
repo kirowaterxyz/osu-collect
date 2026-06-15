@@ -15,8 +15,8 @@ fn authorize_url_contains_required_params() {
     assert!(url.contains("client_id=42"));
     assert!(url.contains("response_type=code"));
     assert!(url.contains("state=abc123"));
-    assert!(url.contains("public+identify"));
-    assert!(!url.contains("lazer"));
+    // `lazer` scope is required for the osu! official download endpoint.
+    assert!(url.contains("public+identify+lazer"));
 }
 
 #[test]

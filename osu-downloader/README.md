@@ -60,9 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **osu.direct** — https://osu.direct
 - **Sayobot** — https://dl.sayobot.cn
 - **Nekoha** — https://mirror.nekoha.moe
+- **Beatconnect** — https://beatconnect.io (anonymous `/b/{id}/`)
+- **Hinamizawa** — https://mirror.hinamizawa.ai (server-side cascade over the others)
+- **osu! official** — `https://osu.ppy.sh/api/v2/beatmapsets/{id}/download` — **needs auth**: attach a `lazer`-scope bearer token via `Mirror::osu_api().with_headers(..)`. `MirrorKind::requires_auth()` reports this.
 - **Custom** — `Mirror::custom("https://your.mirror/d/{id}")?`
 
-`Mirror::builtins()` returns every built-in as a `Vec`. `Mirror::builtin(MirrorKind::Sayobot)` constructs a single built-in by tag (returns `None` for `Custom`). `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors).
+`Mirror::builtins()` returns every built-in as a `Vec` (including `OsuApi`, which needs a caller-supplied auth header — filter with `MirrorKind::requires_auth()` in anonymous contexts). `Mirror::builtin(MirrorKind::Sayobot)` constructs a single built-in by tag (returns `None` for `Custom`). `Mirror::nerinyan().no_video()` switches to the no-video template for mirrors that have one (no-op for custom mirrors and osu! official).
 
 ## Collections
 
@@ -140,7 +143,11 @@ The `size-fetch` feature exposes `SizeFetcher::check_availability` for cheap "is
 use osu_downloader::{Mirror, size::SizeFetcher};
 
 let fetcher = SizeFetcher::new();
-let mirrors = Mirror::builtins();
+// Drop auth-gated mirrors — availability is an anonymous probe.
+let mirrors: Vec<_> = Mirror::builtins()
+    .into_iter()
+    .filter(|m| !m.kind().requires_auth())
+    .collect();
 let result = fetcher
     .check_availability(&[123, 456, 789], &mirrors, |checked, total| {
         println!("checked {checked}/{total}");

@@ -157,6 +157,9 @@ pub enum HomeField {
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
+    MirrorBeatconnect,
+    MirrorHinamizawa,
+    MirrorOsuOfficial,
     Threads,
     AutoOverwrite,
     Video,
@@ -174,6 +177,9 @@ const HOME_FIELDS: &[HomeField] = &[
     HomeField::MirrorNerinyan,
     HomeField::MirrorSayobot,
     HomeField::MirrorNekoha,
+    HomeField::MirrorBeatconnect,
+    HomeField::MirrorHinamizawa,
+    HomeField::MirrorOsuOfficial,
     HomeField::Directory,
     HomeField::Threads,
     HomeField::AutoOverwrite,
@@ -201,6 +207,9 @@ impl HomeField {
                 | HomeField::MirrorOsuDirect
                 | HomeField::MirrorSayobot
                 | HomeField::MirrorNekoha
+                | HomeField::MirrorBeatconnect
+                | HomeField::MirrorHinamizawa
+                | HomeField::MirrorOsuOfficial
                 | HomeField::AutoOverwrite
                 | HomeField::Video
         )
@@ -217,6 +226,9 @@ pub struct HomeTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
+    pub beatconnect: bool,
+    pub hinamizawa: bool,
+    pub osu_official: bool,
     pub video: bool,
     pub focus: HomeField,
     pub message: Option<AppMessage>,
@@ -241,6 +253,9 @@ impl HomeTab {
         let osu_direct = config.mirror.osu_direct;
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
+        let beatconnect = config.mirror.beatconnect;
+        let hinamizawa = config.mirror.hinamizawa;
+        let osu_official = config.mirror.osu_official;
         let custom_template = config.mirror.custom_template().unwrap_or("");
 
         // One syscall: raw form for submit fallback, pretty form for placeholder.
@@ -285,12 +300,15 @@ impl HomeTab {
             osu_direct,
             sayobot,
             nekoha,
+            beatconnect,
+            hinamizawa,
+            osu_official,
             video: config.download.video,
             focus: HomeField::Collection,
             message: None,
             collection_resolve: None,
             resolved_collection: None,
-            mirror_latency: HashMap::with_capacity(4),
+            mirror_latency: HashMap::with_capacity(MirrorKind::BUILTINS.len()),
             quit_prompt: false,
             default_threads,
             default_directory,
@@ -491,6 +509,15 @@ impl HomeTab {
             HomeField::MirrorNekoha => {
                 self.nekoha = !self.nekoha;
             }
+            HomeField::MirrorBeatconnect => {
+                self.beatconnect = !self.beatconnect;
+            }
+            HomeField::MirrorHinamizawa => {
+                self.hinamizawa = !self.hinamizawa;
+            }
+            HomeField::MirrorOsuOfficial => {
+                self.osu_official = !self.osu_official;
+            }
             HomeField::AutoOverwrite => {
                 self.auto_overwrite = !self.auto_overwrite;
             }
@@ -506,10 +533,18 @@ impl HomeTab {
     /// Use this for display-only contexts (e.g. the summary metric in the TUI).
     /// Call `build_mirror_list` when the actual list of mirrors is needed.
     pub fn mirror_count(&self) -> usize {
-        let builtin_count = [self.nerinyan, self.osu_direct, self.sayobot, self.nekoha]
-            .iter()
-            .filter(|&&enabled| enabled)
-            .count();
+        let builtin_count = [
+            self.nerinyan,
+            self.osu_direct,
+            self.sayobot,
+            self.nekoha,
+            self.beatconnect,
+            self.hinamizawa,
+            self.osu_official,
+        ]
+        .iter()
+        .filter(|&&enabled| enabled)
+        .count();
         let custom_count = usize::from(
             !self.custom_mirror.value.trim().is_empty()
                 && Mirror::validate_template(self.custom_mirror.value.trim()).is_ok(),
@@ -523,6 +558,11 @@ impl HomeTab {
             (self.osu_direct, MirrorKind::OsuDirect),
             (self.sayobot, MirrorKind::Sayobot),
             (self.nekoha, MirrorKind::Nekoha),
+            (self.beatconnect, MirrorKind::Beatconnect),
+            (self.hinamizawa, MirrorKind::Hinamizawa),
+            // OsuApi is built header-less here; the download pipeline injects the
+            // `lazer`-scope bearer token before the request goes out.
+            (self.osu_official, MirrorKind::OsuApi),
         ];
 
         let mut mirrors: Vec<Mirror> = builtin_checks

@@ -18,6 +18,16 @@ pub enum MirrorKind {
     Sayobot,
     /// Nekoha mirror.
     Nekoha,
+    /// Beatconnect mirror (anonymous direct downloads).
+    Beatconnect,
+    /// Hinamizawa mirror (cascades across the other mirrors server-side).
+    Hinamizawa,
+    /// Official osu! API v2 download endpoint.
+    ///
+    /// Unlike the other built-ins this requires an `Authorization: Bearer`
+    /// header carrying a user token with the `lazer` scope; the caller must
+    /// attach it via [`Mirror::with_headers`]. See [`MirrorKind::requires_auth`].
+    OsuApi,
     /// Custom mirror with user-provided URL template.
     Custom,
 }
@@ -57,6 +67,27 @@ impl MirrorKind {
                 template: "https://mirror.nekoha.moe/api4/download/{id}",
                 template_no_video: "https://mirror.nekoha.moe/api4/download/{id}",
             }),
+            MirrorKind::Beatconnect => Some(ProviderMeta {
+                label: "Beatconnect",
+                backoff_secs: 60,
+                template: "https://beatconnect.io/b/{id}/",
+                template_no_video: "https://beatconnect.io/b/{id}/?novideo=1",
+            }),
+            MirrorKind::Hinamizawa => Some(ProviderMeta {
+                label: "Hinamizawa",
+                backoff_secs: 45,
+                template: "https://mirror.hinamizawa.ai/api/v1/hinai/d/{id}",
+                template_no_video: "https://mirror.hinamizawa.ai/api/v1/hinai/d/{id}?no_video=true",
+            }),
+            MirrorKind::OsuApi => Some(ProviderMeta {
+                // Hard hourly download quota (10 free / 20 supporter) means a 429
+                // takes the mirror out for a long time — back off aggressively.
+                label: "osu! official",
+                backoff_secs: 300,
+                template: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
+                // The official download endpoint has no documented no-video variant.
+                template_no_video: "https://osu.ppy.sh/api/v2/beatmapsets/{id}/download",
+            }),
             MirrorKind::Custom => None,
         }
     }
@@ -68,7 +99,19 @@ impl MirrorKind {
         MirrorKind::Nerinyan,
         MirrorKind::Sayobot,
         MirrorKind::Nekoha,
+        MirrorKind::Beatconnect,
+        MirrorKind::Hinamizawa,
+        MirrorKind::OsuApi,
     ];
+
+    /// Whether this mirror needs a caller-supplied `Authorization` header to
+    /// download. Only [`MirrorKind::OsuApi`] does; every other mirror downloads
+    /// anonymously. Use this to skip auth-gated mirrors in anonymous contexts
+    /// (e.g. availability probes).
+    #[inline]
+    pub fn requires_auth(&self) -> bool {
+        matches!(self, MirrorKind::OsuApi)
+    }
 
     /// Display label for this mirror.
     #[inline]
@@ -88,6 +131,9 @@ impl MirrorKind {
             MirrorKind::OsuDirect => "osu.direct",
             MirrorKind::Sayobot => "dl.sayobot.cn",
             MirrorKind::Nekoha => "mirror.nekoha.moe",
+            MirrorKind::Beatconnect => "beatconnect.io",
+            MirrorKind::Hinamizawa => "mirror.hinamizawa.ai",
+            MirrorKind::OsuApi => "osu.ppy.sh",
             MirrorKind::Custom => "custom",
         }
     }
@@ -225,13 +271,38 @@ impl Mirror {
         Self::new_builtin(MirrorKind::Nekoha)
     }
 
+    /// Beatconnect mirror (anonymous direct downloads).
+    pub fn beatconnect() -> Self {
+        Self::new_builtin(MirrorKind::Beatconnect)
+    }
+
+    /// Hinamizawa mirror (server-side cascade across the other mirrors).
+    pub fn hinamizawa() -> Self {
+        Self::new_builtin(MirrorKind::Hinamizawa)
+    }
+
+    /// Official osu! API v2 download mirror.
+    ///
+    /// The returned mirror has **no** auth header; downloads will fail with
+    /// `401`/`403` until the caller attaches a `lazer`-scope bearer token via
+    /// [`Mirror::with_headers`]. See [`MirrorKind::requires_auth`].
+    pub fn osu_api() -> Self {
+        Self::new_builtin(MirrorKind::OsuApi)
+    }
+
     /// Every built-in mirror, in the library's default preference order.
+    ///
+    /// Includes [`MirrorKind::OsuApi`], which requires a caller-supplied auth
+    /// header — filter with [`MirrorKind::requires_auth`] in anonymous contexts.
     pub fn builtins() -> Vec<Mirror> {
         vec![
             Mirror::nerinyan(),
             Mirror::osu_direct(),
             Mirror::sayobot(),
             Mirror::nekoha(),
+            Mirror::beatconnect(),
+            Mirror::hinamizawa(),
+            Mirror::osu_api(),
         ]
     }
 

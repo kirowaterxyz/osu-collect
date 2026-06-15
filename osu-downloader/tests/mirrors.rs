@@ -18,6 +18,51 @@ fn mirror_templates() {
         Mirror::nekoha().url_for(1),
         "https://mirror.nekoha.moe/api4/download/1"
     );
+    assert_eq!(
+        Mirror::beatconnect().url_for(320118),
+        "https://beatconnect.io/b/320118/"
+    );
+    assert_eq!(
+        Mirror::hinamizawa().url_for(320118),
+        "https://mirror.hinamizawa.ai/api/v1/hinai/d/320118"
+    );
+    assert_eq!(
+        Mirror::osu_api().url_for(320118),
+        "https://osu.ppy.sh/api/v2/beatmapsets/320118/download"
+    );
+}
+
+#[test]
+fn no_video_templates_for_new_mirrors() {
+    assert_eq!(
+        Mirror::beatconnect().no_video().url_for(42),
+        "https://beatconnect.io/b/42/?novideo=1"
+    );
+    assert_eq!(
+        Mirror::hinamizawa().no_video().url_for(42),
+        "https://mirror.hinamizawa.ai/api/v1/hinai/d/42?no_video=true"
+    );
+    // osu! official has no no-video variant: same URL either way.
+    assert_eq!(
+        Mirror::osu_api().no_video().url_for(42),
+        "https://osu.ppy.sh/api/v2/beatmapsets/42/download"
+    );
+}
+
+#[test]
+fn only_osu_api_requires_auth() {
+    assert!(MirrorKind::OsuApi.requires_auth());
+    for kind in [
+        MirrorKind::Nerinyan,
+        MirrorKind::OsuDirect,
+        MirrorKind::Sayobot,
+        MirrorKind::Nekoha,
+        MirrorKind::Beatconnect,
+        MirrorKind::Hinamizawa,
+        MirrorKind::Custom,
+    ] {
+        assert!(!kind.requires_auth(), "{kind:?} must download anonymously");
+    }
 }
 
 #[test]
@@ -38,12 +83,7 @@ fn url_for_edge_ids() {
         format!("https://osu.direct/d/{}", u32::MAX)
     );
     // all builtin kinds via Mirror::builtin
-    for kind in [
-        MirrorKind::Nerinyan,
-        MirrorKind::OsuDirect,
-        MirrorKind::Sayobot,
-        MirrorKind::Nekoha,
-    ] {
+    for kind in MirrorKind::BUILTINS.iter().copied() {
         let mirror = Mirror::builtin(kind).expect("builtin mirror exists");
         let url = mirror.url_for(1);
         assert!(

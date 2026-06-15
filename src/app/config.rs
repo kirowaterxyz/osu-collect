@@ -39,6 +39,9 @@ pub enum ConfigField {
     MirrorOsuDirect,
     MirrorSayobot,
     MirrorNekoha,
+    MirrorBeatconnect,
+    MirrorHinamizawa,
+    MirrorOsuOfficial,
     MirrorCustomUrl,
     DownloadThreads,
     DownloadVideo,
@@ -60,6 +63,9 @@ const ALL_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
     ConfigField::MirrorNekoha,
+    ConfigField::MirrorBeatconnect,
+    ConfigField::MirrorHinamizawa,
+    ConfigField::MirrorOsuOfficial,
     ConfigField::MirrorCustomUrl,
     ConfigField::DownloadVideo,
     ConfigField::DownloadThreads,
@@ -89,6 +95,9 @@ pub struct ConfigTab {
     pub osu_direct: bool,
     pub sayobot: bool,
     pub nekoha: bool,
+    pub beatconnect: bool,
+    pub hinamizawa: bool,
+    pub osu_official: bool,
     pub custom_mirror: InputField,
     pub login_state: AuthLoginState,
     pub threads: InputField,
@@ -117,6 +126,9 @@ impl ConfigTab {
             osu_direct: config.mirror.osu_direct,
             sayobot: config.mirror.sayobot,
             nekoha: config.mirror.nekoha,
+            beatconnect: config.mirror.beatconnect,
+            hinamizawa: config.mirror.hinamizawa,
+            osu_official: config.mirror.osu_official,
             custom_mirror: custom_mirror_field(&config.mirror),
             login_state: login_state(auth_loaded),
             threads: threads_field(&config.download),
@@ -129,7 +141,9 @@ impl ConfigTab {
             logging_dir: logging_dir_field(&config.logging),
             // Absent config key → show the default (full) palette in the cycle.
             theme: config.display.theme.unwrap_or_default(),
-            // Auth chip "log in" does nothing yet, so start focus one row below it.
+            // Login is functional (it authorizes the osu! official mirror), but
+            // start focus one row below the chip so an accidental enter never
+            // kicks off the browser OAuth flow.
             focus: ConfigField::Theme,
             message: None,
             default_threads: default_threads(),
@@ -253,6 +267,9 @@ impl ConfigTab {
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
             ConfigField::MirrorNekoha => self.nekoha = !self.nekoha,
+            ConfigField::MirrorBeatconnect => self.beatconnect = !self.beatconnect,
+            ConfigField::MirrorHinamizawa => self.hinamizawa = !self.hinamizawa,
+            ConfigField::MirrorOsuOfficial => self.osu_official = !self.osu_official,
             ConfigField::DownloadVideo => self.video = !self.video,
             ConfigField::DownloadArchiveValidation => self.cycle_archive_validation(),
             ConfigField::RetryFailedOnDownload => self.cycle_retry_failed_on_download(),
@@ -296,6 +313,9 @@ impl ConfigTab {
             osu_direct: self.osu_direct,
             sayobot: self.sayobot,
             nekoha: self.nekoha,
+            beatconnect: self.beatconnect,
+            hinamizawa: self.hinamizawa,
+            osu_official: self.osu_official,
             url: self
                 .trimmed_custom_mirror()
                 .map(|value| value.into_boxed_str()),
