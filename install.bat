@@ -180,17 +180,29 @@ if errorlevel 1 (
 
 :shortcuts
 echo ==^> creating shortcuts...
+:: if Windows Terminal is present, launch through it so the shortcut carries the
+:: Windows Terminal icon and opens in wt instead of the legacy console
 powershell -NoProfile -Command ^
   "$ws = New-Object -ComObject WScript.Shell; " ^
+  "$q = [char]34; " ^
+  "$bang = [char]33; " ^
+  "$name = 'osu' + $bang + 'collect.lnk'; " ^
+  "$wt = [System.IO.Path]::Combine($env:LOCALAPPDATA, 'Microsoft\WindowsApps\wt.exe'); " ^
+  "$useWt = Test-Path $wt; " ^
   "$paths = @( " ^
   "  [System.Environment]::GetFolderPath('Desktop'), " ^
   "  [System.IO.Path]::Combine($env:APPDATA, 'Microsoft\Windows\Start Menu\Programs') " ^
   "); " ^
   "foreach ($dir in $paths) { " ^
-  "  $lnk = $ws.CreateShortcut([System.IO.Path]::Combine($dir, 'osu-collect.lnk')); " ^
-  "  $lnk.TargetPath = \"%INSTALL_BIN%\"; " ^
+  "  $lnk = $ws.CreateShortcut([System.IO.Path]::Combine($dir, $name)); " ^
+  "  if ($useWt) { " ^
+  "    $lnk.TargetPath = $wt; " ^
+  "    $lnk.Arguments = $q + '%INSTALL_BIN%' + $q; " ^
+  "  } else { " ^
+  "    $lnk.TargetPath = '%INSTALL_BIN%'; " ^
+  "  } " ^
   "  $lnk.WorkingDirectory = $env:USERPROFILE; " ^
-  "  $lnk.Description = 'download osu! collections (TUI)'; " ^
+  "  $lnk.Description = 'download osu' + $bang + ' collections (TUI)'; " ^
   "  $lnk.Save() " ^
   "}"
 if errorlevel 1 (
@@ -199,9 +211,72 @@ if errorlevel 1 (
   echo ==^> shortcuts created in Desktop and Start Menu
 )
 
+:: -- register uninstaller -----------------------------------------------------
+
+:: extract the uninstaller payload (plain PowerShell at the bottom of this file)
+:: into the install dir, then register it under HKCU so it appears in the Windows
+:: "Installed apps" list with a working Uninstall button
+echo ==^> registering uninstaller...
+powershell -NoProfile -Command ^
+  "$dir = '%INSTALL_DIR%'; " ^
+  "$u = [System.IO.Path]::Combine($dir, 'uninstall.ps1'); " ^
+  "$marker = '# ::OSU-COLLECT' + '-UNINSTALLER::'; " ^
+  "$txt = [IO.File]::ReadAllText('%~f0'); " ^
+  "$i = $txt.IndexOf($marker); " ^
+  "if ($i -ge 0) { [IO.File]::WriteAllText($u, $txt.Substring($i + $marker.Length).TrimStart()); } " ^
+  "$q = [char]34; " ^
+  "$key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\osu-collect'; " ^
+  "New-Item -Path $key -Force | Out-Null; " ^
+  "$us = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + $q + $u + $q; " ^
+  "Set-ItemProperty -Path $key -Name DisplayName -Value ('osu' + [char]33 + 'collect'); " ^
+  "Set-ItemProperty -Path $key -Name DisplayIcon -Value '%INSTALL_BIN%'; " ^
+  "Set-ItemProperty -Path $key -Name DisplayVersion -Value ('%LATEST_TAG%'.TrimStart('v')); " ^
+  "Set-ItemProperty -Path $key -Name Publisher -Value 'uwuclxdy'; " ^
+  "Set-ItemProperty -Path $key -Name InstallLocation -Value $dir; " ^
+  "Set-ItemProperty -Path $key -Name URLInfoAbout -Value 'https://github.com/uwuclxdy/osu-collect'; " ^
+  "Set-ItemProperty -Path $key -Name UninstallString -Value $us; " ^
+  "Set-ItemProperty -Path $key -Name QuietUninstallString -Value $us; " ^
+  "New-ItemProperty -Path $key -Name NoModify -Value 1 -PropertyType DWord -Force | Out-Null; " ^
+  "New-ItemProperty -Path $key -Name NoRepair -Value 1 -PropertyType DWord -Force | Out-Null"
+if errorlevel 1 (
+  echo error: could not register uninstaller
+) else (
+  echo ==^> uninstaller registered; see Settings - Apps - Installed apps
+)
+
 :: -- cleanup ------------------------------------------------------------------
 
 rmdir /s /q "%TMPDIR%" 2>nul
 echo ==^> done -- open a new terminal and run 'osu-collect' to start
 endlocal
 exit /b 0
+
+:: Everything below runs only when extracted to uninstall.ps1 (PowerShell), never
+:: by cmd -- it sits past `exit /b 0`. The installer copies it verbatim into the
+:: install dir and registers it as the Windows uninstaller.
+# ::OSU-COLLECT-UNINSTALLER::
+$ErrorActionPreference = 'SilentlyContinue'
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\osu-collect'
+$desktop    = [Environment]::GetFolderPath('Desktop')
+$startMenu  = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+$shortcuts  = @(
+    Join-Path $desktop   'osu!collect.lnk'
+    Join-Path $startMenu 'osu!collect.lnk'
+    Join-Path $desktop   'osu-collect.lnk'
+    Join-Path $startMenu 'osu-collect.lnk'
+)
+foreach ($lnk in $shortcuts) { Remove-Item -LiteralPath $lnk -Force }
+
+# strip the install dir from the user PATH
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($userPath) {
+    $kept = ($userPath -split ';') | Where-Object { $_ -and ($_ -ne $installDir) }
+    [Environment]::SetEnvironmentVariable('Path', ($kept -join ';'), 'User')
+}
+
+# drop the "Installed apps" registry entry
+Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\osu-collect' -Recurse -Force
+
+# remove the install dir (incl. this script) from a detached process so the file
+# isn't locked while it deletes itself
+Start-Process cmd -WindowStyle Hidden -ArgumentList '/c', ('timeout /t 2 > nul & rmdir /s /q "' + $installDir + '"')

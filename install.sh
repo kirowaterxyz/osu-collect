@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install.sh — installs or updates osu-collect from the latest GitHub release
-# supports: linux x64 (primary), macOS (exits cleanly if no asset available)
+# supports: linux x64, macOS arm64 (Apple Silicon)
 set -euo pipefail
 
 # ── constants ────────────────────────────────────────────────────────────────
@@ -9,8 +9,6 @@ readonly REPO="uwuclxdy/osu-collect"
 readonly API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 readonly INSTALL_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 readonly BINARY_NAME="osu-collect"
-readonly DESKTOP_DIR="${HOME}/.local/share/applications"
-readonly DESKTOP_FILE="${DESKTOP_DIR}/osu-collect.desktop"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,9 +48,16 @@ detect_asset() {
       printf 'osu-collect-linux-x64'
       ;;
     Darwin)
-      error "macOS build is not published yet — no osu-collect-macos-x64 asset exists"
-      info  "when a macOS asset is released, re-run this script"
-      exit 0
+      case "$arch" in
+        arm64 | aarch64)
+          printf 'osu-collect-macos-arm64'
+          ;;
+        *)
+          error "unsupported macOS architecture: $arch (only Apple Silicon / arm64 is published)"
+          info  "Intel Macs need an x64 build, which is not published yet"
+          exit 1
+          ;;
+      esac
       ;;
     *)
       error "unsupported OS: $os"
@@ -146,41 +151,6 @@ check_path() {
   esac
 }
 
-# ── shortcut helpers ─────────────────────────────────────────────────────────
-
-write_desktop_file() {
-  local path="$1"
-  local binary_path="${INSTALL_DIR}/${BINARY_NAME}"
-  mkdir -p -- "$(dirname "$path")"
-  cat > "$path" <<EOF
-[Desktop Entry]
-Type=Application
-Name=osu-collect
-Comment=download osu! collections (TUI)
-Exec="${binary_path}"
-Terminal=true
-Categories=Utility;
-EOF
-  chmod +x -- "$path"
-}
-
-install_shortcuts() {
-  write_desktop_file "$DESKTOP_FILE"
-  info "shortcut created: $DESKTOP_FILE"
-
-  local desktop_dir
-  if command -v xdg-user-dir &>/dev/null; then
-    desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || printf '%s/Desktop' "$HOME")"
-  else
-    desktop_dir="${HOME}/Desktop"
-  fi
-
-  if [[ -d "$desktop_dir" ]]; then
-    write_desktop_file "${desktop_dir}/osu-collect.desktop"
-    info "desktop shortcut created: ${desktop_dir}/osu-collect.desktop"
-  fi
-}
-
 # ── current install state ────────────────────────────────────────────────────
 
 installed_hash() {
@@ -193,10 +163,6 @@ installed_hash() {
   else
     printf ''
   fi
-}
-
-shortcut_missing() {
-  [[ ! -f "$DESKTOP_FILE" ]]
 }
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -240,7 +206,6 @@ main() {
 
   if [[ -n "$current_hash" && "$current_hash" == "$remote_hash" ]]; then
     info "already up to date ($tag)"
-    shortcut_missing && install_shortcuts
     exit 0
   fi
 
@@ -258,7 +223,6 @@ main() {
   install -m 755 -- "$tmp_bin" "${INSTALL_DIR}/${BINARY_NAME}"
   info "installed to ${INSTALL_DIR}/${BINARY_NAME}"
 
-  install_shortcuts
   check_path "$INSTALL_DIR"
 
   info "done — run 'osu-collect' to start"
