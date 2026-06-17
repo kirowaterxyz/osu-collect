@@ -41,31 +41,36 @@ pub fn pretty_path(path: impl AsRef<Path>) -> Cow<'static, str> {
             return Cow::Borrowed("~");
         }
         if let Ok(stripped) = path.strip_prefix(&home) {
-            let mut s = String::with_capacity(2 + stripped.as_os_str().len());
-            s.push_str("~/");
-            s.push_str(&stripped.to_string_lossy());
-            return Cow::Owned(s);
+            // Join so the separator after `~` matches the platform (`\` on Windows).
+            let collapsed = Path::new("~").join(stripped);
+            return Cow::Owned(collapsed.to_string_lossy().into_owned());
         }
     }
     Cow::Owned(path.to_string_lossy().into_owned())
 }
 
-/// Expand a leading `~` or `~/` to the user's home directory.
+/// Expand a leading `~` or `~/` (also `~\` on Windows) to the user's home
+/// directory.
 ///
-/// Only the literal leading `~` followed by `/` or end-of-string is
-/// substituted. Absolute paths, relative paths, and paths starting with `~`
-/// followed by a non-`/` character are returned unchanged.
+/// Only a bare `~` or `~` followed by a path separator is substituted, joined
+/// with the platform separator. Absolute paths, relative paths, and `~` followed
+/// by a non-separator character are returned unchanged.
 pub fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return dirs::home_dir()
             .map(|h| h.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string());
     }
-    if let Some(rest) = path.strip_prefix("~/")
+    // On Unix a backslash is a valid filename byte, so only `~/` is home-relative;
+    // Windows also writes `~\`.
+    let rest = path.strip_prefix("~/");
+    #[cfg(windows)]
+    let rest = rest.or_else(|| path.strip_prefix(r"~\"));
+    if let Some(rest) = rest
         && let Some(home) = dirs::home_dir()
     {
         let mut s = home.to_string_lossy().into_owned();
-        s.push('/');
+        s.push(std::path::MAIN_SEPARATOR);
         s.push_str(rest);
         return s;
     }

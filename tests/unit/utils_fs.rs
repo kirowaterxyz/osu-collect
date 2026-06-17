@@ -10,7 +10,8 @@ fn pretty_path_collapses_home_subpath() {
         return; // no home configured in this environment — skip
     };
     let songs = home.join("Songs");
-    assert_eq!(pretty_path(&songs).as_ref(), "~/Songs");
+    let expected = format!("~{}Songs", std::path::MAIN_SEPARATOR);
+    assert_eq!(pretty_path(&songs).as_ref(), expected);
 }
 
 #[test]
@@ -34,8 +35,22 @@ fn expand_tilde_expands_tilde_slash_prefix() {
     let Some(home) = dirs::home_dir() else {
         return;
     };
-    let expected = format!("{}/Songs", home.to_string_lossy());
+    let expected = format!(
+        "{}{}Songs",
+        home.to_string_lossy(),
+        std::path::MAIN_SEPARATOR
+    );
     assert_eq!(expand_tilde("~/Songs"), expected);
+}
+
+#[cfg(windows)]
+#[test]
+fn expand_tilde_expands_tilde_backslash_on_windows() {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let expected = format!(r"{}\Songs", home.to_string_lossy());
+    assert_eq!(expand_tilde(r"~\Songs"), expected);
 }
 
 #[test]
