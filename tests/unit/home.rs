@@ -1,4 +1,5 @@
 use crate::{
+    app::CustomMirrorList,
     app::home::{HomeField, HomeTab, InputField},
     config::Config,
     download::ArchiveValidation,
@@ -16,7 +17,7 @@ fn home_all_off(config: &Config) -> HomeTab {
     home.catboy = false;
     home.hinamizawa = false;
     home.osu_official = false;
-    home.custom_mirror.value = String::new();
+    home.custom_mirrors = CustomMirrorList::from_templates(&[]);
     home
 }
 #[test]
@@ -68,7 +69,10 @@ fn build_mirror_list_empty_when_none_selected() {
 fn build_mirror_list_includes_custom_mirror() {
     let config = Config::default();
     let mut home = home_all_off(&config);
-    home.custom_mirror.value = "https://example.com/d/{id}".to_string();
+    home.custom_mirrors
+        .row_mut(0)
+        .unwrap()
+        .set_value("https://example.com/d/{id}");
 
     let mirrors = home.build_mirror_list();
     assert_eq!(mirrors.len(), 1);

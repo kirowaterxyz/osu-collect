@@ -195,17 +195,13 @@ fn build_config_items(
     if show_chrome && focus == ConfigField::MirrorOsuOfficial && !logged_in {
         items.push(widgets::help_item(HELP_OSU_OFFICIAL_LOCKED));
     }
-    items.push_focusable(
-        ConfigField::MirrorCustomUrl,
-        widgets::input_item(
-            &form.custom_mirror,
-            focus == ConfigField::MirrorCustomUrl,
-            editing,
-            0,
-        ),
-    );
-    if show_chrome && focus == ConfigField::MirrorCustomUrl {
-        items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+    for (idx, row) in form.custom_mirrors.rows().iter().enumerate() {
+        let field = ConfigField::MirrorCustomUrl(idx);
+        let focused = focus == field;
+        items.push_focusable(field, widgets::input_item(row, focused, editing, 0));
+        if show_chrome && focused {
+            items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+        }
     }
     if show_chrome {
         items.push(widgets::spacer());
@@ -324,9 +320,8 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
         AuthChip => return None,
         Theme | VimKeys => SECTION_DISPLAY,
         MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorBeatconnect
-        | MirrorOsudl | MirrorCatboy | MirrorHinamizawa | MirrorOsuOfficial | MirrorCustomUrl => {
-            SECTION_MIRRORS
-        }
+        | MirrorOsudl | MirrorCatboy | MirrorHinamizawa | MirrorOsuOfficial
+        | MirrorCustomUrl(_) => SECTION_MIRRORS,
         DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {
             SECTION_DOWNLOAD
         }

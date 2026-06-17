@@ -691,13 +691,18 @@ fn vim_lone_g_then_motion_does_not_jump() {
 fn vim_i_enters_edit_mode_then_typing_is_literal() {
     use osu_collect::app::ConfigField;
     let mut app = config_app_vim(true);
-    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.config.focus = ConfigField::MirrorCustomUrl(0);
     app.handle_key(press(KeyCode::Char('i')));
     assert!(app.editing, "i descends into edit mode on a text field");
     // While editing, motion letters type literally — the vim layer is bypassed.
     app.handle_key(press(KeyCode::Char('j')));
     assert!(
-        app.config.custom_mirror.value.contains('j'),
+        app.config
+            .custom_mirrors
+            .row(0)
+            .unwrap()
+            .value
+            .contains('j'),
         "editing a field types literal chars, not vim motions"
     );
 }

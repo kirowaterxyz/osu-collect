@@ -1,4 +1,7 @@
-use super::{first_field, last_field, messages::AppMessage, next_field, prev_field};
+use super::{
+    custom_mirrors::CustomMirrorList, first_field, last_field, messages::AppMessage, next_field,
+    prev_field,
+};
 use crate::{
     app::runtime::ProbeResult,
     config::Config,
@@ -152,7 +155,9 @@ fn char_to_byte(s: &str, idx: usize) -> usize {
 pub enum HomeField {
     Collection,
     Directory,
-    CustomMirror,
+    /// One custom-mirror URL row, indexed into [`CustomMirrorList`]. The last
+    /// index is always the empty "add new" entry slot.
+    CustomMirror(usize),
     MirrorNerinyan,
     MirrorOsuDirect,
     MirrorSayobot,
@@ -169,12 +174,10 @@ pub enum HomeField {
     Download,
 }
 
-// Navigation order — mirrors the render order in `tui::home`: collection ·
-// mirrors · download, with the download directory at the bottom of the download
-// section (just above the start button).
-const HOME_FIELDS: &[HomeField] = &[
-    HomeField::Collection,
-    HomeField::CustomMirror,
+// Fields after the dynamic custom-mirror rows, in render order — collection ·
+// (custom mirrors) · builtin mirrors · download, with the download directory at
+// the bottom of the download section (just above the start button).
+const HOME_FIELDS_AFTER_CUSTOM: &[HomeField] = &[
     HomeField::MirrorOsuDirect,
     HomeField::MirrorNerinyan,
     HomeField::MirrorSayobot,
@@ -195,7 +198,7 @@ impl HomeField {
     pub fn is_text_input(self) -> bool {
         matches!(
             self,
-            HomeField::Collection | HomeField::Directory | HomeField::CustomMirror
+            HomeField::Collection | HomeField::Directory | HomeField::CustomMirror(_)
         )
     }
 
@@ -225,7 +228,7 @@ impl HomeField {
 pub struct HomeTab {
     pub collection: InputField,
     pub directory: InputField,
-    pub custom_mirror: InputField,
+    pub custom_mirrors: CustomMirrorList,
     pub threads: InputField,
     pub auto_overwrite: bool,
     pub nerinyan: bool,
@@ -266,7 +269,7 @@ impl HomeTab {
         let catboy = config.mirror.catboy;
         let hinamizawa = config.mirror.hinamizawa;
         let osu_official = config.mirror.osu_official;
-        let custom_template = config.mirror.custom_template().unwrap_or("");
+        let custom_templates = config.mirror.custom_templates();
 
         // One syscall: raw form for submit fallback, pretty form for placeholder.
         let cwd = env::current_dir();
@@ -299,11 +302,7 @@ impl HomeTab {
                 "https://osucollector.com/collections/...",
             ),
             directory: InputField::new("Download directory", last_directory, placeholder_directory),
-            custom_mirror: InputField::new(
-                "Custom mirror URL (optional)",
-                custom_template,
-                "https://example.com/d/{id}",
-            ),
+            custom_mirrors: CustomMirrorList::from_templates(&custom_templates),
             threads: InputField::new("threads", threads_value, default_threads.to_string()),
             auto_overwrite: false,
             nerinyan,
@@ -367,20 +366,51 @@ impl HomeTab {
         }
     }
 
+    /// Full focus order with one [`HomeField::CustomMirror`] row per custom
+    /// entry (including the trailing empty slot), built fresh each call so the
+    /// dynamic custom-mirror count is always reflected.
+    fn fields(&self) -> Vec<HomeField> {
+        let mut fields = Vec::with_capacity(
+            1 + self.custom_mirrors.row_count() + HOME_FIELDS_AFTER_CUSTOM.len(),
+        );
+        fields.push(HomeField::Collection);
+        for idx in 0..self.custom_mirrors.row_count() {
+            fields.push(HomeField::CustomMirror(idx));
+        }
+        fields.extend_from_slice(HOME_FIELDS_AFTER_CUSTOM);
+        fields
+    }
+
+    /// Drop emptied custom rows once focus leaves the custom-mirror section, so a
+    /// cleared row disappears without shifting focus mid-edit.
+    fn settle_custom_on_leave(&mut self, old: HomeField, new: HomeField) {
+        if matches!(old, HomeField::CustomMirror(_)) && !matches!(new, HomeField::CustomMirror(_)) {
+            self.custom_mirrors.compact();
+        }
+    }
+
     pub fn next_field(&mut self) {
-        self.focus = next_field(HOME_FIELDS, self.focus);
+        let next = next_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, next);
+        self.focus = next;
     }
 
     pub fn prev_field(&mut self) {
-        self.focus = prev_field(HOME_FIELDS, self.focus);
+        let prev = prev_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, prev);
+        self.focus = prev;
     }
 
     pub fn first_field(&mut self) {
-        self.focus = first_field(HOME_FIELDS, self.focus);
+        let first = first_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, first);
+        self.focus = first;
     }
 
     pub fn last_field(&mut self) {
-        self.focus = last_field(HOME_FIELDS, self.focus);
+        let last = last_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, last);
+        self.focus = last;
     }
 
     /// Run tab-completion on the directory input field.
@@ -438,6 +468,7 @@ impl HomeTab {
         if let Some(field) = self.focused_input_mut() {
             field.insert_char(ch);
         }
+        self.grow_custom_rows();
     }
 
     /// Insert a bracketed-paste payload into the focused text field. No-op when
@@ -445,6 +476,15 @@ impl HomeTab {
     pub fn handle_paste(&mut self, text: &str) {
         if let Some(field) = self.focused_input_mut() {
             field.insert_str(text);
+        }
+        self.grow_custom_rows();
+    }
+
+    /// After editing a custom-mirror row, keep a trailing empty entry slot so
+    /// there is always a row to type the next URL into.
+    fn grow_custom_rows(&mut self) {
+        if matches!(self.focus, HomeField::CustomMirror(_)) {
+            self.custom_mirrors.ensure_trailing_empty();
         }
     }
 
@@ -501,7 +541,7 @@ impl HomeTab {
         match self.focus {
             HomeField::Collection => Some(&self.collection),
             HomeField::Directory => Some(&self.directory),
-            HomeField::CustomMirror => Some(&self.custom_mirror),
+            HomeField::CustomMirror(idx) => self.custom_mirrors.row(idx),
             _ => None,
         }
     }
@@ -510,7 +550,7 @@ impl HomeTab {
         match self.focus {
             HomeField::Collection => Some(&mut self.collection),
             HomeField::Directory => Some(&mut self.directory),
-            HomeField::CustomMirror => Some(&mut self.custom_mirror),
+            HomeField::CustomMirror(idx) => self.custom_mirrors.row_mut(idx),
             _ => None,
         }
     }
@@ -573,11 +613,7 @@ impl HomeTab {
         .iter()
         .filter(|&&enabled| enabled)
         .count();
-        let custom_count = usize::from(
-            !self.custom_mirror.value.trim().is_empty()
-                && Mirror::validate_template(self.custom_mirror.value.trim()).is_ok(),
-        );
-        builtin_count + custom_count
+        builtin_count + self.custom_mirrors.valid_count()
     }
 
     pub fn build_mirror_list(&self) -> Vec<Mirror> {
@@ -611,12 +647,7 @@ impl HomeTab {
             })
             .collect();
 
-        let trimmed_custom = self.custom_mirror.value.trim();
-        if !trimmed_custom.is_empty()
-            && let Ok(custom) = Mirror::custom(trimmed_custom)
-        {
-            mirrors.push(custom);
-        }
+        mirrors.extend(self.custom_mirrors.build_mirrors(self.video));
 
         mirrors
     }

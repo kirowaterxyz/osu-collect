@@ -361,7 +361,7 @@ fn config_footer_omits_space_on_text_input() {
         crossterm::event::KeyModifiers::empty(),
     ));
     assert_eq!(app.active_tab(), CONFIG_TAB_INDEX);
-    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.config.focus = ConfigField::MirrorCustomUrl(0);
 
     let content = render_content(&app, 120, 24);
     assert!(!content.contains("space change"));
@@ -498,7 +498,7 @@ fn config_footer_text_input_shows_edit_not_toggle() {
 
     let mut app = make_app();
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.config.focus = ConfigField::MirrorCustomUrl(0);
     let footer = render_footer_row(&app, 200, 24);
     assert!(
         footer.contains("↵ edit"),

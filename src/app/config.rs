@@ -1,4 +1,5 @@
 use super::{
+    custom_mirrors::CustomMirrorList,
     first_field,
     home::InputField,
     last_field,
@@ -39,7 +40,9 @@ pub enum ConfigField {
     MirrorCatboy,
     MirrorHinamizawa,
     MirrorOsuOfficial,
-    MirrorCustomUrl,
+    /// One custom-mirror URL row, indexed into [`CustomMirrorList`]. The last
+    /// index is always the empty "add new" entry slot.
+    MirrorCustomUrl(usize),
     DownloadThreads,
     DownloadVideo,
     DownloadArchiveValidation,
@@ -52,8 +55,9 @@ pub enum ConfigField {
 
 // Navigation order — must mirror the render order in `tui::config`
 // (`build_config_items`): auth · display · mirrors · download · logging,
-// matching the home tab's mirrors-before-download flow.
-const ALL_CONFIG_FIELDS: &[ConfigField] = &[
+// matching the home tab's mirrors-before-download flow. The dynamic
+// custom-mirror rows sit between these two slices (after the built-in mirrors).
+const CONFIG_FIELDS_BEFORE_CUSTOM: &[ConfigField] = &[
     ConfigField::AuthChip,
     ConfigField::Theme,
     ConfigField::VimKeys,
@@ -66,7 +70,9 @@ const ALL_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::MirrorCatboy,
     ConfigField::MirrorHinamizawa,
     ConfigField::MirrorOsuOfficial,
-    ConfigField::MirrorCustomUrl,
+];
+
+const CONFIG_FIELDS_AFTER_CUSTOM: &[ConfigField] = &[
     ConfigField::DownloadVideo,
     ConfigField::DownloadThreads,
     ConfigField::DownloadArchiveValidation,
@@ -81,7 +87,7 @@ impl ConfigField {
     pub fn is_text_input(self) -> bool {
         matches!(
             self,
-            ConfigField::MirrorCustomUrl | ConfigField::LoggingDirectory
+            ConfigField::MirrorCustomUrl(_) | ConfigField::LoggingDirectory
         )
     }
 
@@ -100,7 +106,7 @@ pub struct ConfigTab {
     pub catboy: bool,
     pub hinamizawa: bool,
     pub osu_official: bool,
-    pub custom_mirror: InputField,
+    pub custom_mirrors: CustomMirrorList,
     pub login_state: AuthLoginState,
     pub threads: InputField,
     pub video: bool,
@@ -134,7 +140,7 @@ impl ConfigTab {
             catboy: config.mirror.catboy,
             hinamizawa: config.mirror.hinamizawa,
             osu_official: config.mirror.osu_official,
-            custom_mirror: custom_mirror_field(&config.mirror),
+            custom_mirrors: CustomMirrorList::from_templates(&config.mirror.custom_templates()),
             login_state: login_state(auth_loaded),
             threads: threads_field(&config.download),
             video: config.download.video,
@@ -156,20 +162,54 @@ impl ConfigTab {
         }
     }
 
+    /// Full focus order with one [`ConfigField::MirrorCustomUrl`] row per custom
+    /// entry (including the trailing empty slot), rebuilt each call so the
+    /// dynamic custom-mirror count is always reflected.
+    pub(crate) fn fields(&self) -> Vec<ConfigField> {
+        let mut fields = Vec::with_capacity(
+            CONFIG_FIELDS_BEFORE_CUSTOM.len()
+                + self.custom_mirrors.row_count()
+                + CONFIG_FIELDS_AFTER_CUSTOM.len(),
+        );
+        fields.extend_from_slice(CONFIG_FIELDS_BEFORE_CUSTOM);
+        for idx in 0..self.custom_mirrors.row_count() {
+            fields.push(ConfigField::MirrorCustomUrl(idx));
+        }
+        fields.extend_from_slice(CONFIG_FIELDS_AFTER_CUSTOM);
+        fields
+    }
+
+    /// Drop emptied custom rows once focus leaves the custom-mirror section.
+    fn settle_custom_on_leave(&mut self, old: ConfigField, new: ConfigField) {
+        if matches!(old, ConfigField::MirrorCustomUrl(_))
+            && !matches!(new, ConfigField::MirrorCustomUrl(_))
+        {
+            self.custom_mirrors.compact();
+        }
+    }
+
     pub fn next_field(&mut self) {
-        self.focus = next_field(ALL_CONFIG_FIELDS, self.focus);
+        let next = next_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, next);
+        self.focus = next;
     }
 
     pub fn prev_field(&mut self) {
-        self.focus = prev_field(ALL_CONFIG_FIELDS, self.focus);
+        let prev = prev_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, prev);
+        self.focus = prev;
     }
 
     pub fn first_field(&mut self) {
-        self.focus = first_field(ALL_CONFIG_FIELDS, self.focus);
+        let first = first_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, first);
+        self.focus = first;
     }
 
     pub fn last_field(&mut self) {
-        self.focus = last_field(ALL_CONFIG_FIELDS, self.focus);
+        let last = last_field(&self.fields(), self.focus);
+        self.settle_custom_on_leave(self.focus, last);
+        self.focus = last;
     }
 
     /// Increment the thread count by one, capped at `default_threads`.
@@ -194,6 +234,7 @@ impl ConfigTab {
         if let Some(field) = self.focused_input_mut() {
             field.insert_char(ch);
         }
+        self.grow_custom_rows();
     }
 
     /// Insert a bracketed-paste payload into the focused text field. No-op when
@@ -202,6 +243,14 @@ impl ConfigTab {
         clear_app_message(&mut self.message);
         if let Some(field) = self.focused_input_mut() {
             field.insert_str(text);
+        }
+        self.grow_custom_rows();
+    }
+
+    /// After editing a custom-mirror row, keep a trailing empty entry slot.
+    fn grow_custom_rows(&mut self) {
+        if matches!(self.focus, ConfigField::MirrorCustomUrl(_)) {
+            self.custom_mirrors.ensure_trailing_empty();
         }
     }
 
@@ -258,7 +307,7 @@ impl ConfigTab {
     /// renderer to place the caret.
     pub fn focused_input(&self) -> Option<&InputField> {
         match self.focus {
-            ConfigField::MirrorCustomUrl => Some(&self.custom_mirror),
+            ConfigField::MirrorCustomUrl(idx) => self.custom_mirrors.row(idx),
             ConfigField::LoggingDirectory => Some(&self.logging_dir),
             _ => None,
         }
@@ -266,7 +315,7 @@ impl ConfigTab {
 
     fn focused_input_mut(&mut self) -> Option<&mut InputField> {
         match self.focus {
-            ConfigField::MirrorCustomUrl => Some(&mut self.custom_mirror),
+            ConfigField::MirrorCustomUrl(idx) => self.custom_mirrors.row_mut(idx),
             ConfigField::LoggingDirectory => Some(&mut self.logging_dir),
             _ => None,
         }
@@ -293,7 +342,7 @@ impl ConfigTab {
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
             ConfigField::AuthChip
-            | ConfigField::MirrorCustomUrl
+            | ConfigField::MirrorCustomUrl(_)
             | ConfigField::DownloadThreads
             | ConfigField::LoggingDirectory => {}
         }
@@ -334,9 +383,9 @@ impl ConfigTab {
             catboy: self.catboy,
             hinamizawa: self.hinamizawa,
             osu_official: self.osu_official,
-            url: self
-                .trimmed_custom_mirror()
-                .map(|value| value.into_boxed_str()),
+            urls: self.custom_mirrors.nonempty_templates(),
+            // Migrate any legacy single URL into `urls` on the next save.
+            url: None,
         };
 
         let download = DownloadConfig {
@@ -422,15 +471,6 @@ impl ConfigTab {
         Ok(Some(value))
     }
 
-    fn trimmed_custom_mirror(&self) -> Option<String> {
-        let trimmed = self.custom_mirror.value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    }
-
     fn trimmed_logging_dir(&self) -> Option<String> {
         let trimmed = self.logging_dir.value.trim();
         if trimmed.is_empty() {
@@ -440,14 +480,6 @@ impl ConfigTab {
             Some(expand_tilde(trimmed))
         }
     }
-}
-
-fn custom_mirror_field(mirror: &MirrorConfig) -> InputField {
-    InputField::new(
-        "Custom mirror URL",
-        mirror.custom_template().unwrap_or(""),
-        "https://example.com/d/{id}",
-    )
 }
 
 fn login_state(auth_loaded: bool) -> AuthLoginState {

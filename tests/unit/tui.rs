@@ -1380,7 +1380,7 @@ fn config_archive_validation_strict_help_when_strict_selected_and_focused() {
 fn config_custom_mirror_help_shows_when_focused() {
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;
-    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.config.focus = ConfigField::MirrorCustomUrl(0);
 
     let output = render_app(&app, 100, 30);
 
@@ -1409,7 +1409,7 @@ fn home_custom_mirror_help_shows_when_focused() {
     use crate::app::HomeField;
 
     let mut app = App::new(Config::default());
-    app.home.focus = HomeField::CustomMirror;
+    app.home.focus = HomeField::CustomMirror(0);
 
     let output = render_app(&app, 100, 30);
 

@@ -113,7 +113,7 @@ fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
     // Cycling the full field count must return to the starting field.
-    let total = super::ALL_CONFIG_FIELDS.len();
+    let total = tab.fields().len();
     for _ in 0..total {
         tab.next_field();
     }

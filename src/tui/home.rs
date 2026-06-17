@@ -58,15 +58,7 @@ fn render_compact(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool,
         items.push(resolve_row(*state, text));
     }
 
-    items.push_focusable(
-        HomeField::CustomMirror,
-        widgets::input_item(
-            &form.custom_mirror,
-            focus == HomeField::CustomMirror,
-            editing,
-            0,
-        ),
-    );
+    push_custom_mirror_rows(&mut items, form, focus, editing, false);
 
     push_mirror_rows(&mut items, form, focus, unlocked);
 
@@ -144,18 +136,7 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool,
         SECTION_MIRRORS,
         active_section == SECTION_MIRRORS,
     ));
-    items.push_focusable(
-        HomeField::CustomMirror,
-        widgets::input_item(
-            &form.custom_mirror,
-            focus == HomeField::CustomMirror,
-            editing,
-            0,
-        ),
-    );
-    if focus == HomeField::CustomMirror {
-        items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
-    }
+    push_custom_mirror_rows(&mut items, form, focus, editing, true);
 
     push_mirror_rows(&mut items, form, focus, unlocked);
     // Locked osu! official row: explain why it's greyed when focused.
@@ -240,6 +221,26 @@ fn push_toggle_rows(items: &mut widgets::FormItems<HomeField>, form: &HomeTab, f
 ///
 /// Shared by `render_compact` and `render_content` — the row content is
 /// identical in both paths; only the surrounding chrome differs.
+/// Render every custom-mirror URL row (one per [`HomeField::CustomMirror`],
+/// including the trailing empty entry slot). With `with_help`, the focused row
+/// gets the format hint line beneath it.
+fn push_custom_mirror_rows(
+    items: &mut widgets::FormItems<HomeField>,
+    form: &HomeTab,
+    focus: HomeField,
+    editing: bool,
+    with_help: bool,
+) {
+    for (idx, row) in form.custom_mirrors.rows().iter().enumerate() {
+        let field = HomeField::CustomMirror(idx);
+        let focused = focus == field;
+        items.push_focusable(field, widgets::input_item(row, focused, editing, 0));
+        if with_help && focused {
+            items.push(widgets::help_item(HELP_CUSTOM_MIRROR));
+        }
+    }
+}
+
 fn push_mirror_rows(
     items: &mut widgets::FormItems<HomeField>,
     form: &HomeTab,
@@ -289,7 +290,7 @@ fn home_section(field: HomeField) -> &'static str {
     use HomeField::*;
     match field {
         Collection => SECTION_COLLECTION,
-        CustomMirror | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha
+        CustomMirror(_) | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha
         | MirrorBeatconnect | MirrorOsudl | MirrorCatboy | MirrorHinamizawa | MirrorOsuOfficial => {
             SECTION_MIRRORS
         }

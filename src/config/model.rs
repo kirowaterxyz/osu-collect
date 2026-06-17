@@ -92,7 +92,14 @@ pub struct MirrorConfig {
     /// `lazer`-scope login and is rate-limited to 10–20 downloads/hour.
     #[serde(default)]
     pub osu_official: bool,
+    /// User-defined custom mirror URL templates, each containing `{id}`. Tried
+    /// after the built-ins, in list order.
     #[serde(default)]
+    pub urls: Vec<Box<str>>,
+    /// Legacy single custom mirror URL (pre-multi-mirror configs). Read on load
+    /// and folded into [`custom_templates`](MirrorConfig::custom_templates);
+    /// never serialized back, so saving migrates it into `urls`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<Box<str>>,
 }
 
@@ -178,16 +185,24 @@ impl Default for MirrorConfig {
             catboy: true,
             hinamizawa: false,
             osu_official: false,
+            urls: Vec::new(),
             url: None,
         }
     }
 }
 
 impl MirrorConfig {
-    pub fn custom_template(&self) -> Option<&str> {
+    /// Trimmed, non-empty custom mirror URL templates, in tried order. Folds the
+    /// legacy single `url` (if any) ahead of the `urls` list so old configs keep
+    /// working until the next save migrates them.
+    pub fn custom_templates(&self) -> Vec<&str> {
         self.url
             .as_deref()
-            .filter(|&value| !value.trim().is_empty())
+            .into_iter()
+            .chain(self.urls.iter().map(Box::as_ref))
+            .map(str::trim)
+            .filter(|template| !template.is_empty())
+            .collect()
     }
 
     fn any_enabled(&self) -> bool {
@@ -200,7 +215,7 @@ impl MirrorConfig {
             || self.catboy
             || self.hinamizawa
             || self.osu_official
-            || self.custom_template().is_some()
+            || !self.custom_templates().is_empty()
     }
 }
 
@@ -228,8 +243,9 @@ impl Config {
             return Err(AppError::config("Enable at least one mirror"));
         }
 
-        if let Some(custom) = self.mirror.custom_template() {
-            mirrors::Mirror::custom(custom).map_err(|e| AppError::config_dynamic(e.to_string()))?;
+        for template in self.mirror.custom_templates() {
+            mirrors::Mirror::custom(template)
+                .map_err(|e| AppError::config_dynamic(e.to_string()))?;
         }
 
         if let Some(concurrent) = self.download.concurrent {

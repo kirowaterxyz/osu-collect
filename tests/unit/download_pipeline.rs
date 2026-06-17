@@ -4,7 +4,7 @@ use crate::core::collection::{test_beatmapset, test_collection};
 use crate::download::collection_db::create_selective_collection_db;
 use crate::download::events::{Tally, translate_event};
 use crate::download::{BeatmapStage, DownloadEvent, SelectiveDownloadCollection};
-use osu_downloader::{Event as LibEvent, MirrorKind, Skip, Status};
+use osu_downloader::{Event as LibEvent, MirrorKind, MirrorRef, Skip, Status};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -16,6 +16,14 @@ fn make_selective(id: u32, name: &str, beatmapset_ids: Vec<u32>) -> SelectiveDow
         id,
         name: name.to_string(),
         beatmapset_ids,
+    }
+}
+
+/// A built-in mirror's [`MirrorRef`] (kind + static host) for event fixtures.
+fn mirror_ref_of(kind: MirrorKind) -> MirrorRef {
+    MirrorRef {
+        kind,
+        host: kind.host().into(),
     }
 }
 
@@ -65,7 +73,7 @@ fn completed(beatmapset_id: u32) -> LibEvent {
         filename: format!("{beatmapset_id}.osz"),
         size_bytes: 0,
         md5_hash: Some("md5".into()),
-        mirror_used: MirrorKind::Nerinyan,
+        mirror_used: mirror_ref_of(MirrorKind::Nerinyan),
         verify_duration_us: 0,
     }
 }
@@ -250,23 +258,23 @@ fn emit_status_messages_match_format_output() {
     for mirror in mirrors {
         let label = mirror.label();
 
-        let DownloadEvent::BeatmapStatus { message, .. } =
-            drive_status(Status::Contacting { mirror })
-        else {
+        let DownloadEvent::BeatmapStatus { message, .. } = drive_status(Status::Contacting {
+            mirror: mirror_ref_of(mirror),
+        }) else {
             panic!("expected BeatmapStatus");
         };
         assert_eq!(message, format!("checking {label}"));
 
-        let DownloadEvent::BeatmapStatus { message, .. } =
-            drive_status(Status::Downloading { mirror })
-        else {
+        let DownloadEvent::BeatmapStatus { message, .. } = drive_status(Status::Downloading {
+            mirror: mirror_ref_of(mirror),
+        }) else {
             panic!("expected BeatmapStatus");
         };
         assert_eq!(message, format!("downloading from {label}"));
 
-        let DownloadEvent::BeatmapStatus { message, .. } =
-            drive_status(Status::Verifying { mirror })
-        else {
+        let DownloadEvent::BeatmapStatus { message, .. } = drive_status(Status::Verifying {
+            mirror: mirror_ref_of(mirror),
+        }) else {
             panic!("expected BeatmapStatus");
         };
         assert_eq!(message, format!("verifying from {label}"));
@@ -281,7 +289,7 @@ fn emit_status_messages_match_format_output() {
                 rate_limited,
                 ..
             } = drive_status(Status::RetryingTransient {
-                mirror,
+                mirror: mirror_ref_of(mirror),
                 attempt: 2,
                 max_attempts: 3,
                 reason: reason.to_string(),
@@ -386,7 +394,7 @@ fn rate_limited_status_forwards_cooldown_until() {
 fn non_rate_limited_status_has_no_cooldown_until() {
     use osu_downloader::MirrorKind;
     let event = drive_status(Status::Contacting {
-        mirror: MirrorKind::Nerinyan,
+        mirror: mirror_ref_of(MirrorKind::Nerinyan),
     });
     let DownloadEvent::BeatmapStatus { cooldown_until, .. } = event else {
         panic!("expected BeatmapStatus");
