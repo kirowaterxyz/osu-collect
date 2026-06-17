@@ -61,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Sayobot** — https://dl.sayobot.cn
 - **Nekoha** — https://mirror.nekoha.moe
 - **Beatconnect** — https://beatconnect.io (anonymous `/b/{id}/`)
+- **osu!dl** — https://osudl.org (anonymous `/s/{id}`, `302` → presigned R2; ranked/approved/loved only)
 - **Hinamizawa** — https://mirror.hinamizawa.ai (server-side cascade over the others)
 - **osu! official** — `https://osu.ppy.sh/api/v2/beatmapsets/{id}/download` — **needs auth**: attach a `lazer`-scope bearer token via `Mirror::osu_api().with_headers(..)`. `MirrorKind::requires_auth()` reports this.
 - **Custom** — `Mirror::custom("https://your.mirror/d/{id}")?`
