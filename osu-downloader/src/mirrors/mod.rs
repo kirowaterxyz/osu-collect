@@ -36,6 +36,8 @@ pub enum MirrorKind {
     Beatconnect,
     /// osu!dl mirror (anonymous Cloudflare R2; ranked/approved/loved only).
     Osudl,
+    /// catboy.best mirror (anonymous direct downloads).
+    Catboy,
     /// Hinamizawa mirror (cascades across the other mirrors server-side).
     Hinamizawa,
     /// Official osu! API v2 download endpoint.
@@ -98,6 +100,16 @@ impl MirrorKind {
                 template: "https://osudl.org/s/{id}",
                 template_no_video: "https://osudl.org/s/{id}?video=false",
             }),
+            MirrorKind::Catboy => Some(ProviderMeta {
+                // No published rate limit; a fast anonymous mirror. Match the
+                // other anonymous mirrors' penalty backoff.
+                label: "catboy.best",
+                backoff_secs: 45,
+                template: "https://catboy.best/d/{id}",
+                // catboy.best strips video with the trailing `n` suffix
+                // (verified live: full set vs `/d/{id}n` differ in size).
+                template_no_video: "https://catboy.best/d/{id}n",
+            }),
             MirrorKind::Hinamizawa => Some(ProviderMeta {
                 label: "Hinamizawa",
                 backoff_secs: 45,
@@ -126,6 +138,7 @@ impl MirrorKind {
         MirrorKind::Nekoha,
         MirrorKind::Beatconnect,
         MirrorKind::Osudl,
+        MirrorKind::Catboy,
         MirrorKind::Hinamizawa,
         MirrorKind::OsuApi,
     ];
@@ -159,6 +172,7 @@ impl MirrorKind {
             MirrorKind::Nekoha => "mirror.nekoha.moe",
             MirrorKind::Beatconnect => "beatconnect.io",
             MirrorKind::Osudl => "osudl.org",
+            MirrorKind::Catboy => "catboy.best",
             MirrorKind::Hinamizawa => "mirror.hinamizawa.ai",
             MirrorKind::OsuApi => "osu.ppy.sh",
             MirrorKind::Custom => "custom",
@@ -311,6 +325,11 @@ impl Mirror {
         Self::new_builtin(MirrorKind::Osudl)
     }
 
+    /// catboy.best mirror (anonymous direct downloads).
+    pub fn catboy() -> Self {
+        Self::new_builtin(MirrorKind::Catboy)
+    }
+
     /// Hinamizawa mirror (server-side cascade across the other mirrors).
     pub fn hinamizawa() -> Self {
         Self::new_builtin(MirrorKind::Hinamizawa)
@@ -338,6 +357,7 @@ impl Mirror {
             Mirror::nekoha(),
             Mirror::beatconnect(),
             Mirror::osudl(),
+            Mirror::catboy(),
             Mirror::hinamizawa(),
             Mirror::osu_api(),
         ]

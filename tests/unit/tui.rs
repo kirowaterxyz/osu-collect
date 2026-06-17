@@ -425,8 +425,9 @@ fn auth_chip_is_reachable_via_focus_cycle() {
     };
 
     // cycle through all fields and check that AuthChip is reachable
+    // (bound is comfortably above the field count; the loop breaks on reach)
     let mut found_chip = false;
-    for _ in 0..20 {
+    for _ in 0..50 {
         if app.config.focus == ConfigField::AuthChip {
             found_chip = true;
             break;

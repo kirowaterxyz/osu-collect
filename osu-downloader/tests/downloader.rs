@@ -28,6 +28,7 @@ fn default_mirrors_include_every_builtin_mirror() {
             MirrorKind::Nekoha,
             MirrorKind::Beatconnect,
             MirrorKind::Osudl,
+            MirrorKind::Catboy,
             MirrorKind::Hinamizawa,
             MirrorKind::OsuApi,
         ]

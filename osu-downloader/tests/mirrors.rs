@@ -27,6 +27,10 @@ fn mirror_templates() {
         "https://osudl.org/s/320118"
     );
     assert_eq!(
+        Mirror::catboy().url_for(320118),
+        "https://catboy.best/d/320118"
+    );
+    assert_eq!(
         Mirror::hinamizawa().url_for(320118),
         "https://mirror.hinamizawa.ai/api/v1/hinai/d/320118"
     );
@@ -45,6 +49,11 @@ fn no_video_templates_for_new_mirrors() {
     assert_eq!(
         Mirror::osudl().no_video().url_for(42),
         "https://osudl.org/s/42?video=false"
+    );
+    // catboy.best strips video with the trailing `n` suffix.
+    assert_eq!(
+        Mirror::catboy().no_video().url_for(42),
+        "https://catboy.best/d/42n"
     );
     assert_eq!(
         Mirror::hinamizawa().no_video().url_for(42),
@@ -67,6 +76,7 @@ fn only_osu_api_requires_auth() {
         MirrorKind::Nekoha,
         MirrorKind::Beatconnect,
         MirrorKind::Osudl,
+        MirrorKind::Catboy,
         MirrorKind::Hinamizawa,
         MirrorKind::Custom,
     ] {

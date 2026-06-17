@@ -11,6 +11,7 @@ fn config_defaults_to_every_builtin_mirror() {
     assert!(config.mirror.nekoha);
     assert!(config.mirror.beatconnect);
     assert!(config.mirror.osudl);
+    assert!(config.mirror.catboy);
     // hinamizawa (redundant cascade) and osu! official (needs login) are off by default.
     assert!(!config.mirror.hinamizawa);
     assert!(!config.mirror.osu_official);

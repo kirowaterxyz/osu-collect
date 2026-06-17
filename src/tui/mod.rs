@@ -38,6 +38,7 @@ pub fn mirror_label(kind: MirrorKind) -> &'static str {
         MirrorKind::Nekoha => "nekoha",
         MirrorKind::Beatconnect => "beatconnect",
         MirrorKind::Osudl => "osu!dl",
+        MirrorKind::Catboy => "catboy.best",
         MirrorKind::Hinamizawa => "hinamizawa",
         MirrorKind::OsuApi => "osu! official",
         MirrorKind::Custom => "custom",

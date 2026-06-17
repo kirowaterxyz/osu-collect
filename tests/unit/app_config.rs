@@ -112,8 +112,8 @@ fn auth_chip_present_when_logged_out() {
 fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
-    // Field count must match `ALL_CONFIG_FIELDS`.
-    let total = 20;
+    // Cycling the full field count must return to the starting field.
+    let total = super::ALL_CONFIG_FIELDS.len();
     for _ in 0..total {
         tab.next_field();
     }

@@ -81,6 +81,9 @@ pub struct MirrorConfig {
     /// backfills the sets it cannot serve.
     #[serde(default = "default_enabled")]
     pub osudl: bool,
+    /// Anonymous catboy.best direct download. On by default: fast and auth-free.
+    #[serde(default = "default_enabled")]
+    pub catboy: bool,
     /// Hinamizawa cascade. Off by default: it races server-side through the
     /// other mirrors, so enabling it alongside them is redundant.
     #[serde(default)]
@@ -172,6 +175,7 @@ impl Default for MirrorConfig {
             nekoha: true,
             beatconnect: true,
             osudl: true,
+            catboy: true,
             hinamizawa: false,
             osu_official: false,
             url: None,
@@ -193,6 +197,7 @@ impl MirrorConfig {
             || self.nekoha
             || self.beatconnect
             || self.osudl
+            || self.catboy
             || self.hinamizawa
             || self.osu_official
             || self.custom_template().is_some()

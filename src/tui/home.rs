@@ -253,6 +253,7 @@ fn push_mirror_rows(
         (HomeField::MirrorNekoha, form.nekoha),
         (HomeField::MirrorBeatconnect, form.beatconnect),
         (HomeField::MirrorOsudl, form.osudl),
+        (HomeField::MirrorCatboy, form.catboy),
         (HomeField::MirrorHinamizawa, form.hinamizawa),
         (HomeField::MirrorOsuOfficial, form.osu_official),
     ];
@@ -289,7 +290,9 @@ fn home_section(field: HomeField) -> &'static str {
     match field {
         Collection => SECTION_COLLECTION,
         CustomMirror | MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha
-        | MirrorBeatconnect | MirrorOsudl | MirrorHinamizawa | MirrorOsuOfficial => SECTION_MIRRORS,
+        | MirrorBeatconnect | MirrorOsudl | MirrorCatboy | MirrorHinamizawa | MirrorOsuOfficial => {
+            SECTION_MIRRORS
+        }
         Threads | AutoOverwrite | Video | Directory => SECTION_DOWNLOAD,
         Download => SECTION_NONE,
     }
