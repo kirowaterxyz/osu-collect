@@ -85,19 +85,55 @@ fn left_arrow_wraps_to_last_tab() {
 }
 
 #[test]
-fn tab_and_backtab_do_not_switch_screens() {
+fn tab_and_backtab_switch_screens() {
     use osu_collect::app::HomeField;
     let mut app = make_app();
     app.home.focus = HomeField::Video;
     assert_eq!(app.active_tab(), 0);
     app.handle_key(press(KeyCode::Tab));
+    assert_eq!(app.active_tab(), 1, "tab cycles to the next tab");
+    app.handle_key(press(KeyCode::BackTab));
+    assert_eq!(app.active_tab(), 0, "shift+tab cycles to the previous tab");
+}
+
+#[test]
+fn tab_completes_directory_while_editing_it() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    // Editing the directory field: tab completes the path, never switches tabs.
+    app.home.focus = HomeField::Directory;
+    app.editing = true;
+    app.handle_key(press(KeyCode::Tab));
     assert_eq!(
         app.active_tab(),
         0,
-        "tab must not switch screens (←/→ only)"
+        "tab must complete the path, not switch tabs, while editing the directory"
     );
-    app.handle_key(press(KeyCode::BackTab));
-    assert_eq!(app.active_tab(), 0, "shift+tab must not switch screens");
+}
+
+#[test]
+fn s_jumps_to_download_button_on_home() {
+    use osu_collect::app::HomeField;
+    let mut app = make_app();
+    // Default focus is the collection text field, selected-not-editing.
+    assert_eq!(app.home.focus, HomeField::Collection);
+    app.handle_key(press(KeyCode::Char('s')));
+    assert_eq!(
+        app.home.focus,
+        HomeField::Download,
+        "s jumps focus to the download button"
+    );
+}
+
+#[test]
+fn s_types_literally_while_editing() {
+    let mut app = make_app();
+    app.editing = true;
+    app.handle_key(press(KeyCode::Char('s')));
+    assert_eq!(
+        app.home.collection.value, "s",
+        "while editing, s types into the field instead of jumping"
+    );
 }
 
 // ── quit key ─────────────────────────────────────────────────────────────────

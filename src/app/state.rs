@@ -1317,15 +1317,23 @@ impl App {
                 }
             }
             KeyCode::Tab => {
-                // `tab` completes the home directory path while editing it — NOT
-                // a screen switch (screens switch with ←/→ only;
-                // `tab` / `shift+tab` stay free for app use).
+                // While editing the home directory field, `tab` completes the
+                // path. Everywhere else it cycles to the next tab (←/→ also do).
                 if self.editing
                     && self.active_tab() == HOME_TAB_INDEX
                     && self.home.focus == HomeField::Directory
-                    && let Some(candidates) = self.home.tab_complete_directory()
                 {
-                    self.toast_info(candidates);
+                    if let Some(candidates) = self.home.tab_complete_directory() {
+                        self.toast_info(candidates);
+                    }
+                } else if let Some(cmd) = self.next_tab() {
+                    return Some(cmd);
+                }
+            }
+            // `shift+tab` cycles to the previous tab (mirrors `tab`).
+            KeyCode::BackTab => {
+                if let Some(cmd) = self.prev_tab() {
+                    return Some(cmd);
                 }
             }
             KeyCode::Up => {
@@ -1534,6 +1542,11 @@ impl App {
                         return Some(AppCommand::ProbeMirrors);
                     } else if ch == 'd' {
                         return Some(AppCommand::FocusOutputDir);
+                    } else if ch == 's' {
+                        // Jump straight to the download button — no arrowing down
+                        // from the just-pasted collection field.
+                        self.home.focus = HomeField::Download;
+                        self.editing = false;
                     }
                 }
                 UPDATES_TAB_INDEX => {
@@ -1548,6 +1561,10 @@ impl App {
                             return Some(AppCommand::RecheckFailedMaps);
                         }
                         self.updates.handle_char(ch);
+                    } else if ch == 's' {
+                        // Jump to the download button (lists keep `s` = sort above).
+                        self.updates.selection.focus = UpdatesField::Download;
+                        self.editing = false;
                     } else if ch == 'r' && self.updates.can_recheck_failed_maps() {
                         return Some(AppCommand::RecheckFailedMaps);
                     }

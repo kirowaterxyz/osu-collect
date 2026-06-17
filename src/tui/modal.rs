@@ -94,10 +94,11 @@ impl HelpRow {
 }
 
 const GLOBAL: &[HelpRow] = &[
-    HelpRow::new("← →", "switch tabs"),
+    HelpRow::new("← → / tab", "switch tabs"),
     HelpRow::new("↑ ↓", "move / scroll"),
     HelpRow::new("↵", "activate / toggle / edit field"),
     HelpRow::new("space", "toggle selection"),
+    HelpRow::new("s", "jump to download button"),
     HelpRow::new("esc", "exit edit / back"),
     HelpRow::new("?", "toggle help"),
     HelpRow::new("q", "back / quit"),
