@@ -145,6 +145,24 @@ fn invalid_custom_mirror() {
 }
 
 #[test]
+fn custom_mirror_host_is_parsed_for_display() {
+    let mirror = Mirror::custom("https://mirror.example.com:8443/d/{id}?nv=1").unwrap();
+    assert_eq!(mirror.host(), "mirror.example.com");
+    let mref = mirror.mirror_ref();
+    assert_eq!(mref.kind, MirrorKind::Custom);
+    // A custom mirror's label is its host, so two customs are distinguishable.
+    assert_eq!(mref.label(), "mirror.example.com");
+}
+
+#[test]
+fn builtin_mirror_ref_uses_kind_label() {
+    let mref = Mirror::osu_direct().mirror_ref();
+    assert_eq!(mref.kind, MirrorKind::OsuDirect);
+    assert_eq!(mref.label(), MirrorKind::OsuDirect.label());
+    assert_eq!(mref.host.as_ref(), MirrorKind::OsuDirect.host());
+}
+
+#[test]
 fn custom_mirror_rejects_multiple_id_placeholders() {
     // a template with two `{id}` placeholders would silently leave the second one
     // un-substituted (split_once stops at the first match); rejecting at construction

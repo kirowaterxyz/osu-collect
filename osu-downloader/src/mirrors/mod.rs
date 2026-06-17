@@ -228,12 +228,61 @@ impl SplitTemplate {
     }
 }
 
+/// Identifies the mirror an [`Event`](crate::Event) refers to, pairing the
+/// [`MirrorKind`] tag with a display host.
+///
+/// Built-in mirrors share one host per kind, but every [`MirrorKind::Custom`]
+/// mirror has its own URL, so the kind alone cannot tell two custom mirrors
+/// apart. This carries the parsed host (e.g. `"example.com"`) so consumers can
+/// distinguish and label custom mirrors individually.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MirrorRef {
+    /// Provider kind.
+    pub kind: MirrorKind,
+    /// Display host: the static host for built-ins, the parsed URL host for
+    /// custom mirrors.
+    pub host: Box<str>,
+}
+
+impl MirrorRef {
+    /// Display label: the provider label for built-ins ([`MirrorKind::label`]),
+    /// the per-mirror host for [`MirrorKind::Custom`].
+    #[inline]
+    pub fn label(&self) -> &str {
+        match self.kind {
+            MirrorKind::Custom => &self.host,
+            other => other.label(),
+        }
+    }
+}
+
+/// Parse the host of a mirror URL template for display.
+///
+/// Strips the scheme, any `userinfo@`, the port, and the path/query, leaving the
+/// bare host. Falls back to the trimmed input when no host can be isolated.
+fn parse_host(template: &str) -> Box<str> {
+    let after_scheme = template
+        .strip_prefix("https://")
+        .or_else(|| template.strip_prefix("http://"))
+        .unwrap_or(template);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = host.split(':').next().unwrap_or(host);
+    let host = if host.is_empty() { template } else { host };
+    host.into()
+}
+
 /// Mirror endpoint for downloading beatmapsets.
 #[derive(Debug, Clone)]
 pub struct Mirror {
     pub(crate) kind: MirrorKind,
     pub(crate) template: Box<str>,
     split: SplitTemplate,
+    /// Display host, parsed once at construction. See [`MirrorRef`].
+    host: Box<str>,
     pub(crate) headers: Option<HeaderMap>,
     pub(crate) no_video: bool,
 }
@@ -247,10 +296,12 @@ impl Mirror {
         let template = template.into();
         Self::validate_template(&template)?;
         let split = SplitTemplate::new(&template);
+        let host = parse_host(&template);
         Ok(Self {
             kind: MirrorKind::Custom,
             template: template.into_boxed_str(),
             split,
+            host,
             headers: None,
             no_video: false,
         })
@@ -372,6 +423,7 @@ impl Mirror {
             kind,
             template: template.into(),
             split,
+            host: kind.host().into(),
             headers: None,
             no_video: false,
         }
@@ -406,6 +458,23 @@ impl Mirror {
         &self.template
     }
 
+    /// Display host for this mirror: the static host for built-ins, the parsed
+    /// URL host for [`MirrorKind::Custom`]. Unlike [`MirrorKind::host`] this
+    /// distinguishes individual custom mirrors.
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    /// Lightweight identity ([`MirrorRef`]) for this mirror, pairing its kind
+    /// with its display host. Used to label custom mirrors individually in
+    /// [`Event`](crate::Event)s.
+    pub fn mirror_ref(&self) -> MirrorRef {
+        MirrorRef {
+            kind: self.kind,
+            host: self.host.clone(),
+        }
+    }
+
     pub(crate) fn headers(&self) -> Option<&HeaderMap> {
         self.headers.as_ref()
     }
@@ -425,10 +494,12 @@ impl Mirror {
     pub(crate) fn with_kind_and_template(kind: MirrorKind, template: impl Into<String>) -> Self {
         let template = template.into();
         let split = SplitTemplate::new(&template);
+        let host = parse_host(&template);
         Self {
             kind,
             template: template.into_boxed_str(),
             split,
+            host,
             headers: None,
             no_video: false,
         }

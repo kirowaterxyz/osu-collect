@@ -1,6 +1,6 @@
 //! Event types emitted during a download session.
 
-use crate::{Error, MirrorKind};
+use crate::{Error, MirrorKind, MirrorRef};
 use std::time::Duration;
 
 /// Events emitted while a [`Session`](crate::Session) is running.
@@ -43,7 +43,7 @@ pub enum Event {
         /// MD5 hash if computed.
         md5_hash: Option<String>,
         /// Mirror that served the archive.
-        mirror_used: MirrorKind,
+        mirror_used: MirrorRef,
         /// Archive verification time in microseconds.
         verify_duration_us: u64,
     },
@@ -83,17 +83,17 @@ pub enum Status {
     /// A mirror is being contacted.
     Contacting {
         /// Mirror being contacted.
-        mirror: MirrorKind,
+        mirror: MirrorRef,
     },
     /// A mirror started streaming the archive.
     Downloading {
         /// Mirror serving the archive.
-        mirror: MirrorKind,
+        mirror: MirrorRef,
     },
     /// The archive is being verified.
     Verifying {
         /// Mirror that served the archive.
-        mirror: MirrorKind,
+        mirror: MirrorRef,
     },
     /// Every untried mirror is currently rate-limited; the attempt is paused
     /// until the shortest cooldown elapses.
@@ -104,7 +104,7 @@ pub enum Status {
     /// A transient error will be retried on the same mirror.
     RetryingTransient {
         /// Mirror being retried.
-        mirror: MirrorKind,
+        mirror: MirrorRef,
         /// Attempt about to run.
         attempt: u32,
         /// Maximum attempts for this mirror.

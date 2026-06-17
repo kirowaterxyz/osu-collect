@@ -7,7 +7,7 @@ use crate::{
     config::{TRANSIENT_RETRY_ATTEMPTS, TRANSIENT_RETRY_BASE_DELAY},
     downloader::OnExists,
     event::{Skip, Status},
-    mirrors::{Mirror, MirrorKind, MirrorPool},
+    mirrors::{Mirror, MirrorKind, MirrorPool, MirrorRef},
     output_entry::parse_beatmapset_filename,
     validation::{self, ArchiveValidation},
     worker::stream_download,
@@ -41,7 +41,7 @@ pub(crate) enum BeatmapsetDownloadOutcome {
     Success {
         filename: String,
         hash: String,
-        mirror: MirrorKind,
+        mirror: MirrorRef,
         size_bytes: u64,
         verify_duration_us: u64,
     },
@@ -287,13 +287,17 @@ pub(crate) async fn download_beatmapset(
                 MirrorAttempt::Done(outcome) => return (outcome, total_attempts),
                 MirrorAttempt::NotFound => {
                     all_transient = false;
-                    not_found.insert(mirror.kind());
+                    // Key the "tried and missing" set by slot, not kind: two
+                    // custom mirrors share `Custom`, so kind-keying would let a
+                    // collection that 404s on every mirror escape the
+                    // all-missing → skip detection below.
+                    not_found.insert(*idx);
                     last_error = Some(failed(Some(mirror.kind()), "not found (404)"));
                 }
                 MirrorAttempt::RateLimited => {
                     all_transient = false;
                     deferred_rate_limited.push(*idx);
-                    params.mirror_pool.mark_rate_limited(mirror.kind());
+                    params.mirror_pool.mark_rate_limited(*idx);
                     last_error = Some(failed(Some(mirror.kind()), "rate limited"));
                 }
                 MirrorAttempt::Transient(reason) => {
@@ -313,7 +317,7 @@ pub(crate) async fn download_beatmapset(
 
         let wait_duration = deferred_rate_limited
             .iter()
-            .filter_map(|&idx| params.mirror_pool.penalty_remaining(mirrors[idx].kind()))
+            .filter_map(|&idx| params.mirror_pool.penalty_remaining(idx))
             .min()
             .unwrap_or(Duration::ZERO);
 
@@ -435,7 +439,7 @@ async fn try_mirror_retry(
                 emit_status(
                     &params.callbacks,
                     Status::RetryingTransient {
-                        mirror: mirror.kind(),
+                        mirror: mirror.mirror_ref(),
                         attempt: retry + 1,
                         max_attempts: TRANSIENT_RETRY_ATTEMPTS,
                         reason,
@@ -454,7 +458,7 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
     emit_status(
         &params.callbacks,
         Status::Contacting {
-            mirror: mirror.kind(),
+            mirror: mirror.mirror_ref(),
         },
     );
 
@@ -595,13 +599,12 @@ async fn process_mirror_response(
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
+        && !is_archive_content_type(content_type)
     {
-        if !is_archive_content_type(content_type) {
-            return Err(format!(
-                "unexpected content type '{content_type}' from {}",
-                mirror.kind().label()
-            ));
-        }
+        return Err(format!(
+            "unexpected content type '{content_type}' from {}",
+            mirror.kind().label()
+        ));
     }
 
     let filename = extract_filename(&response, params.beatmapset_id);
@@ -643,7 +646,7 @@ async fn process_mirror_response(
     emit_status(
         &params.callbacks,
         Status::Downloading {
-            mirror: mirror.kind(),
+            mirror: mirror.mirror_ref(),
         },
     );
 
@@ -681,22 +684,22 @@ async fn write_archive(
         return Ok(BeatmapsetDownloadOutcome::Aborted);
     }
 
-    if let Some(expected) = content_length {
-        if stream.bytes_written < expected {
-            let _ = tokio::fs::remove_file(&stream.temp_path).await;
-            return Err(format!(
-                "download incomplete from {} (received {} of {} bytes)",
-                mirror.kind().label(),
-                stream.bytes_written,
-                expected
-            ));
-        }
+    if let Some(expected) = content_length
+        && stream.bytes_written < expected
+    {
+        let _ = tokio::fs::remove_file(&stream.temp_path).await;
+        return Err(format!(
+            "download incomplete from {} (received {} of {} bytes)",
+            mirror.kind().label(),
+            stream.bytes_written,
+            expected
+        ));
     }
 
     emit_status(
         &params.callbacks,
         Status::Verifying {
-            mirror: mirror.kind(),
+            mirror: mirror.mirror_ref(),
         },
     );
 
@@ -737,7 +740,7 @@ async fn write_archive(
             .hash
             .unwrap_or_else(|| "unknown".into())
             .into_string(),
-        mirror: mirror.kind(),
+        mirror: mirror.mirror_ref(),
         size_bytes: stream.bytes_written,
         verify_duration_us,
     })

@@ -1,4 +1,4 @@
-use super::{Mirror, MirrorKind, OSU_API_MIN_REQUEST_INTERVAL};
+use super::{Mirror, OSU_API_MIN_REQUEST_INTERVAL};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -9,7 +9,11 @@ use tokio::time::sleep;
 
 pub(crate) struct MirrorPool {
     mirrors: Arc<Vec<Mirror>>,
-    penalties: Arc<Mutex<HashMap<MirrorKind, Instant>>>,
+    /// Rate-limit cooldowns keyed by **mirror index** (position in `mirrors`),
+    /// not [`MirrorKind`](super::MirrorKind): two custom mirrors share the
+    /// `Custom` kind but must back off independently, so a per-slot key is
+    /// required.
+    penalties: Arc<Mutex<HashMap<usize, Instant>>>,
     /// Timestamp of the last osu! official ([`MirrorKind::OsuApi`]) request,
     /// shared across every concurrent worker so the proactive interval cannot be
     /// bypassed by concurrency. `None` until the first such request. Held under
@@ -44,20 +48,26 @@ impl MirrorPool {
         *last = Some(Instant::now());
     }
 
-    pub(crate) fn mark_rate_limited(&self, kind: MirrorKind) {
+    /// Mark the mirror at `idx` rate-limited, starting a cooldown derived from
+    /// its kind's [`MirrorKind::rate_limit_backoff`]. Keyed per slot so custom
+    /// mirrors back off independently.
+    pub(crate) fn mark_rate_limited(&self, idx: usize) {
+        let Some(mirror) = self.mirrors.get(idx) else {
+            return;
+        };
         let now = Instant::now();
         let mut penalties = self.penalties.lock().unwrap();
-        if penalties.get(&kind).is_some_and(|&until| until > now) {
+        if penalties.get(&idx).is_some_and(|&until| until > now) {
             return;
         }
-        penalties.insert(kind, now + kind.rate_limit_backoff());
+        penalties.insert(idx, now + mirror.kind().rate_limit_backoff());
     }
 
-    pub(crate) fn penalty_remaining(&self, kind: MirrorKind) -> Option<Duration> {
+    pub(crate) fn penalty_remaining(&self, idx: usize) -> Option<Duration> {
         let now = Instant::now();
         let penalties = self.penalties.lock().unwrap();
         penalties
-            .get(&kind)
+            .get(&idx)
             .and_then(|&until| (until > now).then_some(until - now))
     }
 

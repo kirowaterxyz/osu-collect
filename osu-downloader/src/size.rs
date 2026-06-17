@@ -276,15 +276,15 @@ async fn probe_once(client: &Client, beatmapset_id: u32, url: &str) -> ProbeOutc
 
     let status = resp.status();
     if status.is_redirection() {
-        if let Some(location) = resp.headers().get(reqwest::header::LOCATION) {
-            if let Ok(location_str) = location.to_str() {
-                let next = resp
-                    .url()
-                    .join(location_str)
-                    .map(|u| u.to_string())
-                    .unwrap_or_else(|_| location_str.to_string());
-                return ProbeOutcome::RetryRedirect(next);
-            }
+        if let Some(location) = resp.headers().get(reqwest::header::LOCATION)
+            && let Ok(location_str) = location.to_str()
+        {
+            let next = resp
+                .url()
+                .join(location_str)
+                .map(|u| u.to_string())
+                .unwrap_or_else(|_| location_str.to_string());
+            return ProbeOutcome::RetryRedirect(next);
         }
         return ProbeOutcome::RetryTransient;
     }

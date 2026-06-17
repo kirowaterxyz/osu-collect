@@ -60,7 +60,7 @@ pub use download::sanitize_filename;
 pub use downloader::{Downloader, DownloaderBuilder, OnExists, Session};
 pub use error::{Error, Result};
 pub use event::{Event, Skip, Status, Summary};
-pub use mirrors::{Mirror, MirrorKind};
+pub use mirrors::{Mirror, MirrorKind, MirrorRef};
 pub use output_entry::{OutputEntry, classify_output_entry};
 pub use validation::{
     ArchiveValidation, ArchiveValidationResult, validate_and_remove, validate_archive,
