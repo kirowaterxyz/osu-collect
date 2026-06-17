@@ -11,6 +11,7 @@ osu-downloader = "0.9"
 
 - Concurrent downloads across as many mirrors as you configure, with automatic failover when one returns 404, 429, or transient errors
 - Per-mirror rate-limit backoff with a shared penalty pool — a throttled mirror sits out while the others keep working
+- Round-robin initial mirror per map so concurrent downloads spread across mirrors instead of all starting on the first one, plus proactive per-mirror request spacing (100 ms between requests to the same mirror; 1 s for the official osu! API)
 - Real-time progress, status, and completion events over a `Stream`, plus a one-shot summary on `.wait()`
 - Streaming downloads with MD5 hashing and ZIP/EOCD validation, written through a temp file and hard-linked into place
 - Optional osucollector.com collection fetcher (`collection` feature) — writing `collection.db` stays in the caller, the library never touches osu! database files

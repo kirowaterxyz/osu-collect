@@ -28,7 +28,7 @@ osu!collect is a terminal app (TUI) that **downloads osu! beatmap collections fr
 
 - **Batch downloads** from any osu!collector collection. Paste a URL or ID, press enter.
 - **Mirrors with automatic failover**: osu!direct, Nerinyan, Sayobot, Nekoha, Beatconnect, osu!dl, the Hinamizawa cascade, your own custom mirrors, plus the official osu! servers once you log in.
-- **Rate-limit aware**: throttled mirrors sit out while the rest keep downloading, with per-map cooldown countdowns in the UI.
+- **Rate-limit aware**: throttled mirrors sit out while the rest keep downloading, with per-map cooldown countdowns in the UI. Each map starts on a different mirror (round-robin) and requests to any one mirror are spaced out, so load spreads instead of hammering a single host.
 - **Collections updater**: Re-check a collection later and download only the maps that are missing or newly added.
 - **Ez import with `collection.db`**: Maps arrive as a proper osu! collection, not a loose folder of `.osz` files.
 - **Integrity verification**: MD5 plus archive validation on every download; files already on disk are verified and skipped.
