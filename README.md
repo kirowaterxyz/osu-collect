@@ -213,9 +213,7 @@ Requires Rust 1.85+ (edition 2024). For Windows cross-builds, `build.sh` produce
 
 ## Roadmap
 
-- [ ] Action menu (<kbd>a</kbd>) with batch operations
-- [ ] Toast notifications and scrollbars
-- [ ] Full BatchBeatmapDownloader-style filter downloads
+- [ ] All features of [BatchBeatmapDownloader](https://github.com/nzbasic/batch-beatmap-downloader) (🚧 in the works)
 
 ## Acknowledgments
 
