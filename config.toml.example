@@ -9,8 +9,9 @@ osu_direct = true
 sayobot = true
 nekoha = true
 
-# optional custom mirror template (must contain {id})
-# url = "https://example.com/d/{id}"
+# optional custom beatmap mirrors; each template must contain {id}
+# tried after the built-ins, in list order (legacy single `url = "..."` is still read)
+# urls = ["https://example.com/d/{id}", "https://mirror.example.net/d/{id}"]
 
 # the official osu! mirror is enabled by logging in on the config tab
 # (credentials are stored in auth.json next to ts file, not here)

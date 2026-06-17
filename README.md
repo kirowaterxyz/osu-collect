@@ -27,7 +27,7 @@ osu!collect is a terminal app (TUI) that **downloads osu! beatmap collections fr
 ## Features
 
 - **Batch downloads** from any osu!collector collection. Paste a URL or ID, press enter.
-- **Mirrors with automatic failover**: osu!direct, Nerinyan, Sayobot, Nekoha, Beatconnect, osu!dl, the Hinamizawa cascade, your own custom mirror, plus the official osu! servers once you log in.
+- **Mirrors with automatic failover**: osu!direct, Nerinyan, Sayobot, Nekoha, Beatconnect, osu!dl, the Hinamizawa cascade, your own custom mirrors, plus the official osu! servers once you log in.
 - **Rate-limit aware**: throttled mirrors sit out while the rest keep downloading, with per-map cooldown countdowns in the UI.
 - **Collections updater**: Re-check a collection later and download only the maps that are missing or newly added.
 - **Ez import with `collection.db`**: Maps arrive as a proper osu! collection, not a loose folder of `.osz` files.
@@ -88,7 +88,7 @@ Paste a collection link, pick a directory, press <kbd>↵</kbd>.
 | **Collection URL or ID** | Accepts `https://osucollector.com/collections/{id}` or a bare ID. Resolves as you type and remembers recent collections. *Required.* |
 | **Download directory** | Defaults to the last used folder. <kbd>tab</kbd> completes filesystem paths. |
 | **Threads** | Parallel downloads. Defaults to your CPU core count; 20 or fewer avoids rate limiting. |
-| **Custom mirror URL** | Must include the `{id}` placeholder. Combines with the built-in mirror toggles. |
+| **Custom mirror URLs** | Add as many as you want — each must include the `{id}` placeholder. A new empty row appears as you type; clearing a row removes it. Tried after the built-in mirror toggles. |
 | **Skip existing** | Verifies and skips maps already on disk. |
 | **Overwrite existing** | Skips the on-disk recheck and redownloads every map fresh. |
 | **Video** | Includes beatmap videos (on by default); off downloads video-free where the mirror supports it. |
