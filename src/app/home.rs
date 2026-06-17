@@ -599,45 +599,42 @@ impl HomeTab {
     /// Use this for display-only contexts (e.g. the summary metric in the TUI).
     /// Call `build_mirror_list` when the actual list of mirrors is needed.
     pub fn mirror_count(&self) -> usize {
-        let builtin_count = [
-            self.nerinyan,
-            self.osu_direct,
-            self.sayobot,
-            self.nekoha,
-            self.beatconnect,
-            self.osudl,
-            self.catboy,
-            self.hinamizawa,
-            self.osu_official,
-        ]
-        .iter()
-        .filter(|&&enabled| enabled)
-        .count();
+        let builtin_count = MirrorKind::BUILTINS
+            .iter()
+            .filter(|&&kind| self.mirror_enabled(kind))
+            .count();
         builtin_count + self.custom_mirrors.valid_count()
     }
 
-    pub fn build_mirror_list(&self) -> Vec<Mirror> {
-        let builtin_checks: &[(bool, MirrorKind)] = &[
-            (self.nerinyan, MirrorKind::Nerinyan),
-            (self.osu_direct, MirrorKind::OsuDirect),
-            (self.sayobot, MirrorKind::Sayobot),
-            (self.nekoha, MirrorKind::Nekoha),
-            (self.beatconnect, MirrorKind::Beatconnect),
-            (self.osudl, MirrorKind::Osudl),
-            (self.catboy, MirrorKind::Catboy),
-            (self.hinamizawa, MirrorKind::Hinamizawa),
-            // OsuApi is built header-less here; the download pipeline injects the
-            // `*` (lazer-tier) bearer token + `x-api-version` header before the
-            // request goes out.
-            (self.osu_official, MirrorKind::OsuApi),
-        ];
+    /// Whether the built-in mirror of `kind` is toggled on. Maps each
+    /// [`MirrorKind`] to its backing toggle so the mirror list and count derive
+    /// from the single canonical [`MirrorKind::BUILTINS`] order (the order the
+    /// TUI renders and the download pipeline tries), and can't drift from it.
+    fn mirror_enabled(&self, kind: MirrorKind) -> bool {
+        match kind {
+            MirrorKind::Nerinyan => self.nerinyan,
+            MirrorKind::OsuDirect => self.osu_direct,
+            MirrorKind::Sayobot => self.sayobot,
+            MirrorKind::Nekoha => self.nekoha,
+            MirrorKind::Beatconnect => self.beatconnect,
+            MirrorKind::Osudl => self.osudl,
+            MirrorKind::Catboy => self.catboy,
+            MirrorKind::Hinamizawa => self.hinamizawa,
+            MirrorKind::OsuApi => self.osu_official,
+            MirrorKind::Custom => false,
+        }
+    }
 
-        let mut mirrors: Vec<Mirror> = builtin_checks
+    pub fn build_mirror_list(&self) -> Vec<Mirror> {
+        // Built-ins follow the canonical `MirrorKind::BUILTINS` order so the
+        // pipeline tries them in the exact order the TUI lists them. OsuApi is
+        // built header-less here; the download pipeline injects the `*`
+        // (lazer-tier) bearer token + `x-api-version` header before the request
+        // goes out.
+        let mut mirrors: Vec<Mirror> = MirrorKind::BUILTINS
             .iter()
-            .filter_map(|&(enabled, kind)| {
-                if !enabled {
-                    return None;
-                }
+            .filter(|&&kind| self.mirror_enabled(kind))
+            .filter_map(|&kind| {
                 let mirror = Mirror::builtin(kind)?;
                 Some(if self.video {
                     mirror

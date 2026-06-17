@@ -25,7 +25,9 @@ fn home_defaults_to_every_default_on_mirror() {
     let config = Config::default();
     let home = HomeTab::new(&config);
 
-    // hinamizawa + osu! official are default-off, so they are absent here.
+    // Order follows the canonical `MirrorKind::BUILTINS` (the order the TUI
+    // lists and the pipeline tries). hinamizawa + osu! official are default-off,
+    // so they are absent here.
     let mirror_kinds: Vec<_> = home
         .build_mirror_list()
         .iter()
@@ -34,8 +36,8 @@ fn home_defaults_to_every_default_on_mirror() {
     assert_eq!(
         mirror_kinds,
         vec![
-            MirrorKind::Nerinyan,
             MirrorKind::OsuDirect,
+            MirrorKind::Nerinyan,
             MirrorKind::Sayobot,
             MirrorKind::Nekoha,
             MirrorKind::Beatconnect,
