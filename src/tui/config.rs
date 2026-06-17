@@ -164,6 +164,7 @@ fn build_config_items(
         (ConfigField::MirrorSayobot, form.sayobot),
         (ConfigField::MirrorNekoha, form.nekoha),
         (ConfigField::MirrorBeatconnect, form.beatconnect),
+        (ConfigField::MirrorOsudl, form.osudl),
         (ConfigField::MirrorHinamizawa, form.hinamizawa),
         (ConfigField::MirrorOsuOfficial, form.osu_official),
     ];
@@ -322,7 +323,7 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
         AuthChip => return None,
         Theme | VimKeys => SECTION_DISPLAY,
         MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorBeatconnect
-        | MirrorHinamizawa | MirrorOsuOfficial | MirrorCustomUrl => SECTION_MIRRORS,
+        | MirrorOsudl | MirrorHinamizawa | MirrorOsuOfficial | MirrorCustomUrl => SECTION_MIRRORS,
         DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {
             SECTION_DOWNLOAD
         }

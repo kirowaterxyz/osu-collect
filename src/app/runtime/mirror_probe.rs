@@ -45,6 +45,8 @@ pub fn probe_url(kind: MirrorKind) -> Option<&'static str> {
         MirrorKind::Nekoha => Some("https://mirror.nekoha.moe/"),
         // Beatconnect CDN root
         MirrorKind::Beatconnect => Some("https://beatconnect.io/"),
+        // osu!dl Cloudflare-fronted root
+        MirrorKind::Osudl => Some("https://osudl.org/"),
         // Hinamizawa cascade root
         MirrorKind::Hinamizawa => Some("https://mirror.hinamizawa.ai/"),
         // osu! official site root (the download endpoint itself needs auth)

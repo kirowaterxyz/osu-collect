@@ -34,6 +34,8 @@ pub enum MirrorKind {
     Nekoha,
     /// Beatconnect mirror (anonymous direct downloads).
     Beatconnect,
+    /// osu!dl mirror (anonymous Cloudflare R2; ranked/approved/loved only).
+    Osudl,
     /// Hinamizawa mirror (cascades across the other mirrors server-side).
     Hinamizawa,
     /// Official osu! API v2 download endpoint.
@@ -88,6 +90,14 @@ impl MirrorKind {
                 template: "https://beatconnect.io/b/{id}/",
                 template_no_video: "https://beatconnect.io/b/{id}/?novideo=1",
             }),
+            MirrorKind::Osudl => Some(ProviderMeta {
+                // No published rate limit; Cloudflare may throttle at the edge.
+                // Match the other anonymous mirrors' penalty backoff.
+                label: "osu!dl",
+                backoff_secs: 45,
+                template: "https://osudl.org/s/{id}",
+                template_no_video: "https://osudl.org/s/{id}?video=false",
+            }),
             MirrorKind::Hinamizawa => Some(ProviderMeta {
                 label: "Hinamizawa",
                 backoff_secs: 45,
@@ -115,6 +125,7 @@ impl MirrorKind {
         MirrorKind::Sayobot,
         MirrorKind::Nekoha,
         MirrorKind::Beatconnect,
+        MirrorKind::Osudl,
         MirrorKind::Hinamizawa,
         MirrorKind::OsuApi,
     ];
@@ -147,6 +158,7 @@ impl MirrorKind {
             MirrorKind::Sayobot => "dl.sayobot.cn",
             MirrorKind::Nekoha => "mirror.nekoha.moe",
             MirrorKind::Beatconnect => "beatconnect.io",
+            MirrorKind::Osudl => "osudl.org",
             MirrorKind::Hinamizawa => "mirror.hinamizawa.ai",
             MirrorKind::OsuApi => "osu.ppy.sh",
             MirrorKind::Custom => "custom",
@@ -291,6 +303,14 @@ impl Mirror {
         Self::new_builtin(MirrorKind::Beatconnect)
     }
 
+    /// osu!dl mirror (anonymous Cloudflare R2 storage).
+    ///
+    /// Coverage is ranked/approved/loved only; a graveyard/pending set returns
+    /// `404`, which the download loop treats as a miss and rotates past.
+    pub fn osudl() -> Self {
+        Self::new_builtin(MirrorKind::Osudl)
+    }
+
     /// Hinamizawa mirror (server-side cascade across the other mirrors).
     pub fn hinamizawa() -> Self {
         Self::new_builtin(MirrorKind::Hinamizawa)
@@ -317,6 +337,7 @@ impl Mirror {
             Mirror::sayobot(),
             Mirror::nekoha(),
             Mirror::beatconnect(),
+            Mirror::osudl(),
             Mirror::hinamizawa(),
             Mirror::osu_api(),
         ]

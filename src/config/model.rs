@@ -76,6 +76,11 @@ pub struct MirrorConfig {
     /// Anonymous beatconnect.io CDN download. On by default.
     #[serde(default = "default_enabled")]
     pub beatconnect: bool,
+    /// Anonymous osu!dl (Cloudflare R2) download. On by default: fast and
+    /// auth-free, though coverage is ranked/approved/loved only — rotation
+    /// backfills the sets it cannot serve.
+    #[serde(default = "default_enabled")]
+    pub osudl: bool,
     /// Hinamizawa cascade. Off by default: it races server-side through the
     /// other mirrors, so enabling it alongside them is redundant.
     #[serde(default)]
@@ -166,6 +171,7 @@ impl Default for MirrorConfig {
             sayobot: true,
             nekoha: true,
             beatconnect: true,
+            osudl: true,
             hinamizawa: false,
             osu_official: false,
             url: None,
@@ -186,6 +192,7 @@ impl MirrorConfig {
             || self.sayobot
             || self.nekoha
             || self.beatconnect
+            || self.osudl
             || self.hinamizawa
             || self.osu_official
             || self.custom_template().is_some()

@@ -12,6 +12,7 @@ fn home_all_off(config: &Config) -> HomeTab {
     home.sayobot = false;
     home.nekoha = false;
     home.beatconnect = false;
+    home.osudl = false;
     home.hinamizawa = false;
     home.osu_official = false;
     home.custom_mirror.value = String::new();
@@ -36,6 +37,7 @@ fn home_defaults_to_every_default_on_mirror() {
             MirrorKind::Sayobot,
             MirrorKind::Nekoha,
             MirrorKind::Beatconnect,
+            MirrorKind::Osudl,
         ]
     );
 }

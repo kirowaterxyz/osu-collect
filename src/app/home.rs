@@ -158,6 +158,7 @@ pub enum HomeField {
     MirrorSayobot,
     MirrorNekoha,
     MirrorBeatconnect,
+    MirrorOsudl,
     MirrorHinamizawa,
     MirrorOsuOfficial,
     Threads,
@@ -178,6 +179,7 @@ const HOME_FIELDS: &[HomeField] = &[
     HomeField::MirrorSayobot,
     HomeField::MirrorNekoha,
     HomeField::MirrorBeatconnect,
+    HomeField::MirrorOsudl,
     HomeField::MirrorHinamizawa,
     HomeField::MirrorOsuOfficial,
     HomeField::Directory,
@@ -208,6 +210,7 @@ impl HomeField {
                 | HomeField::MirrorSayobot
                 | HomeField::MirrorNekoha
                 | HomeField::MirrorBeatconnect
+                | HomeField::MirrorOsudl
                 | HomeField::MirrorHinamizawa
                 | HomeField::MirrorOsuOfficial
                 | HomeField::AutoOverwrite
@@ -227,6 +230,7 @@ pub struct HomeTab {
     pub sayobot: bool,
     pub nekoha: bool,
     pub beatconnect: bool,
+    pub osudl: bool,
     pub hinamizawa: bool,
     pub osu_official: bool,
     pub video: bool,
@@ -254,6 +258,7 @@ impl HomeTab {
         let sayobot = config.mirror.sayobot;
         let nekoha = config.mirror.nekoha;
         let beatconnect = config.mirror.beatconnect;
+        let osudl = config.mirror.osudl;
         let hinamizawa = config.mirror.hinamizawa;
         let osu_official = config.mirror.osu_official;
         let custom_template = config.mirror.custom_template().unwrap_or("");
@@ -301,6 +306,7 @@ impl HomeTab {
             sayobot,
             nekoha,
             beatconnect,
+            osudl,
             hinamizawa,
             osu_official,
             video: config.download.video,
@@ -520,6 +526,9 @@ impl HomeTab {
             HomeField::MirrorBeatconnect => {
                 self.beatconnect = !self.beatconnect;
             }
+            HomeField::MirrorOsudl => {
+                self.osudl = !self.osudl;
+            }
             HomeField::MirrorHinamizawa => {
                 self.hinamizawa = !self.hinamizawa;
             }
@@ -547,6 +556,7 @@ impl HomeTab {
             self.sayobot,
             self.nekoha,
             self.beatconnect,
+            self.osudl,
             self.hinamizawa,
             self.osu_official,
         ]
@@ -567,6 +577,7 @@ impl HomeTab {
             (self.sayobot, MirrorKind::Sayobot),
             (self.nekoha, MirrorKind::Nekoha),
             (self.beatconnect, MirrorKind::Beatconnect),
+            (self.osudl, MirrorKind::Osudl),
             (self.hinamizawa, MirrorKind::Hinamizawa),
             // OsuApi is built header-less here; the download pipeline injects the
             // `*` (lazer-tier) bearer token + `x-api-version` header before the

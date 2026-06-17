@@ -23,6 +23,10 @@ fn mirror_templates() {
         "https://beatconnect.io/b/320118/"
     );
     assert_eq!(
+        Mirror::osudl().url_for(320118),
+        "https://osudl.org/s/320118"
+    );
+    assert_eq!(
         Mirror::hinamizawa().url_for(320118),
         "https://mirror.hinamizawa.ai/api/v1/hinai/d/320118"
     );
@@ -37,6 +41,10 @@ fn no_video_templates_for_new_mirrors() {
     assert_eq!(
         Mirror::beatconnect().no_video().url_for(42),
         "https://beatconnect.io/b/42/?novideo=1"
+    );
+    assert_eq!(
+        Mirror::osudl().no_video().url_for(42),
+        "https://osudl.org/s/42?video=false"
     );
     assert_eq!(
         Mirror::hinamizawa().no_video().url_for(42),
@@ -58,6 +66,7 @@ fn only_osu_api_requires_auth() {
         MirrorKind::Sayobot,
         MirrorKind::Nekoha,
         MirrorKind::Beatconnect,
+        MirrorKind::Osudl,
         MirrorKind::Hinamizawa,
         MirrorKind::Custom,
     ] {
