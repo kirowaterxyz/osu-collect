@@ -98,18 +98,22 @@ Paste a collection link, pick a directory, press <kbd>↵</kbd>.
 | Keys | Action |
 |---|---|
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move between rows |
-| <kbd>←</kbd> <kbd>→</kbd> | Switch tabs |
+| <kbd>←</kbd> <kbd>→</kbd> <kbd>tab</kbd> <kbd>shift</kbd>+<kbd>tab</kbd> | Switch tabs (<kbd>tab</kbd> path-completes the directory while editing it) |
 | <kbd>↵</kbd> | Activate, toggle, start a download, or edit a field |
 | <kbd>space</kbd> | Toggle the focused checkbox or switch |
-| <kbd>tab</kbd> | Path-complete the directory field |
+| <kbd>s</kbd> | Jump to the download button |
 | <kbd>+</kbd> <kbd>-</kbd> | Adjust thread count |
 | <kbd>r</kbd> | Retry all failed maps on a download tab |
 | <kbd>x</kbd> | Dismiss an error message |
 | <kbd>?</kbd> | Help overlay listing every key |
 | <kbd>q</kbd> | Back / quit (press twice to confirm; aborts a running download the same way) |
 | <kbd>ctrl</kbd>+<kbd>c</kbd> | Quit immediately from anywhere |
+| <kbd>home</kbd> <kbd>end</kbd> | Jump to the first / last row of a list or form |
+| <kbd>pgup</kbd> <kbd>pgdn</kbd> | Page a list up / down |
 
 Text fields support full caret editing: <kbd>home</kbd>, <kbd>end</kbd>, <kbd>delete</kbd>, and <kbd>ctrl</kbd>+<kbd>w</kbd> to delete the previous word.
+
+**Vim keys** (off by default, toggle on the config tab): <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> move, <kbd>g</kbd><kbd>g</kbd> / <kbd>G</kbd> jump to top / bottom, <kbd>ctrl</kbd>+<kbd>u</kbd> / <kbd>ctrl</kbd>+<kbd>d</kbd> page, and <kbd>i</kbd> / <kbd>a</kbd> start editing the focused field. A field in edit mode types literally; <kbd>esc</kbd> leaves it. When enabled, a <kbd>vim</kbd> marker shows in the footer.
 
 ### Download tabs
 

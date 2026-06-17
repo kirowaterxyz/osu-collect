@@ -34,6 +34,9 @@ retry_failed_on_download = "ask"
 # "full" (truecolor, default) or "compatible" (xterm-256/16-color).
 # Omit this key entirely to auto-detect from the terminal's color depth on first run.
 theme = "full"
+# vim navigation keymap (hjkl move, gg/G top/bottom, ctrl+u/d page, i/a edit).
+# off by default; also toggleable live on the config tab.
+vim_keys = false
 
 [logging]
 # structured logging is disabled by default, set to true to enable tracing output
