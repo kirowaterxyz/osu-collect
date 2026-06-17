@@ -61,6 +61,10 @@ pub struct App {
     /// global hotkeys) until `enter` descends into editing (`✎` +
     /// native cursor, keys type). Reset whenever focus moves or tabs switch.
     pub editing: bool,
+    /// Vim keymap latch for the `gg` motion: set when a lone `g` is seen,
+    /// consumed by the next key (a second `g` jumps to the top, anything else
+    /// clears it). Only ever set while `config.vim_keys` is on.
+    vim_pending_g: bool,
     /// Pending confirmation for "retry N failed maps?" when count > 50.
     pub confirm_retry: Option<RetryAllConfirmModal>,
     /// Pre-download prompt: previously failed beatmapsets in
@@ -192,6 +196,7 @@ impl App {
             help_open: false,
             help_scroll: Cell::new(0),
             editing: false,
+            vim_pending_g: false,
             confirm_retry: None,
             confirm_retry_on_start: None,
             failed_maps_path_override: None,
@@ -438,6 +443,85 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn focus_first_field(&mut self) {
+        self.commit_config_edit();
+        self.editing = false;
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.first_field(),
+            UPDATES_TAB_INDEX => self.updates.first_field(),
+            CONFIG_TAB_INDEX => self.config.first_field(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.first_field();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn focus_last_field(&mut self) {
+        self.commit_config_edit();
+        self.editing = false;
+        match self.active_tab() {
+            HOME_TAB_INDEX => self.home.last_field(),
+            UPDATES_TAB_INDEX => self.updates.last_field(),
+            CONFIG_TAB_INDEX => self.config.last_field(),
+            tab if self.is_login_tab(tab) => {
+                if let Some(login) = self.login.as_mut() {
+                    login.last_field();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `gg` / Home: jump the active surface to its top — an open list cursor to
+    /// the first row, a download page to the top, else field focus to the first
+    /// field. Mirrors the per-tab branching of the `Up`/`Down` handler.
+    fn jump_top(&mut self) {
+        if self.active_tab() == UPDATES_TAB_INDEX && self.updates.list_open() {
+            self.updates.scroll_to_edge(true);
+        } else if let Some(page) = self.active_download_page_mut() {
+            page.jump_top();
+        } else {
+            self.focus_first_field();
+        }
+    }
+
+    /// `G` / End: jump the active surface to its bottom.
+    fn jump_bottom(&mut self) {
+        if self.active_tab() == UPDATES_TAB_INDEX && self.updates.list_open() {
+            self.updates.scroll_to_edge(false);
+        } else if let Some(page) = self.active_download_page_mut() {
+            page.jump_bottom();
+        } else {
+            self.focus_last_field();
+        }
+    }
+
+    /// `Ctrl+u` / PageUp: page the active list up. Forms have no page, so they
+    /// jump to the first field.
+    fn page_up(&mut self) {
+        if self.active_tab() == UPDATES_TAB_INDEX && self.updates.list_open() {
+            self.updates.page_up();
+        } else if let Some(page) = self.active_download_page_mut() {
+            page.page_up();
+        } else {
+            self.focus_first_field();
+        }
+    }
+
+    /// `Ctrl+d` / PageDown: page the active list down.
+    fn page_down(&mut self) {
+        if self.active_tab() == UPDATES_TAB_INDEX && self.updates.list_open() {
+            self.updates.page_down();
+        } else if let Some(page) = self.active_download_page_mut() {
+            page.page_down();
+        } else {
+            self.focus_last_field();
         }
     }
 
@@ -994,7 +1078,7 @@ impl App {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<AppCommand> {
+    pub fn handle_key(&mut self, mut key: KeyEvent) -> Option<AppCommand> {
         // ctrl+c always quits unconditionally
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(AppCommand::Quit);
@@ -1008,6 +1092,48 @@ impl App {
             && matches!(key.code, KeyCode::Char('w') | KeyCode::Char('h'))
         {
             return self.backspace_word_focused();
+        }
+
+        // Opt-in vim normal-layer remap: rewrite the key into its existing
+        // arrow/Home/End/Page equivalent before any handler sees it, so every
+        // downstream branch (tabs, modals, help, lists) works unchanged. Active
+        // only while the keymap is on AND we are not editing a text field — so
+        // insert-mode typing stays literal. ctrl+w/ctrl+h are consumed above, so
+        // a bare `h` here is always the motion key.
+        if self.config.vim_keys && !(self.editing && self.focused_text_input()) {
+            let plain = !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+            // Any key resolves the pending `g`; only a second `g` forms `gg`.
+            let pending_g = std::mem::take(&mut self.vim_pending_g);
+            if pending_g && plain && key.code == KeyCode::Char('g') {
+                key.code = KeyCode::Home;
+            } else if plain {
+                match key.code {
+                    KeyCode::Char('h') => key.code = KeyCode::Left,
+                    KeyCode::Char('j') => key.code = KeyCode::Down,
+                    KeyCode::Char('k') => key.code = KeyCode::Up,
+                    KeyCode::Char('l') => key.code = KeyCode::Right,
+                    KeyCode::Char('G') => key.code = KeyCode::End,
+                    // First `g`: latch and wait for the second to form `gg`.
+                    KeyCode::Char('g') => {
+                        self.vim_pending_g = true;
+                        return None;
+                    }
+                    // `i`/`a` descend into edit mode on a focused text field.
+                    KeyCode::Char('i') | KeyCode::Char('a') if self.focused_text_input() => {
+                        self.editing = true;
+                        return None;
+                    }
+                    _ => {}
+                }
+            } else if key.modifiers.contains(KeyModifiers::CONTROL) {
+                match key.code {
+                    KeyCode::Char('d') => key.code = KeyCode::PageDown,
+                    KeyCode::Char('u') => key.code = KeyCode::PageUp,
+                    _ => {}
+                }
+            }
         }
 
         // Pre-download retry prompt: button-driven. ←/→ move the focused button
@@ -1177,6 +1303,14 @@ impl App {
             }
             KeyCode::Home if typing => self.caret_home_focused(),
             KeyCode::End if typing => self.caret_end_focused(),
+            // Outside a text field these jump to the top/bottom of the active
+            // surface (also the target of vim `gg`/`G`). Help owns these keys
+            // while open via the guard above.
+            KeyCode::Home => self.jump_top(),
+            KeyCode::End => self.jump_bottom(),
+            // Page the active list (vim `Ctrl+u`/`Ctrl+d`). Forms jump to ends.
+            KeyCode::PageUp => self.page_up(),
+            KeyCode::PageDown => self.page_down(),
             KeyCode::Delete if typing => {
                 if let Some(cmd) = self.delete_forward_focused() {
                     return Some(cmd);

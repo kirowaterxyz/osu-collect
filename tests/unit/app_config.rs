@@ -79,6 +79,8 @@ fn next_field_cycles_through_auth_chip() {
     tab.next_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.next_field();
+    assert_eq!(tab.focus, ConfigField::VimKeys);
+    tab.next_field();
     assert_eq!(tab.focus, ConfigField::MirrorOsuDirect);
 }
 
@@ -86,6 +88,8 @@ fn next_field_cycles_through_auth_chip() {
 fn prev_field_cycles_through_auth_chip() {
     let mut tab = tab_logged_in();
     tab.focus = ConfigField::MirrorOsuDirect;
+    tab.prev_field();
+    assert_eq!(tab.focus, ConfigField::VimKeys);
     tab.prev_field();
     assert_eq!(tab.focus, ConfigField::Theme);
     tab.prev_field();
@@ -109,7 +113,7 @@ fn all_fields_form_complete_cycle() {
     let mut tab = tab_logged_in();
     let start = tab.focus;
     // Field count must match `ALL_CONFIG_FIELDS`.
-    let total = 18;
+    let total = 19;
     for _ in 0..total {
         tab.next_field();
     }

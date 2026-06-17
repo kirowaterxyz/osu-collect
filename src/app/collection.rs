@@ -13,6 +13,9 @@ use crate::config::constants::{SPEED_STALE_AFTER, SPEED_UPDATE_INTERVAL};
 /// minimum time between text updates on a single active-download slot.
 const STATUS_DEBOUNCE: Duration = Duration::from_millis(50);
 
+/// Rows moved per page-scroll keystroke (`Ctrl+d` / `Ctrl+u`) on a download page.
+const PAGE_STEP: usize = 10;
+
 #[derive(Debug, Clone, Default)]
 struct DisplayedStatus {
     message: String,
@@ -515,6 +518,59 @@ impl CollectionPage {
         let max_scroll = total.saturating_sub(visible);
         if self.thread_scroll < max_scroll {
             self.thread_scroll += 1;
+        }
+    }
+
+    /// Largest valid thread-scroll offset (bottom of the list).
+    fn max_thread_scroll(&self) -> usize {
+        self.thread_total_items
+            .get()
+            .saturating_sub(self.thread_visible_items.get())
+    }
+
+    /// Whether the failed-row cursor (not the thread list) owns vertical motion:
+    /// the failed section is expanded and non-empty.
+    fn failed_rows_active(&self) -> bool {
+        self.failed_section_expanded && !self.failed_maps.is_empty()
+    }
+
+    /// Jump the active list (failed rows when expanded, else the thread list) to
+    /// the top (`gg` / Home).
+    pub fn jump_top(&mut self) {
+        if self.failed_rows_active() {
+            self.failed_focus = Some(0);
+        } else {
+            self.thread_scroll = 0;
+        }
+    }
+
+    /// Jump the active list to the bottom (`G` / End).
+    pub fn jump_bottom(&mut self) {
+        if self.failed_rows_active() {
+            self.failed_focus = Some(self.failed_maps.len() - 1);
+        } else {
+            self.thread_scroll = self.max_thread_scroll();
+        }
+    }
+
+    /// Page the active list up by [`PAGE_STEP`] rows (`Ctrl+u`), clamped (no wrap).
+    pub fn page_up(&mut self) {
+        if self.failed_rows_active() {
+            let cur = self.failed_focus.unwrap_or(0);
+            self.failed_focus = Some(cur.saturating_sub(PAGE_STEP));
+        } else {
+            self.thread_scroll = self.thread_scroll.saturating_sub(PAGE_STEP);
+        }
+    }
+
+    /// Page the active list down by [`PAGE_STEP`] rows (`Ctrl+d`), clamped.
+    pub fn page_down(&mut self) {
+        if self.failed_rows_active() {
+            let last = self.failed_maps.len() - 1;
+            let cur = self.failed_focus.unwrap_or(0);
+            self.failed_focus = Some((cur + PAGE_STEP).min(last));
+        } else {
+            self.thread_scroll = (self.thread_scroll + PAGE_STEP).min(self.max_thread_scroll());
         }
     }
 

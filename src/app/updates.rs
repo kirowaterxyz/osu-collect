@@ -1,8 +1,13 @@
 use super::{
+    first_field,
     home::InputField,
+    last_field,
     messages::{AppMessage, clear_app_message},
     next_field, prev_field,
 };
+
+/// Cursor step for a list page-scroll (`Ctrl+d` / `Ctrl+u`).
+pub(crate) const LIST_PAGE: i64 = 10;
 use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
 use crate::utils::expand_tilde;
 use std::collections::HashSet;
@@ -273,6 +278,26 @@ impl UpdatesTab {
         self.selection.focus = prev_field(UPDATE_FIELDS, self.selection.focus);
     }
 
+    pub fn first_field(&mut self) {
+        if self.selection.in_collection_list || self.selection.in_beatmap_list {
+            return;
+        }
+        self.selection.focus = first_field(UPDATE_FIELDS, self.selection.focus);
+    }
+
+    pub fn last_field(&mut self) {
+        if self.selection.in_collection_list || self.selection.in_beatmap_list {
+            return;
+        }
+        self.selection.focus = last_field(UPDATE_FIELDS, self.selection.focus);
+    }
+
+    /// Whether a beatmap/collection list is open (so list-scroll keys apply
+    /// instead of field navigation).
+    pub fn list_open(&self) -> bool {
+        self.selection.in_collection_list || self.selection.in_beatmap_list
+    }
+
     pub fn handle_char(&mut self, ch: char) {
         if self.selection.in_collection_list {
             match ch {
@@ -525,33 +550,55 @@ impl UpdatesTab {
     }
 
     pub fn scroll_up(&mut self) {
-        if self.selection.in_collection_list {
-            scroll_list(
-                &mut self.selection.collections_state,
-                self.selection.local_collections.len(),
-                -1,
-            );
-        } else if self.selection.in_beatmap_list {
-            scroll_list(
-                &mut self.selection.beatmaps_state,
-                self.selection.display_items.len(),
-                -1,
-            );
-        }
+        self.scroll_by(-1);
     }
 
     pub fn scroll_down(&mut self) {
+        self.scroll_by(1);
+    }
+
+    /// Page the open list up/down by [`LIST_PAGE`] rows (`Ctrl+u` / `Ctrl+d`).
+    pub fn page_up(&mut self) {
+        self.scroll_by(-LIST_PAGE);
+    }
+
+    pub fn page_down(&mut self) {
+        self.scroll_by(LIST_PAGE);
+    }
+
+    /// Jump the open list cursor to the first (`top`) or last row (`gg` / `G`).
+    pub fn scroll_to_edge(&mut self, top: bool) {
+        let (state, len) = if self.selection.in_collection_list {
+            (
+                &mut self.selection.collections_state,
+                self.selection.local_collections.len(),
+            )
+        } else if self.selection.in_beatmap_list {
+            (
+                &mut self.selection.beatmaps_state,
+                self.selection.display_items.len(),
+            )
+        } else {
+            return;
+        };
+        if len == 0 {
+            return;
+        }
+        *state = Some(if top { 0 } else { len - 1 });
+    }
+
+    fn scroll_by(&mut self, delta: i64) {
         if self.selection.in_collection_list {
             scroll_list(
                 &mut self.selection.collections_state,
                 self.selection.local_collections.len(),
-                1,
+                delta,
             );
         } else if self.selection.in_beatmap_list {
             scroll_list(
                 &mut self.selection.beatmaps_state,
                 self.selection.display_items.len(),
-                1,
+                delta,
             );
         }
     }

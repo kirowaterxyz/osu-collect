@@ -32,6 +32,17 @@ pub(crate) fn prev_field<T: Copy + PartialEq>(fields: &[T], current: T) -> T {
     adjacent_field(fields, current, fields.len().saturating_sub(1))
 }
 
+/// First focusable field (`gg` / Home). Falls back to `current` for the
+/// degenerate empty slice so callers never index out of bounds.
+pub(crate) fn first_field<T: Copy>(fields: &[T], current: T) -> T {
+    fields.first().copied().unwrap_or(current)
+}
+
+/// Last focusable field (`G` / End).
+pub(crate) fn last_field<T: Copy>(fields: &[T], current: T) -> T {
+    fields.last().copied().unwrap_or(current)
+}
+
 fn adjacent_field<T: Copy + PartialEq>(fields: &[T], current: T, offset: usize) -> T {
     let idx = fields
         .iter()

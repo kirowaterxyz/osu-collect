@@ -12,7 +12,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::{accent, spinner_str, text_dim, text_faint, warning};
+use super::{accent, bg_raised, spinner_str, text_dim, text_faint, warning};
 
 const HINT_SEPARATOR: &str = "  ·  ";
 /// Rendered gap between hint groups: 3 spaces, no glyph.
@@ -20,6 +20,9 @@ const HINT_GROUP_GAP: &str = "   ";
 
 /// Footer-alert prefix glyph (` ! `) for the quit prompt, in semantic color.
 const ALERT_WARN: &str = " ! ";
+
+/// Right-edge indicator shown whenever the vim keymap is enabled.
+const VIM_CHIP: &str = " vim ";
 
 const QUIT_PROMPT_TEXT: &str = "press q again to quit";
 const QUIT_PROMPT_TEXT_DOWNLOADS: &str = "press q again to quit · active downloads will stop";
@@ -60,6 +63,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    // The vim-keymap indicator claims the footer's right edge regardless of
+    // which hint/alert branch renders the rest of the bar.
+    let area = if app.config.vim_keys {
+        render_vim_chip(frame, area)
+    } else {
+        area
+    };
+
     // A modal owns the footer while open: show its context-aware keys.
     if let Some(hint) = modal_hint(app) {
         frame.render_widget(Paragraph::new(hint_line(&hint)), area);
@@ -83,6 +94,34 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
 /// modal is up. The confirm/retry modals now carry their choices as on-screen
 /// buttons (←/→ + `enter`), so the footer only needs the universal `esc cancel`
 /// rather than re-listing every key.
+/// Draws the `vim` keymap badge flush to the footer's right edge and returns the
+/// area left of it for the hint bar — a dim label on the raised chip fill,
+/// matching the config auth-chip idiom. Skipped (returns the full area) when the
+/// footer is too narrow to fit the badge.
+fn render_vim_chip(frame: &mut Frame, area: Rect) -> Rect {
+    let chip_w = VIM_CHIP.len() as u16;
+    if area.width <= chip_w {
+        return area;
+    }
+    let chip_area = Rect {
+        x: area.right() - chip_w,
+        y: area.y,
+        width: chip_w,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            VIM_CHIP,
+            Style::default().fg(text_dim()).bg(bg_raised()),
+        )),
+        chip_area,
+    );
+    Rect {
+        width: area.width - chip_w,
+        ..area
+    }
+}
+
 fn modal_hint(app: &App) -> Option<String> {
     if app.help_open {
         Some(HINT_MODAL_CLOSE.to_string())

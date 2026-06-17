@@ -55,6 +55,12 @@ pub struct DisplayConfig {
     /// choice from then on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<ThemeMode>,
+    /// Vim-style navigation keymap. When on, `hjkl` move, `gg`/`G` jump to
+    /// top/bottom, `Ctrl+d`/`Ctrl+u` page-scroll, and `i`/`a` enter edit mode on
+    /// a focused text field. Off by default; toggled from the config tab. A
+    /// text field in edit mode bypasses the layer so typing stays literal.
+    #[serde(default)]
+    pub vim_keys: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

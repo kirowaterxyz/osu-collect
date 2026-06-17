@@ -1,4 +1,4 @@
-use super::{messages::AppMessage, next_field, prev_field};
+use super::{first_field, last_field, messages::AppMessage, next_field, prev_field};
 use crate::{
     app::runtime::ProbeResult,
     config::Config,
@@ -361,6 +361,14 @@ impl HomeTab {
 
     pub fn prev_field(&mut self) {
         self.focus = prev_field(HOME_FIELDS, self.focus);
+    }
+
+    pub fn first_field(&mut self) {
+        self.focus = first_field(HOME_FIELDS, self.focus);
+    }
+
+    pub fn last_field(&mut self) {
+        self.focus = last_field(HOME_FIELDS, self.focus);
     }
 
     /// Run tab-completion on the directory input field.

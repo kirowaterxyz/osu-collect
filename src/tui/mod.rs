@@ -299,6 +299,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             app.help_scroll.get(),
             app.active_tab(),
             app.is_login_tab(app.active_tab()),
+            app.config.vim_keys,
         );
         app.help_scroll.set(clamped);
     }

@@ -1,5 +1,7 @@
 use super::{
+    first_field,
     home::InputField,
+    last_field,
     messages::{AppMessage, clear_app_message, set_loading_message},
     next_field, prev_field,
 };
@@ -27,6 +29,7 @@ pub enum AuthLoginState {
 pub enum ConfigField {
     AuthChip,
     Theme,
+    VimKeys,
     MirrorNerinyan,
     MirrorOsuDirect,
     MirrorSayobot,
@@ -51,6 +54,7 @@ pub enum ConfigField {
 const ALL_CONFIG_FIELDS: &[ConfigField] = &[
     ConfigField::AuthChip,
     ConfigField::Theme,
+    ConfigField::VimKeys,
     ConfigField::MirrorOsuDirect,
     ConfigField::MirrorNerinyan,
     ConfigField::MirrorSayobot,
@@ -101,6 +105,7 @@ pub struct ConfigTab {
     pub logging_format: LogFormat,
     pub logging_dir: InputField,
     pub theme: ThemeMode,
+    pub vim_keys: bool,
     pub focus: ConfigField,
     pub message: Option<AppMessage>,
     pub default_threads: u8,
@@ -133,6 +138,7 @@ impl ConfigTab {
             logging_dir: logging_dir_field(&config.logging),
             // Absent config key → show the default (full) palette in the cycle.
             theme: config.display.theme.unwrap_or_default(),
+            vim_keys: config.display.vim_keys,
             // Start focus one row below the auth chip so an accidental enter
             // never opens the login tab on entry.
             focus: ConfigField::Theme,
@@ -148,6 +154,14 @@ impl ConfigTab {
 
     pub fn prev_field(&mut self) {
         self.focus = prev_field(ALL_CONFIG_FIELDS, self.focus);
+    }
+
+    pub fn first_field(&mut self) {
+        self.focus = first_field(ALL_CONFIG_FIELDS, self.focus);
+    }
+
+    pub fn last_field(&mut self) {
+        self.focus = last_field(ALL_CONFIG_FIELDS, self.focus);
     }
 
     /// Increment the thread count by one, capped at `default_threads`.
@@ -254,6 +268,7 @@ impl ConfigTab {
         clear_app_message(&mut self.message);
         match self.focus {
             ConfigField::Theme => self.cycle_theme(),
+            ConfigField::VimKeys => self.vim_keys = !self.vim_keys,
             ConfigField::MirrorNerinyan => self.nerinyan = !self.nerinyan,
             ConfigField::MirrorOsuDirect => self.osu_direct = !self.osu_direct,
             ConfigField::MirrorSayobot => self.sayobot = !self.sayobot,
@@ -334,6 +349,7 @@ impl ConfigTab {
             logging,
             display: DisplayConfig {
                 theme: Some(self.theme),
+                vim_keys: self.vim_keys,
             },
             // The config tab does not edit last-used inputs; preserve whatever
             // was loaded so saving the form never wipes the prefill state.

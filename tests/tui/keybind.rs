@@ -563,6 +563,109 @@ fn opening_help_resets_scroll() {
     );
 }
 
+// ── vim keymap (opt-in, off by default) ───────────────────────────────────────
+
+fn config_app_vim(on: bool) -> App {
+    use osu_collect::config::constants::CONFIG_TAB_INDEX;
+    let mut app = make_app();
+    app.active_tab = CONFIG_TAB_INDEX;
+    app.config.vim_keys = on;
+    app
+}
+
+#[test]
+fn vim_off_letters_do_not_navigate() {
+    use osu_collect::app::ConfigField;
+    let mut app = config_app_vim(false);
+    app.config.focus = ConfigField::Theme;
+    app.handle_key(press(KeyCode::Char('j')));
+    assert_eq!(
+        app.config.focus,
+        ConfigField::Theme,
+        "with vim off, j is inert on the config form"
+    );
+}
+
+#[test]
+fn vim_jk_move_field_focus() {
+    use osu_collect::app::ConfigField;
+    let mut app = config_app_vim(true);
+    app.config.focus = ConfigField::Theme;
+    app.handle_key(press(KeyCode::Char('j')));
+    assert_eq!(
+        app.config.focus,
+        ConfigField::VimKeys,
+        "j moves down a field"
+    );
+    app.handle_key(press(KeyCode::Char('k')));
+    assert_eq!(app.config.focus, ConfigField::Theme, "k moves up a field");
+}
+
+#[test]
+fn vim_hl_switch_tabs() {
+    use osu_collect::config::constants::{CONFIG_TAB_INDEX, UPDATES_TAB_INDEX};
+    let mut app = config_app_vim(true);
+    app.handle_key(press(KeyCode::Char('h')));
+    assert_eq!(
+        app.active_tab(),
+        UPDATES_TAB_INDEX,
+        "h switches to the prev tab"
+    );
+    app.handle_key(press(KeyCode::Char('l')));
+    assert_eq!(
+        app.active_tab(),
+        CONFIG_TAB_INDEX,
+        "l switches to the next tab"
+    );
+}
+
+#[test]
+fn vim_gg_and_capital_g_jump_to_ends() {
+    use osu_collect::app::ConfigField;
+    let mut app = config_app_vim(true);
+    app.config.focus = ConfigField::DownloadVideo;
+    // A lone `g` latches and is swallowed; the second `g` forms `gg`.
+    assert!(app.handle_key(press(KeyCode::Char('g'))).is_none());
+    app.handle_key(press(KeyCode::Char('g')));
+    assert_eq!(
+        app.config.focus,
+        ConfigField::AuthChip,
+        "gg jumps to the first field"
+    );
+    app.handle_key(press(KeyCode::Char('G')));
+    assert_eq!(
+        app.config.focus,
+        ConfigField::LoggingDirectory,
+        "G jumps to the last field"
+    );
+}
+
+#[test]
+fn vim_lone_g_then_motion_does_not_jump() {
+    use osu_collect::app::ConfigField;
+    let mut app = config_app_vim(true);
+    app.config.focus = ConfigField::Theme;
+    // `g` then `j`: the latch clears and `j` is a normal one-field move.
+    app.handle_key(press(KeyCode::Char('g')));
+    app.handle_key(press(KeyCode::Char('j')));
+    assert_eq!(app.config.focus, ConfigField::VimKeys);
+}
+
+#[test]
+fn vim_i_enters_edit_mode_then_typing_is_literal() {
+    use osu_collect::app::ConfigField;
+    let mut app = config_app_vim(true);
+    app.config.focus = ConfigField::MirrorCustomUrl;
+    app.handle_key(press(KeyCode::Char('i')));
+    assert!(app.editing, "i descends into edit mode on a text field");
+    // While editing, motion letters type literally — the vim layer is bypassed.
+    app.handle_key(press(KeyCode::Char('j')));
+    assert!(
+        app.config.custom_mirror.value.contains('j'),
+        "editing a field types literal chars, not vim motions"
+    );
+}
+
 // ── updates tab: enter does not exit lists ────────────────────────────────────
 
 #[test]

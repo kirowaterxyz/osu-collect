@@ -28,6 +28,8 @@ const SECTION_MIRRORS: &str = "mirrors";
 const SECTION_LOGGING: &str = "logging";
 
 const LABEL_THEME: &str = "theme";
+const LABEL_VIM_KEYS: &str = "vim keys";
+const HELP_VIM_KEYS: &str = "hjkl move · gg/G top/bottom · ctrl+d/u page · i/a edit";
 
 const LABEL_VIDEO: &str = "video";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
@@ -134,6 +136,19 @@ fn build_config_items(
             0,
         ),
     );
+    items.push_focusable(
+        ConfigField::VimKeys,
+        widgets::row_item(
+            LABEL_VIM_KEYS,
+            None,
+            form.vim_keys,
+            focus == ConfigField::VimKeys,
+            0,
+        ),
+    );
+    if show_chrome && focus == ConfigField::VimKeys {
+        items.push(widgets::help_item(HELP_VIM_KEYS));
+    }
     if show_chrome {
         items.push(widgets::spacer());
         items.push(widgets::section_header(
@@ -305,7 +320,7 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
     use ConfigField::*;
     Some(match field {
         AuthChip => return None,
-        Theme => SECTION_DISPLAY,
+        Theme | VimKeys => SECTION_DISPLAY,
         MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorBeatconnect
         | MirrorHinamizawa | MirrorOsuOfficial | MirrorCustomUrl => SECTION_MIRRORS,
         DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {

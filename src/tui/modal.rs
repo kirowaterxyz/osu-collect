@@ -103,6 +103,15 @@ const GLOBAL: &[HelpRow] = &[
     HelpRow::new("q", "back / quit"),
 ];
 
+/// Shown above the per-tab section only while the vim keymap is enabled.
+const VIM: &[HelpRow] = &[
+    HelpRow::new("h l", "prev / next tab"),
+    HelpRow::new("j k", "move / scroll"),
+    HelpRow::new("g g / G", "top / bottom"),
+    HelpRow::new("ctrl+d / u", "page down / up"),
+    HelpRow::new("i / a", "edit focused field"),
+];
+
 const HOME_TAB: &[HelpRow] = &[HelpRow::new("↵", "edit field / activate row")];
 
 const UPDATES_TAB: &[HelpRow] = &[
@@ -141,8 +150,9 @@ pub(crate) fn render_help_overlay(
     scroll: usize,
     active_tab: usize,
     is_login_tab: bool,
+    vim_keys: bool,
 ) -> usize {
-    let lines = build_help_lines(active_tab, is_login_tab);
+    let lines = build_help_lines(active_tab, is_login_tab, vim_keys);
     let content_w = lines.iter().map(line_width).max().unwrap_or(0);
     let items: Vec<ListItem<'static>> = lines.into_iter().map(ListItem::new).collect();
 
@@ -351,7 +361,7 @@ fn button_spans(buttons: &[&'static str], focus: usize) -> Vec<Span<'static>> {
 /// Builds the help rows as measurable [`Line`]s: the always-shown `global`
 /// section plus only the section for the currently active tab. Download tabs
 /// (any index past the static three) map to the `download` section.
-fn build_help_lines(active_tab: usize, is_login_tab: bool) -> Vec<Line<'static>> {
+fn build_help_lines(active_tab: usize, is_login_tab: bool, vim_keys: bool) -> Vec<Line<'static>> {
     let (heading, rows) = if is_login_tab {
         ("login", LOGIN_TAB)
     } else {
@@ -365,6 +375,10 @@ fn build_help_lines(active_tab: usize, is_login_tab: bool) -> Vec<Line<'static>>
 
     let mut lines = Vec::new();
     push_section(&mut lines, "global", GLOBAL);
+    if vim_keys {
+        lines.push(Line::from(""));
+        push_section(&mut lines, "vim", VIM);
+    }
     lines.push(Line::from(""));
     push_section(&mut lines, heading, rows);
     lines

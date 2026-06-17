@@ -1,5 +1,5 @@
 use super::home::InputField;
-use super::{next_field, prev_field};
+use super::{first_field, last_field, next_field, prev_field};
 
 /// Which step of the login flow the tab is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +104,14 @@ impl LoginTab {
 
     pub fn prev_field(&mut self) {
         self.focus = prev_field(self.fields(), self.focus);
+    }
+
+    pub fn first_field(&mut self) {
+        self.focus = first_field(self.fields(), self.focus);
+    }
+
+    pub fn last_field(&mut self) {
+        self.focus = last_field(self.fields(), self.focus);
     }
 
     /// Reveal the verification step and focus the code field. Called when osu!
