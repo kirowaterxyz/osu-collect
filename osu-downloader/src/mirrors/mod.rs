@@ -21,6 +21,16 @@ use std::time::Duration;
 /// backoff takes over.
 pub(crate) const OSU_API_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Minimum spacing between consecutive requests to the **same** mirror slot,
+/// enforced per slot across all concurrent download workers.
+///
+/// A politeness limiter so a pool that keeps falling back to one mirror — or a
+/// burst of concurrent maps landing on the same slot — can't hammer it. Applies
+/// to every mirror except [`MirrorKind::OsuApi`], which uses the stricter
+/// [`OSU_API_MIN_REQUEST_INTERVAL`]. Independent of the *reactive* post-429
+/// [`MirrorKind::rate_limit_backoff`].
+pub(crate) const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Mirror type identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MirrorKind {
@@ -176,6 +186,17 @@ impl MirrorKind {
             MirrorKind::Hinamizawa => "mirror.hinamizawa.ai",
             MirrorKind::OsuApi => "osu.ppy.sh",
             MirrorKind::Custom => "custom",
+        }
+    }
+
+    /// Minimum spacing between consecutive requests to a single mirror of this
+    /// kind. [`MirrorKind::OsuApi`] uses [`OSU_API_MIN_REQUEST_INTERVAL`]; every
+    /// other kind uses [`MIN_REQUEST_INTERVAL`].
+    #[inline]
+    pub(crate) fn min_request_interval(&self) -> Duration {
+        match self {
+            MirrorKind::OsuApi => OSU_API_MIN_REQUEST_INTERVAL,
+            _ => MIN_REQUEST_INTERVAL,
         }
     }
 

@@ -1,5 +1,5 @@
 use super::MirrorPool;
-use crate::mirrors::OSU_API_MIN_REQUEST_INTERVAL;
+use crate::mirrors::{MIN_REQUEST_INTERVAL, OSU_API_MIN_REQUEST_INTERVAL};
 use crate::{Mirror, MirrorKind};
 use std::thread::sleep;
 use std::time::Duration;
@@ -73,16 +73,54 @@ fn osu_api_throttle_interval_is_one_second() {
 }
 
 #[tokio::test]
-async fn first_osu_api_throttle_does_not_block() {
+async fn first_throttle_does_not_block() {
     // With no prior request stamped, the gate must return immediately — only
     // the *second* call within the interval waits.
     let pool = MirrorPool::new(vec![Mirror::osu_api()]);
     let start = std::time::Instant::now();
-    pool.throttle_osu_api().await;
+    pool.throttle(0).await;
     assert!(
         start.elapsed() < OSU_API_MIN_REQUEST_INTERVAL,
-        "the first osu! API request must not be delayed"
+        "the first request to a mirror must not be delayed"
     );
+}
+
+#[tokio::test]
+async fn consecutive_requests_to_same_mirror_are_spaced() {
+    // The second request to one mirror within its interval must wait out the
+    // remaining gap (100 ms for a non-osu!-official mirror).
+    let pool = MirrorPool::new(vec![Mirror::nerinyan()]);
+    pool.throttle(0).await;
+    let start = std::time::Instant::now();
+    pool.throttle(0).await;
+    assert!(
+        start.elapsed() >= MIN_REQUEST_INTERVAL,
+        "consecutive requests to the same mirror must be spaced by at least the per-mirror interval"
+    );
+}
+
+#[tokio::test]
+async fn throttle_for_out_of_range_index_is_noop() {
+    // Must neither panic nor block for a slot that does not exist.
+    let pool = MirrorPool::new(vec![Mirror::nerinyan()]);
+    let start = std::time::Instant::now();
+    pool.throttle(5).await;
+    assert!(start.elapsed() < MIN_REQUEST_INTERVAL);
+}
+
+#[test]
+fn round_robin_start_advances_monotonically() {
+    let pool = MirrorPool::new(vec![
+        Mirror::nerinyan(),
+        Mirror::osu_direct(),
+        Mirror::sayobot(),
+    ]);
+    let starts: Vec<usize> = (0..6).map(|_| pool.next_round_robin_start()).collect();
+    assert_eq!(starts, vec![0, 1, 2, 3, 4, 5]);
+    // Modulo the mirror count, the first cycle covers every slot exactly once.
+    let len = pool.mirrors().len();
+    let cycle: Vec<usize> = starts[..len].iter().map(|&start| start % len).collect();
+    assert_eq!(cycle, vec![0, 1, 2]);
 }
 
 #[test]

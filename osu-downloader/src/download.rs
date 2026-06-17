@@ -269,7 +269,18 @@ pub(crate) async fn download_beatmapset(
     let mut last_transient_reason = String::new();
 
     let mirrors = params.mirror_pool.mirrors();
-    let mut pending: Vec<usize> = (0..mirrors.len()).collect();
+    let mirror_count = mirrors.len();
+    // Round-robin the initial mirror per map: each download starts at a rotating
+    // slot and wraps, so concurrent maps spread across mirrors instead of all
+    // hammering slot 0 first.
+    let start = if mirror_count == 0 {
+        0
+    } else {
+        params.mirror_pool.next_round_robin_start() % mirror_count
+    };
+    let mut pending: Vec<usize> = (0..mirror_count)
+        .map(|offset| (start + offset) % mirror_count)
+        .collect();
 
     while !pending.is_empty() {
         if *cancel_rx.borrow_and_update() {
@@ -283,7 +294,7 @@ pub(crate) async fn download_beatmapset(
                 return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
             }
 
-            match try_mirror_retry(mirror, &params, &mut total_attempts).await {
+            match try_mirror_retry(mirror, *idx, &params, &mut total_attempts).await {
                 MirrorAttempt::Done(outcome) => return (outcome, total_attempts),
                 MirrorAttempt::NotFound => {
                     all_transient = false;
@@ -335,7 +346,6 @@ pub(crate) async fn download_beatmapset(
         pending = deferred_rate_limited;
     }
 
-    let mirror_count = params.mirror_pool.mirrors().len();
     if not_found.len() == mirror_count && mirror_count > 0 {
         return (
             BeatmapsetDownloadOutcome::Skipped {
@@ -412,6 +422,7 @@ enum ExistingCheck {
 
 async fn try_mirror_retry(
     mirror: &Mirror,
+    idx: usize,
     params: &DownloadParams<'_>,
     total_attempts: &mut u32,
 ) -> MirrorAttempt {
@@ -423,7 +434,7 @@ async fn try_mirror_retry(
         }
 
         *total_attempts += 1;
-        let outcome = try_mirror_once(mirror, params).await;
+        let outcome = try_mirror_once(mirror, idx, params).await;
 
         match outcome {
             MirrorAttempt::Transient(reason) if retry + 1 < TRANSIENT_RETRY_ATTEMPTS => {
@@ -454,7 +465,11 @@ async fn try_mirror_retry(
     }
 }
 
-async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> MirrorAttempt {
+async fn try_mirror_once(
+    mirror: &Mirror,
+    idx: usize,
+    params: &DownloadParams<'_>,
+) -> MirrorAttempt {
     emit_status(
         &params.callbacks,
         Status::Contacting {
@@ -462,14 +477,13 @@ async fn try_mirror_once(mirror: &Mirror, params: &DownloadParams<'_>) -> Mirror
         },
     );
 
-    // Proactive client-side rate limit: only the osu! official API is throttled,
-    // spaced across all workers so concurrency can't burst past osu!'s request
-    // rate. Other mirrors are never gated. The sleep is cancelable so a pending
-    // throttle never blocks a cancel.
-    if mirror.kind() == MirrorKind::OsuApi
-        && run_cancelable(params.mirror_pool.throttle_osu_api(), &params.cancel_rx)
-            .await
-            .is_none()
+    // Proactive client-side spacing: gate every attempt to this mirror slot so
+    // concurrent workers (and retries) can't burst past its per-kind minimum
+    // interval — 100 ms for most mirrors, 1 s for the osu! official API. The
+    // sleep is cancelable so a pending throttle never blocks a cancel.
+    if run_cancelable(params.mirror_pool.throttle(idx), &params.cancel_rx)
+        .await
+        .is_none()
     {
         return MirrorAttempt::Done(BeatmapsetDownloadOutcome::Aborted);
     }
