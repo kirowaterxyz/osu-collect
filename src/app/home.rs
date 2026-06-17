@@ -250,6 +250,11 @@ pub struct HomeTab {
     /// Used by `App::request_download` to intersect with the persisted
     /// failed-maps file before dispatching the pipeline.
     pub resolved_collection: Option<(u32, Vec<u32>)>,
+    /// Per-collection subfolder (`Collection::folder_name`) the resolved
+    /// collection downloads into, e.g. `"my collection-1234"`. `None` until a
+    /// collection resolves. Display-only: powers the download-directory tooltip
+    /// so the user sees the exact folder that will be created.
+    pub resolved_folder_name: Option<String>,
     /// Latency probe results per built-in mirror. `None` = not yet probed,
     /// `Some(None)` = probe in flight (`…`), `Some(Some(_))` = result received.
     pub mirror_latency: HashMap<MirrorKind, Option<ProbeResult>>,
@@ -319,6 +324,7 @@ impl HomeTab {
             message: None,
             collection_resolve: None,
             resolved_collection: None,
+            resolved_folder_name: None,
             mirror_latency: HashMap::with_capacity(MirrorKind::BUILTINS.len()),
             quit_prompt: false,
             default_threads,
@@ -341,6 +347,7 @@ impl HomeTab {
     pub fn clear_collection_resolve(&mut self) {
         self.collection_resolve = None;
         self.resolved_collection = None;
+        self.resolved_folder_name = None;
     }
 
     pub fn set_collection_resolve(&mut self, state: ResolveState, text: impl Into<String>) {
@@ -363,6 +370,19 @@ impl HomeTab {
             self.default_directory.trim()
         } else {
             typed
+        }
+    }
+
+    /// The absolute download directory a download would use right now: the typed
+    /// value with a leading `~` expanded, or `default_directory` when the field
+    /// is blank. Mirrors the resolution in [`build_request`](Self::build_request)
+    /// so a directory-field tooltip can show exactly where maps will land.
+    pub fn resolved_directory(&self) -> String {
+        let typed = self.directory.value.trim();
+        if typed.is_empty() {
+            self.default_directory.clone()
+        } else {
+            expand_tilde(typed)
         }
     }
 
@@ -658,13 +678,9 @@ impl HomeTab {
             return Err("Collection ID or URL is required".to_string());
         }
 
-        let directory = if self.directory.value.trim().is_empty() {
-            self.default_directory.clone()
-        } else {
-            // Expand `~` at submit time so the filesystem layer receives an
-            // absolute path regardless of how the user typed the value.
-            expand_tilde(self.directory.value.trim())
-        };
+        // Expand `~` at submit time so the filesystem layer receives an absolute
+        // path regardless of how the user typed the value.
+        let directory = self.resolved_directory();
 
         let threads_value = if self.threads.value.trim().is_empty() {
             self.default_threads

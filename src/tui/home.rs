@@ -13,7 +13,9 @@ use super::{
     HELP_CUSTOM_MIRROR, HELP_OSU_OFFICIAL_LOCKED, danger, line, mirror_label, success, text_dim,
     text_faint,
 };
+use crate::utils::pretty_path;
 use osu_downloader::MirrorKind;
+use std::path::Path;
 
 const PANEL_TITLE: &str = " HOME ";
 
@@ -114,6 +116,26 @@ fn can_download(form: &HomeTab) -> bool {
     !form.collection.value.trim().is_empty() && form.mirror_count() > 0
 }
 
+/// Tooltip text for the focused download-directory field: the per-collection
+/// folder maps will be written to (`<base>/<collection folder>`), home collapsed
+/// to `~`. Until a collection resolves the folder name is unknown, so a
+/// `<collection>` placeholder stands in for it. A blank field resolves to the
+/// default directory.
+fn directory_hint(form: &HomeTab) -> String {
+    let base = form.resolved_directory();
+    // Unknown until the collection resolves; a placeholder stands in for the
+    // per-collection folder. Joining via `Path` keeps the separator
+    // platform-correct (`\` on Windows) rather than a hardcoded `/`.
+    let folder = form
+        .resolved_folder_name
+        .as_deref()
+        .unwrap_or("<collection>");
+    format!(
+        "downloads to {}",
+        pretty_path(Path::new(&base).join(folder))
+    )
+}
+
 fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool, editing: bool) {
     let focus = form.focus;
     let mut items = widgets::FormItems::new(focus);
@@ -153,6 +175,11 @@ fn render_content(frame: &mut Frame, area: Rect, form: &HomeTab, unlocked: bool,
         HomeField::Directory,
         widgets::input_item(&form.directory, focus == HomeField::Directory, editing, 0),
     );
+    // Tooltip: the resolved path maps will be downloaded to (default dir when the
+    // field is blank), so the user sees the target before starting.
+    if focus == HomeField::Directory {
+        items.push(widgets::help_item(directory_hint(form)));
+    }
     items.push_focusable(
         HomeField::Threads,
         widgets::stepper_item(

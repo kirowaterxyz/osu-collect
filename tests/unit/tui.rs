@@ -74,6 +74,41 @@ fn home_render_shows_sections_and_footer() {
 }
 
 #[test]
+fn home_directory_tooltip_shows_resolved_path_only_when_focused() {
+    use crate::app::HomeField;
+
+    let mut app = App::new(Config::default());
+    app.home.focus = HomeField::Directory;
+    app.home.directory.set_value("~/osu-collect-tooltip-test");
+
+    // Before a collection resolves, the tooltip shows the base dir plus a
+    // per-collection folder placeholder.
+    let output = render_app(&app, 80, 24);
+    assert!(
+        output.contains("downloads to")
+            && output.contains("osu-collect-tooltip-test")
+            && output.contains("<collection>"),
+        "unresolved tooltip must show the base path with a per-collection placeholder: {output}"
+    );
+
+    // Once resolved, the placeholder is replaced by the real per-collection folder.
+    app.home.resolved_folder_name = Some("MyCollection-123".to_string());
+    let output = render_app(&app, 80, 24);
+    assert!(
+        output.contains("MyCollection-123") && !output.contains("<collection>"),
+        "resolved tooltip must show the actual per-collection folder: {output}"
+    );
+
+    // The tooltip is focus-scoped: it disappears once another field has focus.
+    app.home.focus = HomeField::Threads;
+    let output = render_app(&app, 80, 24);
+    assert!(
+        !output.contains("downloads to"),
+        "directory tooltip must only render while the directory field is focused"
+    );
+}
+
+#[test]
 fn config_render_scrolls_to_focused_logging_field() {
     let mut app = App::new(Config::default());
     app.active_tab = CONFIG_TAB_INDEX;

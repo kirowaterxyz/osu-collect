@@ -15,6 +15,9 @@ pub enum HomeResolveEvent {
         map_count: usize,
         collection_id: u32,
         beatmapset_ids: Vec<u32>,
+        /// The per-collection subfolder this collection downloads into
+        /// (`Collection::folder_name`), shown in the directory tooltip.
+        folder_name: String,
     },
     /// Fetch failed; `reason` is a short user-facing message.
     Failed { reason: String },
@@ -80,11 +83,15 @@ async fn run_resolve(
                 Ok(collection) => {
                     let beatmapset_ids: Vec<u32> =
                         collection.beatmapsets.iter().map(|set| set.id).collect();
+                    // Built from the full collection here (the app side only keeps
+                    // name + id), so the lib stays the single source of folder naming.
+                    let folder_name = collection.folder_name();
                     HomeResolveEvent::Resolved {
                         name: collection.name,
                         map_count: collection.beatmapsets.len(),
                         collection_id,
                         beatmapset_ids,
+                        folder_name,
                     }
                 }
                 Err(err) => HomeResolveEvent::Failed {
@@ -120,6 +127,7 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
             map_count,
             collection_id,
             beatmapset_ids,
+            folder_name,
         } => {
             let maps_word = if map_count == 1 { "map" } else { "maps" };
             home.set_collection_resolve(
@@ -127,6 +135,7 @@ pub fn handle_home_resolve_event(event: HomeResolveEvent, home: &mut crate::app:
                 format!("\"{}\" · {} {}", name, map_count, maps_word),
             );
             home.set_resolved_collection(collection_id, beatmapset_ids);
+            home.resolved_folder_name = Some(folder_name);
         }
         HomeResolveEvent::Failed { reason } => {
             home.set_collection_resolve(ResolveState::Error, reason);
