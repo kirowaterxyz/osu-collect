@@ -270,7 +270,12 @@ fn parse_host(template: &str) -> Box<str> {
         .next()
         .unwrap_or(after_scheme);
     let host = authority.rsplit('@').next().unwrap_or(authority);
-    let host = host.split(':').next().unwrap_or(host);
+    // IPv6 literals are bracketed (`[2001:db8::1]:8080`); keep the bracketed
+    // host and drop the port. Other hosts split on the first `:` (port sep).
+    let host = match host.strip_prefix('[').and_then(|rest| rest.find(']')) {
+        Some(close) => &host[..close + 2],
+        None => host.split(':').next().unwrap_or(host),
+    };
     let host = if host.is_empty() { template } else { host };
     host.into()
 }

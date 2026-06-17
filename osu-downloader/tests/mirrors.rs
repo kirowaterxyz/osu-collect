@@ -155,6 +155,12 @@ fn custom_mirror_host_is_parsed_for_display() {
 }
 
 #[test]
+fn custom_mirror_host_handles_ipv6_literal() {
+    let mirror = Mirror::custom("https://[2001:db8::1]:8080/d/{id}").unwrap();
+    assert_eq!(mirror.host(), "[2001:db8::1]");
+}
+
+#[test]
 fn builtin_mirror_ref_uses_kind_label() {
     let mref = Mirror::osu_direct().mirror_ref();
     assert_eq!(mref.kind, MirrorKind::OsuDirect);
