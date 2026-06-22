@@ -31,6 +31,7 @@ pub(crate) struct BatchConfig {
     pub(crate) on_exists: OnExists,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn download_batch(
     ids: Vec<u32>,
     output_dir: &Path,
