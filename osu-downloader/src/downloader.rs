@@ -13,7 +13,7 @@ use crate::{
 };
 use futures_util::Stream;
 use std::{path::Path, sync::Arc, time::Duration};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// How to handle a beatmapset whose target archive already exists on disk.
@@ -228,10 +228,12 @@ impl Downloader {
         let output_dir = output_dir.as_ref().to_path_buf();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (cancel_tx, cancel_rx) = watch::channel(false);
+        let skip = Arc::new(Notify::new());
 
         let client = self.http_client.clone();
         let mirror_pool = self.mirror_pool.clone();
         let config = self.config.clone();
+        let batch_skip = skip.clone();
 
         let task = tokio::spawn(async move {
             let batch_config = BatchConfig {
@@ -250,6 +252,7 @@ impl Downloader {
                 batch_config,
                 event_tx,
                 cancel_rx,
+                batch_skip,
             )
             .await
         });
@@ -257,6 +260,7 @@ impl Downloader {
         Session {
             events: Some(event_rx),
             cancel: cancel_tx,
+            skip,
             task,
         }
     }
@@ -266,6 +270,7 @@ impl Downloader {
 pub struct Session {
     events: Option<mpsc::UnboundedReceiver<Event>>,
     cancel: watch::Sender<bool>,
+    skip: Arc<Notify>,
     task: tokio::task::JoinHandle<Summary>,
 }
 
@@ -278,6 +283,14 @@ impl Session {
     /// Signal cancellation. Running downloads abort at the next checkpoint.
     pub fn cancel(&self) {
         let _ = self.cancel.send(true);
+    }
+
+    /// Skip every map that is *currently* waiting on a mirror rate-limit
+    /// cooldown. Each such map ends as
+    /// [`Skip::RateLimitSkipped`](crate::Skip::RateLimitSkipped); maps that hit
+    /// a rate-limit later are unaffected. A no-op when nothing is cooling down.
+    pub fn skip_rate_limited(&self) {
+        self.skip.notify_waiters();
     }
 
     /// Wait for the task to finish and return the [`Summary`]. Drops any remaining events.

@@ -121,6 +121,9 @@ pub enum Skip {
     AlreadyExists,
     /// Not available on any configured mirror.
     UnavailableOnMirrors,
+    /// The caller asked to skip this map while it was waiting on a mirror
+    /// rate-limit cooldown (see [`Session::skip_rate_limited`](crate::Session::skip_rate_limited)).
+    RateLimitSkipped,
 }
 
 /// Summary of a completed download session.

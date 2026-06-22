@@ -1,7 +1,8 @@
 use super::{
     BeatmapsetDownloadCallbacks, BeatmapsetDownloadOutcome, DownloadParams, FinalizeResult,
-    download_beatmapset, finalize_download, is_archive_content_type, probe_download_size,
-    sanitize_filename, size_from_content_range, sleep_cancelable,
+    RateLimitWait, download_beatmapset, finalize_download, is_archive_content_type,
+    probe_download_size, sanitize_filename, size_from_content_range, sleep_cancelable,
+    wait_rate_limit,
 };
 use crate::mirrors::pool::MirrorPool;
 use crate::validation::minimal_zip_bytes_for_test;
@@ -28,6 +29,7 @@ fn default_params<'a>(
         on_exists: OnExists::Skip,
         callbacks: BeatmapsetDownloadCallbacks::default(),
         cancel_rx,
+        skip: Arc::new(tokio::sync::Notify::new()),
     }
 }
 
@@ -660,4 +662,38 @@ async fn backoff_cancelled_before_expiry() {
         start.elapsed() < Duration::from_millis(200),
         "backoff should have been cut short by cancel signal"
     );
+}
+
+#[tokio::test]
+async fn wait_rate_limit_skip_wakes_a_cooling_map() {
+    let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let skip = Arc::new(tokio::sync::Notify::new());
+    let firer = skip.clone();
+    tokio::spawn(async move {
+        // Fires after wait_rate_limit has parked and registered as a waiter.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        firer.notify_waiters();
+    });
+
+    let start = Instant::now();
+    let outcome = wait_rate_limit(Duration::from_secs(60), &cancel_rx, &skip).await;
+
+    assert!(matches!(outcome, RateLimitWait::Skipped));
+    assert!(
+        start.elapsed() < Duration::from_millis(500),
+        "skip should cut the cooldown short, not wait out 60s"
+    );
+}
+
+#[tokio::test]
+async fn wait_rate_limit_cancel_aborts_a_cooling_map() {
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    let skip = Arc::new(tokio::sync::Notify::new());
+    let _ = cancel_tx.send(true);
+
+    // Cancel set before the wait: the biased select must abort, never wait out
+    // the 60s cooldown.
+    let outcome = wait_rate_limit(Duration::from_secs(60), &cancel_rx, &skip).await;
+
+    assert!(matches!(outcome, RateLimitWait::Cancelled));
 }

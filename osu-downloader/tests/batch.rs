@@ -35,6 +35,7 @@ async fn cancel_mid_batch_does_not_panic() {
         config,
         event_tx,
         cancel_rx,
+        std::sync::Arc::new(tokio::sync::Notify::new()),
     )
     .await;
 

@@ -69,6 +69,10 @@ pub(crate) struct DownloadParams<'a> {
     pub(crate) on_exists: OnExists,
     pub(crate) callbacks: BeatmapsetDownloadCallbacks,
     pub(crate) cancel_rx: tokio::sync::watch::Receiver<bool>,
+    /// Edge signal to abandon a map currently parked on a rate-limit cooldown.
+    /// Shared across the whole session; `notify_waiters` wakes only the maps
+    /// waiting at that instant (see [`download_beatmapset`]'s cooldown race).
+    pub(crate) skip: Arc<tokio::sync::Notify>,
 }
 
 /// Sanitize a raw filename to be safe for use as an `.osz` archive name.
@@ -339,8 +343,21 @@ pub(crate) async fn download_beatmapset(
             },
         );
 
-        if !wait_duration.is_zero() && sleep_cancelable(wait_duration, &cancel_rx).await {
-            return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
+        if !wait_duration.is_zero() {
+            match wait_rate_limit(wait_duration, &cancel_rx, &params.skip).await {
+                RateLimitWait::Cancelled => {
+                    return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
+                }
+                RateLimitWait::Skipped => {
+                    return (
+                        BeatmapsetDownloadOutcome::Skipped {
+                            reason: Skip::RateLimitSkipped,
+                        },
+                        total_attempts,
+                    );
+                }
+                RateLimitWait::Elapsed => {}
+            }
         }
 
         pending = deferred_rate_limited;
@@ -923,6 +940,30 @@ async fn sleep_cancelable(
     cancel_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> bool {
     run_cancelable(sleep(duration), cancel_rx).await.is_none()
+}
+
+enum RateLimitWait {
+    Elapsed,
+    Cancelled,
+    Skipped,
+}
+
+/// Wait out a rate-limit cooldown, racing it against session cancellation and a
+/// caller skip request. `notify_waiters` wakes only the maps parked here at the
+/// instant of the press, so one skip drops exactly the currently-cooling maps
+/// and leaves later rate-limits untouched. Cancel wins over skip (biased).
+async fn wait_rate_limit(
+    duration: Duration,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+    skip: &tokio::sync::Notify,
+) -> RateLimitWait {
+    let mut cancel_rx = cancel_rx.clone();
+    tokio::select! {
+        biased;
+        _ = wait_until_cancelled(&mut cancel_rx) => RateLimitWait::Cancelled,
+        _ = skip.notified() => RateLimitWait::Skipped,
+        _ = sleep(duration) => RateLimitWait::Elapsed,
+    }
 }
 
 async fn run_cancelable<T>(

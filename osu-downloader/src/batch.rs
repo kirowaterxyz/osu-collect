@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,7 @@ pub(crate) async fn download_batch(
     config: BatchConfig,
     event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
+    skip: Arc<Notify>,
 ) -> Summary {
     let start_time = Instant::now();
     let total = ids.len();
@@ -75,6 +76,7 @@ pub(crate) async fn download_batch(
         let config = config.clone();
         let event_tx = event_tx.clone();
         let cancel_rx = cancel_rx.clone();
+        let skip = skip.clone();
         let output_dir = output_dir.to_path_buf();
         worker_handles.push(tokio::spawn(async move {
             worker_loop(
@@ -85,6 +87,7 @@ pub(crate) async fn download_batch(
                 config,
                 event_tx,
                 cancel_rx,
+                skip,
                 output_dir,
             )
             .await;
@@ -152,6 +155,7 @@ async fn worker_loop(
     config: BatchConfig,
     event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
+    skip: Arc<Notify>,
     output_dir: std::path::PathBuf,
 ) {
     loop {
@@ -169,6 +173,7 @@ async fn worker_loop(
             &config,
             event_tx.clone(),
             cancel_rx.clone(),
+            skip.clone(),
         )
         .await;
         if result_tx.send(outcome).is_err() {
@@ -186,6 +191,7 @@ async fn process_one(
     config: &BatchConfig,
     event_tx: mpsc::UnboundedSender<Event>,
     cancel_rx: watch::Receiver<bool>,
+    skip: Arc<Notify>,
 ) -> DownloadOutcome {
     debug!(beatmapset_id, "starting download");
 
@@ -238,6 +244,7 @@ async fn process_one(
                 status: Some(status_callback.clone()),
             },
             cancel_rx: cancel_rx.clone(),
+            skip: skip.clone(),
         })
         .await
         .0;
