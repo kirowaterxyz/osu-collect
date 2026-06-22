@@ -8,6 +8,7 @@ use super::{
 
 /// Cursor step for a list page-scroll (`Ctrl+d` / `Ctrl+u`).
 pub(crate) const LIST_PAGE: i64 = 10;
+use crate::config::Config;
 use crate::osu_db::{LocalBeatmapset, LocalCollection, Md5, OsuClient};
 use crate::utils::expand_tilde;
 use std::collections::HashSet;
@@ -164,9 +165,21 @@ pub struct PathState {
 impl PathState {
     fn new(client_type: OsuClient) -> Self {
         let default_path = Self::detect_default_path(client_type);
+        Self::build(client_type, default_path.clone(), default_path)
+    }
+
+    /// Seed from a persisted path, keeping the saved value verbatim (even if it
+    /// no longer exists on disk) while still using the auto-detected default as
+    /// the placeholder hint.
+    fn from_saved(client_type: OsuClient, saved: &str) -> Self {
+        let placeholder = Self::detect_default_path(client_type);
+        Self::build(client_type, saved.to_string(), placeholder)
+    }
+
+    fn build(client_type: OsuClient, value: String, placeholder: String) -> Self {
         Self {
             client_type,
-            osu_path: InputField::new("osu! path", default_path.clone(), default_path),
+            osu_path: InputField::new("osu! path", value, placeholder),
         }
     }
 
@@ -253,9 +266,25 @@ pub struct UpdatesTab {
 
 impl UpdatesTab {
     pub fn new() -> Self {
-        let client_type = OsuClient::default();
+        Self::with_path(PathState::new(OsuClient::default()))
+    }
+
+    /// Build the tab seeding the osu! client kind + path from the persisted
+    /// `[recent]` config, falling back to auto-detection when either value is
+    /// absent or blank. A saved-but-missing path is kept as-is so the scan
+    /// reports "no db" instead of silently reverting to the default location.
+    pub fn from_config(config: &Config) -> Self {
+        let client_type = config.recent.osu_client.unwrap_or_default();
+        let path = match config.recent.osu_path.as_deref() {
+            Some(saved) if !saved.trim().is_empty() => PathState::from_saved(client_type, saved),
+            _ => PathState::new(client_type),
+        };
+        Self::with_path(path)
+    }
+
+    fn with_path(path: PathState) -> Self {
         Self {
-            path: PathState::new(client_type),
+            path,
             scan: ScanState::new(),
             selection: SelectionState::new(),
             message: None,

@@ -6,9 +6,11 @@ pub use checksum::Md5;
 pub use lazer::LazerReader;
 pub use stable::StableReader;
 
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OsuClient {
     Stable,
     #[default]

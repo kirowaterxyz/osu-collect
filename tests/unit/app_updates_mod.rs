@@ -27,6 +27,38 @@ fn needs_initial_scan_reflects_cache_state() {
 }
 
 #[test]
+fn from_config_seeds_saved_path_and_client_verbatim() {
+    use crate::config::Config;
+    use crate::osu_db::OsuClient;
+
+    let mut config = Config::default();
+    config.recent.osu_client = Some(OsuClient::Stable);
+    config.recent.osu_path = Some("/custom/osu".to_string());
+
+    let tab = UpdatesTab::from_config(&config);
+
+    assert_eq!(tab.path.client_type, OsuClient::Stable);
+    assert_eq!(
+        tab.path.osu_path.value, "/custom/osu",
+        "a saved path is kept verbatim, even if it no longer exists"
+    );
+}
+
+#[test]
+fn from_config_falls_back_to_detection_when_blank() {
+    use crate::config::Config;
+
+    // A blank saved path is ignored: the value falls back to the detected
+    // default (its own placeholder), never an empty hand-typed value.
+    let mut config = Config::default();
+    config.recent.osu_path = Some("   ".to_string());
+
+    let tab = UpdatesTab::from_config(&config);
+
+    assert_eq!(tab.path.osu_path.value, tab.path.osu_path.placeholder);
+}
+
+#[test]
 fn scroll_list_wraps_at_both_ends() {
     // Up past the first item wraps to the last.
     let mut state = Some(0);

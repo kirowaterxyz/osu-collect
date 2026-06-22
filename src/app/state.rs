@@ -183,7 +183,7 @@ impl App {
             .unwrap_or_default();
         Self {
             home: HomeTab::new(&config),
-            updates: UpdatesTab::new(),
+            updates: UpdatesTab::from_config(&config),
             config: ConfigTab::new(&config),
             login: None,
             downloads: Vec::new(),
@@ -306,7 +306,7 @@ impl App {
 
     pub fn next_tab(&mut self) -> Option<AppCommand> {
         // Commit a mid-edit config field before the tab (and its focus) changes.
-        self.commit_config_edit();
+        self.commit_field_edit();
         let total = self.total_tabs();
         self.active_tab = (self.active_tab + 1) % total;
         self.editing = false;
@@ -314,7 +314,7 @@ impl App {
     }
 
     pub fn prev_tab(&mut self) -> Option<AppCommand> {
-        self.commit_config_edit();
+        self.commit_field_edit();
         let total = self.total_tabs();
         if self.active_tab == 0 {
             self.active_tab = total - 1;
@@ -402,20 +402,25 @@ impl App {
     }
 
     /// If a config text field was mid-edit, persist it before edit mode drops.
-    /// Config edits apply immediately, so every path that leaves edit mode must
-    /// commit first — enter/esc do this inline; field-nav and tab-switch route
-    /// through here.
-    fn commit_config_edit(&mut self) {
-        if self.editing
-            && self.active_tab() == CONFIG_TAB_INDEX
-            && self.config.focus.is_text_input()
-        {
+    /// Text-field edits apply immediately, so every path that leaves edit mode
+    /// must commit first — enter/esc do this inline; field-nav and tab-switch
+    /// route through here. Config rows flush to disk; the updates osu! path
+    /// persists to `[recent]`.
+    fn commit_field_edit(&mut self) {
+        if !self.editing {
+            return;
+        }
+        if self.active_tab() == CONFIG_TAB_INDEX && self.config.focus.is_text_input() {
             self.apply_config_change();
+        } else if self.active_tab() == UPDATES_TAB_INDEX
+            && self.updates.selection.focus == UpdatesField::OsuPath
+        {
+            self.persist_osu_path_inputs();
         }
     }
 
     fn focus_next_field(&mut self) {
-        self.commit_config_edit();
+        self.commit_field_edit();
         self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.next_field(),
@@ -431,7 +436,7 @@ impl App {
     }
 
     fn focus_prev_field(&mut self) {
-        self.commit_config_edit();
+        self.commit_field_edit();
         self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.prev_field(),
@@ -447,7 +452,7 @@ impl App {
     }
 
     fn focus_first_field(&mut self) {
-        self.commit_config_edit();
+        self.commit_field_edit();
         self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.first_field(),
@@ -463,7 +468,7 @@ impl App {
     }
 
     fn focus_last_field(&mut self) {
-        self.commit_config_edit();
+        self.commit_field_edit();
         self.editing = false;
         match self.active_tab() {
             HOME_TAB_INDEX => self.home.last_field(),
@@ -699,6 +704,17 @@ impl App {
         config.recent.collection = (!collection.is_empty()).then(|| collection.to_string());
         let directory = self.home.persisted_directory();
         config.recent.directory = (!directory.is_empty()).then(|| directory.to_string());
+        let _ = save_config(&config);
+    }
+
+    /// Persist the updates-tab osu! client kind and path so the next launch
+    /// restores them instead of re-detecting. Reads the on-disk config first so
+    /// unsaved config-tab edits are never clobbered; failures are silent.
+    fn persist_osu_path_inputs(&self) {
+        let mut config = crate::config::load_config_or_default();
+        config.recent.osu_client = Some(self.updates.path.client_type);
+        let path = self.updates.path.osu_path.value.trim();
+        config.recent.osu_path = (!path.is_empty()).then(|| path.to_string());
         let _ = save_config(&config);
     }
 
@@ -1376,9 +1392,12 @@ impl App {
                 if self.focused_text_input() {
                     let was_editing = self.editing;
                     self.editing = !self.editing;
-                    // Leaving edit mode on a config text field commits it to disk.
+                    // Leaving edit mode commits: config rows flush to disk, the
+                    // updates osu! path persists to `[recent]`.
                     if was_editing && self.active_tab() == CONFIG_TAB_INDEX {
                         self.apply_config_change();
+                    } else if was_editing && self.active_tab() == UPDATES_TAB_INDEX {
+                        self.persist_osu_path_inputs();
                     }
                     return None;
                 }
@@ -1405,7 +1424,9 @@ impl App {
                         }
                         match self.updates.selection.focus {
                             UpdatesField::ClientType => {
-                                if self.updates.toggle_current() == UpdatesAction::RefreshAll {
+                                let action = self.updates.toggle_current();
+                                self.persist_osu_path_inputs();
+                                if action == UpdatesAction::RefreshAll {
                                     return Some(AppCommand::ScanLocalDatabase);
                                 }
                             }
@@ -1484,10 +1505,12 @@ impl App {
                         self.updates.handle_char(' ');
                     } else if in_list {
                         self.updates.toggle_list_item();
-                    } else if self.updates.selection.focus == UpdatesField::ClientType
-                        && self.updates.toggle_current() == UpdatesAction::RefreshAll
-                    {
-                        return Some(AppCommand::ScanLocalDatabase);
+                    } else if self.updates.selection.focus == UpdatesField::ClientType {
+                        let action = self.updates.toggle_current();
+                        self.persist_osu_path_inputs();
+                        if action == UpdatesAction::RefreshAll {
+                            return Some(AppCommand::ScanLocalDatabase);
+                        }
                     }
                 }
                 CONFIG_TAB_INDEX => match self.config.focus {

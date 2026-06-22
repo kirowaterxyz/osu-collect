@@ -1,6 +1,7 @@
 use crate::{
     download::ArchiveValidation,
     mirrors,
+    osu_db::OsuClient,
     utils::{AppError, Result},
 };
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,14 @@ pub struct RecentConfig {
     pub collection: Option<String>,
     /// Last download directory typed into the home form.
     pub directory: Option<String>,
+    /// Last osu! client kind selected on the updates tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub osu_client: Option<OsuClient>,
+    /// Last osu! installation path typed on the updates tab. Persisted verbatim
+    /// even when it no longer exists on disk — a stale path surfaces a "no db"
+    /// scan rather than silently reverting to auto-detection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub osu_path: Option<String>,
 }
 
 /// Theme selection for the TUI.
