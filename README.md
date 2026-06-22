@@ -101,7 +101,7 @@ Paste a collection link, pick a directory, press <kbd>↵</kbd>.
 | <kbd>←</kbd> <kbd>→</kbd> <kbd>tab</kbd> <kbd>shift</kbd>+<kbd>tab</kbd> | Switch tabs (<kbd>tab</kbd> path-completes the directory while editing it) |
 | <kbd>↵</kbd> | Activate, toggle, start a download, or edit a field |
 | <kbd>space</kbd> | Toggle the focused checkbox or switch |
-| <kbd>s</kbd> | Jump to the download button |
+| <kbd>s</kbd> | Jump to the download button; on a download tab, skip maps stuck on a rate-limit cooldown |
 | <kbd>+</kbd> <kbd>-</kbd> | Adjust thread count |
 | <kbd>r</kbd> | Retry all failed maps on a download tab |
 | <kbd>x</kbd> | Dismiss an error message |
@@ -196,7 +196,7 @@ No. Logging in is optional and only adds the official osu! servers as an extra s
 Yes. The updates tab diffs your downloaded collections against osu!collector and fetches only what's missing.
 
 **A download failed or got rate limited. What now?**
-Failures save per collection. Press <kbd>r</kbd> on the download tab to retry them all, or accept the retry prompt next time you download that collection. Rate-limited mirrors cool down on their own while the others keep going.
+Failures save per collection. Press <kbd>r</kbd> on the download tab to retry them all, or accept the retry prompt next time you download that collection. Rate-limited mirrors cool down on their own while the others keep going. If a map is unavailable everywhere so every mirror is only cooling down, press <kbd>s</kbd> to skip the stuck maps and let the rest finish.
 
 ## Building from source
 
