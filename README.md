@@ -121,7 +121,7 @@ Each queued collection gets its own tab with live per-map progress, speed and ET
 
 ### Updates tab
 
-Tracks every collection you've downloaded, re-checks them against osu!collector, and shows what's missing or was removed. Pick exactly which maps to fetch, so keeping a collection current never means redownloading it.
+Tracks every collection you've downloaded, re-checks them against osu!collector, and shows what's missing or was removed. Pick exactly which maps to fetch, so keeping a collection current never means redownloading it. If a map you already own keeps showing as missing, mark it installed with <kbd>i</kbd> (or <kbd>I</kbd> for every shown map) to hide it; a later scan that actually finds it on disk un-hides it automatically. Your osu! install path and client choice now persist across restarts.
 
 ### Logging in with your osu! account (optional)
 
