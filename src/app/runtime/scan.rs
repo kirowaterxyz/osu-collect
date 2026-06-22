@@ -88,7 +88,9 @@ pub(super) fn handle_updates_event(
             app.updates.scan.scan_status = ScanStatus::FetchingCollection;
             set_loading_message(
                 &mut app.updates.message,
-                format!("read {local_set_count} local sets from {scan_path} · fetching collections..."),
+                format!(
+                    "read {local_set_count} local sets from {scan_path} · fetching collections..."
+                ),
             );
 
             let selected_ids = app.updates.selected_collection_ids();
