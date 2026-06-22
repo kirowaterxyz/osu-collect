@@ -32,6 +32,7 @@ const DOWNLOAD_TAB_HINT_RUNNING: &str = "↑↓ scroll  ·  q abort  ·  ? help"
 // not a download-page action) so it isn't advertised here.
 const DOWNLOAD_TAB_HINT_SETTLED: &str = "↑↓ scroll  ·  esc/q close  ·  ? help";
 const HINT_RETRY: &str = "r retry failed";
+const HINT_SKIP_RATE_LIMITED: &str = "s skip rate-limited";
 
 const HINT_MOVE: &str = "↑↓ move";
 const HINT_SCROLL: &str = "↑↓ scroll";
@@ -183,15 +184,23 @@ fn download_tab_hint(app: &App) -> String {
     } else {
         DOWNLOAD_TAB_HINT_RUNNING
     };
+    let mut segments = vec![base];
+    // `s skip rate-limited` only while every active map is stuck on a cooldown —
+    // matches the key gate in `handle_download_tab_key` so the hint never lies.
+    let all_rate_limited = page.is_some_and(|page| {
+        matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited()
+    });
+    if all_rate_limited {
+        segments.push(HINT_SKIP_RATE_LIMITED);
+    }
     // Advertise `r retry failed` only when something is actually retryable —
     // 404 (NotFound) failures are never retryable, so a page of pure 404s must
     // not show a hint whose key does nothing.
     let has_retryable = page.is_some_and(|page| !page.retryable_ids(None).is_empty());
     if has_retryable {
-        join(&[base, HINT_RETRY])
-    } else {
-        base.to_string()
+        segments.push(HINT_RETRY);
     }
+    join(&segments)
 }
 
 fn join(segments: &[&str]) -> String {

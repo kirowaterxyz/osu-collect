@@ -285,6 +285,12 @@ fn dispatch_command(
             };
             app.handle_cancel_result(id, was_running);
         }
+        Some(AppCommand::SkipRateLimited { id }) => {
+            if let Some(handle) = downloads.get(&id) {
+                handle.skip_rate_limited();
+                info!(download_id = id, "Skipping rate-limited maps");
+            }
+        }
         Some(AppCommand::LazerLogin { username, password }) => {
             if let Some(prev) = tasks.login.take() {
                 prev.abort();

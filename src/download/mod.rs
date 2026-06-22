@@ -34,16 +34,30 @@ pub type Emit<'a> = &'a (dyn Fn(DownloadEvent) + Send + Sync);
 /// Handle to a running download task.
 pub struct DownloadHandle {
     cancel: watch::Sender<bool>,
+    /// Generation counter: each bump asks the running session to skip whatever
+    /// maps are sitting on a rate-limit cooldown right now. A counter (not a
+    /// bool) so repeated presses each register as a distinct `changed()`.
+    skip: watch::Sender<u64>,
     join: JoinHandle<()>,
 }
 
 impl DownloadHandle {
-    pub(crate) fn new(cancel: watch::Sender<bool>, join: JoinHandle<()>) -> Self {
-        Self { cancel, join }
+    pub(crate) fn new(
+        cancel: watch::Sender<bool>,
+        skip: watch::Sender<u64>,
+        join: JoinHandle<()>,
+    ) -> Self {
+        Self { cancel, skip, join }
     }
 
     pub fn request_shutdown(&self) {
         let _ = self.cancel.send(true);
+    }
+
+    /// Ask the running session to skip every map currently waiting on a mirror
+    /// rate-limit cooldown. No-op if the task has already finished.
+    pub fn skip_rate_limited(&self) {
+        self.skip.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     pub async fn wait(self) {

@@ -105,6 +105,11 @@ pub enum AppCommand {
     CancelDownload {
         id: DownloadId,
     },
+    /// Skip every map of this download currently waiting on a rate-limit
+    /// cooldown (offered only while all active maps are rate-limited).
+    SkipRateLimited {
+        id: DownloadId,
+    },
     /// Start an osu!lazer password (ROPC) login with the entered credentials.
     LazerLogin {
         username: String,
@@ -2034,6 +2039,18 @@ impl App {
                     None
                 } else {
                     Some(AppCommand::RetryAllFailed { download_id })
+                }
+            }
+            // `s`/`S` skip every map currently stuck on a rate-limit cooldown.
+            // Gated on all-active-rate-limited so the key matches the hint that
+            // is shown only in that state; otherwise it's inert.
+            's' | 'S' => {
+                let page = self.active_download_page_mut()?;
+                if page.all_active_rate_limited() {
+                    let id = page.id;
+                    Some(AppCommand::SkipRateLimited { id })
+                } else {
+                    None
                 }
             }
             // `x` is reserved for toast dismissal (handled globally in

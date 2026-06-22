@@ -119,6 +119,19 @@ pub fn translate_event(id: DownloadId, event: LibEvent, tally: &mut Tally, emit:
                     emit,
                 );
             }
+            // User skipped this map while it sat on a rate-limit cooldown.
+            // Counted as skipped (not failed) and the active slot is freed.
+            Skip::RateLimitSkipped => {
+                tally.record_skipped();
+                emit_terminal_status(
+                    id,
+                    beatmapset_id,
+                    BeatmapStage::Skipped,
+                    "skipped: rate limited".to_string(),
+                    emit,
+                );
+                emit_overall_progress(id, tally, emit);
+            }
         },
         LibEvent::BeatmapsetFailed {
             beatmapset_id,
