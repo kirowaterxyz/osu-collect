@@ -1,5 +1,8 @@
 use crate::{
-    app::{collection_state, failed_maps, runtime, snapshots, updates::extract_collection_id},
+    app::{
+        collection_state, failed_maps, ignored_maps, runtime, snapshots,
+        updates::extract_collection_id,
+    },
     osu_db::{BeatmapReader, LazerReader, LocalBeatmapset, Md5, OsuClient, StableReader},
 };
 use std::{
@@ -182,6 +185,9 @@ pub async fn run_update_collections(
         .map(|failed_maps| failed_maps.ids())
         .unwrap_or_default();
     let hidden_failed_count = failed_beatmapset_ids.len();
+    let ignored_beatmapset_ids = ignored_maps::ignored_maps_path()
+        .map(|path| ignored_maps::reconcile_installed(&path, &local_set_ids))
+        .unwrap_or_default();
 
     info!("fetching collections from API");
     let t_fetch = Instant::now();
@@ -195,6 +201,7 @@ pub async fn run_update_collections(
         snapshot_diffs,
         runtime::FetchCompareSettings {
             hidden_failed_beatmapset_ids: failed_beatmapset_ids,
+            ignored_beatmapset_ids,
         },
     )
     .await?;

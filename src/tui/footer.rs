@@ -46,6 +46,7 @@ const HINT_EDIT_DONE: &str = "esc done";
 const HINT_PLUS_MINUS: &str = "+/- adjust";
 const HINT_ALL_NONE: &str = "a all / d none";
 const HINT_RECHECK: &str = "r recheck";
+const HINT_MARK_INSTALLED: &str = "i installed / I all";
 const HINT_QUIT: &str = "q quit";
 const HINT_HELP: &str = "? help";
 /// Close hint for the dynamic, closeable login tab.
@@ -224,6 +225,9 @@ fn updates_hint(form: &UpdatesTab, editing: bool) -> String {
     let in_list = form.selection.in_collection_list || form.selection.in_beatmap_list;
     if in_list {
         let mut segments = vec![HINT_SCROLL, HINT_ENTER_TOGGLE, HINT_ALL_NONE];
+        if form.selection.in_beatmap_list {
+            segments.push(HINT_MARK_INSTALLED);
+        }
         if can_recheck {
             segments.push(HINT_RECHECK);
         }

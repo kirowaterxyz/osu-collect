@@ -190,10 +190,22 @@ fn missing_beatmap_selection_preserved_across_refresh() {
 fn fetch_compare_settings_identifies_hidden_failed_ids() {
     let settings = FetchCompareSettings {
         hidden_failed_beatmapset_ids: HashSet::from([1234]),
+        ..Default::default()
     };
 
     assert!(should_hide_failed_beatmapset(&settings, 1234));
     assert!(!should_hide_failed_beatmapset(&settings, 5678));
+}
+
+#[test]
+fn fetch_compare_settings_hides_manually_ignored_ids() {
+    let settings = FetchCompareSettings {
+        ignored_beatmapset_ids: HashSet::from([42]),
+        ..Default::default()
+    };
+
+    assert!(should_hide_failed_beatmapset(&settings, 42));
+    assert!(!should_hide_failed_beatmapset(&settings, 99));
 }
 
 #[test]

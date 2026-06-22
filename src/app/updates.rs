@@ -937,6 +937,50 @@ impl UpdatesTab {
             })
             .collect()
     }
+
+    /// Beatmapset ids of every currently-visible missing row.
+    pub fn all_visible_missing_ids(&self) -> Vec<u32> {
+        self.selection
+            .visible_missing
+            .iter()
+            .filter_map(|&idx| self.selection.cached_missing_sets.get(idx).map(|b| b.id))
+            .collect()
+    }
+
+    /// Beatmapset ids targeted by an action on the focused beatmap-list row: the
+    /// single set under a beatmap row, or every visible set in the collection
+    /// under a header row. Empty when the list has no focused row.
+    pub fn focused_missing_ids(&self) -> Vec<u32> {
+        let Some(idx) = self.selection.beatmaps_state else {
+            return Vec::new();
+        };
+        match self.selection.display_items.get(idx) {
+            Some(BeatmapDisplayItem::Beatmap { cache_index }) => self
+                .selection
+                .cached_missing_sets
+                .get(*cache_index)
+                .map(|b| vec![b.id])
+                .unwrap_or_default(),
+            Some(BeatmapDisplayItem::CollectionHeader { collection_id }) => self
+                .selection
+                .visible_missing
+                .iter()
+                .filter_map(|&i| self.selection.cached_missing_sets.get(i))
+                .filter(|b| b.collection_id == *collection_id)
+                .map(|b| b.id)
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Drop the given set ids from the cached missing list and re-derive the
+    /// visible rows so they disappear immediately (the "mark installed" action).
+    pub fn hide_missing(&mut self, ids: &HashSet<u32>) {
+        self.selection
+            .cached_missing_sets
+            .retain(|beatmap| !ids.contains(&beatmap.id));
+        self.filter_cached();
+    }
 }
 
 /// Moves the list cursor by `delta`, wrapping at both ends: stepping down past

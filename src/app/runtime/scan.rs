@@ -1,5 +1,5 @@
 use super::super::{
-    App, collection_state, failed_maps,
+    App, collection_state, failed_maps, ignored_maps,
     messages::{clear_app_message, set_loading_message},
     snapshots,
     updates::{MissingBeatmapset, MissingStatus, ScanStatus, extract_collection_id},
@@ -81,8 +81,15 @@ pub(super) fn handle_updates_event(
             app.updates.set_collections(collections);
             app.updates.set_local_beatmapsets(beatmapsets);
             app.updates.set_all_checksums(all_checksums);
+            // Surface what was actually read so a misconfigured path shows up as
+            // a low/zero set count instead of a silent all-missing result.
+            let local_set_count = app.updates.scan.local_beatmapsets.len();
+            let scan_path = app.updates.path.osu_path.value.clone();
             app.updates.scan.scan_status = ScanStatus::FetchingCollection;
-            set_loading_message(&mut app.updates.message, "fetching collections...");
+            set_loading_message(
+                &mut app.updates.message,
+                format!("read {local_set_count} local sets from {scan_path} · fetching collections..."),
+            );
 
             let selected_ids = app.updates.selected_collection_ids();
             if selected_ids.is_empty() {
@@ -403,6 +410,11 @@ fn spawn_fetch_task(
         .map(|failed_maps| failed_maps.ids())
         .unwrap_or_default();
     let hidden_failed_count = failed_beatmapset_ids.len();
+    // Drop any manually-ignored id that is now genuinely installed, then hide
+    // the rest from this scan.
+    let ignored_beatmapset_ids = ignored_maps::ignored_maps_path()
+        .map(|path| ignored_maps::reconcile_installed(&path, &local_set_ids))
+        .unwrap_or_default();
 
     app.updates.scan.scan_status = ScanStatus::FetchingCollection;
 
@@ -416,6 +428,7 @@ fn spawn_fetch_task(
             snapshot_diffs,
             FetchCompareSettings {
                 hidden_failed_beatmapset_ids: failed_beatmapset_ids,
+                ignored_beatmapset_ids,
             },
         )
         .await;
@@ -441,13 +454,20 @@ fn spawn_fetch_task(
 
 #[derive(Debug, Clone, Default)]
 pub struct FetchCompareSettings {
+    /// Known-bad maps (auto-recorded download failures), cleared by a recheck.
     pub hidden_failed_beatmapset_ids: HashSet<u32>,
+    /// Maps the user manually marked as installed, cleared when a later scan
+    /// detects a genuine install.
+    pub ignored_beatmapset_ids: HashSet<u32>,
 }
 
+/// Whether a beatmapset is dismissed noise the scan must not surface as missing:
+/// either a known-bad map or one the user manually marked as installed.
 pub fn should_hide_failed_beatmapset(settings: &FetchCompareSettings, beatmapset_id: u32) -> bool {
     settings
         .hidden_failed_beatmapset_ids
         .contains(&beatmapset_id)
+        || settings.ignored_beatmapset_ids.contains(&beatmapset_id)
 }
 
 #[derive(Debug, Clone)]

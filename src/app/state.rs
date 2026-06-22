@@ -5,6 +5,7 @@ use super::{
     config::{AuthLoginState, ConfigField, ConfigTab},
     failed_maps,
     home::{HomeField, HomeTab},
+    ignored_maps,
     login::{LoginField, LoginPhase, LoginTab},
     snapshots,
     toast::{Toast, Toasts},
@@ -716,6 +717,25 @@ impl App {
         let path = self.updates.path.osu_path.value.trim();
         config.recent.osu_path = (!path.is_empty()).then(|| path.to_string());
         let _ = save_config(&config);
+    }
+
+    /// Mark beatmapsets as installed: persist them to the ignore list and drop
+    /// them from the missing list at once. A later scan that detects a genuine
+    /// install auto-clears the entry (see `ignored_maps::reconcile_installed`).
+    fn mark_installed(&mut self, ids: Vec<u32>) {
+        if ids.is_empty() {
+            return;
+        }
+        let ids: HashSet<u32> = ids.into_iter().collect();
+        if let Some(path) = ignored_maps::ignored_maps_path() {
+            ignored_maps::record_ignored(&path, ids.iter().copied());
+        }
+        let count = ids.len();
+        self.updates.hide_missing(&ids);
+        self.toast_info(format!(
+            "marked {count} beatmapset{} installed",
+            if count == 1 { "" } else { "s" }
+        ));
     }
 
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
@@ -1582,6 +1602,17 @@ impl App {
                         // list shortcuts (a all / d none / s sort) are not editing
                         if ch == 'r' && self.updates.can_recheck_failed_maps() {
                             return Some(AppCommand::RecheckFailedMaps);
+                        }
+                        // `i` marks the focused missing set(s) installed; `I` marks
+                        // every visible one — both hide them and persist the choice.
+                        if self.updates.selection.in_beatmap_list && matches!(ch, 'i' | 'I') {
+                            let ids = if ch == 'I' {
+                                self.updates.all_visible_missing_ids()
+                            } else {
+                                self.updates.focused_missing_ids()
+                            };
+                            self.mark_installed(ids);
+                            return None;
                         }
                         self.updates.handle_char(ch);
                     } else if ch == 's' {
