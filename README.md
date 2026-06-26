@@ -6,10 +6,10 @@
 
 <p style="font-size: 22px" ><b>Free osu!collector downloader in your terminal</b></p>
 
-[![Build](https://img.shields.io/github/actions/workflow/status/uwuclxdy/osu-collect/release.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=build&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/actions/workflows/release.yml)
-[![Latest release](https://img.shields.io/github/v/release/uwuclxdy/osu-collect?style=for-the-badge&logo=github&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/uwuclxdy/osu-collect/total?style=for-the-badge&logo=github&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/releases)
-![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-ff66aa?style=for-the-badge)
+[![Build](https://shields.uwuclxdy.dev/github/actions/workflow/status/uwuclxdy/osu-collect/release.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=build&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/actions/workflows/release.yml)
+[![Latest release](https://shields.uwuclxdy.dev/github/v/release/uwuclxdy/osu-collect?style=for-the-badge&logo=github&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/releases/latest)
+[![Downloads](https://shields.uwuclxdy.dev/github/downloads/uwuclxdy/osu-collect/total?style=for-the-badge&logo=github&color=ff66aa)](https://github.com/uwuclxdy/osu-collect/releases)
+![Platforms](https://shields.uwuclxdy.dev/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-ff66aa?style=for-the-badge)
 
 [Features](#features) · [Install](#installation) · [Usage](#usage) · [Import](#importing-into-osu) · [Configuration](#configuration) · [FAQ](#faq)
 
