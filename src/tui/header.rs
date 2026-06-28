@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::Style,
+    style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -91,30 +91,34 @@ pub fn render(frame: &mut Frame, params: RenderParams<'_, '_>) {
 /// a subtle accent shimmer sweeps left-to-right across the letters, so the brand
 /// reads as a quiet live-status cue rather than a loud spinner.
 ///
-/// `ramp` (0..1) scales the shimmer depth so it fades in over the first frames of
-/// a download instead of cutting straight to full strength — at `ramp == 0` every
-/// letter sits on the base color (indistinguishable from idle).
+/// `ramp` (0..1) scales the shimmer depth, easing in when a download starts and
+/// back out when it finishes — at `ramp == 0` every letter sits on the base
+/// color (indistinguishable from idle), so the wave keeps rendering through the
+/// fade-out even though `downloading` is already false.
 fn brand_spans(tick: u64, downloading: bool, ramp: f32) -> Vec<Span<'static>> {
     let base = accent_alt();
-    if !downloading {
+    let ramp = ramp.clamp(0.0, 1.0);
+    if !downloading && ramp <= 0.0 {
         return vec![Span::styled(BRAND, Style::default().fg(base).bold())];
     }
 
     // A cosine wave crest travels across the brand. `WAVE_PERIOD` is the tick
     // count for one full left-to-right sweep; `MAX_MIX` caps how far each letter
-    // leans toward the accent so it pulses instead of strobing. `ramp` eases the
-    // depth up from 0 so the shimmer materializes gently rather than snapping on.
+    // leans toward the accent so it pulses instead of strobing; `MAX_WHITE` caps
+    // the white sparkle riding the crest tip. `ramp` eases the whole effect in
+    // and out so it materializes and dissolves gently rather than snapping.
     const WAVE_PERIOD: f32 = 16.0;
     const MAX_MIX: f32 = 0.65;
-    let depth = MAX_MIX * ramp.clamp(0.0, 1.0);
+    const MAX_WHITE: f32 = 0.4;
+    let depth = MAX_MIX * ramp;
     let highlight = accent();
+    let white = Color::Rgb(255, 255, 255);
 
-    // Normalize the sweep to a 0..1 cycle, then ease-out (`1 - (1 - t)²`) so the
-    // crest starts fast and decelerates toward the end of each pass before
-    // wrapping — the sweep settles instead of cutting off at a constant speed.
-    let raw = (tick as f32 / WAVE_PERIOD).fract();
-    let eased = 1.0 - (1.0 - raw) * (1.0 - raw);
-    let crest = eased * std::f32::consts::TAU;
+    // Constant-velocity crest: a looping phase fed straight to `cos`, so the
+    // sweep wraps seamlessly with no velocity break. (The old ease-out stalled
+    // the crest at each pass end then snapped it back to full speed, which read
+    // as the wave resetting.)
+    let crest = (tick as f32 / WAVE_PERIOD).fract() * std::f32::consts::TAU;
     let chars: Vec<char> = BRAND.chars().collect();
     let len = chars.len().max(1) as f32;
 
@@ -126,8 +130,13 @@ fn brand_spans(tick: u64, downloading: bool, ramp: f32) -> Vec<Span<'static>> {
             // wordmark width so the sweep loops seamlessly.
             let phase = (i as f32 / len) * std::f32::consts::TAU;
             // 0..1 brightness: 1 at the crest, easing to 0 between sweeps.
-            let mix = ((phase - crest).cos() * 0.5 + 0.5) * depth;
-            let fg = blend(highlight, base, mix);
+            let crest_factor = (phase - crest).cos() * 0.5 + 0.5;
+            let lit = blend(highlight, base, crest_factor * depth);
+            // A sharp white glint sits only on the very tip of the crest — the
+            // high power keeps it to the leading letter or two, not the whole
+            // sweep. Scaled by `ramp` so it fades with the rest.
+            let white_amt = crest_factor.powi(6) * MAX_WHITE * ramp;
+            let fg = blend(white, lit, white_amt);
             Span::styled(ch.to_string(), Style::default().fg(fg).bold())
         })
         .collect()

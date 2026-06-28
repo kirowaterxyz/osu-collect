@@ -35,6 +35,27 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tracing::debug;
 
+/// Header brand-shimmer ease state. The ramp (0..1) crossfades between idle and
+/// downloading: `anchor` is the tick the active ease began, `from` the ramp
+/// value then, `to` the target (1.0 downloading, 0.0 idle). Re-anchored from the
+/// live value on each state flip so an interrupted fade reverses in place.
+#[derive(Clone, Copy)]
+struct BrandAnim {
+    anchor: u64,
+    from: f32,
+    to: f32,
+}
+
+impl Default for BrandAnim {
+    fn default() -> Self {
+        Self {
+            anchor: 0,
+            from: 0.0,
+            to: 0.0,
+        }
+    }
+}
+
 pub struct App {
     pub home: HomeTab,
     pub updates: UpdatesTab,
@@ -80,11 +101,11 @@ pub struct App {
     /// mutability because `draw()` borrows `App` immutably but must refresh
     /// the cache at most once per `DISK_CACHE_TTL`.
     disk_cache: Cell<Option<(Instant, u64)>>,
-    /// Tick at which the current downloading run began, used to ease the header
-    /// brand shimmer in. `None` while idle; set on the first downloading frame
-    /// and cleared once every download settles. Interior mutability because
-    /// `draw()`/`brand_ramp()` read it under an immutable borrow.
-    download_anim_start: Cell<Option<u64>>,
+    /// Ease state for the header brand shimmer. Crossfades the ramp in when
+    /// downloading begins and back out when every download settles. Interior
+    /// mutability because `draw()`/`brand_ramp()` advance it under an immutable
+    /// borrow.
+    brand_anim: Cell<BrandAnim>,
     /// Per-WARNING-condition entry timestamps used to break banner ties by
     /// most-recently-entered (`DiskLow` vs `TooSmall`). Updated under an
     /// immutable borrow during `draw()` (interior mutability mirrors
@@ -208,7 +229,7 @@ impl App {
             failed_maps_path_override: None,
             next_download_id: 1,
             disk_cache: Cell::new(None),
-            download_anim_start: Cell::new(None),
+            brand_anim: Cell::new(BrandAnim::default()),
             banner_recency: BannerRecency::default(),
         }
     }
@@ -260,24 +281,35 @@ impl App {
             .any(|p| !matches!(p.stage, DownloadStage::Completed | DownloadStage::Failed))
     }
 
-    /// Ease-in ramp (0..1) for the header brand shimmer. Anchors a start tick the
-    /// first downloading frame, then eases from 0 to 1 over `BRAND_EASE_TICKS`
-    /// (smoothstep) so the shimmer fades in instead of cutting in; returns 0 while
-    /// idle and re-arms on the next run. Resets when every download settles.
+    /// Eased ramp (0..1) for the header brand shimmer. Eases toward 1 over
+    /// `BRAND_EASE_TICKS` (smoothstep) while downloading and back toward 0 over
+    /// the same span once every download settles, so the shimmer fades in *and*
+    /// out instead of snapping. Re-anchors from the live value on each state
+    /// flip, so a stop mid-fade-in reverses smoothly rather than jumping. Read
+    /// (and advanced) under `draw()`'s immutable borrow.
     pub fn brand_ramp(&self) -> f32 {
         // ~0.8s at the 50ms tick rate (see `tui::terminal`).
         const BRAND_EASE_TICKS: f32 = 16.0;
-        if !self.is_downloading() {
-            self.download_anim_start.set(None);
-            return 0.0;
+        let target = if self.is_downloading() { 1.0 } else { 0.0 };
+        let mut anim = self.brand_anim.get();
+
+        let progress =
+            (self.tick_count.saturating_sub(anim.anchor) as f32 / BRAND_EASE_TICKS).clamp(0.0, 1.0);
+        // smoothstep — a gentler start/stop than a linear ramp.
+        let smooth = progress * progress * (3.0 - 2.0 * progress);
+        let current = anim.from + (anim.to - anim.from) * smooth;
+
+        // State flipped: re-anchor the ease at the live value so it reverses in
+        // place (mid-fade-in stop eases back down from the partial value).
+        if anim.to != target {
+            anim = BrandAnim {
+                anchor: self.tick_count,
+                from: current,
+                to: target,
+            };
+            self.brand_anim.set(anim);
         }
-        let start = self.download_anim_start.get().unwrap_or_else(|| {
-            self.download_anim_start.set(Some(self.tick_count));
-            self.tick_count
-        });
-        let t = (self.tick_count.saturating_sub(start) as f32 / BRAND_EASE_TICKS).clamp(0.0, 1.0);
-        // smoothstep — a gentler start than a linear ramp.
-        t * t * (3.0 - 2.0 * t)
+        current
     }
 
     /// Free bytes on the filesystem of the first active download's output
