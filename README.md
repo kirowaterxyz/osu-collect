@@ -32,6 +32,7 @@ osu!collect is a terminal app (TUI) that **downloads osu! beatmap collections fr
 - **Collections updater**: Re-check a collection later and download only the maps that are missing or newly added.
 - **Ez import with `collection.db`**: Maps arrive as a proper osu! collection, not a loose folder of `.osz` files.
 - **Integrity verification**: MD5 plus archive validation on every download; files already on disk are verified and skipped.
+- **Skips what you already own**: Reads your osu! library (stable `osu!.db` / lazer realm) and skips maps you've already imported instead of re-fetching them; they still go into the generated `collection.db`.
 - **Retry failed maps**: Failures persist between runs. Retry them with one key, or on the next download.
 - **Parallel collection tabs**: Queue several collections and download them at once.
 
@@ -196,7 +197,7 @@ No. Logging in is optional and only adds the official osu! servers as an extra s
 Yes. The updates tab diffs your downloaded collections against osu!collector and fetches only what's missing.
 
 **A download failed or got rate limited. What now?**
-Failures save per collection. Press <kbd>r</kbd> on the download tab to retry them all, or accept the retry prompt next time you download that collection. Rate-limited mirrors cool down on their own while the others keep going. If a map is unavailable everywhere so every mirror is only cooling down, press <kbd>s</kbd> to skip the stuck maps and let the rest finish.
+Failures save per collection. Press <kbd>r</kbd> on the download tab to retry them all, or accept the retry prompt next time you download that collection. Rate-limited mirrors cool down on their own while the others keep going. A map that stays throttled past the auto-skip delay (60s by default, configurable) is skipped on its own so the run never stalls; press <kbd>s</kbd> any time to skip the currently-stuck maps yourself without waiting.
 
 ## Building from source
 

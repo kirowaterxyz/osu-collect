@@ -31,6 +31,15 @@ archive_validation = "magic"
 # "ask" (prompt, default), "yes" (always retry), "no" (skip silently)
 retry_failed_on_download = "ask"
 
+# give up on a map once it has spent this long waiting out rate-limit cooldowns,
+# instead of retrying forever; counts only time actually spent waiting
+auto_skip_rate_limited = true
+rate_limit_skip_secs = 60
+
+# before downloading, skip maps already in your osu! library (reads the selected
+# client's osu!.db / lazer realm); they still go into the generated collection.db
+skip_already_imported = true
+
 [display]
 # "full" (truecolor, default) or "compatible" (xterm-256/16-color).
 # Omit this key entirely to auto-detect from the terminal's color depth on first run.
