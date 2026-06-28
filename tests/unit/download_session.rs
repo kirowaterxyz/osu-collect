@@ -1,7 +1,8 @@
-use super::resolve_selective_with;
+use super::{partition_pending, resolve_selective_with};
 use crate::core::collection::{Beatmap, Beatmapset, Collection, CollectionService, Uploader};
 use crate::download::{DownloadEvent, SelectiveDownloadCollection};
 use crate::utils;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 struct MockService {
@@ -135,4 +136,49 @@ async fn resolve_selective_progress_is_monotonic() {
 
     let observed = events.lock().unwrap().clone();
     assert_eq!(observed, vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn partition_pending_skips_owned_keeps_satisfied_and_drops_unverified() {
+    let beatmapset_ids = vec![1, 2, 3, 4];
+    // precheck: 4 satisfied (on disk), 3 on disk but FAILED validation (unverified).
+    let mut satisfied = HashSet::from([4]);
+    let mut unverified = HashSet::from([3]);
+    // owned = {2, 3, 99}; 99 is not part of this collection and must not leak in.
+    let owned = HashSet::from([2, 3, 99]);
+
+    let (pending, skipped_owned) =
+        partition_pending(&beatmapset_ids, &mut satisfied, &mut unverified, &owned);
+
+    // only 1 still needs downloading; 2 + 3 were pre-skipped as owned.
+    assert_eq!(pending, vec![1]);
+    assert_eq!(skipped_owned, 2);
+    // owned-in-collection ids land in `satisfied` (eligible for collection.db);
+    // the already-satisfied 4 is not re-counted; the out-of-collection 99 stays out.
+    assert!(satisfied.contains(&2));
+    assert!(satisfied.contains(&3));
+    assert!(satisfied.contains(&4));
+    assert!(!satisfied.contains(&99));
+    // 3 was owned + unverified: folding it into `satisfied` drops it from the
+    // unverified set so it is not counted as both skipped and unverified.
+    assert!(unverified.is_empty());
+}
+
+#[test]
+fn partition_pending_empty_owned_is_noop() {
+    let beatmapset_ids = vec![1, 2, 3];
+    let mut satisfied = HashSet::from([2]);
+    let mut unverified = HashSet::from([1]);
+
+    let (pending, skipped_owned) = partition_pending(
+        &beatmapset_ids,
+        &mut satisfied,
+        &mut unverified,
+        &HashSet::new(),
+    );
+
+    assert_eq!(pending, vec![1, 3]);
+    assert_eq!(skipped_owned, 0);
+    // no owned ids → unverified untouched.
+    assert_eq!(unverified, HashSet::from([1]));
 }

@@ -127,6 +127,9 @@ pub struct DownloadConfig {
     /// Seconds to wait before auto-skipping a rate-limited map. Only meaningful
     /// when `auto_skip_rate_limited` is true. Floored at 1 s in the pipeline.
     pub rate_limit_skip_secs: u32,
+    /// When true, a Get-Maps download pre-skips beatmapsets already present in
+    /// the configured osu! client's library (still written to `collection.db`).
+    pub skip_already_imported: bool,
 }
 
 impl Default for DownloadConfig {
@@ -138,6 +141,7 @@ impl Default for DownloadConfig {
             retry_failed_on_download: RetryFailedOnDownload::default(),
             auto_skip_rate_limited: true,
             rate_limit_skip_secs: 60,
+            skip_already_imported: true,
         }
     }
 }

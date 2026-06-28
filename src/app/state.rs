@@ -788,6 +788,14 @@ impl App {
             }
         };
 
+        // Cheap, sync inputs for the pre-skip of already-imported sets. The
+        // owned-id set itself is resolved off the UI thread in the pipeline task
+        // (`run_collection`), so the blocking db read never stalls the event loop.
+        // Source mirrors the Updates-tab scan (seeded from `[recent]`).
+        request.skip_already_imported = self.config.skip_already_imported;
+        request.osu_client = self.updates.path.client_type;
+        request.osu_path = self.updates.osu_path();
+
         if self.downloads.len() >= usize::MAX - 1 {
             self.toast_err("too many downloads queued");
             return None;
@@ -1913,6 +1921,9 @@ impl App {
                         page.failed_section_expanded = true;
                     }
                 }
+            }
+            DownloadEvent::SkippedImported { id: _, count } => {
+                self.toast_info(format!("skipped {count} already imported"));
             }
             DownloadEvent::Finished { id, summary } => {
                 if let Some(page) = self.page_mut(id) {

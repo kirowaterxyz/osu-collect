@@ -290,6 +290,14 @@ pub fn read_local_database(
     }
 }
 
+/// Beatmapset ids present in the selected client's library. Blocking (opens the
+/// realm / parses `osu!.db`); callers wrap it in `spawn_blocking`. Used by the
+/// Get-Maps pre-skip of already-imported sets, memoized in `library_cache`.
+pub fn owned_beatmapset_ids(client_type: OsuClient, path: PathBuf) -> Result<HashSet<u32>, String> {
+    read_local_database(client_type, path)
+        .map(|(_, beatmapsets, _)| beatmapsets.into_iter().map(|bs| bs.id).collect())
+}
+
 pub fn collection_ids_for_scan(selected_ids: Vec<u64>) -> Vec<u32> {
     selected_ids
         .into_iter()

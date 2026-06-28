@@ -7,6 +7,7 @@ use crate::{
     config::Config,
     download::{ArchiveValidation, DownloadConfig, DownloadRequest},
     mirrors::{Mirror, MirrorKind},
+    osu_db::OsuClient,
     utils::{CompletionResult, complete_dir, expand_tilde, pretty_path},
 };
 use std::{collections::HashMap, env, str::FromStr};
@@ -716,6 +717,11 @@ impl HomeTab {
             // retry-failed-on-download policy and overrides it (or surfaces a
             // modal under `Ask` before the download is dispatched).
             include_previously_failed: false,
+            // Placeholders; `App::request_download` fills these from the live
+            // config + Updates-tab client/path before the request is dispatched.
+            skip_already_imported: false,
+            osu_client: OsuClient::default(),
+            osu_path: String::new(),
         })
     }
 

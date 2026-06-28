@@ -17,6 +17,7 @@ pub use osu_downloader::ArchiveValidation;
 
 use crate::app::collection::FailureReason;
 use crate::mirrors::Mirror;
+use crate::osu_db::OsuClient;
 use fs2::available_space;
 use osu_downloader::size::SizeFetcher;
 use std::path::Path;
@@ -84,6 +85,13 @@ pub struct DownloadRequest {
     /// should be retried as part of this download. Resolved by the
     /// pre-download retry prompt (see `RetryFailedOnDownload`).
     pub include_previously_failed: bool,
+    /// Pre-skip beatmapsets already in the osu! library before downloading
+    /// (they still land in `collection.db`). The owned-id set is resolved off
+    /// the UI thread in the pipeline task; `osu_client` + `osu_path` are the
+    /// cheap inputs read synchronously at request build.
+    pub skip_already_imported: bool,
+    pub osu_client: OsuClient,
+    pub osu_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +182,13 @@ pub enum DownloadEvent {
     FailedMaps {
         id: DownloadId,
         failures: Vec<FailedMap>,
+    },
+    /// Beatmapsets pre-skipped because they are already in the osu! library.
+    /// Surfaced as a one-shot toast; the count is also folded into the run's
+    /// skipped tally.
+    SkippedImported {
+        id: DownloadId,
+        count: usize,
     },
     BeatmapVerified {
         id: DownloadId,

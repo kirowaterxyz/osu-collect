@@ -9,8 +9,9 @@ use super::{
     warn_low_disk_space,
 };
 use crate::{
-    app::{failed_maps, snapshots},
+    app::{failed_maps, library_cache, snapshots},
     config::constants::{DEFAULT_PROGRESS_WATCHDOG_SECS, NETWORK_RETRY_CAP},
+    osu_db::OsuClient,
 };
 use futures_util::StreamExt;
 use osu_downloader::{
@@ -124,9 +125,17 @@ async fn run_collection(
         // pre-download retry decision). The library re-downloads the whole
         // collection either way, so no branching is required here.
         include_previously_failed: _,
+        skip_already_imported,
+        osu_client,
+        osu_path,
     } = request;
 
     emit_resolving(id, emit.as_ref());
+
+    // Resolve the already-imported library set here, off the UI thread, while the
+    // tab shows its preparing state. Best-effort: any read error or panic leaves
+    // the set empty (download proceeds unfiltered), never aborts the run.
+    let owned_ids = resolve_owned_ids(skip_already_imported, osu_client, osu_path).await;
 
     let Some(session) = DownloadSession::prepare(PrepareParams {
         id,
@@ -138,11 +147,19 @@ async fn run_collection(
             collection_input: &collection_input,
         },
         overwrite: auto_overwrite,
+        owned_ids,
     })
     .await?
     else {
         return Ok(());
     };
+
+    if session.skipped_owned > 0 {
+        emit(DownloadEvent::SkippedImported {
+            id,
+            count: session.skipped_owned as usize,
+        });
+    }
 
     let collection = session.target.collection().clone();
     let output_dir = session.output.output_dir.clone();
@@ -183,6 +200,35 @@ async fn run_collection(
     Ok(())
 }
 
+/// Resolve the user's already-imported library set off the UI thread. Best-effort:
+/// disabled, a read error, or a join panic all yield an empty set (the download
+/// then proceeds without pre-skipping) and never abort the run.
+async fn resolve_owned_ids(
+    skip_already_imported: bool,
+    osu_client: OsuClient,
+    osu_path: String,
+) -> HashSet<u32> {
+    if !skip_already_imported {
+        return HashSet::new();
+    }
+    let install_dir = PathBuf::from(osu_path);
+    match tokio::task::spawn_blocking(move || {
+        library_cache::owned_ids_cached(osu_client, install_dir)
+    })
+    .await
+    {
+        Ok(Ok(owned)) => owned,
+        Ok(Err(err)) => {
+            warn!(error = %err, "skip-already-imported: library read failed; not pre-skipping");
+            HashSet::new()
+        }
+        Err(err) => {
+            warn!(error = %err, "skip-already-imported: library task panicked; not pre-skipping");
+            HashSet::new()
+        }
+    }
+}
+
 async fn run_selective(
     id: DownloadId,
     request: SelectiveDownloadRequest,
@@ -217,6 +263,9 @@ async fn run_selective(
             beatmapset_ids: &beatmapset_ids,
         },
         overwrite: false,
+        // The selective/retry path never pre-skips owned maps — it must not
+        // perturb the `all_targets_satisfied` snapshot gating.
+        owned_ids: HashSet::new(),
     })
     .await?
     else {
@@ -338,7 +387,8 @@ async fn run_pipeline_core(
     warn_low_disk_space(id, &session.output.output_dir, emit);
 
     let mut tally = Tally {
-        skipped: session.skipped_existing,
+        // Pre-existing on-disk maps plus library-owned maps both count as skipped.
+        skipped: session.skipped_existing + session.skipped_owned,
         unverified: session.initial_unverified.len() as u32,
         ..Tally::default()
     };

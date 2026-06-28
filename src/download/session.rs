@@ -103,6 +103,9 @@ pub(crate) struct DownloadSession {
     pub(crate) initial_unverified: HashSet<u32>,
     pub(crate) initial_satisfied: HashSet<u32>,
     pub(crate) skipped_existing: u32,
+    /// Beatmapsets pre-skipped because they were already in the osu! library
+    /// (a subset of `owned_ids` that precheck had not already satisfied).
+    pub(crate) skipped_owned: u32,
     pub(crate) output: OutputPreparation,
     pub(crate) _lock_guard: DownloadLockGuard,
 }
@@ -128,6 +131,9 @@ pub(crate) struct PrepareParams<'a> {
     /// When set, precheck skips validation so every requested id stays pending
     /// and the library overwrites existing archives (`OnExists::Overwrite`).
     pub(crate) overwrite: bool,
+    /// Beatmapsets already in the osu! library: pre-skipped before downloading
+    /// but still folded into `collection.db`. Empty for the selective/retry path.
+    pub(crate) owned_ids: HashSet<u32>,
 }
 
 impl DownloadSession {
@@ -190,6 +196,7 @@ impl DownloadSession {
             lock_guard,
             params.config,
             params.overwrite,
+            params.owned_ids,
             params.emit,
         )
         .await
@@ -205,6 +212,7 @@ impl DownloadSession {
         lock_guard: DownloadLockGuard,
         config: &DownloadConfig,
         overwrite: bool,
+        owned_ids: HashSet<u32>,
         emit: super::Emit<'_>,
     ) -> Result<Option<Self>, DownloadError> {
         let expectations = target.expectation_index(&beatmapset_ids);
@@ -242,14 +250,14 @@ impl DownloadSession {
         }
 
         let PrecheckReport {
-            satisfied,
+            mut satisfied,
             skipped,
             unverified,
             verified_bytes,
             ..
         } = report;
 
-        let initial_unverified: HashSet<u32> = unverified.iter().copied().collect();
+        let mut initial_unverified: HashSet<u32> = unverified.iter().copied().collect();
 
         if verified_bytes > 0 {
             emit(DownloadEvent::VerifiedMapSizes {
@@ -258,11 +266,12 @@ impl DownloadSession {
             });
         }
 
-        let pending_ids: Vec<u32> = beatmapset_ids
-            .iter()
-            .copied()
-            .filter(|beatmap_id| !satisfied.contains(beatmap_id))
-            .collect();
+        let (pending_ids, skipped_owned) = partition_pending(
+            &beatmapset_ids,
+            &mut satisfied,
+            &mut initial_unverified,
+            &owned_ids,
+        );
 
         emit(DownloadEvent::DownloadTarget {
             id,
@@ -277,10 +286,39 @@ impl DownloadSession {
             initial_unverified,
             initial_satisfied: satisfied,
             skipped_existing: skipped,
+            skipped_owned,
             output,
             _lock_guard: lock_guard,
         }))
     }
+}
+
+/// Fold already-owned library ids (scoped to this collection) into `satisfied`
+/// and split out the still-pending downloads. An owned id precheck hadn't
+/// already satisfied counts as newly skipped; folding it into `satisfied` keeps
+/// it out of the download while staying eligible for `collection.db`. A folded
+/// id is also dropped from `initial_unverified` so an owned-but-unverified set
+/// is not counted as both skipped and unverified. Returns
+/// `(pending_ids, skipped_owned)`.
+fn partition_pending(
+    beatmapset_ids: &[u32],
+    satisfied: &mut HashSet<u32>,
+    initial_unverified: &mut HashSet<u32>,
+    owned_ids: &HashSet<u32>,
+) -> (Vec<u32>, u32) {
+    let mut skipped_owned = 0u32;
+    for &id in beatmapset_ids {
+        if owned_ids.contains(&id) && satisfied.insert(id) {
+            skipped_owned += 1;
+            initial_unverified.remove(&id);
+        }
+    }
+    let pending_ids = beatmapset_ids
+        .iter()
+        .copied()
+        .filter(|id| !satisfied.contains(id))
+        .collect();
+    (pending_ids, skipped_owned)
 }
 
 async fn prepare_output_dir(

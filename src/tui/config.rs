@@ -35,6 +35,7 @@ const LABEL_VIDEO: &str = "video";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
 const LABEL_RETRY_FAILED: &str = "retry failed on download";
 const LABEL_AUTO_SKIP_RATE_LIMITED: &str = "auto-skip rate limited";
+const LABEL_SKIP_IMPORTED: &str = "skip already imported";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "log level";
 const LABEL_LOGGING_FORMAT: &str = "log format";
@@ -76,9 +77,15 @@ fn retry_failed_help(mode: RetryFailedOnDownload) -> &'static str {
     }
 }
 
-pub fn render(frame: &mut Frame, area: Rect, form: &ConfigTab, editing: bool) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    form: &ConfigTab,
+    editing: bool,
+    library_db_hint: &str,
+) {
     let show_chrome = area.height >= super::COMPACT_HEIGHT;
-    let items = build_config_items(form, show_chrome, editing);
+    let items = build_config_items(form, show_chrome, editing, library_db_hint);
 
     let cursor_col = editing
         .then(|| {
@@ -110,6 +117,7 @@ fn build_config_items(
     form: &ConfigTab,
     show_chrome: bool,
     editing: bool,
+    library_db_hint: &str,
 ) -> widgets::FormItems<ConfigField> {
     let focus = form.focus;
     let active_section = focus_section(focus);
@@ -281,6 +289,19 @@ fn build_config_items(
             0,
         ),
     );
+    items.push_focusable(
+        ConfigField::DownloadSkipAlreadyImported,
+        widgets::row_item(
+            LABEL_SKIP_IMPORTED,
+            None,
+            form.skip_already_imported,
+            focus == ConfigField::DownloadSkipAlreadyImported,
+            0,
+        ),
+    );
+    if show_chrome && focus == ConfigField::DownloadSkipAlreadyImported {
+        items.push(widgets::help_item(format!("checks {library_db_hint}")));
+    }
     if show_chrome {
         items.push(widgets::spacer());
         items.push(widgets::section_header(
@@ -347,7 +368,8 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
         | DownloadArchiveValidation
         | RetryFailedOnDownload
         | DownloadAutoSkipRateLimited
-        | DownloadRateLimitSkipSecs => SECTION_DOWNLOAD,
+        | DownloadRateLimitSkipSecs
+        | DownloadSkipAlreadyImported => SECTION_DOWNLOAD,
         LoggingEnabled | LoggingLevel | LoggingFormat | LoggingDirectory => SECTION_LOGGING,
     })
 }

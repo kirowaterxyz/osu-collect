@@ -49,6 +49,7 @@ pub enum ConfigField {
     RetryFailedOnDownload,
     DownloadAutoSkipRateLimited,
     DownloadRateLimitSkipSecs,
+    DownloadSkipAlreadyImported,
     LoggingEnabled,
     LoggingLevel,
     LoggingFormat,
@@ -81,6 +82,7 @@ const CONFIG_FIELDS_AFTER_CUSTOM: &[ConfigField] = &[
     ConfigField::RetryFailedOnDownload,
     ConfigField::DownloadAutoSkipRateLimited,
     ConfigField::DownloadRateLimitSkipSecs,
+    ConfigField::DownloadSkipAlreadyImported,
     ConfigField::LoggingEnabled,
     ConfigField::LoggingLevel,
     ConfigField::LoggingFormat,
@@ -120,6 +122,7 @@ pub struct ConfigTab {
     pub retry_failed_on_download: RetryFailedOnDownload,
     pub auto_skip_rate_limited: bool,
     pub rate_limit_skip_secs: InputField,
+    pub skip_already_imported: bool,
     pub logging_enabled: bool,
     pub logging_level: LogLevel,
     pub logging_format: LogFormat,
@@ -156,6 +159,7 @@ impl ConfigTab {
             retry_failed_on_download: config.download.retry_failed_on_download,
             auto_skip_rate_limited: config.download.auto_skip_rate_limited,
             rate_limit_skip_secs: rate_limit_skip_secs_field(&config.download),
+            skip_already_imported: config.download.skip_already_imported,
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
@@ -353,6 +357,9 @@ impl ConfigTab {
             ConfigField::DownloadAutoSkipRateLimited => {
                 self.auto_skip_rate_limited = !self.auto_skip_rate_limited;
             }
+            ConfigField::DownloadSkipAlreadyImported => {
+                self.skip_already_imported = !self.skip_already_imported;
+            }
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
@@ -411,6 +418,7 @@ impl ConfigTab {
             retry_failed_on_download: self.retry_failed_on_download,
             auto_skip_rate_limited: self.auto_skip_rate_limited,
             rate_limit_skip_secs: self.parse_rate_limit_skip_secs().unwrap_or(60),
+            skip_already_imported: self.skip_already_imported,
         };
 
         let logging = LoggingConfig {

@@ -262,7 +262,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
             editing,
         ),
         UPDATES_TAB_INDEX => updates::render(frame, body_area, &app.updates, editing),
-        CONFIG_TAB_INDEX => config::render(frame, body_area, &app.config, editing),
+        CONFIG_TAB_INDEX => {
+            let osu_dir = app.updates.osu_path();
+            let library_db_hint = crate::app::library_cache::db_file_path(
+                app.updates.path.client_type,
+                std::path::Path::new(&osu_dir),
+            )
+            .display()
+            .to_string();
+            config::render(frame, body_area, &app.config, editing, &library_db_hint);
+        }
         tab if app.is_login_tab(tab) => {
             if let Some(login_tab) = app.login.as_ref() {
                 login::render(

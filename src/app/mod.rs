@@ -8,6 +8,7 @@ pub mod custom_mirrors;
 pub mod failed_maps;
 pub mod home;
 pub mod ignored_maps;
+pub mod library_cache;
 pub mod login;
 pub mod messages;
 pub mod runtime;
