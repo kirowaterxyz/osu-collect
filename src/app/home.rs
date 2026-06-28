@@ -672,6 +672,8 @@ impl HomeTab {
     pub fn build_request(
         &self,
         archive_validation: ArchiveValidation,
+        auto_skip_rate_limited: bool,
+        rate_limit_skip_secs: u32,
     ) -> Result<DownloadRequest, String> {
         let collection_input = self.collection.value.trim();
         if collection_input.is_empty() {
@@ -702,6 +704,8 @@ impl HomeTab {
             mirrors,
             concurrent: threads_value,
             archive_validation,
+            auto_skip_rate_limited,
+            rate_limit_skip_secs,
         };
 
         Ok(DownloadRequest {

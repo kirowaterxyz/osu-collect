@@ -776,7 +776,11 @@ impl App {
     }
 
     pub fn request_download(&mut self) -> Option<(DownloadId, DownloadRequest)> {
-        let mut request = match self.home.build_request(self.config.archive_validation) {
+        let mut request = match self.home.build_request(
+            self.config.archive_validation,
+            self.config.auto_skip_rate_limited,
+            self.config.parse_rate_limit_skip_secs().unwrap_or(60),
+        ) {
             Ok(request) => request,
             Err(err) => {
                 self.toast_err(err);
@@ -951,6 +955,8 @@ impl App {
             mirrors,
             concurrent,
             archive_validation: self.config.archive_validation,
+            auto_skip_rate_limited: self.config.auto_skip_rate_limited,
+            rate_limit_skip_secs: self.config.parse_rate_limit_skip_secs().unwrap_or(60),
         };
 
         let current_snapshots = snapshots::current_snapshots(
@@ -2014,6 +2020,8 @@ impl App {
             mirrors: config.mirrors.clone(),
             concurrent: config.concurrent,
             archive_validation: config.archive_validation,
+            auto_skip_rate_limited: config.auto_skip_rate_limited,
+            rate_limit_skip_secs: config.rate_limit_skip_secs,
         };
 
         let new_id = self.next_download_id;

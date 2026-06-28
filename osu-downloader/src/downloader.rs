@@ -39,6 +39,7 @@ pub struct DownloaderBuilder {
     network_retry_attempts: usize,
     sanitize_filenames: bool,
     on_exists: OnExists,
+    rate_limit_skip_after: Option<Duration>,
     #[cfg(any(test, feature = "test-helpers"))]
     http_client_override: Option<reqwest::Client>,
 }
@@ -55,6 +56,7 @@ impl DownloaderBuilder {
             network_retry_attempts: 0,
             sanitize_filenames: true,
             on_exists: OnExists::Skip,
+            rate_limit_skip_after: None,
             #[cfg(any(test, feature = "test-helpers"))]
             http_client_override: None,
         }
@@ -141,6 +143,17 @@ impl DownloaderBuilder {
         self
     }
 
+    /// Auto-skip a beatmapset once the time it has spent parked on rate-limit
+    /// cooldowns (summed across mirror passes) reaches `budget`. The map is
+    /// emitted as a [`Skip::RateLimitSkipped`](crate::Skip::RateLimitSkipped)
+    /// outcome — identical to a manual [`Session::skip_rate_limited`] press.
+    /// `None` (default) waits indefinitely.
+    #[must_use]
+    pub fn rate_limit_skip_after(mut self, budget: Option<Duration>) -> Self {
+        self.rate_limit_skip_after = budget;
+        self
+    }
+
     /// Override the HTTP client (test helper).
     #[cfg(any(test, feature = "test-helpers"))]
     #[must_use]
@@ -174,6 +187,7 @@ impl DownloaderBuilder {
             network_retry_attempts: self.network_retry_attempts,
             sanitize_filenames: self.sanitize_filenames,
             on_exists: self.on_exists,
+            rate_limit_skip_after: self.rate_limit_skip_after,
         };
 
         #[cfg(any(test, feature = "test-helpers"))]
@@ -243,6 +257,7 @@ impl Downloader {
                 network_retry_attempts: config.network_retry_attempts,
                 sanitize_filenames: config.sanitize_filenames,
                 on_exists: config.on_exists,
+                rate_limit_skip_after: config.rate_limit_skip_after,
             };
             batch::download_batch(
                 ids,

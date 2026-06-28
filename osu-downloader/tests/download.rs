@@ -30,6 +30,7 @@ fn default_params<'a>(
         callbacks: BeatmapsetDownloadCallbacks::default(),
         cancel_rx,
         skip: Arc::new(tokio::sync::Notify::new()),
+        rate_limit_skip_after: None,
     }
 }
 
@@ -526,6 +527,64 @@ async fn rate_limit_status_emitted_once_when_all_mirrors_throttled() {
         rate_limit_events.len(),
         1,
         "exactly one rate-limit event expected once every mirror is throttled: {recorded:?}"
+    );
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn auto_skip_fires_once_cumulative_rate_limit_budget_is_reached() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    // Both mirrors 429 forever. Pass 1 hits each once (two fresh connections),
+    // then the budget fires after the first fully-elapsed cooldown — so exactly
+    // two requests are served before the map auto-skips.
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+        }
+    });
+
+    let mirror_a =
+        Mirror::with_kind_and_template(MirrorKind::Nerinyan, format!("http://{addr}/a/{{id}}"));
+    let mirror_b =
+        Mirror::with_kind_and_template(MirrorKind::OsuDirect, format!("http://{addr}/b/{{id}}"));
+    let mirror_pool = MirrorPool::new(vec![mirror_a, mirror_b]);
+    let dir = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::new();
+    let (_cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+
+    let start = Instant::now();
+    // 5 ms budget against the 10 ms test backoff: the first elapsed cooldown
+    // crosses the budget and the map is skipped with no manual `skip` press.
+    let (outcome, _) = download_beatmapset(DownloadParams {
+        rate_limit_skip_after: Some(Duration::from_millis(5)),
+        ..default_params(555, dir.path(), &client, &mirror_pool, cancel_rx)
+    })
+    .await;
+
+    assert!(
+        matches!(
+            outcome,
+            BeatmapsetDownloadOutcome::Skipped {
+                reason: Skip::RateLimitSkipped
+            }
+        ),
+        "expected auto-skip once the cumulative cooldown crossed the budget, got {outcome:?}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(2),
+        "auto-skip must not wait out repeated cooldowns"
     );
     server.join().unwrap();
 }

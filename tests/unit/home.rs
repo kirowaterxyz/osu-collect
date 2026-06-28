@@ -90,7 +90,9 @@ fn build_request_uses_same_mirrors_as_build_mirror_list() {
     home.collection.value = "12345".to_string();
 
     let standalone = home.build_mirror_list();
-    let request = home.build_request(ArchiveValidation::Magic).unwrap();
+    let request = home
+        .build_request(ArchiveValidation::Magic, true, 60)
+        .unwrap();
     let request_kinds: Vec<_> = request.config.mirrors.iter().map(|m| m.kind()).collect();
     let standalone_kinds: Vec<_> = standalone.iter().map(|m| m.kind()).collect();
     assert_eq!(request_kinds, standalone_kinds);
@@ -102,10 +104,14 @@ fn build_request_passes_archive_validation_argument() {
     let mut home = HomeTab::new(&config);
     home.collection.value = "12345".to_string();
 
-    let magic = home.build_request(ArchiveValidation::Magic).unwrap();
+    let magic = home
+        .build_request(ArchiveValidation::Magic, true, 60)
+        .unwrap();
     assert_eq!(magic.config.archive_validation, ArchiveValidation::Magic);
 
-    let eocd = home.build_request(ArchiveValidation::Eocd).unwrap();
+    let eocd = home
+        .build_request(ArchiveValidation::Eocd, true, 60)
+        .unwrap();
     assert_eq!(eocd.config.archive_validation, ArchiveValidation::Eocd);
 }
 
@@ -116,7 +122,9 @@ fn build_request_accepts_thread_count_up_to_100() {
     home.collection.value = "12345".to_string();
     home.threads.value = "100".to_string();
 
-    let request = home.build_request(ArchiveValidation::Magic).unwrap();
+    let request = home
+        .build_request(ArchiveValidation::Magic, true, 60)
+        .unwrap();
     assert_eq!(request.config.concurrent, 100);
 }
 
@@ -128,7 +136,7 @@ fn build_request_rejects_thread_count_above_100() {
     home.threads.value = "101".to_string();
 
     let err = home
-        .build_request(ArchiveValidation::Magic)
+        .build_request(ArchiveValidation::Magic, true, 60)
         .expect_err("101 threads must be rejected");
     assert_eq!(err, "Thread count must be between 1 and 100");
 }

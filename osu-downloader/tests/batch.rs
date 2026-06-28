@@ -19,6 +19,7 @@ async fn cancel_mid_batch_does_not_panic() {
         network_retry_attempts: 0,
         sanitize_filenames: true,
         on_exists: OnExists::Skip,
+        rate_limit_skip_after: None,
     };
 
     tokio::spawn(async move {

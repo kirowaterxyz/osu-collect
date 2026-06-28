@@ -29,6 +29,7 @@ pub(crate) struct BatchConfig {
     pub(crate) network_retry_attempts: usize,
     pub(crate) sanitize_filenames: bool,
     pub(crate) on_exists: OnExists,
+    pub(crate) rate_limit_skip_after: Option<Duration>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -246,6 +247,7 @@ async fn process_one(
             },
             cancel_rx: cancel_rx.clone(),
             skip: skip.clone(),
+            rate_limit_skip_after: config.rate_limit_skip_after,
         })
         .await
         .0;

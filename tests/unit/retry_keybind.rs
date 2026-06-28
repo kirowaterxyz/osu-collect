@@ -45,6 +45,8 @@ fn setup_download_tab_with_failures(app: &mut App, reasons: &[FailureReason]) ->
         mirrors: vec![],
         concurrent: 2,
         archive_validation: osu_downloader::ArchiveValidation::Magic,
+        auto_skip_rate_limited: true,
+        rate_limit_skip_secs: 60,
     });
     page.output_dir = Some("/tmp/test".to_string());
     page.set_failed_maps(

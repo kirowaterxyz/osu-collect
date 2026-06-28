@@ -121,6 +121,12 @@ pub struct DownloadConfig {
     pub video: bool,
     pub archive_validation: ArchiveValidation,
     pub retry_failed_on_download: RetryFailedOnDownload,
+    /// When true, maps parked on a rate-limit cooldown are automatically skipped
+    /// after `rate_limit_skip_secs` seconds instead of waiting indefinitely.
+    pub auto_skip_rate_limited: bool,
+    /// Seconds to wait before auto-skipping a rate-limited map. Only meaningful
+    /// when `auto_skip_rate_limited` is true. Floored at 1 s in the pipeline.
+    pub rate_limit_skip_secs: u32,
 }
 
 impl Default for DownloadConfig {
@@ -130,6 +136,8 @@ impl Default for DownloadConfig {
             video: true,
             archive_validation: ArchiveValidation::default(),
             retry_failed_on_download: RetryFailedOnDownload::default(),
+            auto_skip_rate_limited: true,
+            rate_limit_skip_secs: 60,
         }
     }
 }

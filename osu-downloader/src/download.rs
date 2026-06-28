@@ -73,6 +73,9 @@ pub(crate) struct DownloadParams<'a> {
     /// Shared across the whole session; `notify_waiters` wakes only the maps
     /// waiting at that instant (see [`download_beatmapset`]'s cooldown race).
     pub(crate) skip: Arc<tokio::sync::Notify>,
+    /// Auto-skip budget: once this map's summed cooldown wait reaches it, the
+    /// map is skipped without the manual `skip` signal. `None` waits forever.
+    pub(crate) rate_limit_skip_after: Option<Duration>,
 }
 
 /// Sanitize a raw filename to be safe for use as an `.osz` archive name.
@@ -271,6 +274,9 @@ pub(crate) async fn download_beatmapset(
     let mut not_found = HashSet::new();
     let mut all_transient = true;
     let mut last_transient_reason = String::new();
+    // Time this map has actually spent parked on rate-limit cooldowns, summed
+    // across mirror passes. Drives the auto-skip budget below.
+    let mut cumulative_rate_limit = Duration::ZERO;
 
     let mirrors = params.mirror_pool.mirrors();
     let mirror_count = mirrors.len();
@@ -344,7 +350,18 @@ pub(crate) async fn download_beatmapset(
         );
 
         if !wait_duration.is_zero() {
-            match wait_rate_limit(wait_duration, &cancel_rx, &params.skip).await {
+            // Cap the sleep at the remaining auto-skip budget so a budget
+            // smaller than a mirror's cooldown is honored to the second instead
+            // of overshooting to a full cooldown. `None` budget never caps, and
+            // a budget larger than the cooldown behaves exactly as before.
+            let (sleep_for, budget_exhausted) = match params
+                .rate_limit_skip_after
+                .map(|budget| budget.saturating_sub(cumulative_rate_limit))
+            {
+                Some(remaining) if remaining <= wait_duration => (remaining, true),
+                _ => (wait_duration, false),
+            };
+            match wait_rate_limit(sleep_for, &cancel_rx, &params.skip).await {
                 RateLimitWait::Cancelled => {
                     return (BeatmapsetDownloadOutcome::Aborted, total_attempts);
                 }
@@ -356,7 +373,21 @@ pub(crate) async fn download_beatmapset(
                         total_attempts,
                     );
                 }
-                RateLimitWait::Elapsed => {}
+                RateLimitWait::Elapsed => {
+                    // A cancel/skip returns above without counting; only a slept
+                    // slice accrues. When that slice was the budget remainder the
+                    // map has waited out its budget — auto-skip exactly as the
+                    // manual `s` press does.
+                    cumulative_rate_limit += sleep_for;
+                    if budget_exhausted {
+                        return (
+                            BeatmapsetDownloadOutcome::Skipped {
+                                reason: Skip::RateLimitSkipped,
+                            },
+                            total_attempts,
+                        );
+                    }
+                }
             }
         }
 
@@ -373,6 +404,11 @@ pub(crate) async fn download_beatmapset(
     }
 
     if all_transient && !last_transient_reason.is_empty() {
+        // A map that ever parked on a rate-limit set `all_transient = false`, so
+        // reaching here means no cooldown was waited and the local budget
+        // accumulator is zero — it never leaks across `process_one`'s
+        // network-retry re-entry of this function.
+        debug_assert!(cumulative_rate_limit.is_zero());
         return (
             BeatmapsetDownloadOutcome::NetworkError {
                 reason: last_transient_reason,

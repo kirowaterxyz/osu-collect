@@ -47,6 +47,8 @@ pub enum ConfigField {
     DownloadVideo,
     DownloadArchiveValidation,
     RetryFailedOnDownload,
+    DownloadAutoSkipRateLimited,
+    DownloadRateLimitSkipSecs,
     LoggingEnabled,
     LoggingLevel,
     LoggingFormat,
@@ -77,6 +79,8 @@ const CONFIG_FIELDS_AFTER_CUSTOM: &[ConfigField] = &[
     ConfigField::DownloadThreads,
     ConfigField::DownloadArchiveValidation,
     ConfigField::RetryFailedOnDownload,
+    ConfigField::DownloadAutoSkipRateLimited,
+    ConfigField::DownloadRateLimitSkipSecs,
     ConfigField::LoggingEnabled,
     ConfigField::LoggingLevel,
     ConfigField::LoggingFormat,
@@ -87,7 +91,9 @@ impl ConfigField {
     pub fn is_text_input(self) -> bool {
         matches!(
             self,
-            ConfigField::MirrorCustomUrl(_) | ConfigField::LoggingDirectory
+            ConfigField::MirrorCustomUrl(_)
+                | ConfigField::LoggingDirectory
+                | ConfigField::DownloadRateLimitSkipSecs
         )
     }
 
@@ -112,6 +118,8 @@ pub struct ConfigTab {
     pub video: bool,
     pub archive_validation: ArchiveValidation,
     pub retry_failed_on_download: RetryFailedOnDownload,
+    pub auto_skip_rate_limited: bool,
+    pub rate_limit_skip_secs: InputField,
     pub logging_enabled: bool,
     pub logging_level: LogLevel,
     pub logging_format: LogFormat,
@@ -146,6 +154,8 @@ impl ConfigTab {
             video: config.download.video,
             archive_validation: config.download.archive_validation,
             retry_failed_on_download: config.download.retry_failed_on_download,
+            auto_skip_rate_limited: config.download.auto_skip_rate_limited,
+            rate_limit_skip_secs: rate_limit_skip_secs_field(&config.download),
             logging_enabled: config.logging.enabled,
             logging_level: config.logging.level,
             logging_format: config.logging.format,
@@ -309,6 +319,7 @@ impl ConfigTab {
         match self.focus {
             ConfigField::MirrorCustomUrl(idx) => self.custom_mirrors.row(idx),
             ConfigField::LoggingDirectory => Some(&self.logging_dir),
+            ConfigField::DownloadRateLimitSkipSecs => Some(&self.rate_limit_skip_secs),
             _ => None,
         }
     }
@@ -317,6 +328,7 @@ impl ConfigTab {
         match self.focus {
             ConfigField::MirrorCustomUrl(idx) => self.custom_mirrors.row_mut(idx),
             ConfigField::LoggingDirectory => Some(&mut self.logging_dir),
+            ConfigField::DownloadRateLimitSkipSecs => Some(&mut self.rate_limit_skip_secs),
             _ => None,
         }
     }
@@ -338,12 +350,16 @@ impl ConfigTab {
             ConfigField::DownloadVideo => self.video = !self.video,
             ConfigField::DownloadArchiveValidation => self.cycle_archive_validation(),
             ConfigField::RetryFailedOnDownload => self.cycle_retry_failed_on_download(),
+            ConfigField::DownloadAutoSkipRateLimited => {
+                self.auto_skip_rate_limited = !self.auto_skip_rate_limited;
+            }
             ConfigField::LoggingEnabled => self.logging_enabled = !self.logging_enabled,
             ConfigField::LoggingLevel => self.cycle_logging_level(),
             ConfigField::LoggingFormat => self.cycle_logging_format(),
             ConfigField::AuthChip
             | ConfigField::MirrorCustomUrl(_)
             | ConfigField::DownloadThreads
+            | ConfigField::DownloadRateLimitSkipSecs
             | ConfigField::LoggingDirectory => {}
         }
     }
@@ -393,6 +409,8 @@ impl ConfigTab {
             video: self.video,
             archive_validation: self.archive_validation,
             retry_failed_on_download: self.retry_failed_on_download,
+            auto_skip_rate_limited: self.auto_skip_rate_limited,
+            rate_limit_skip_secs: self.parse_rate_limit_skip_secs().unwrap_or(60),
         };
 
         let logging = LoggingConfig {
@@ -471,6 +489,16 @@ impl ConfigTab {
         Ok(Some(value))
     }
 
+    pub(crate) fn parse_rate_limit_skip_secs(&self) -> Result<u32, String> {
+        let trimmed = self.rate_limit_skip_secs.value.trim();
+        if trimmed.is_empty() {
+            return Ok(60);
+        }
+        trimmed
+            .parse::<u32>()
+            .map_err(|_| "Rate-limit skip delay must be a valid number".to_string())
+    }
+
     fn trimmed_logging_dir(&self) -> Option<String> {
         let trimmed = self.logging_dir.value.trim();
         if trimmed.is_empty() {
@@ -498,6 +526,14 @@ fn threads_field(download: &DownloadConfig) -> InputField {
             .map(|value| value.to_string())
             .unwrap_or_default(),
         default_threads().to_string(),
+    )
+}
+
+fn rate_limit_skip_secs_field(download: &DownloadConfig) -> InputField {
+    InputField::new(
+        "skip after (secs)",
+        download.rate_limit_skip_secs.to_string(),
+        "60",
     )
 }
 

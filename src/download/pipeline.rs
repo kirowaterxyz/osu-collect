@@ -368,6 +368,11 @@ async fn run_pipeline_core(
         .progress_timeout(Duration::from_secs(DEFAULT_PROGRESS_WATCHDOG_SECS))
         .network_retry_attempts(NETWORK_RETRY_CAP as usize)
         .on_exists(on_exists)
+        .rate_limit_skip_after(
+            config
+                .auto_skip_rate_limited
+                .then(|| Duration::from_secs(config.rate_limit_skip_secs.max(1) as u64)),
+        )
         .build()
         .map_err(|err| DownloadError::internal(err.to_string()))?;
 

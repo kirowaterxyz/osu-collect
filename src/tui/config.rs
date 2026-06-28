@@ -34,6 +34,7 @@ const HELP_VIM_KEYS: &str = "hjkl move · gg/G top/bottom · ctrl+d/u page · i/
 const LABEL_VIDEO: &str = "video";
 const LABEL_VERIFY_INTEGRITY: &str = "verify .osz integrity";
 const LABEL_RETRY_FAILED: &str = "retry failed on download";
+const LABEL_AUTO_SKIP_RATE_LIMITED: &str = "auto-skip rate limited";
 const LABEL_LOGGING_ENABLED: &str = "enable logging";
 const LABEL_LOGGING_LEVEL: &str = "log level";
 const LABEL_LOGGING_FORMAT: &str = "log format";
@@ -261,6 +262,25 @@ fn build_config_items(
             form.retry_failed_on_download,
         )));
     }
+    items.push_focusable(
+        ConfigField::DownloadAutoSkipRateLimited,
+        widgets::row_item(
+            LABEL_AUTO_SKIP_RATE_LIMITED,
+            None,
+            form.auto_skip_rate_limited,
+            focus == ConfigField::DownloadAutoSkipRateLimited,
+            0,
+        ),
+    );
+    items.push_focusable(
+        ConfigField::DownloadRateLimitSkipSecs,
+        widgets::input_item(
+            &form.rate_limit_skip_secs,
+            focus == ConfigField::DownloadRateLimitSkipSecs,
+            editing,
+            0,
+        ),
+    );
     if show_chrome {
         items.push(widgets::spacer());
         items.push(widgets::section_header(
@@ -322,9 +342,12 @@ fn focus_section(field: ConfigField) -> Option<&'static str> {
         MirrorOsuDirect | MirrorNerinyan | MirrorSayobot | MirrorNekoha | MirrorBeatconnect
         | MirrorOsudl | MirrorCatboy | MirrorHinamizawa | MirrorOsuOfficial
         | MirrorCustomUrl(_) => SECTION_MIRRORS,
-        DownloadThreads | DownloadVideo | DownloadArchiveValidation | RetryFailedOnDownload => {
-            SECTION_DOWNLOAD
-        }
+        DownloadThreads
+        | DownloadVideo
+        | DownloadArchiveValidation
+        | RetryFailedOnDownload
+        | DownloadAutoSkipRateLimited
+        | DownloadRateLimitSkipSecs => SECTION_DOWNLOAD,
         LoggingEnabled | LoggingLevel | LoggingFormat | LoggingDirectory => SECTION_LOGGING,
     })
 }

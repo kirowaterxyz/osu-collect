@@ -18,6 +18,8 @@ pub(crate) struct DownloadConfig {
     pub(crate) network_retry_attempts: usize,
     pub(crate) sanitize_filenames: bool,
     pub(crate) on_exists: OnExists,
+    /// Cumulative rate-limit wait after which a map is auto-skipped; `None` waits forever.
+    pub(crate) rate_limit_skip_after: Option<Duration>,
 }
 
 impl Default for DownloadConfig {
@@ -30,6 +32,7 @@ impl Default for DownloadConfig {
             network_retry_attempts: 0,
             sanitize_filenames: true,
             on_exists: OnExists::Skip,
+            rate_limit_skip_after: None,
         }
     }
 }

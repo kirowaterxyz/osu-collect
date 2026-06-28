@@ -71,6 +71,8 @@ pub struct DownloadConfig {
     pub mirrors: Vec<Mirror>,
     pub concurrent: u8,
     pub archive_validation: ArchiveValidation,
+    pub auto_skip_rate_limited: bool,
+    pub rate_limit_skip_secs: u32,
 }
 
 #[derive(Debug, Clone)]
