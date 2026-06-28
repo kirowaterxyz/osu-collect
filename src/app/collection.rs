@@ -318,6 +318,10 @@ impl CollectionPage {
         lines.peek().is_some() && lines.all(|l| l.displayed_rate_limited())
     }
 
+    pub fn any_active_rate_limited(&self) -> bool {
+        self.active_lines().any(|l| l.displayed_rate_limited())
+    }
+
     pub fn update_progress(&mut self, beatmapset_id: u32, downloaded: u64, total: u64) {
         let prev = self.prev_bytes.get(&beatmapset_id).copied().unwrap_or(0);
         self.stats.bytes_downloaded = self.stats.bytes_downloaded.saturating_sub(prev) + downloaded;

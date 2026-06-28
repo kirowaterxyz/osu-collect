@@ -185,12 +185,12 @@ fn download_tab_hint(app: &App) -> String {
         DOWNLOAD_TAB_HINT_RUNNING
     };
     let mut segments = vec![base];
-    // `s skip rate-limited` only while every active map is stuck on a cooldown —
+    // `s skip rate-limited` whenever *any* active map is parked on a cooldown —
     // matches the key gate in `handle_download_tab_key` so the hint never lies.
-    let all_rate_limited = page.is_some_and(|page| {
-        matches!(page.stage, DownloadStage::Downloading) && page.all_active_rate_limited()
+    let any_rate_limited = page.is_some_and(|page| {
+        matches!(page.stage, DownloadStage::Downloading) && page.any_active_rate_limited()
     });
-    if all_rate_limited {
+    if any_rate_limited {
         segments.push(HINT_SKIP_RATE_LIMITED);
     }
     // Advertise `r retry failed` only when something is actually retryable —

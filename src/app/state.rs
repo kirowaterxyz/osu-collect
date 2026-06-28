@@ -2074,11 +2074,12 @@ impl App {
                 }
             }
             // `s`/`S` skip every map currently stuck on a rate-limit cooldown.
-            // Gated on all-active-rate-limited so the key matches the hint that
-            // is shown only in that state; otherwise it's inert.
+            // Gated on *any* active map being parked: `skip_rate_limited` wakes
+            // only the maps on a cooldown at that instant, so pressing it mid-run
+            // skips the stuck ones and leaves the actively-downloading rows alone.
             's' | 'S' => {
                 let page = self.active_download_page_mut()?;
-                if page.all_active_rate_limited() {
+                if page.any_active_rate_limited() {
                     let id = page.id;
                     Some(AppCommand::SkipRateLimited { id })
                 } else {
