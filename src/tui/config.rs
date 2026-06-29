@@ -271,6 +271,19 @@ fn build_config_items(
         )));
     }
     items.push_focusable(
+        ConfigField::DownloadSkipAlreadyImported,
+        widgets::row_item(
+            LABEL_SKIP_IMPORTED,
+            None,
+            form.skip_already_imported,
+            focus == ConfigField::DownloadSkipAlreadyImported,
+            0,
+        ),
+    );
+    if show_chrome && focus == ConfigField::DownloadSkipAlreadyImported {
+        items.push(widgets::help_item(format!("checks {library_db_hint}")));
+    }
+    items.push_focusable(
         ConfigField::DownloadAutoSkipRateLimited,
         widgets::row_item(
             LABEL_AUTO_SKIP_RATE_LIMITED,
@@ -289,19 +302,6 @@ fn build_config_items(
             0,
         ),
     );
-    items.push_focusable(
-        ConfigField::DownloadSkipAlreadyImported,
-        widgets::row_item(
-            LABEL_SKIP_IMPORTED,
-            None,
-            form.skip_already_imported,
-            focus == ConfigField::DownloadSkipAlreadyImported,
-            0,
-        ),
-    );
-    if show_chrome && focus == ConfigField::DownloadSkipAlreadyImported {
-        items.push(widgets::help_item(format!("checks {library_db_hint}")));
-    }
     if show_chrome {
         items.push(widgets::spacer());
         items.push(widgets::section_header(
